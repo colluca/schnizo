@@ -16,10 +16,11 @@ def decode_bank_offset(address, base_address, num_banks, bank_width_bits):
         bank_width_bits (int): Width of a bank in bits (e.g., 64 for 64-bit words).
 
     Returns:
-        Tuple[int, int]: (bank_index, offset_in_bank), where offset is in word units.
+        Tuple[int, int, int]: (bank_index, offset_in_bank, offset_in_word),
+            where offset_in_bank is in word units and offset_in_word is in bytes.
 
     Raises:
-        ValueError: If address is misaligned or below base.
+        ValueError: If address below base.
     """
     bank_width_bytes = bank_width_bits // 8
     rel_addr = address - base_address
@@ -27,15 +28,19 @@ def decode_bank_offset(address, base_address, num_banks, bank_width_bits):
     if rel_addr < 0:
         raise ValueError("Address is below the base address of the memory banks.")
 
+    offset_in_word = 0
     if rel_addr % bank_width_bytes != 0:
-        raise ValueError(f"Address {hex(address)} is not aligned to bank width of "
-                         f"{bank_width_bytes} bytes.")
+        # compute the offset inside word and align the address to the bank
+        offset_in_word = rel_addr % bank_width_bytes
+        rel_addr -= offset_in_word
+        # raise ValueError(f"Address {hex(address)} is not aligned to bank width of "
+        #                  f"{bank_width_bytes} bytes.")
 
     word_index = rel_addr // bank_width_bytes
     bank_index = word_index % num_banks
     offset_in_bank = word_index // num_banks
 
-    return bank_index, offset_in_bank
+    return bank_index, offset_in_bank, offset_in_word
 
 
 def main():
