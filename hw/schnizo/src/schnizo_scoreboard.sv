@@ -60,39 +60,9 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
   end
 
   // Check that there is no WAW dependency to the destination register.
-  always_comb begin : sb_waw_check
-    logic dest_has_waw;
-    logic dest_is_written;
-
-    dest_has_waw = instr_dec_i.rd_is_fp  ? sbf_q[instr_dec_i.rd]  : sbi_q[instr_dec_i.rd];
-
-    // Optimization: If the register is committed in this cycle, the destination is ready.
-    // This is only possible depending on the write back arbiter priority and/or if all retiring
-    // instructions are not single cycle instructions!
-    // Assume an instruction is dispatched and takes some cycles. Durning its execution an other
-    // single cycle instruction targeting the same register is ready to dispatch. This second
-    // instruction stalls on the scoreboard / WAW conflict. In the cycle where the first
-    // instruction commits, the following logic would allow the second (single cycle) instruction
-    // to dispatch. Now, depending on the WB arbiter priority, the single cycle result could be
-    // selected as result. But this would "kill" the commit of the first instruction and rendering
-    // the dispatch of the second instruction invalid and thus create a combinatorial loop.
-    // For the Schnizo, the WB arbiter prioritizes any single cycle instruction and we thus have
-    // exactly the explained case. However, because only the LSU and FPU can write to the floating
-    // point registers and both functional units always are multi cycle, we still can implement the
-    // optimization for the floating point register file. The commit order of instructions is
-    // always guaranteed because no multi cycle instruction can overtake the in flight instruction.
-    // Any following instruction is only dispatched when the previous one commits and because all
-    // instructions are multi cycle, the later instruction cannot try to commit at the same cycle.
-    // This optimization has also effects on the write back update below!
-    dest_is_written = 1'b0;
-    if (write_enable_fpr_i && instr_dec_i.rd_is_fp) begin
-      if (waddr_fpr_i == instr_dec_i.rd) begin
-        dest_is_written = 1'b1;
-      end
-    end
-
-    destination_ready_o = ~dest_has_waw | dest_is_written;
-  end
+  logic dest_has_waw;
+  assign dest_has_waw = instr_dec_i.rd_is_fp  ? sbf_q[instr_dec_i.rd]  : sbi_q[instr_dec_i.rd];
+  assign destination_ready_o = ~dest_has_waw;
 
   always_comb begin : sb_disp_wb_update
     sbi_d = sbi_q;
@@ -117,15 +87,6 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
     end
     if (write_enable_fpr_i) begin
       sbf_d[waddr_fpr_i] = 1'b0;
-      // Handle the WAW optimization (see above):
-      // The optimization for the floating point register file allows an instruction to dispatch in
-      // the cycle where the earlier WAW generating instruction commits. In this case we must keep
-      // the register as reserved.
-      if (dispatched_i && instr_dec_i.rd_is_fp) begin
-        if (waddr_fpr_i == instr_dec_i.rd) begin
-          sbf_d[waddr_fpr_i] = 1'b1;
-        end
-      end
     end
 
     // x0 is always valid
