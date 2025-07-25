@@ -200,6 +200,10 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     endcase
   end
 
+  // We may not dispatch any None-FU instruction during LEP
+  logic in_lep;
+  assign in_lep = loop_state_i inside {LoopLep};
+
   always_comb begin : fu_selection_ready
     fu_response = '0;
     fu_ready    = 1'b0;
@@ -242,7 +246,8 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
-        fu_ready                = 1'b1;
+        // But we must stall if there is an ongoing FREP loop.
+        fu_ready                = in_lep ? 1'b0 : 1'b1;
       end
       default: begin
         // CRASH - should never happen as long as decoder returns valid decoding.
