@@ -613,6 +613,7 @@ module schnizo_csr import schnizo_pkg::*; #(
     mepc_d = mepc_q;
     mcause_d = mcause_q;
     sscratch_d = sscratch_q;
+    sepc_d = sepc_q;
     satp_d = satp_q;
     priv_lvl_d = priv_lvl_q;
 
