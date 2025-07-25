@@ -85,6 +85,17 @@ module schnizo_decoder import schnizo_pkg::*; #(
     logic [6:0]   opcode;
   } rftype_t;  // floating-point
 
+  typedef struct packed {
+    logic [31:27] funct5;
+    logic         aq;
+    logic         rl;
+    logic [24:20] rs2;
+    logic [19:15] rs1;
+    logic [14:12] funct3;
+    logic [11:7]  rd;
+    logic [6:0]   opcode;
+  } atype_t;  // atomic
+
   typedef union packed {
     logic [31:0] instr;
     rtype_t      rtype;
@@ -93,6 +104,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
     itype_t      itype;
     stype_t      stype;
     utype_t      utype;
+    atype_t      atype;
   } instruction_t;
 
   // --------------------
@@ -174,22 +186,23 @@ module schnizo_decoder import schnizo_pkg::*; #(
 
     instr_dec_o.fu = schnizo_pkg::NONE;
     instr_dec_o.alu_op = schnizo_pkg::AluOpAdd;
-    instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadByte;
+    instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoad;
     instr_dec_o.csr_op = schnizo_pkg::CsrOpNone;
     instr_dec_o.fpu_op = schnizo_pkg::FpuOpFadd;
     // Set the default rd and rs_is_fp to zero such that if there is no write back required
     // we target register x0. x0 is read only and thus we have encoded that we have no write.
-    instr_dec_o.rd = '0;
-    instr_dec_o.rd_is_fp = 0;
-    instr_dec_o.rs1 = '0;
+    instr_dec_o.rd        = '0;
+    instr_dec_o.rd_is_fp  = 0;
+    instr_dec_o.rs1       = '0;
     instr_dec_o.rs1_is_fp = 0;
-    instr_dec_o.rs2 = '0;
+    instr_dec_o.rs2       = '0;
     instr_dec_o.rs2_is_fp = 0;
     instr_dec_o.use_imm_as_rs3 = 1'b0;
-    instr_dec_o.fpu_fmt_src = fpnew_pkg::FP32;
-    instr_dec_o.fpu_fmt_dst = fpnew_pkg::FP32;
-    instr_dec_o.fpu_rnd_mode = fpnew_pkg::RNE;
-    instr_dec_o.use_pc_as_op_a = 1'b0;
+    instr_dec_o.lsu_size       = Word;
+    instr_dec_o.fpu_fmt_src    = fpnew_pkg::FP32;
+    instr_dec_o.fpu_fmt_dst    = fpnew_pkg::FP32;
+    instr_dec_o.fpu_rnd_mode   = fpnew_pkg::RNE;
+    instr_dec_o.use_pc_as_op_a      = 1'b0;
     instr_dec_o.use_rs1addr_as_op_a = 1'b0;
     instr_dec_o.is_branch = 1'b0;
     instr_dec_o.is_jal    = 1'b0;
@@ -279,11 +292,13 @@ module schnizo_decoder import schnizo_pkg::*; #(
         imm_select = SIMM;
         instr_dec_o.rs1 = instr.stype.rs1;
         instr_dec_o.rs2 = instr.stype.rs2;
+        instr_dec_o.lsu_op = schnizo_pkg::LsuOpStore;
         // determine store size
+        instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
         unique case (instr.stype.funct3)
-          3'b000: instr_dec_o.lsu_op = schnizo_pkg::LsuOpStoreByte; // SB
-          3'b001: instr_dec_o.lsu_op = schnizo_pkg::LsuOpStoreHalf; // SH
-          3'b010: instr_dec_o.lsu_op = schnizo_pkg::LsuOpStoreWord; // SW
+          3'b000,   // SB
+          3'b001,   // SH
+          3'b010: ; // SW
           3'b011: illegal_instr = 1'b1;
           default: illegal_instr = 1'b1;
         endcase
@@ -293,13 +308,15 @@ module schnizo_decoder import schnizo_pkg::*; #(
         imm_select = IIMM;
         instr_dec_o.rs1 = instr.itype.rs1;
         instr_dec_o.rd = instr.itype.rd;
+        instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoad;
         // determine load size and signed type
+        instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
         unique case (instr.itype.funct3)
-          3'b000: instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadByte; // LB
-          3'b001: instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadHalf; // LH
-          3'b010: instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadWord; // LW
-          3'b100: instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadByteUnsigned; // LBU
-          3'b101: instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadHalfUnsigned; // LHU
+          3'b000,   // LB
+          3'b001,   // LH
+          3'b010: ; // LW
+          3'b100,   // LBU
+          3'b101: instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadUnsigned; // LHU
           3'b110,
           3'b011: illegal_instr = 1'b1; // both for RV64I
           default: illegal_instr = 1'b1;
@@ -314,21 +331,16 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.rs1 = instr.stype.rs1;
         instr_dec_o.rs2 = instr.stype.rs2;
         instr_dec_o.rs2_is_fp = 1'b1;
+
         // determine store size
+        instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStore;
+        instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
         unique case (instr.stype.funct3)
           // Only process instruction if corresponding extension is active (static)
-          3'b000:
-          if (XF8) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStoreByte; // FSB
-          else illegal_instr = 1'b1;
-          3'b001:
-          if (XF16 | XF16ALT) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStoreHalf; // FSH
-          else illegal_instr = 1'b1;
-          3'b010:
-          if (RVF) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStoreWord; // FSW
-          else illegal_instr = 1'b1;
-          3'b011:
-          if (RVD) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStoreDouble; // FSD
-          else illegal_instr = 1'b1;
+          3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FSB
+          3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FSH
+          3'b010: if (!RVF)              illegal_instr = 1'b1; // FSW
+          3'b011: if (!RVD)              illegal_instr = 1'b1; // FSD
           default: illegal_instr = 1'b1;
         endcase
       end
@@ -338,21 +350,16 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.rs1 = instr.itype.rs1;
         instr_dec_o.rd = instr.itype.rd;
         instr_dec_o.rd_is_fp = 1'b1;
+
         // determine load size
+        instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
+        instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
         unique case (instr.itype.funct3)
           // Only process instruction if corresponding extension is active (static)
-          3'b000:
-          if (XF8 | XF8ALT) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadByte; // FLB
-          else illegal_instr = 1'b1;
-          3'b001:
-          if (XF16 | XF16ALT) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadHalf; // FLH
-          else illegal_instr = 1'b1;
-          3'b010:
-          if (RVF) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadWord; // FLW
-          else illegal_instr = 1'b1;
-          3'b011:
-          if (RVD) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadDouble; // FLD
-          else illegal_instr = 1'b1;
+          3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FLB
+          3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FLH
+          3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
+          3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
           default: illegal_instr = 1'b1;
         endcase
       end
@@ -823,6 +830,61 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // --------------------------------
       OpcodeCustom0: begin
         illegal_instr = 1'b1;
+      end
+      // --------------------------------
+      // Atomic instructions
+      // --------------------------------
+      // We ignore the aq and lr flags!
+      OpcodeAmo: begin
+        instr_dec_o.fu  = schnizo_pkg::LOAD;
+        instr_dec_o.rd  = instr.atype.rd;
+        instr_dec_o.rs1 = instr.atype.rs1;
+        instr_dec_o.rs2 = instr.atype.rs2;
+
+        instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
+        // We only support the W size
+        if (instr.stype.funct3 != 3'b010) illegal_instr = 1'b1;
+
+        // This implementation ignores the aq and rl bits!
+        // Extending the lsu_op enum saves a bit in the Reservation Station FFs compared to
+        // decoding the AMU type here and passing it to the RS.
+        unique case (instr.atype.funct5)
+          5'b00010: begin // LR_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoLr;
+            if (instr.atype.rs2 != '0) illegal_instr = 1'b1;
+          end
+          5'b00011: begin // SC_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoSc;
+          end
+          5'b00001: begin // AMOSWAP_w
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoSwap;
+          end
+          5'b00000: begin // AMOADD_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoAdd;
+          end
+          5'b00100: begin // AMOXOR_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoXor;
+          end
+          5'b01100: begin // AMOAND_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoAnd;
+          end
+          5'b01000: begin // AMOOR_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoOr;
+          end
+          5'b10000: begin // AMOMIN_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoMin;
+          end
+          5'b10100: begin // AMOMAX_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoMax;
+          end
+          5'b11000: begin // AMOMINU_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoMinU;
+          end
+          5'b11100: begin // AMOMAXU_W
+            instr_dec_o.lsu_op = schnizo_pkg::LsuOpAmoMaxU;
+          end
+          default: illegal_instr = 1'b1;
+        endcase
       end
       default: begin
         illegal_instr = 1'b1;

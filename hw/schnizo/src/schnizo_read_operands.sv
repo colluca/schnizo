@@ -4,6 +4,9 @@
 
 // Author: Pascal Etterli <petterli@student.ethz.ch>
 // Description: The read operand module which accesses the RF.
+// All read values are stored in OpLen bits (defined by fu_data_t) and are
+// NOT sign extended! When computing values with the operands, make sure to use
+// only the relevant bits!
 
 module schnizo_read_operands import schnizo_pkg::*; #(
   parameter int unsigned XLEN,
@@ -26,15 +29,16 @@ module schnizo_read_operands import schnizo_pkg::*; #(
 );
 
   always_comb begin
-    fu_data_o = '0;
-    fu_data_o.fu = instr_dec_i.fu;
-    fu_data_o.alu_op = instr_dec_i.alu_op;
-    fu_data_o.lsu_op = instr_dec_i.lsu_op;
-    fu_data_o.csr_op = instr_dec_i.csr_op;
-    fu_data_o.fpu_op = instr_dec_i.fpu_op;
+    fu_data_o              = '0;
+    fu_data_o.fu           = instr_dec_i.fu;
+    fu_data_o.alu_op       = instr_dec_i.alu_op;
+    fu_data_o.lsu_op       = instr_dec_i.lsu_op;
+    fu_data_o.csr_op       = instr_dec_i.csr_op;
+    fu_data_o.fpu_op       = instr_dec_i.fpu_op;
+    fu_data_o.lsu_size     = instr_dec_i.lsu_size;
     fu_data_o.fpu_rnd_mode = instr_dec_i.fpu_rnd_mode;
-    fu_data_o.fpu_fmt_src = instr_dec_i.fpu_fmt_src;
-    fu_data_o.fpu_fmt_dst = instr_dec_i.fpu_fmt_dst;
+    fu_data_o.fpu_fmt_src  = instr_dec_i.fpu_fmt_src;
+    fu_data_o.fpu_fmt_dst  = instr_dec_i.fpu_fmt_dst;
 
     // Set the addresses
     gpr_raddr_o[0] = instr_dec_i.rs1;
@@ -65,7 +69,7 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     // - For all other FUs the use_imm_as_op_b is set (if a imm is selected) but must be ignored.
     if ((instr_dec_i.fu == schnizo_pkg::ALU || instr_dec_i.fu == schnizo_pkg::CTRL_FLOW) &&
         instr_dec_i.use_imm_as_op_b && !instr_dec_i.is_branch) begin
-      fu_data_o.operand_b[XLEN-1:0] = instr_dec_i.imm[XLEN-1:0];
+      fu_data_o.operand_b[XLEN-1:0] = instr_dec_i.imm;
     end else begin
       if (instr_dec_i.rs2_is_fp) begin
         fu_data_o.operand_b[FLEN-1:0] = fpr_rdata_i[1];
@@ -78,7 +82,7 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     if (instr_dec_i.use_imm_as_rs3) begin
       fu_data_o.imm[FLEN-1:0] = fpr_rdata_i[2];
     end else begin
-      fu_data_o.imm[XLEN-1:0] = instr_dec_i.imm[XLEN-1:0];
+      fu_data_o.imm[XLEN-1:0] = instr_dec_i.imm;
     end
   end
 

@@ -136,7 +136,8 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
   addr_t lsu_addr; // the address to load from / store to
   logic is_store;
   logic is_signed;
-  ls_size_e ls_size;
+  logic do_nan_boxing;
+  lsu_size_e ls_size;
   reqrsp_pkg::amo_op_e ls_amo;
   result_tag_t input_tag, result_tag;
   logic lsu_issue_valid, lsu_issue_ready;
@@ -156,46 +157,44 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
     // Compute the address
     // For the superscalar case we cannot use the ALU for this computation.
     // Therefore, we create a separate adder.
-    assign lsu_addr = disp_req_i.fu_data.operand_a + disp_req_i.fu_data.imm;
+    // !! We may only take the lower XLEN bits as the operands are NOT sign extended
+    // to OpLen (OpLen = FLEN > XLEN ? FLEN : XLEN)
+    logic [XLEN-1:0] addr;
+    assign addr = disp_req_i.fu_data.operand_a[XLEN-1:0] + disp_req_i.fu_data.imm[XLEN-1:0];
+    always_comb begin
+      lsu_addr = '0;
+      lsu_addr[XLEN-1:0] = addr;
+    end
+    // assign lsu_addr = disp_req_i.fu_data.operand_a[XLEN-1:0] + disp_req_i.fu_data.imm[XLEN-1:0];
 
     // Control signals
-    assign is_store = disp_req_i.fu_data.lsu_op inside {LsuOpStoreByte, LsuOpStoreHalf,
-                                                        LsuOpStoreWord,
-                                                        LsuOpFpStoreByte, LsuOpFpStoreHalf,
-                                                        LsuOpFpStoreWord, LsuOpFpStoreDouble};
-    assign is_signed = disp_req_i.fu_data.lsu_op inside {LsuOpLoadByte, LsuOpLoadHalf,
-                                                         LsuOpLoadWord};
+    assign is_store  = disp_req_i.fu_data.lsu_op inside {LsuOpStore, LsuOpFpStore};
+    // All FP loads are signed to NaN box narrower values than FLEN
+    assign is_signed = disp_req_i.fu_data.lsu_op inside {LsuOpLoad, LsuOpAmoLr, LsuOpAmoSc,
+                                                         LsuOpAmoSwap, LsuOpAmoAdd, LsuOpAmoXor,
+                                                         LsuOpAmoAnd, LsuOpAmoOr, LsuOpAmoMin,
+                                                         LsuOpAmoMax, LsuOpAmoMinU, LsuOpAmoMaxU,
+                                                         LsuOpFpLoad};
+    // Whether to apply NaN boxing or not
+    assign do_nan_boxing = disp_req_i.fu_data.lsu_op inside {LsuOpFpLoad, LsuOpFpStore};
+    assign ls_size       = disp_req_i.fu_data.lsu_size;
+
     always_comb begin
       unique case (disp_req_i.fu_data.lsu_op)
-        LsuOpStoreByte,
-        LsuOpLoadByte,
-        LsuOpLoadByteUnsigned,
-        LsuOpFpStoreByte,
-        LsuOpFpLoadByte: begin
-          ls_size = schnizo_pkg::Byte;
-        end
-        LsuOpStoreHalf,
-        LsuOpLoadHalf,
-        LsuOpLoadHalfUnsigned,
-        LsuOpFpStoreHalf,
-        LsuOpFpLoadHalf: begin
-          ls_size = schnizo_pkg::HalfWord;
-        end
-        LsuOpStoreWord,
-        LsuOpLoadWord,
-        LsuOpFpStoreWord,
-        LsuOpFpLoadWord: begin
-          ls_size = schnizo_pkg::Word;
-        end
-        LsuOpFpStoreDouble,
-        LsuOpFpLoadDouble: begin
-          ls_size = schnizo_pkg::Double;
-        end
-        default: ls_size = schnizo_pkg::Byte;
+        LsuOpAmoLr:   ls_amo = reqrsp_pkg::AMOLR;
+        LsuOpAmoSc:   ls_amo = reqrsp_pkg::AMOSC;
+        LsuOpAmoSwap: ls_amo = reqrsp_pkg::AMOSwap;
+        LsuOpAmoAdd:  ls_amo = reqrsp_pkg::AMOAdd;
+        LsuOpAmoXor:  ls_amo = reqrsp_pkg::AMOXor;
+        LsuOpAmoAnd:  ls_amo = reqrsp_pkg::AMOAnd;
+        LsuOpAmoOr:   ls_amo = reqrsp_pkg::AMOOr;
+        LsuOpAmoMin:  ls_amo = reqrsp_pkg::AMOMin;
+        LsuOpAmoMax:  ls_amo = reqrsp_pkg::AMOMax;
+        LsuOpAmoMinU: ls_amo = reqrsp_pkg::AMOMinu;
+        LsuOpAmoMaxU: ls_amo = reqrsp_pkg::AMOMaxu;
+        default:      ls_amo = reqrsp_pkg::AMONone;
       endcase
     end
-
-    assign ls_amo = reqrsp_pkg::AMONone; // TODO: no atomic support yet
 
     // Unaligned Address Check
     always_comb begin
@@ -208,7 +207,7 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
       endcase
     end
 
-    snitch_lsu #(
+    schnizo_lsu #(
       .AddrWidth          (AddrWidth),
       .DataWidth          (DataWidth),
       .dreq_t             (dreq_t),
@@ -228,6 +227,7 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
       .lsu_qtag_i   (input_tag),
       .lsu_qwrite_i (is_store),
       .lsu_qsigned_i(is_signed),
+      .lsu_nan_box_i(do_nan_boxing),
       .lsu_qsize_i  (ls_size),
       .lsu_qamo_i   (ls_amo),
       .lsu_qrepd_i  (1'b0), // it is no sequencer repetition -> set to 1 during LEP?
@@ -271,6 +271,7 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
     assign lsu_addr = '0;
     assign is_store = '0;
     assign is_signed = '0;
+    assign do_nan_boxing = '0;
     assign ls_size = schnizo_pkg::Word;
     assign ls_amo = reqrsp_pkg::AMONone;
     assign input_tag = '0;

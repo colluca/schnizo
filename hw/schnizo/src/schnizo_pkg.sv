@@ -67,24 +67,33 @@ package schnizo_pkg;
 
   // LSU Operations
   typedef enum logic [3:0] {
-    LsuOpStoreByte,
-    LsuOpStoreHalf,
-    LsuOpStoreWord,
-    LsuOpLoadByte,
-    LsuOpLoadByteUnsigned,
-    LsuOpLoadHalf,
-    LsuOpLoadHalfUnsigned,
-    LsuOpLoadWord,
-    // Floating Point
-    LsuOpFpStoreByte,
-    LsuOpFpStoreHalf,
-    LsuOpFpStoreWord,
-    LsuOpFpStoreDouble,
-    LsuOpFpLoadByte,
-    LsuOpFpLoadHalf,
-    LsuOpFpLoadWord,
-    LsuOpFpLoadDouble
+    LsuOpStore,
+    LsuOpLoad,
+    LsuOpLoadUnsigned,
+    // Floating point
+    LsuOpFpStore,
+    LsuOpFpLoad,
+    // Atomic
+    LsuOpAmoLr,
+    LsuOpAmoSc,
+    LsuOpAmoSwap,
+    LsuOpAmoAdd,
+    LsuOpAmoXor,
+    LsuOpAmoAnd,
+    LsuOpAmoOr,
+    LsuOpAmoMin,
+    LsuOpAmoMax,
+    LsuOpAmoMinU,
+    LsuOpAmoMaxU
   } lsu_op_e;
+
+  // Value size of load/store operations
+  typedef enum logic [1:0] {
+    Byte = 2'b00,
+    HalfWord = 2'b01,
+    Word = 2'b10,
+    Double = 2'b11
+  } lsu_size_e;
 
   typedef enum logic [2:0] {
     CsrOpNone, // for non CSR SYSTEM instructions. (ECALL, EBREAK, WFI, MRET, SRET)
@@ -116,14 +125,6 @@ package schnizo_pkg;
     FpuOpFcmp,
     FpuOpFclassify
   } fpu_op_e;
-
-  // Value size of load/store operations
-  typedef enum logic [1:0] {
-    Byte = 2'b00,
-    HalfWord = 2'b01,
-    Word = 2'b10,
-    Double = 2'b11
-  } ls_size_e;
 
   /// Async interrupts of the core.
   typedef struct packed {

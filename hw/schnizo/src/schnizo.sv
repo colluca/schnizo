@@ -6,13 +6,21 @@
 // Description: Top-Level of the Schnizo Core.
 // The Schnizo core is basically a Snitch which got schizophrenia.
 // As of this, it now features a superscalar loop execution.
-// This core implements the following RISC-V extensions: IMFD
+// This core implements the following RISC-V extensions: IMAFD (A ignoring aq and lr flags)
 
 // Limitation:
 // - The scoreboard assumes that only multi cycle functional units write to the floating point
 //   register file!
 // - when reaching the end of a program, we somehow have to make sure that all instructions
 //   have committed before the core gets stopped.
+
+// Use automatic retiming options in the synthesis tool to optimize the fpnew design.
+
+// TODO
+// - LSU CAQ
+// - Performance counters
+// - Debug support -> not required
+// - check all todos
 
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
@@ -149,6 +157,7 @@ module schnizo import schnizo_pkg::*; #(
     // this field holds the address of the third operand (rs3) from the floating-point regfile
     logic [XLEN-1:0]          imm;
     logic                     use_imm_as_rs3; // set if rs3 is a FP register
+    lsu_size_e                lsu_size; // The bit width the LSU operates on
     fpnew_pkg::fp_format_e    fpu_fmt_src; // The FPU format field.
     fpnew_pkg::fp_format_e    fpu_fmt_dst; // The FPU format field.
     // The round mode for the FPU. If DYN was specified, it contains the value from the CSR.
@@ -167,6 +176,8 @@ module schnizo import schnizo_pkg::*; #(
     logic                     is_wfi;
   } instr_dec_t;
 
+  // !! The OpLen parameters are not always sign extended by the read_operands module !!
+  // Only consume the expected bits.
   typedef struct packed {
     fu_t                   fu;
     alu_op_e               alu_op;
@@ -178,6 +189,7 @@ module schnizo import schnizo_pkg::*; #(
     // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the value of the third operand
     logic [OpLen-1:0]      imm;
+    lsu_size_e             lsu_size;
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
     fpnew_pkg::roundmode_e fpu_rnd_mode;
