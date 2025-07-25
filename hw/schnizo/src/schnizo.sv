@@ -82,7 +82,7 @@ module schnizo import schnizo_pkg::*; #(
   input  logic [31:0]   hart_id_i,
   /// Interrupts
   input  interrupts_t   irq_i,
-  /// Instruction cache flush request
+  /// Instruction cache flush request (for FENCE_I instruction)
   output logic          flush_i_valid_o,
   /// Flush has completed when the signal goes to `1`.
   /// Tie to `1` if unused
@@ -170,6 +170,7 @@ module schnizo import schnizo_pkg::*; #(
     logic                     is_jal; // set if JAL
     logic                     is_jalr; // set if JALR
     logic                     is_fence; // set if FENCE
+    logic                     is_fence_i; // set if FENCE.I
     logic                     is_ecall;
     logic                     is_ebreak;
     logic                     is_mret;
@@ -239,6 +240,7 @@ module schnizo import schnizo_pkg::*; #(
   logic [NrFpWritePorts-1:0]                    fpr_we;
 
   logic            instr_fetch_valid;
+  logic            flush_i_valid;
   logic [31:0]     pc;
   logic            instr_valid;
   logic            instr_decoded_illegal;
@@ -298,16 +300,6 @@ module schnizo import schnizo_pkg::*; #(
   `FFAR(issue_core_to_fpu_q,          issue_core_to_fpu,          '0, clk_i, rst_i)
 
   // ---------------------------
-  // Snitch related unused signals
-  // ---------------------------
-  // tie down unused signals
-  assign acc_qreq_o = '0; // we don't use the accelerator interface
-  assign acc_qvalid_o = '0;
-  assign acc_pready_o = '0;
-  assign core_events_o = '0;
-  assign flush_i_valid_o = 1'b0;
-
-  // ---------------------------
   // Instruction fetch
   // ---------------------------
   // request the instruction at the current PC
@@ -318,6 +310,9 @@ module schnizo import schnizo_pkg::*; #(
 
   logic instr_fetch_data_valid;
   assign instr_fetch_data_valid = instr_fetch_valid_o & instr_fetch_ready_i;
+
+  // Instruction Cache flush request interface
+  assign flush_i_valid_o = flush_i_valid;
 
   // ---------------------------
   // Decoder
@@ -361,6 +356,8 @@ module schnizo import schnizo_pkg::*; #(
     // Frontend interface
     .pc_o                   (pc),
     .instr_fetch_valid_o    (instr_fetch_valid),
+    .flush_i_ready_i        (flush_i_ready_i),
+    .flush_i_valid_o        (flush_i_valid),
     // Decoder interface
     .instr_decoded_i        (instr_decoded),
     .instr_valid_i          (instr_valid),

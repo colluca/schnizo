@@ -204,15 +204,16 @@ module schnizo_decoder import schnizo_pkg::*; #(
     instr_dec_o.fpu_rnd_mode   = fpnew_pkg::RNE;
     instr_dec_o.use_pc_as_op_a      = 1'b0;
     instr_dec_o.use_rs1addr_as_op_a = 1'b0;
-    instr_dec_o.is_branch = 1'b0;
-    instr_dec_o.is_jal    = 1'b0;
-    instr_dec_o.is_jalr   = 1'b0;
-    instr_dec_o.is_fence  = 1'b0;
-    instr_dec_o.is_ecall  = 1'b0;
-    instr_dec_o.is_ebreak = 1'b0;
-    instr_dec_o.is_mret   = 1'b0;
-    instr_dec_o.is_sret   = 1'b0;
-    instr_dec_o.is_wfi    = 1'b0;
+    instr_dec_o.is_branch  = 1'b0;
+    instr_dec_o.is_jal     = 1'b0;
+    instr_dec_o.is_jalr    = 1'b0;
+    instr_dec_o.is_fence   = 1'b0;
+    instr_dec_o.is_fence_i = 1'b0;
+    instr_dec_o.is_ecall   = 1'b0;
+    instr_dec_o.is_ebreak  = 1'b0;
+    instr_dec_o.is_mret    = 1'b0;
+    instr_dec_o.is_sret    = 1'b0;
+    instr_dec_o.is_wfi     = 1'b0;
 
     check_fpround_mode = 1'b0;
 
@@ -702,14 +703,16 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // --------------------------------
       OpcodeMiscMem: begin
         instr_dec_o.fu = schnizo_pkg::NONE;
-
+        // Don't check the unused bits for forward compatibility.
+        // See RISC-V spec vol 1, v20240411, page 45,
+        // Chapter 6. "Zifencei" Extension for Instruction-Fetch Fence, Ver. 2.0
         case (instr.stype.funct3)
           3'b000: begin
-            instr_dec_o.is_fence = 1'b1;  // FENCE - implemented as NOP
+            instr_dec_o.is_fence = 1'b1; // FENCE - implemented as NOP
           end
-          // 3'b001: begin
-          //   // FENCE.I
-          // end
+          3'b001: begin
+            instr_dec_o.is_fence_i = 1'b1; // FENCE.I
+          end
           default: illegal_instr = 1'b1;
         endcase
       end

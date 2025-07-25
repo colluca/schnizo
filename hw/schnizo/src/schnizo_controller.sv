@@ -22,6 +22,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Frontend interface
   output logic [31:0] pc_o,
   output logic        instr_fetch_valid_o,
+  input  logic        flush_i_ready_i,
+  output logic        flush_i_valid_o,
 
   // Decoder interface
   input  instr_dec_t instr_decoded_i,
@@ -181,6 +183,12 @@ module schnizo_controller import schnizo_pkg::*; #(
   assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
   assign fence_stall = (instr_decoded_i.is_fence & ~all_lsus_empty) & instr_valid_i;
 
+  // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
+  // We can continue as soon as the cache responds
+  logic fence_i_stall;
+  assign flush_i_valid_o = instr_decoded_i.is_fence_i & instr_valid_i;
+  assign fence_i_stall = flush_i_valid_o & ~ flush_i_ready_i;
+
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
   // ---------------------------
@@ -203,7 +211,11 @@ module schnizo_controller import schnizo_pkg::*; #(
   // valid signal which does not include the exception. If now an exception occurs, the FU kills
   // itself and asserts the exception flag. The controller then can handle the exception and keep
   // the "no exception" valid flag set.
-  assign dispatch_instr_valid_o = instr_valid_i & registers_ready & ~fence_stall & ~exception;
+  assign dispatch_instr_valid_o = instr_valid_i   &
+                                  registers_ready &
+                                  ~fence_stall    &
+                                  ~fence_i_stall  &
+                                  ~exception;
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has
   // been dispatched successfully and the scoreboard can update its state.
