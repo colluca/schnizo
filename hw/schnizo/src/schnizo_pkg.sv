@@ -28,6 +28,15 @@ package schnizo_pkg;
     ACCEL
   } fu_t;
 
+  // Accelerators available in the Schnizo Cluster / Hive.
+  // This enum can currently not be used as we still use the snitch_cluster and hive.
+  // Keep parameter in sync!
+  parameter int unsigned NOF_ACCELERATORS = 2;
+  // typedef enum logic [31:0] {
+  //   SHARED_MULDIV = 0,
+  //   DMA_SS = 1
+  // } acc_addr_e;
+
   // Maybe it would be simpler if we only have one big enum for all instructions
   // as having a separate enum for each FU.
 
