@@ -14,13 +14,15 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   parameter type         rmt_entry_t = logic,
   parameter type         disp_req_t = logic,
   parameter type         disp_res_t = logic,
-  parameter type         fu_data_t = logic
+  parameter type         fu_data_t = logic,
+  parameter type         acc_req_t = logic
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
   // Handshake to dispatch instruction consisting of instr_dec_i and instr_fu_data_i
   input  instr_dec_t   instr_dec_i,
   input  fu_data_t     instr_fu_data_i,
+  input  logic [31:0]  instr_fetch_data_i,
   input  logic         instr_dec_valid_i,
   output logic         instr_dec_ready_o,
 
@@ -44,7 +46,13 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // FPU
   output logic      fpu_disp_req_valid_o,
   input  logic      fpu_disp_req_ready_i,
-  input  disp_res_t fpu_disp_res_i
+  input  disp_res_t fpu_disp_res_i,
+
+  // Handshake to the accelerator interface
+  output acc_req_t acc_req_o,
+  output logic     acc_disp_req_valid_o,
+  input  logic     acc_disp_req_ready_i
+  // The accelerator response is routed directly to the write back.
 );
   // ---------------------------
   // Register Mapping Table (RMT)
@@ -106,14 +114,20 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   logic [0:0] lsu_disp_req_valid_raw;
   logic       csr_disp_req_valid_raw;
   logic       fpu_disp_req_valid_raw;
+  logic       acc_disp_req_valid_raw;
   logic       none_disp_req_valid_raw;
   always_comb begin : fu_selection
     alu_disp_req_valid_raw = 1'b0;
     lsu_disp_req_valid_raw = 1'b0;
     csr_disp_req_valid_raw = 1'b0;
     fpu_disp_req_valid_raw = 1'b0;
+    acc_disp_req_valid_raw = 1'b0;
     fu_response = '0;
     fu_ready    = 1'b0;
+
+    acc_req_o           = '0;
+    acc_req_o.id        = instr_dec_i.rd; // TODO: currently only GPR address supported
+    acc_req_o.data_op   = instr_fetch_data_i;
 
     unique case (instr_dec_i.fu)
       schnizo_pkg::ALU,
@@ -140,6 +154,15 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         fu_response = fpu_disp_res_i;
         fu_ready = fpu_disp_req_ready_i;
       end
+      schnizo_pkg::MULDIV: begin
+        acc_disp_req_valid_raw = 1'b1;
+        acc_req_o.addr = snitch_pkg::SHARED_MULDIV; // TODO: use schnizo defined address.
+        acc_req_o.data_arga = instr_fu_data_i.operand_a;
+        acc_req_o.data_argb = instr_fu_data_i.operand_b;
+        acc_req_o.data_argc = '0; // unused for shared muldiv
+        // no dispatch response
+        fu_ready = acc_disp_req_ready_i;
+      end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         none_disp_req_valid_raw = 1'b1;
@@ -160,7 +183,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   assign lsu_disp_req_valid_o = instr_dec_valid_i & lsu_disp_req_valid_raw;
   assign csr_disp_req_valid_o = instr_dec_valid_i & csr_disp_req_valid_raw;
   assign fpu_disp_req_valid_o = instr_dec_valid_i & fpu_disp_req_valid_raw;
-
+  assign acc_disp_req_valid_o = instr_dec_valid_i & acc_disp_req_valid_raw;
   // The NONE FU always dispatches
   logic none_disp_req_valid;
   assign none_disp_req_valid = instr_dec_valid_i & none_disp_req_valid_raw;
@@ -168,7 +191,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // The instruction is dispatched when the FU handshakes the request
   assign disp_req_valid = alu_disp_req_valid_o | lsu_disp_req_valid_o |
                           csr_disp_req_valid_o | fpu_disp_req_valid_o |
-                          none_disp_req_valid;
+                          acc_disp_req_valid_o | none_disp_req_valid;
   assign dispatched = disp_req_valid & fu_ready;
   // Signal back the dispatch
   assign instr_dec_ready_o = dispatched; // valid signal is factored in via disp_req_valid
@@ -185,6 +208,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     rmtf_d = rmtf_q;
 
     // create / update entry for dispatched instruction
+    // TODO: filter out accelerator dispatches?
     if (dispatched) begin
       rmt_entry.prod_id = fu_response.prod_id;
       rmt_entry.is_produced = 1'b1;

@@ -22,10 +22,10 @@ package schnizo_pkg;
     STORE,
     ALU,
     CTRL_FLOW,
-    MULT,
+    MULDIV, // shared muldiv unit from hive
     CSR,
     FPU,
-    ACCEL
+    DMA
   } fu_t;
 
   // Accelerators available in the Schnizo Cluster / Hive.

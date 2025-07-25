@@ -533,12 +533,14 @@ module schnizo import schnizo_pkg::*; #(
     .rmt_entry_t(rmt_entry_t),
     .disp_req_t (disp_req_t),
     .disp_res_t (disp_res_t),
-    .fu_data_t  (fu_data_t)
+    .fu_data_t  (fu_data_t),
+    .acc_req_t  (acc_req_t)
   ) i_schnizo_dispatcher (
     .clk_i,
     .rst_i,
     .instr_dec_i         (instr_decoded),
     .instr_fu_data_i     (fu_data),
+    .instr_fetch_data_i  (instr_fetch_data_i),
     .instr_dec_valid_i   (dispatch_instr_valid), // main control signal / stall signal
     .instr_dec_ready_o   (dispatch_instr_ready),
 
@@ -553,7 +555,11 @@ module schnizo import schnizo_pkg::*; #(
     .csr_disp_req_ready_i(csr_disp_req_ready),
     .fpu_disp_req_valid_o(fpu_disp_req_valid),
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
-    .fpu_disp_res_i      ('0) // RSS not yet implemented
+    .fpu_disp_res_i      ('0), // RSS not yet implemented
+    // Shared accelerator interface
+    .acc_req_o           (acc_qreq_o),
+    .acc_disp_req_valid_o(acc_qvalid_o),
+    .acc_disp_req_ready_i(acc_qready_i)
   );
 
   // ---------------------------
@@ -807,10 +813,28 @@ module schnizo import schnizo_pkg::*; #(
   // - CSR
   // - LSU
   // - FPU
+  // - Accelerator interface
   // Prio for FPR
-  // - Accelertor master (not implemented)
   // - FPU
   // - LSU
+  // - Accelerator interface (not implemented / there is no tag to select FP register)
+
+  // !!! WARNING !!!
+  // The accelerator request only contains an ID to specify the destination register.
+  // Due to this we cannot distinguish between floating point and integer registers!
+  // As of now, all accelerator responses target the integer register file.
+  // This should not be a problem, as the Snitch FPR is only in the FP_SS present.
+
+  // Convert the accelerator response to a proper result and result tag such that the
+  // write back and scoreboard functions properly.
+  logic [XLEN-1:0] acc_result;
+  instr_tag_t      acc_result_tag;
+  always_comb begin : acc_response_conversion
+    acc_result = acc_prsp_i.data;
+    acc_result_tag = '0;
+    acc_result_tag.dest_reg = acc_prsp_i.id;
+    acc_result_tag.dest_reg_is_fp = 1'b0;
+  end
 
   logic alu_valid_gpr; // The ALU only writes to the GPR
   logic alu_ready_gpr;
@@ -820,6 +844,8 @@ module schnizo import schnizo_pkg::*; #(
   logic lsu_ready_gpr, lsu_ready_fpr;
   logic fpu_valid_gpr, fpu_valid_fpr;
   logic fpu_ready_gpr, fpu_ready_fpr;
+  logic acc_valid_gpr; // The accelerator only writes to the GPR
+  logic acc_ready_gpr;
 
   // MUX the valid/ready signals to the correct register file.
   // TODO: This is probably unnecessary and stalls the core. However, the ALU should never
@@ -840,6 +866,10 @@ module schnizo import schnizo_pkg::*; #(
   assign fpu_valid_fpr = fpu_result_tag.dest_reg_is_fp ? fpu_result_valid : 1'b0;
   assign fpu_result_ready = fpu_result_tag.dest_reg_is_fp ? fpu_ready_fpr : fpu_ready_gpr;
 
+  // TODO: The Accelerator should never write to the FPR. -> Assertion?
+  assign acc_valid_gpr = acc_result_tag.dest_reg_is_fp ? 1'b0 : acc_pvalid_i;
+  assign acc_pready_o = acc_result_tag.dest_reg_is_fp ? 1'b0 : acc_ready_gpr;
+
   // Note: The register file must always be ready.
   // Otherwise the valid/ready handshaking is not AXI conform anymore.
   always_comb begin : int_regfile_writeback
@@ -852,6 +882,7 @@ module schnizo import schnizo_pkg::*; #(
     csr_ready_gpr = '0;
     lsu_ready_gpr = '0;
     fpu_ready_gpr = '0;
+    acc_ready_gpr = '0;
 
     // If we have a valid request from the ALU, we have to check whether we actually want to write
     // to a register. Any instruction which is retiring without a register write has the
@@ -900,6 +931,11 @@ module schnizo import schnizo_pkg::*; #(
         gpr_waddr = fpu_result_tag.dest_reg;
         gpr_wdata = fpu_result[XLEN-1:0];
         fpu_ready_gpr = 1'b1;
+        end else if (acc_valid_gpr) begin
+          gpr_we = 1'b1;
+          gpr_waddr = acc_result_tag.dest_reg;
+          gpr_wdata = acc_result[XLEN-1:0];
+          acc_ready_gpr = 1'b1;
         end
       end
     end

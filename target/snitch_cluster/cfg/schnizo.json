@@ -91,7 +91,7 @@
     ],
     // Templates.
     compute_core_template: {
-        isa: "rv32ifd",
+        isa: "rv32imfd",
         xssr: false,
         xfrep: false,
         xdma: false,

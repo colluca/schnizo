@@ -245,25 +245,27 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.rd  = instr.rtype.rd;
 
         unique case ({instr.rtype.funct7, instr.rtype.funct3})
-          {7'b000_0000, 3'b000} : instr_dec_o.alu_op = schnizo_pkg::AluOpAdd; // Add
-          {7'b010_0000, 3'b000} : instr_dec_o.alu_op = schnizo_pkg::AluOpSub; // Sub
-          {7'b000_0000, 3'b010} : instr_dec_o.alu_op = schnizo_pkg::AluOpSlt; // Set Lower Than
-          {7'b000_0000, 3'b011} : instr_dec_o.alu_op = schnizo_pkg::AluOpSltu;// Set Lower Than Uns.
-          {7'b000_0000, 3'b100} : instr_dec_o.alu_op = schnizo_pkg::AluOpXor; // Xor
-          {7'b000_0000, 3'b110} : instr_dec_o.alu_op = schnizo_pkg::AluOpOr;  // Or
-          {7'b000_0000, 3'b111} : instr_dec_o.alu_op = schnizo_pkg::AluOpAnd; // And
-          {7'b000_0000, 3'b001} : instr_dec_o.alu_op = schnizo_pkg::AluOpSll; // Shift Left Logical
-          {7'b000_0000, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::AluOpSrl; // Shift Right Logical
-          {7'b010_0000, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::AluOpSra; // Shift Right Arithm.
-          // // Multiplications
-          // {7'b000_0001, 3'b000} : instr_dec_o.alu_op = schnizo_pkg::MUL;
-          // {7'b000_0001, 3'b001} : instr_dec_o.alu_op = schnizo_pkg::MULH;
-          // {7'b000_0001, 3'b010} : instr_dec_o.alu_op = schnizo_pkg::MULHSU;
-          // {7'b000_0001, 3'b011} : instr_dec_o.alu_op = schnizo_pkg::MULHU;
-          // {7'b000_0001, 3'b100} : instr_dec_o.alu_op = schnizo_pkg::DIV;
-          // {7'b000_0001, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::DIVU;
-          // {7'b000_0001, 3'b110} : instr_dec_o.alu_op = schnizo_pkg::REM;
-          // {7'b000_0001, 3'b111} : instr_dec_o.alu_op = schnizo_pkg::REMU;
+          {7'b000_0000, 3'b000} : instr_dec_o.alu_op = schnizo_pkg::AluOpAdd; //Add
+          {7'b010_0000, 3'b000} : instr_dec_o.alu_op = schnizo_pkg::AluOpSub; //Sub
+          {7'b000_0000, 3'b010} : instr_dec_o.alu_op = schnizo_pkg::AluOpSlt; //Set Lower Than
+          {7'b000_0000, 3'b011} : instr_dec_o.alu_op = schnizo_pkg::AluOpSltu;//Set Lower Than Uns.
+          {7'b000_0000, 3'b100} : instr_dec_o.alu_op = schnizo_pkg::AluOpXor; //Xor
+          {7'b000_0000, 3'b110} : instr_dec_o.alu_op = schnizo_pkg::AluOpOr;  //Or
+          {7'b000_0000, 3'b111} : instr_dec_o.alu_op = schnizo_pkg::AluOpAnd; //And
+          {7'b000_0000, 3'b001} : instr_dec_o.alu_op = schnizo_pkg::AluOpSll; //Shift Left Logical
+          {7'b000_0000, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::AluOpSrl; //Shift Right Logical
+          {7'b010_0000, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::AluOpSra; //Shift Right Arithm
+          // Multiplication & Division: Offloaded to accelerator
+          {7'b000_0001, 3'b000},       // MUL
+          {7'b000_0001, 3'b001},       // MULH
+          {7'b000_0001, 3'b010},       // MULHSU
+          {7'b000_0001, 3'b011},       // MULHU
+          {7'b000_0001, 3'b100},       // DIV
+          {7'b000_0001, 3'b101},       // DIVU
+          {7'b000_0001, 3'b110},       // REM
+          {7'b000_0001, 3'b111}: begin // REMU
+            instr_dec_o.fu = schnizo_pkg::MULDIV;
+          end
           default: begin
             illegal_instr = 1'b1;
           end
