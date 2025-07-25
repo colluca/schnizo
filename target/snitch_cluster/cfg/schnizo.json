@@ -59,12 +59,14 @@
             // register_fpu_req cuts the request between FPU LSU and SoC/TCDM MUX.
             // This has no effect in Schnizo.
             register_fpu_req: false,
-            // Cut the instruction and data path to and from the FPU.
-            // In Snitch, this cut was implemented via the offload cut (register_offload_req).
-            // In Schnizo, there the FPU is connected directly to the core. We thus use the existing
-            // cuts in the FPU module to have the same cuts.
-            register_fpu_in: true,
-            register_fpu_out: true,
+            // In Snitch any FPU instruction is offloaded via the accelerator interface.
+            // This results in an actual FPU latency of 6 cycles.
+            // However, Snitch makes use of the sequencer which is already in the accelerator.
+            // This reduces the latency to 4 cycles (actual FPU latency). In Schnizo, there must not
+            // be any cut between dispatch & FPU to achieve a 4 cycle latency.
+            register_fpu_in: false,
+            // Don't register the output. In the FP SS the output goes directly to the FP register file.
+            register_fpu_out: false,
             register_ext_narrow: false,
             register_ext_wide: false
         },
