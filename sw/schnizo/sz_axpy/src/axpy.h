@@ -39,9 +39,10 @@ static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
         "fld     ft1,   0(%[ya])          \n"
         "fmadd.d ft0,   %[a],    ft0,   ft1\n"
         "fsd     ft0,   0(%[za])          \n"
-        "addi    %[xa], %[xa],   %[inc]   \n"
-        "addi    %[ya], %[ya],   %[inc]   \n"
-        "addi    %[za], %[za],   %[inc]   "
+        "addi    %[xa], %[xa],   %[inc]   \n" // ALU 0.0
+        // Swap x and y such that z is on its own ALU (ALU1) (if 2 ALUs)
+        "addi    %[za], %[za],   %[inc]   \n" // ALU 1.0
+        "addi    %[ya], %[ya],   %[inc]   \n" // ALU 0.1
         // Outputs
         : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
         // Inputs
