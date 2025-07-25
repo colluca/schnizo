@@ -12,6 +12,7 @@ $(APP)_HEADERS += $(SNRT_HAL_HDRS)
 
 $(APP)_INCDIRS += $(SNRT_INCDIRS)
 $(APP)_INCDIRS += $(SN_ROOT)/sw/deps/riscv-opcodes
+$(APP)_INCDIRS += $(SZRT_INCDIRS)
 
 $(APP)_RISCV_CFLAGS += $(RISCV_CFLAGS)
 $(APP)_RISCV_CFLAGS += $(addprefix -I,$($(APP)_INCDIRS))
