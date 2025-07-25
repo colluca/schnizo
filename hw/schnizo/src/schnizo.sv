@@ -472,8 +472,7 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   logic [0:0]  alu_result_valid;
   logic [0:0]  alu_result_ready;
-  schnizo_reservation_station #(
-    .ProdAddrSize(ProdAddrSize),
+  schnizo_fu_wrapper #(
     .XLEN        (XLEN),
     .FLEN        (FLEN),
     .disp_req_t  (disp_req_t),
@@ -486,14 +485,12 @@ module schnizo import schnizo_pkg::*; #(
     .HasBranch   (1'b1)
     // LSU specific are default
     // FPU specific are default
-  ) i_schnizo_res_stat_alu (
+  ) i_schnizo_alu_wrapper (
     .clk_i,
     .rst_i,
     .disp_req_i      (dispatch_req),
     .disp_req_valid_i(alu_disp_req_valid),
     .disp_req_ready_o(alu_disp_req_ready),
-    .disp_res_o      (), // not yet implemented
-    .rss_full_o      (), // asserted if all RSS are in use
 
     // LSU specific - not connected
     .lsu_data_req_o       (),
@@ -516,7 +513,6 @@ module schnizo import schnizo_pkg::*; #(
     .result_tag_o  (alu_result_tag),
     .result_valid_o(alu_result_valid),
     .result_ready_i(alu_result_ready)
-    // TODO: Xbar interface to other RS
   );
 
   logic       lsu_result_valid;
@@ -524,8 +520,7 @@ module schnizo import schnizo_pkg::*; #(
   instr_tag_t lsu_result_tag;
   data_t      lsu_result;
 
-  schnizo_reservation_station #(
-    .ProdAddrSize(ProdAddrSize),
+  schnizo_fu_wrapper #(
     .XLEN        (XLEN),
     .FLEN        (FLEN),
     .disp_req_t  (disp_req_t),
@@ -546,14 +541,12 @@ module schnizo import schnizo_pkg::*; #(
     .CaqDepth              (CaqDepth),
     .CaqTagWidth           (CaqTagWidth)
     // FPU specific are default
-  ) i_schnizo_res_stat_lsu (
+  ) i_schnizo_lsu_wrapper (
     .clk_i,
     .rst_i,
     .disp_req_i      (dispatch_req),
     .disp_req_valid_i(lsu_disp_req_valid),
     .disp_req_ready_o(lsu_disp_req_ready),
-    .disp_res_o      (), // not yet implemented
-    .rss_full_o      (), // asserted if all RSS are in use
 
     /// LSU specific
     // LSU memory interface
@@ -578,7 +571,6 @@ module schnizo import schnizo_pkg::*; #(
     .result_tag_o  (lsu_result_tag),
     .result_valid_o(lsu_result_valid),
     .result_ready_i(lsu_result_ready)
-    // TODO: Xbar interface to other RS
   );
 
   // CSR FU & register file
@@ -648,8 +640,7 @@ module schnizo import schnizo_pkg::*; #(
   typedef logic [FLEN-1:0] fpu_result_t;
   fpu_result_t     fpu_result;
 
-  schnizo_reservation_station #(
-    .ProdAddrSize(ProdAddrSize),
+  schnizo_fu_wrapper #(
     .XLEN        (XLEN),
     .FLEN        (FLEN),
     .disp_req_t  (disp_req_t),
@@ -671,14 +662,12 @@ module schnizo import schnizo_pkg::*; #(
     .XFVEC(XFVEC),
     .RegisterFPUIn(RegisterFPUIn),
     .RegisterFPUOut(RegisterFPUOut)
-  ) i_schnizo_res_stat_fpu (
+  ) i_schnizo_fpu_wrapper (
     .clk_i,
     .rst_i,
     .disp_req_i      (dispatch_req),
     .disp_req_valid_i(fpu_disp_req_valid),
     .disp_req_ready_o(fpu_disp_req_ready),
-    .disp_res_o      (), // not yet implemented
-    .rss_full_o      (), // asserted if all RSS are in use
 
     // LSU specific - not connected
     .lsu_data_req_o       (),
@@ -701,7 +690,6 @@ module schnizo import schnizo_pkg::*; #(
     .result_tag_o  (fpu_result_tag),
     .result_valid_o(fpu_result_valid),
     .result_ready_i(fpu_result_ready)
-    // TODO: Xbar interface to other RS
   );
 
   // We may only update the FCSR fpu status bits if the result is handshaked.

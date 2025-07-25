@@ -483,38 +483,38 @@ module schnizo_cc #(
   // activated to match the cut which would be there from the accelerator interface.
   assign fpu_trace = '{
     source:       snitch_pkg::SrcFpu,
-    acc_q_hs:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_valid_i &&
-                  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_ready_o,
+    acc_q_hs:     i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.in_valid_i &&
+                  i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.in_ready_o,
     fpu_out_hs:   (i_schnizo.fpu_result_valid && i_schnizo.fpu_result_ready),
     lsu_q_hs:     (i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready &&
-                  i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp),
+                  i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg_is_fp),
     op_in:        i_schnizo.instr_fetch_data_i,
     rs1:          i_schnizo.instr_decoded.rs1,
     rs2:          i_schnizo.instr_decoded.rs2,
     rs3:          i_schnizo.instr_decoded.imm,
     rd:           i_schnizo.instr_decoded.rd,
     // This operand selection enum does not match the Snitch enum!
-    op_sel_0:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.op_selection[0],
-    op_sel_1:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.op_selection[1],
-    op_sel_2:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.op_selection[2],
-    src_fmt:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fmt_src_i,
-    dst_fmt:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fmt_dst_i,
-    int_fmt:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.int_fmt,
-    acc_qdata_0:  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.rs1_i,
-    acc_qdata_1:  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.rs2_i,
-    acc_qdata_2:  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.rs3_i,
-    op_0:         i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpnew_operands[0],
-    op_1:         i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpnew_operands[1],
-    op_2:         i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpnew_operands[2],
-    use_fpu:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_valid_i &&
-                  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_ready_o,
-    fpu_in_rd:    i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpu_in.tag.dest_reg,
-    fpu_in_acc:   !i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpu_in.tag.dest_reg_is_fp,
-    ls_size:      i_schnizo.i_schnizo_res_stat_lsu.ls_size,
-    is_load:      !i_schnizo.i_schnizo_res_stat_lsu.is_store,
-    is_store:     i_schnizo.i_schnizo_res_stat_lsu.is_store,
-    lsu_qaddr:    i_schnizo.i_schnizo_res_stat_lsu.lsu_addr,
-    lsu_rd:       i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg,
+    op_sel_0:     i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.op_selection[0],
+    op_sel_1:     i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.op_selection[1],
+    op_sel_2:     i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.op_selection[2],
+    src_fmt:      i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fmt_src_i,
+    dst_fmt:      i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fmt_dst_i,
+    int_fmt:      i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.int_fmt,
+    acc_qdata_0:  i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.rs1_i,
+    acc_qdata_1:  i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.rs2_i,
+    acc_qdata_2:  i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.rs3_i,
+    op_0:         i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fpnew_operands[0],
+    op_1:         i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fpnew_operands[1],
+    op_2:         i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fpnew_operands[2],
+    use_fpu:      i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.in_valid_i &&
+                  i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.in_ready_o,
+    fpu_in_rd:    i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fpu_in.tag.dest_reg,
+    fpu_in_acc:   !i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.fpu_in.tag.dest_reg_is_fp,
+    ls_size:      i_schnizo.i_schnizo_lsu_wrapper.ls_size,
+    is_load:      !i_schnizo.i_schnizo_lsu_wrapper.is_store,
+    is_store:     i_schnizo.i_schnizo_lsu_wrapper.is_store,
+    lsu_qaddr:    i_schnizo.i_schnizo_lsu_wrapper.lsu_addr,
+    lsu_rd:       i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg,
     acc_wb_ready: 1'b0, // This signal is always false in Snitch..
     // Any write to the Acc bus in Snitch must go to the GRP
     fpu_out_acc:  !i_schnizo.fpu_result_tag.dest_reg_is_fp,
@@ -560,11 +560,11 @@ module schnizo_cc #(
         rd:           i_schnizo.instr_decoded.rd,
         // Only take load and stores to the GPR.
         // FPR transactions must be captured in the FPU trace
-        is_load:      (!i_schnizo.i_schnizo_res_stat_lsu.is_store) &&
-                      (!i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp) &&
+        is_load:      (!i_schnizo.i_schnizo_lsu_wrapper.is_store) &&
+                      (!i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
-        is_store:     i_schnizo.i_schnizo_res_stat_lsu.is_store &&
-                      (!i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp) &&
+        is_store:     i_schnizo.i_schnizo_lsu_wrapper.is_store &&
+                      (!i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
         is_branch:    i_schnizo.instr_decoded.is_branch,
         pc_d:         i_schnizo.i_schnizo_controller.pc_d,
@@ -579,13 +579,13 @@ module schnizo_cc #(
         writeback:    i_schnizo.gpr_wdata,
         // Load/Store
         gpr_rdata_1:  i_schnizo.gpr_rdata[1],
-        ls_size:      i_schnizo.i_schnizo_res_stat_lsu.ls_size,
-        ld_result_32: i_schnizo.i_schnizo_res_stat_lsu.lsu_result[31:0],
-        lsu_rd:       i_schnizo.i_schnizo_res_stat_lsu.result_tag.dest_reg,
+        ls_size:      i_schnizo.i_schnizo_lsu_wrapper.ls_size,
+        ld_result_32: i_schnizo.i_schnizo_lsu_wrapper.lsu_result[31:0],
+        lsu_rd:       i_schnizo.i_schnizo_lsu_wrapper.result_tag.dest_reg,
         retire_load:  i_schnizo.instr_retired_load,
         alu_result:   i_schnizo.alu_result.result,
         // Atomics
-        ls_amo:       i_schnizo.i_schnizo_res_stat_lsu.ls_amo,
+        ls_amo:       i_schnizo.i_schnizo_lsu_wrapper.ls_amo,
         // Accelerator
         retire_acc:   i_schnizo.instr_retired_acc,
         acc_pid:      i_schnizo.acc_prsp_i.id,
