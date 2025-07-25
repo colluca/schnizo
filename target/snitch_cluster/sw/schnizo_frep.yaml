@@ -15,6 +15,7 @@ runs:
   - elf: ./schnizo/tests/build/sz_loopcarried_mixed.elf
   - elf: ./schnizo/tests/build/sz_lsu.elf
   - elf: ./schnizo/tests/build/sz_outofslots.elf
+  - elf: ./schnizo/tests/build/sz_rf_wb_collision.elf
   - elf: ./schnizo/tests/build/sz_simple_multicycle.elf
   - elf: ./schnizo/tests/build/sz_simple.elf
   - elf: ./schnizo/tests/build/sz_unsupported_instr.elf
