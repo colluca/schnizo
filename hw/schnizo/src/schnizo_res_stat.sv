@@ -548,20 +548,28 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic [NofRss-1:0] issue_reqs_ready_raw;
   assign issue_reqs_ready = (disp_idx >= NofRss) ? {NofRss{1'b0}} : issue_reqs_ready_raw;
 
-  stream_mux #(
-    .DATA_T(issue_req_t),
-    .N_INP (NofRss)
-  ) i_issue_mux (
-    .inp_data_i (issue_reqs),
-    .inp_valid_i(issue_reqs_valid),
-    .inp_ready_o(issue_reqs_ready_raw),
-    // The same MUX ctrl signal as for the dispatch demux because dispatch & issue handshake
-    // simultaneously.
-    .inp_sel_i  (disp_idx), // This idx can overflow and this would set the req handshake to X!
-    .oup_data_o (issue_req_raw),
-    .oup_valid_o(issue_req_valid_raw),
-    .oup_ready_i(issue_req_ready_i)
-  );
+  if (NofRss == 1) begin : gen_1slot_issue
+    // If we only have one slot, we can directly connect the issue request.
+    assign issue_req_raw           = issue_reqs[0];
+    assign issue_req_valid_raw     = issue_reqs_valid[0];
+    assign issue_reqs_ready_raw[0] = issue_req_ready_i;
+  end else begin : gen_nslots_issue
+    stream_mux #(
+      .DATA_T(issue_req_t),
+      .N_INP (NofRss)
+    ) i_issue_mux (
+      .inp_data_i (issue_reqs),
+      .inp_valid_i(issue_reqs_valid),
+      .inp_ready_o(issue_reqs_ready_raw),
+      // The same MUX ctrl signal as for the dispatch demux because dispatch & issue handshake
+      // simultaneously.
+      .inp_sel_i  (disp_idx), // This idx can overflow and this would set the req handshake to X!
+      .oup_data_o (issue_req_raw),
+      .oup_valid_o(issue_req_valid_raw),
+      .oup_ready_i(issue_req_ready_i)
+    );
+  end
+
   // tie down valid & data signal if we overflow.
   assign issue_req_valid_o = (disp_idx >= NofRss) ? 1'b0 : issue_req_valid_raw;
   assign issue_req_o       = (disp_idx >= NofRss) ?   '0 : issue_req_raw;
@@ -599,18 +607,26 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // result_idx overflow tie down
   logic            rf_wb_valid_raw;
   result_and_tag_t result_and_tag_raw;
-  stream_mux #(
-    .DATA_T(result_and_tag_t),
-    .N_INP (NofRss)
-  ) i_wb_mux (
-    .inp_data_i (results_and_tags),
-    .inp_ready_o(rf_wbs_ready),
-    .inp_valid_i(rf_wbs_valid),
-    .inp_sel_i  (result_idx),
-    .oup_data_o (result_and_tag_raw),
-    .oup_valid_o(rf_wb_valid_raw),
-    .oup_ready_i(rf_wb_ready_i)
-  );
+
+  if (NofRss == 1) begin : gen_1slot_wb
+    assign result_and_tag_raw = results_and_tags[0];
+    assign rf_wb_valid_raw    = rf_wbs_valid[0];
+    assign rf_wbs_ready[0]    = rf_wb_ready_i;
+  end else begin : gen_nslots_wb
+    stream_mux #(
+      .DATA_T(result_and_tag_t),
+      .N_INP (NofRss)
+    ) i_wb_mux (
+      .inp_data_i (results_and_tags),
+      .inp_ready_o(rf_wbs_ready),
+      .inp_valid_i(rf_wbs_valid),
+      .inp_sel_i  (result_idx),
+      .oup_data_o (result_and_tag_raw),
+      .oup_valid_o(rf_wb_valid_raw),
+      .oup_ready_i(rf_wb_ready_i)
+    );
+  end
+
   assign rf_wb_valid_o = (result_idx >= NofRss) ? 1'b0 : rf_wb_valid_raw;
   assign result_and_tag = (result_idx >= NofRss) ?  '0 : result_and_tag_raw;
 
