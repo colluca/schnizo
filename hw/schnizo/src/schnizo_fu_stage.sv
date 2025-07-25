@@ -1022,15 +1022,22 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   endfunction
 
 
-  function automatic string fu_to_string(producer_id_t fu_id);
-    int unsigned fu = unsigned'(fu_id);
-    int unsigned rs_id;
-    int unsigned rss_id;
+  function automatic string rs_to_string(rs_id_t rs_id);
     string fu_name;
+    int fu_id;
 
-    rs_id = rs_id_from_producer_id(fu, rss_id, fu_name);
+    if (rs_id < NofAlus) begin
+      fu_name = "ALU";
+      fu_id = rs_id - 0;
+    end else if (rs_id < NofAlus + NofLsus) begin
+      fu_name = "LSU";
+      fu_id = rs_id - NofAlus;
+    end else begin
+      fu_name = "FPU";
+      fu_id = rs_id - NofAlus - NofLsus;
+    end
 
-    return $sformatf("%s%0d", fu_name, rs_id);
+    return $sformatf("%s%0d", fu_name, fu_id);
   endfunction
 
   // This function converts a producer id to a string depending on the number of FUs and RSSs.
@@ -1038,15 +1045,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   // This function must be inside this module to have access to the producer_id_t type and
   // the id computations.
   function automatic string producer_to_string(producer_id_t producer_id);
-    int unsigned producer = unsigned'(producer_id);
-    int unsigned NofRss;
-    int unsigned rs_id;
-    int unsigned rss_id;
     string fu_name;
 
-    rs_id = rs_id_from_producer_id(producer, rss_id, fu_name);
+    fu_name = rs_to_string(producer_id.rs_id);
 
-    return $sformatf("%s%0d.%0d", fu_name, rs_id, rss_id);
+    return $sformatf("%s.%0d", fu_name, producer_id.slot_id);
   endfunction
 
   // This function converts a consumer id to a string depending on the number of FUs.

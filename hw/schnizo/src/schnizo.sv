@@ -1295,7 +1295,7 @@ module schnizo import schnizo_pkg::*; #(
     assign alu_retirements[alu] = '{
       valid:    i_fu_stage.gen_alus[alu].alu_result_valid &&
                 i_fu_stage.gen_alus[alu].alu_result_ready,
-      producer: i_fu_stage.fu_to_string(i_fu_stage.gen_alus[alu].producer_start_id)
+      producer: i_fu_stage.rs_to_string(i_fu_stage.gen_alus[alu].producer_start_id.rs_id)
     };
 
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
@@ -1356,7 +1356,7 @@ module schnizo import schnizo_pkg::*; #(
     assign lsu_retirements[lsu] = '{
       valid:    i_fu_stage.gen_lsus[lsu].lsu_result_valid &&
                 i_fu_stage.gen_lsus[lsu].lsu_result_ready,
-      producer: i_fu_stage.fu_to_string(i_fu_stage.gen_lsus[lsu].producer_start_id)
+      producer: i_fu_stage.rs_to_string(i_fu_stage.gen_lsus[lsu].producer_start_id.rs_id)
     };
 
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
@@ -1423,7 +1423,7 @@ module schnizo import schnizo_pkg::*; #(
     assign fpu_retirements[fpu] = '{
       valid:    i_fu_stage.fpu_result_valid[fpu] &&
                 i_fu_stage.fpu_result_ready[fpu],
-      producer: i_fu_stage.fu_to_string(i_fu_stage.gen_fpus[fpu].producer_start_id)
+      producer: i_fu_stage.rs_to_string(i_fu_stage.gen_fpus[fpu].producer_start_id.rs_id)
     };
 
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
