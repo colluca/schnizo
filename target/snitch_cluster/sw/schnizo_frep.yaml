@@ -17,3 +17,4 @@ runs:
   - elf: ./schnizo/tests/build/sz_simple_multicycle.elf
   - elf: ./schnizo/tests/build/sz_simple.elf
   - elf: ./schnizo/tests/build/sz_unsupported_instr.elf
+  - elf: ./schnizo/tests/build/sz_stores.elf
