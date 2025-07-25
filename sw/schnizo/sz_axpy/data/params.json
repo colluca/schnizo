@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
+    // If we use the "each array on a separate bank" approach we must ensure that the TCDM is big enough..
+    // We have 512 "rows" to play with. -> Let's use 480 rows and 5 tiles -> 2400 elements.
     "n_tiles": 5,
-    "n": 2560,
+    "n": 2400,
     "funcptr": "axpy_frep"
 }

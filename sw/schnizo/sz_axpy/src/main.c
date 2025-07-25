@@ -8,7 +8,7 @@
 #include "data.h"
 
 int main() {
-    axpy_job(&args);
+    axpy_job_distributed(&args);
 
 // TODO: currently only works for single cluster otherwise need to
 //       synchronize all cores here
