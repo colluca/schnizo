@@ -165,7 +165,7 @@ sources:
       - hw/schnizo/src/schnizo_lsu.sv
       - hw/schnizo/src/schnizo_writeback.sv
       # Level 2
-      - hw/schnizo/src/schnizo_reservation_station.sv
+      - hw/schnizo/src/schnizo_res_stat.sv
       - hw/schnizo/src/schnizo_controller.sv
       # Level 3
       - hw/schnizo/src/schnizo.sv
