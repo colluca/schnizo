@@ -234,7 +234,7 @@ module schnizo import schnizo_pkg::*; #(
   // Therefore we reduce the number of operand interfaces to one per operand per reservation station.
   // We thus have:
   // - each operand of each Reservation station has an operand master (1 port)
-  // - each RSS has an own result master
+  // - each RSS has an own result request interface but only each RS has one result response interface.
 
   // Define how many operand request / response ports each RS has.
   // A port includes a set of xbar in/outputs for each operand.
@@ -244,25 +244,39 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned FpuNofOpPorts = 1;
 
   localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
-  localparam integer unsigned AluNofResultIfs  = AluNofRss;
   localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
-  localparam integer unsigned LsuNofResultIfs  = LsuNofRss;
   localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
-  localparam integer unsigned FpuNofResultIfs  = FpuNofRss;
 
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
                                               NofLsus * LsuNofOperandIfs +
                                               NofFpus * FpuNofOperandIfs;
-  localparam integer unsigned NofResultIfs  = NofAlus * AluNofResultIfs +
-                                              NofLsus * LsuNofResultIfs +
-                                              NofFpus * FpuNofResultIfs;
+
+  // We differentiate between result requests and result responses.
+  // Each slot has a result request crossbar output.
+  localparam integer unsigned AluNofResReqIfs = AluNofRss;
+  localparam integer unsigned LsuNofResReqIfs = LsuNofRss;
+  localparam integer unsigned FpuNofResReqIfs = FpuNofRss;
+
+  localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
+                                             NofLsus * LsuNofResReqIfs +
+                                             NofFpus * FpuNofResReqIfs;
+
+  // There is one shared result response crossbar input per RS.
+  localparam integer unsigned AluNofResRspIfs = 1;
+  localparam integer unsigned LsuNofResRspIfs = 1;
+  localparam integer unsigned FpuNofResRspIfs = 1;
+
+  localparam integer unsigned NofResRspIfs = NofAlus * AluNofResRspIfs +
+                                             NofLsus * LsuNofResRspIfs +
+                                             NofFpus * FpuNofResRspIfs;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
-  localparam integer unsigned NofResultIfsW  = cf_math_pkg::idx_width(NofResultIfs);
+  localparam integer unsigned NofResReqIfsW  = cf_math_pkg::idx_width(NofResReqIfs);
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
-  typedef logic [NofResultIfsW-1:0]  producer_id_t;
+  // Each slot has a unique number
+  typedef logic [NofResReqIfsW-1:0]  producer_id_t;
 
   // ---------------------------
   // Dispatch/issue/result data types
@@ -613,16 +627,23 @@ module schnizo import schnizo_pkg::*; #(
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
     .AluNofOpPorts      (AluNofOpPorts),
+    .AluNofResReqIfs    (AluNofResReqIfs),
+    .AluNofResRspIfs    (AluNofResRspIfs),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
     .LsuNofOperands     (LsuNofOperands),
     .LsuNofOpPorts      (LsuNofOpPorts),
+    .LsuNofResReqIfs    (LsuNofResReqIfs),
+    .LsuNofResRspIfs    (LsuNofResRspIfs),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
     .FpuNofOperands     (FpuNofOperands),
     .FpuNofOpPorts      (FpuNofOpPorts),
+    .FpuNofResReqIfs    (FpuNofResReqIfs),
+    .FpuNofResRspIfs    (FpuNofResRspIfs),
     .NofOperandIfs      (NofOperandIfs),
-    .NofResultIfs       (NofResultIfs),
+    .NofResReqIfs       (NofResReqIfs),
+    .NofResRspIfs       (NofResRspIfs),
     .XLEN               (XLEN),
     .FLEN               (FLEN),
     .OpLen              (OpLen),

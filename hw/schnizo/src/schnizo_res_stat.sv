@@ -22,6 +22,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 3,
   // How many slots in parallel can request / capture operands.
   parameter int unsigned NofOpPorts     = 1,
+  parameter int unsigned NofResReqIfs   = 1,
+  parameter int unsigned NofResRspIfs   = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
@@ -32,7 +34,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter type         result_t       = logic,
   parameter type         result_tag_t   = logic,
   parameter type         producer_id_t  = logic,
-  parameter type         operand_id_t  = logic,
+  parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
@@ -90,17 +92,16 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
-  input  dest_mask_t [NofRss-1:0] res_reqs_i,
-  input  logic       [NofRss-1:0] res_reqs_valid_i,
-  output logic       [NofRss-1:0] res_reqs_ready_o,
-
+  input  dest_mask_t [NofResReqIfs-1:0] res_reqs_i,
+  input  logic       [NofResReqIfs-1:0] res_reqs_valid_i,
+  output logic       [NofResReqIfs-1:0] res_reqs_ready_o,
   // The current results iteration states
-  output logic     [NofRss-1:0] res_iters_o,
+  output logic       [NofResReqIfs-1:0] res_iters_o,
 
   // Result response interface - outgoing - result as operand response
-  output res_rsp_t [NofRss-1:0] res_rsps_o,
-  output logic     [NofRss-1:0] res_rsps_valid_o,
-  input  logic     [NofRss-1:0] res_rsps_ready_i,
+  output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
+  output logic     [NofResRspIfs-1:0] res_rsps_valid_o,
+  input  logic     [NofResRspIfs-1:0] res_rsps_ready_i,
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOpPorts-1:0][NofOperands-1:0] op_rsps_i,
@@ -239,6 +240,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // ---------------------------
   // Operand Distribution Network
   // ---------------------------
+  // Operand requests:
   // Here we connect the RSSs to the crossbar networks. A full crossbar where each slot has
   // dedicated connections for each operand is infeasible. We thus only provide a certain
   // amount of ports. One port features a connection for all operands, i.e., can serve one slot
@@ -285,14 +287,56 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     end
   end
 
-  // For now we keep that each slot has a dedicated connection.
+  // Result requests:
+  // Each slot has a "dedicated" connection to the crossbar to accept requests. This is needed
+  // to support coalescing and the deadlock filtering (it maybe can be optimized but required
+  // logic is quite complex so the gain is not really clear).
+  // However, we can limit the inputs to the result crossbar such that only one slot can send
+  // a result at a time. This reduced the result crossbar complexity from
+  // "N*M to N" (N = # RS, M = #Slots) down to "N to N".
+  // It can simply be implemented with an arbiter.
+  // This reduction seems like a bottleneck but it should not affect performance drastically.
+  // Reason is that inside a RS anyway only one result per cycle can be produced. If there would
+  // be a collision (two requests to different slots) their result would be produced anyway in
+  // two cycles. If two request "collide" to the same slot we have coalescing which keeps the
+  // performance high.
   assign res_reqs         = res_reqs_i;
   assign res_reqs_valid   = res_reqs_valid_i;
   assign res_reqs_ready_o = res_reqs_ready;
 
-  assign res_rsps_o       = res_rsps;
-  assign res_rsps_valid_o = res_rsps_valid;
-  assign res_rsps_ready   = res_rsps_ready_i;
+  // Arbitrate the input to the response crossbar between the slots.
+  // We use a static arbiter because any other unfair selection will be resolved as soon as the
+  // request of an instruction will be filtered out because the value is not ready yet (if it
+  // requests the next iteration).
+  `ASSERT_INIT(nofResRspIfs, NofResRspIfs == 32'd1, "Only 1 Result response port is supported!")
+
+  res_rsp_t res_rsp;
+  logic     res_rsp_valid;
+  logic     res_rsp_ready;
+  rr_arb_tree #(
+    .NumIn    (NofRss),
+    .DataType (res_rsp_t),
+    .ExtPrio  (1),
+    .AxiVldRdy(0),
+    .LockIn   (0),
+    .FairArb  (1'b0)
+  ) i_res_rsp_arb_tree (
+    .clk_i,
+    .rst_ni (~rst_i),
+    .flush_i('0),
+    .rr_i   ('0),
+    .req_i  (res_rsps_valid),
+    .gnt_o  (res_rsps_ready),
+    .data_i (res_rsps),
+    .req_o  (res_rsp_valid),
+    .gnt_i  (res_rsp_ready),
+    .data_o (res_rsp),
+    .idx_o  (/* unused */)
+  );
+
+  assign res_rsps_o       = res_rsp;
+  assign res_rsps_valid_o = res_rsp_valid;
+  assign res_rsp_ready    = res_rsps_ready_i;
 
   // ---------------------------
   // LxP Controller
