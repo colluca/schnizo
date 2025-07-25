@@ -164,6 +164,7 @@ sources:
       - hw/schnizo/src/schnizo_fpu.sv
       - hw/schnizo/src/schnizo_lsu.sv
       - hw/schnizo/src/schnizo_writeback.sv
+      - hw/schnizo/src/schnizo_res_stat_slot.sv
       - hw/schnizo/src/schnizo_loop_controller.sv
       # Level 2
       - hw/schnizo/src/schnizo_res_stat.sv
