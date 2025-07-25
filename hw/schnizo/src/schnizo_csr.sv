@@ -125,7 +125,11 @@ module schnizo_csr import schnizo_pkg::*; #(
   input  logic                    fpu_status_valid_i,
   // Current FPU configuration
   output fpnew_pkg::roundmode_e   fpu_rnd_mode_o,
-  output fpnew_pkg::fmt_mode_t    fpu_fmt_mode_o
+  output fpnew_pkg::fmt_mode_t    fpu_fmt_mode_o,
+
+  /// Performance counters
+  // Asserted if the current cycle retires an instruction
+  input  logic                     instr_retired_i
 );
   // Exception causes codes
   localparam logic [30:0] InstrAddrMisaligned  = 0;
@@ -368,9 +372,14 @@ module schnizo_csr import schnizo_pkg::*; #(
   // Wait for interrupt
   logic wfi_d, wfi_q;
   `FFAR(wfi_q, wfi_d, '0, clk_i, rst_i)
+
   // ---------------------------
-  // Counters
+  // Performance Counters
   // ---------------------------
+  logic [63:0] cycle_q;
+  logic [63:0] instret_q;
+  `FFAR(cycle_q, cycle_q + 1, '0, clk_i, rst_i)
+  `FFLAR(instret_q, instret_q + 1, instr_retired_i, '0, clk_i, rst_i)
 
   // ---------------------------
   // CSR operand control
@@ -568,6 +577,18 @@ module schnizo_csr import schnizo_pkg::*; #(
             barrier_stall_d = 1'b1;
             barrier_o = 1'b1; // Signal that we entered the barrier stall.
           end
+        end
+        riscv_instr::CSR_MCYCLE: begin
+          csr_rdata = cycle_q[31:0];
+        end
+        riscv_instr::CSR_MCYCLEH: begin
+          csr_rdata = cycle_q[63:32];
+        end
+        riscv_instr::CSR_MINSTRET: begin
+          csr_rdata = instret_q[31:0];
+        end
+        riscv_instr::CSR_MINSTRETH: begin
+          csr_rdata = instret_q[63:32];
         end
         default: illegal_csr_read = 1'b1;
       endcase

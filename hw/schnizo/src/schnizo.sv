@@ -6,7 +6,9 @@
 // Description: Top-Level of the Schnizo Core.
 // The Schnizo core is basically a Snitch which got schizophrenia.
 // As of this, it now features a superscalar loop execution.
-// This core implements the following RISC-V extensions: IMAFD (A ignoring aq and lr flags)
+// This core implements the following RISC-V extensions:
+// - IMAFD (A ignoring aq and lr flags)
+// - Zicsr, Zicntr (Cycle & Instret only, always enabled)
 
 // Limitation:
 // - The scoreboard assumes that only multi cycle functional units write to the floating point
@@ -18,7 +20,6 @@
 
 // TODO
 // - LSU CAQ
-// - Performance counters
 // - Debug support -> not required
 // - check all todos
 
@@ -275,6 +276,27 @@ module schnizo import schnizo_pkg::*; #(
   logic        lsu_empty;
   fpnew_pkg::status_t fpu_status;
   logic               fpu_status_valid;
+
+  // ---------------------------
+  // Core Events
+  // ---------------------------
+  // Store if an instruction has retired last cycle and store the type of instruction retired
+  logic instr_retired,              instr_retired_q;
+  logic instr_retired_single_cycle, instr_retired_single_cycle_q;
+  logic instr_retired_load,         instr_retired_load_q;
+  logic instr_retired_acc,          instr_retired_acc_q;
+
+  // 1to1 from Snitch FP SS
+  logic issue_fpu,         issue_fpu_q;
+  logic issue_core_to_fpu, issue_core_to_fpu_q;
+  // we do not have a sequencer.
+
+  `FFAR(instr_retired_q,              instr_retired,              '0, clk_i, rst_i)
+  `FFAR(instr_retired_single_cycle_q, instr_retired_single_cycle, '0, clk_i, rst_i)
+  `FFAR(instr_retired_load_q,         instr_retired_load,         '0, clk_i, rst_i)
+  `FFAR(instr_retired_acc_q,          instr_retired_acc,          '0, clk_i, rst_i)
+  `FFAR(issue_fpu_q,                  issue_fpu,                  '0, clk_i, rst_i)
+  `FFAR(issue_core_to_fpu_q,          issue_core_to_fpu,          '0, clk_i, rst_i)
 
   // ---------------------------
   // Snitch related unused signals
@@ -744,7 +766,9 @@ module schnizo import schnizo_pkg::*; #(
     .fpu_status_i           (fpu_status),
     .fpu_status_valid_i     (fpu_status_valid),
     .fpu_rnd_mode_o         (fpu_rnd_mode),
-    .fpu_fmt_mode_o         (fpu_fmt_mode)
+    .fpu_fmt_mode_o         (fpu_fmt_mode),
+
+    .instr_retired_i(instr_retired)
   );
 
   logic            fpu_result_valid;
@@ -975,6 +999,45 @@ module schnizo import schnizo_pkg::*; #(
       fpu_ready_fpr = 1'b1;
     end
   end
+
+  // ---------------------------
+  // Core Events
+  // ---------------------------
+  // This is 1to1 from Snitch and it is misnamed. The stall signal tells us that we did not
+  // dispatch an instruction. However, it is used to signal if we retired an instruction right now.
+  // We keep this inconsistency to match the Snitch behaviour. And in terms of performance, it
+  // has no direct effect as each instruction eventually will retire. The reason for this approach
+  // is that it can handle the retirement of multiple instructions at once in a simpler fashion.
+  // For example, if we have a retiring load and an ALU instruction without writeback, we would
+  // have to count both retirements. As we only have single issue capabilities, we can count the
+  // instructions simpler during issuing them (one bit only).
+  assign instr_retired = !stall;
+  // However, we capture all retirements in regard to their type.
+  // TODO: For superscalar retirement we must count all retirements as it is possible that two LSUs
+  // retire at the same time (one to GPR, one to FPR).
+  assign instr_retired_single_cycle = (alu_valid_gpr & alu_ready_gpr) ||
+                                      (csr_valid_gpr & csr_ready_gpr);
+  assign instr_retired_load = (lsu_valid_gpr & lsu_ready_gpr) || (lsu_valid_fpr & lsu_ready_fpr);
+  // In Snitch this signal would also caputre the retired FPU instructions.
+  assign instr_retired_acc = (acc_valid_gpr & acc_ready_gpr);
+
+  // Asserted when the FPU accepts an instruction. This kind of also counts the retired
+  // instructions by the FPU.
+  assign issue_fpu = fpu_disp_req_valid & fpu_disp_req_ready;
+  // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
+  // also FP loads as the FP register is in the subsystem. Schnizo cannot distinguish this case as
+  // we handle all instructions in the core. We thus set the same signal.
+  // TODO: rework the core events
+  assign issue_core_to_fpu = fpu_disp_req_valid & fpu_disp_req_ready;
+
+  assign core_events_o.retired_instr = instr_retired_q;
+  assign core_events_o.retired_i     = instr_retired_single_cycle_q;
+  assign core_events_o.retired_load  = instr_retired_load_q;
+  assign core_events_o.retired_acc   = instr_retired_acc_q;
+
+  assign core_events_o.issue_fpu         = issue_fpu_q;
+  assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
+  assign core_events_o.issue_fpu_seq     = '0;
 
   // ---------------------------
   // Register Files
