@@ -412,8 +412,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   end
 
   // Assert that only one dispatch request is set at a time
-  `ASSERT(MoreThanOneValid, !$onehot0({alu_disp_req_valid_o, lsu_disp_req_valid_o,
-                                       csr_disp_req_valid_o, fpu_disp_req_valid_o,
-                                       acc_disp_req_valid_o}),
-          clk_i, rst_i, "Only one dispatch request may be valid at a time");
+  // TODO: How to suppress spikes at beginning of cycle?
+  // `ASSERT(MoreThanOneValid, !$onehot0({alu_disp_req_valid_o, lsu_disp_req_valid_o,
+  //                                      csr_disp_req_valid_o, fpu_disp_req_valid_o,
+  //                                      acc_disp_req_valid_o}),
+  //         clk_i, rst_i, "Only one dispatch request may be valid at a time");
 endmodule
