@@ -13,6 +13,7 @@ runs:
   - elf: ./schnizo/tests/build/sz_loopcarried_b.elf
   - elf: ./schnizo/tests/build/sz_loopcarried_c.elf
   - elf: ./schnizo/tests/build/sz_loopcarried_mixed.elf
+  - elf: ./schnizo/tests/build/sz_lsu.elf
   - elf: ./schnizo/tests/build/sz_outofslots.elf
   - elf: ./schnizo/tests/build/sz_simple_multicycle.elf
   - elf: ./schnizo/tests/build/sz_simple.elf
