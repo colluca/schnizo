@@ -198,18 +198,19 @@ module schnizo_fpu import schnizo_pkg::*; #(
         fpnew_op = fpnew_pkg::CLASSIFY;
         op_selection[1] = NONE;
       end
+      default: ; // use default assignment of above.
     endcase
   end
 
   // Operand MUX (allows to implement replication for vector instructions)
-  for (genvar op = 0; op < 3; op++) begin : gen_operand_select
+  for (genvar operand = 0; operand < 3; operand++) begin : gen_operand_select
     always_comb begin : operand_mux
-      case (op_selection[op])
-        RS1:     fpnew_operands[op] = rs1_i;
-        RS2:     fpnew_operands[op] = rs2_i;
-        RS3_IMM: fpnew_operands[op] = rs3_i;
-        NONE: fpnew_operands[op] = '0;
-        default: fpnew_operands[op] = '0;
+      case (op_selection[operand])
+        RS1:     fpnew_operands[operand] = rs1;
+        RS2:     fpnew_operands[operand] = rs2;
+        RS3_IMM: fpnew_operands[operand] = rs3;
+        NONE:    fpnew_operands[operand] = '0;
+        default: fpnew_operands[operand] = '0;
       endcase
     end
   end
