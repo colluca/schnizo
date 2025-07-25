@@ -5,6 +5,7 @@
 runs:
   - elf: ./schnizo/sz_sum/build/sz_sum.elf
   - elf: ./schnizo/sz_axpy/build/sz_axpy.elf
+  - elf: ./schnizo/sz_dot/build/sz_dot.elf
   - elf: ./schnizo/tests/build/sz_intraloop_a.elf
   - elf: ./schnizo/tests/build/sz_intraloop_a_multicycle.elf
   - elf: ./schnizo/tests/build/sz_intraloop_chain.elf

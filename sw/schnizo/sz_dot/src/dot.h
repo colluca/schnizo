@@ -14,7 +14,7 @@ static inline void dot_frep(uint32_t n, double *x, double *y, double *output) {
     asm volatile (
         // Code
         "csrr    t0,    mcycle\n"
-        "frep.o  %[n_frep], 7, 0, 0\n"
+        "frep.o  %[n_frep], 5, 0, 0\n"
         "fld     ft0, 0(%[xa])\n"
         "fld     ft1, 0(%[ya])\n"
         "fmadd.d %[sum], ft0, ft1, %[sum]\n"
@@ -22,7 +22,7 @@ static inline void dot_frep(uint32_t n, double *x, double *y, double *output) {
         "addi    %[ya], %[ya],   %[inc]\n"
         "csrr    t0,    mcycle\n"
         // Outputs
-        : [sum]"=f"(sum), [xa]"+r"(x_addr), [ya]"+r"(y_addr)
+        : [sum]"+f"(sum), [xa]"+r"(x_addr), [ya]"+r"(y_addr)
         // Inputs
         : [n_frep]"r"(n-1), [inc]"i"(inc)
         // Clobbers
