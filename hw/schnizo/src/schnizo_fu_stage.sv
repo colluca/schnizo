@@ -562,7 +562,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       .issue_req_i      (alu_issue_req),
       .issue_req_valid_i(alu_issue_req_valid),
-      .issue_commit_i   (instr_exec_commit_i),
       .issue_req_ready_o(alu_issue_req_ready),
       .result_o         (alu_result.result),
       .compare_res_o    (alu_result.compare_res),

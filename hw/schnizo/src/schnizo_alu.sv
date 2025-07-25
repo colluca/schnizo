@@ -18,7 +18,6 @@ module schnizo_alu import schnizo_pkg::*; #(
   input  logic            rst_i,
   input  issue_req_t      issue_req_i,
   input  logic            issue_req_valid_i,
-  input  logic            issue_commit_i,
   output logic            issue_req_ready_o,
   output logic [XLEN-1:0] result_o,
   /// Set if the comparison is true
@@ -31,10 +30,10 @@ module schnizo_alu import schnizo_pkg::*; #(
   // ---------------------
   // Valid/Ready handshake
   // ---------------------
-  // This ALU is combinatorial only. Feed through handshake if we commit.
-  assign result_valid_o = issue_req_valid_i & issue_commit_i;
+  // This ALU is combinatorial only. Feed through handshake.
+  assign result_valid_o    = issue_req_valid_i;
   assign issue_req_ready_o = result_ready_i;
-  assign tag_o          = issue_req_i.tag;
+  assign tag_o             = issue_req_i.tag;
   // The ALU is busy if there is valid data passing through.
   assign busy_o = issue_req_valid_i;
 

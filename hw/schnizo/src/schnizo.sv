@@ -581,6 +581,7 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Functional Units
   // ---------------------------
+  logic            alu_result_valid_raw;
   logic            alu_result_valid;
   logic            alu_result_ready;
   logic            lsu_result_valid;
@@ -680,7 +681,7 @@ module schnizo import schnizo_pkg::*; #(
     // ALU WB
     .alu_wb_result_o      (alu_result),
     .alu_wb_result_tag_o  (alu_result_tag),
-    .alu_wb_result_valid_o(alu_result_valid),
+    .alu_wb_result_valid_o(alu_result_valid_raw),
     .alu_wb_result_ready_i(alu_result_ready),
     // LSU WB
     .lsu_wb_result_o      (lsu_result),
@@ -694,8 +695,19 @@ module schnizo import schnizo_pkg::*; #(
     .fpu_wb_result_ready_i(fpu_result_ready)
   );
 
+  // Commit guard for ALU result:
+  // If we want to dispatch an ALU instruction, in particular a branching instruction, we may only
+  // commit the instruction if there is no instruction address misaligned exception.
+  // Therefore, we must "kill" the writeback if we don't commit. The kill must be after the result
+  // as otherwise we create a loop. For the other FUs the "kill" is before we pass the instruction
+  // downstream.
+  assign alu_result_valid = alu_result_valid_raw & instr_exec_commit;
+
   // CSR FU & register file
-  // Has direct connection to control logic.
+  // Has direct connection to control logic, exceptions are handled directly without the commit guard.
+  // I.e., the CSR always checks for exception but the controller masks it out if the current
+  //instruction isn't a CSR instruction.
+  // TODO: Maybe we should unify the behaviour?
   logic csr_result_valid;
   logic csr_result_ready;
   instr_tag_t csr_result_tag;
