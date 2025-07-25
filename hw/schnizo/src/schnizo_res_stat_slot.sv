@@ -576,7 +576,61 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   assign retired_o = slot_wb.is_store ? 1'b1 : retired;
 
   // Fork the request from the FU to the RSS and RF writeback. The RF writeback is only enabled if
-  // we are in LCP or the last LEP iteration.
+  // we are in LCP or the last LEP iteration. The RSS places a issue request to the FU as soon as
+  // the operands are ready. The FU then starts processing it.
+  // In LEP there is a special case:
+  // If the FU is single cycle, then the result is immediately valid. But the RSS maybe cannot
+  // accept the result yet as the previous result has not been consumed yet. In case the RF
+  // writeback however can accept it, we would write back before the instruction actually has been
+  // issued.
+  // To enforce consistency we thus must "delay" the RF writeback in this case.
+  // We can achieve this delay by masking the valid to the RF WB with the handshake signal of the
+  // RSS result capture stream. The "Lock in" captures the RSS handshake and enables the RF WB
+  // until it accepted the result as well. This masking mechanism may only capture the handshake
+  // if we actually want to have a writeback (do_rf_writeback).
+  //
+  //  +-------+                 +-------+
+  //  |  RSS  |                 | RF WB |
+  //  +-------+                 +-------+
+  //    |   ^       capture         ^
+  //    |   |      handshake        |
+  //    |   |     +---------+     +---+
+  //    |   o---->| Lock in |---->| & | valid (ready is direct)
+  //    |   |     +---------+     +---+
+  //    |   |                       ^
+  //    |   |                       |
+  //    |   +----------+     +------+
+  //    |              |     |
+  //    |          +-------------+
+  //    |          | Stream Fork |
+  //    |          +-------------+
+  //    |                 ^
+  //    |   +----+        |
+  //    +-->| FU |--------+
+  //        +----+
+  //
+  logic rf_wb_valid_raw;
+
+  logic res_hs_lock_d, res_hs_lock_q;
+  `FFAR(res_hs_lock_q, res_hs_lock_d, '0, clk_i, rst_i);
+
+  always_comb begin : g_res_lock
+    res_hs_lock_d = res_hs_lock_q;
+
+    // Only lock if not locked yet
+    if (res_hs_lock_d == 1'b0) begin
+      // Only lock if we handshake & actually want to write back (rf_wb_valid_raw)
+      res_hs_lock_d = (rss_wb_valid & rss_wb_ready) & rf_wb_valid_raw;
+    end
+
+    rf_wb_valid_o = rf_wb_valid_raw & res_hs_lock_d;
+
+    // Release the lock when write back
+    if (rf_wb_valid_o & rf_wb_ready_i) begin
+      res_hs_lock_d = 1'b0;
+    end
+  end
+
   // The RF writeback can actually happen before the RSS accepts the result. As the result is valid
   // locked-in, this is not a problem.
   stream_fork_dynamic #(
@@ -589,8 +643,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .sel_i      (wb_sel),
     .sel_valid_i(1'b1),
     .sel_ready_o(),
-    .valid_o    ({rf_wb_valid_o, rss_wb_valid}),
-    .ready_i    ({rf_wb_ready_i, rss_wb_ready})
+    .valid_o    ({rf_wb_valid_raw, rss_wb_valid}),
+    .ready_i    ({rf_wb_ready_i,   rss_wb_ready})
   );
 
   // The default slot values when accepting a new instruction.
