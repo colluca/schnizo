@@ -170,6 +170,8 @@ sources:
       - hw/schnizo/src/schnizo_res_stat.sv
       - hw/schnizo/src/schnizo_controller.sv
       # Level 3
+      - hw/schnizo/src/schnizo_fu_block.sv
+      # Level 4
       - hw/schnizo/src/schnizo.sv
     # We always enable the performance counters
 
