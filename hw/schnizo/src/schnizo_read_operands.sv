@@ -31,6 +31,10 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     fu_data_o.alu_op = instr_dec_i.alu_op;
     fu_data_o.lsu_op = instr_dec_i.lsu_op;
     fu_data_o.csr_op = instr_dec_i.csr_op;
+    fu_data_o.fpu_op = instr_dec_i.fpu_op;
+    fu_data_o.fpu_rnd_mode = instr_dec_i.fpu_rnd_mode;
+    fu_data_o.fpu_fmt_src = instr_dec_i.fpu_fmt_src;
+    fu_data_o.fpu_fmt_dst = instr_dec_i.fpu_fmt_dst;
 
     // Set the addresses
     gpr_raddr_o[0] = instr_dec_i.rs1;

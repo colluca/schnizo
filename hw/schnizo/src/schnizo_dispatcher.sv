@@ -39,7 +39,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
 
   // Handshake to the CSR FU. There is no response as it does not have a reservation station.
   output logic csr_disp_req_valid_o,
-  input  logic csr_disp_req_ready_i
+  input  logic csr_disp_req_ready_i,
+
+  // FPU
+  output logic      fpu_disp_req_valid_o,
+  input  logic      fpu_disp_req_ready_i,
+  input  disp_res_t fpu_disp_res_i
 );
   // ---------------------------
   // Register Mapping Table (RMT)
@@ -100,11 +105,13 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   logic [0:0] alu_disp_req_valid_raw;
   logic [0:0] lsu_disp_req_valid_raw;
   logic       csr_disp_req_valid_raw;
+  logic       fpu_disp_req_valid_raw;
   logic       none_disp_req_valid_raw;
   always_comb begin : fu_selection
     alu_disp_req_valid_raw = 1'b0;
     lsu_disp_req_valid_raw = 1'b0;
     csr_disp_req_valid_raw = 1'b0;
+    fpu_disp_req_valid_raw = 1'b0;
     fu_response = '0;
     fu_ready    = 1'b0;
 
@@ -128,6 +135,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         fu_response = '0; // There is no response because there is no reservation station.
         fu_ready = csr_disp_req_ready_i;
       end
+      schnizo_pkg::FPU: begin
+        fpu_disp_req_valid_raw = 1'b1;
+        fu_response = fpu_disp_res_i;
+        fu_ready = fpu_disp_req_ready_i;
+      end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         none_disp_req_valid_raw = 1'b1;
@@ -147,6 +159,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   assign alu_disp_req_valid_o = instr_dec_valid_i & alu_disp_req_valid_raw;
   assign lsu_disp_req_valid_o = instr_dec_valid_i & lsu_disp_req_valid_raw;
   assign csr_disp_req_valid_o = instr_dec_valid_i & csr_disp_req_valid_raw;
+  assign fpu_disp_req_valid_o = instr_dec_valid_i & fpu_disp_req_valid_raw;
 
   // The NONE FU always dispatches
   logic none_disp_req_valid;
@@ -154,7 +167,8 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
 
   // The instruction is dispatched when the FU handshakes the request
   assign disp_req_valid = alu_disp_req_valid_o | lsu_disp_req_valid_o |
-                          csr_disp_req_valid_o | none_disp_req_valid;
+                          csr_disp_req_valid_o | fpu_disp_req_valid_o |
+                          none_disp_req_valid;
   assign dispatched = disp_req_valid & fu_ready;
   // Signal back the dispatch
   assign instr_dec_ready_o = dispatched; // valid signal is factored in via disp_req_valid

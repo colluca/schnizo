@@ -95,6 +95,28 @@ package schnizo_pkg;
     CsrOpClear
   } csr_op_e;
 
+  typedef enum logic [4:0] {
+    FpuOpFadd,
+    FpuOpFsub,
+    FpuOpFmadd,
+    FpuOpFmsub,
+    FpuOpFnmsub,
+    FpuOpFnmadd,
+    FpuOpFmul,
+    FpuOpFdiv,
+    FpuOpFsqrt,
+    FpuOpFsgnj,
+    FpuOpFsgnjSignExt,
+    FpuOpFminmax,
+    FpuOpF2I,
+    FpuOpF2Iunsigned,
+    FpuOpI2F,
+    FpuOpI2Funsigned,
+    FpuOpF2F,
+    FpuOpFcmp,
+    FpuOpFclassify
+  } fpu_op_e;
+
   // Value size of load/store operations
   typedef enum logic [1:0] {
     Byte = 2'b00,

@@ -5,10 +5,7 @@
 // Author: Pascal Etterli <petterli@student.ethz.ch>
 // Description: The decoder for the Schnizo Core. Based on CVA6.
 
-`include "../../snitch/src/snitch_pkg.sv"
-`include "../../snitch/src/riscv_instr.sv"
-
-module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv_instr::*; #(
+module schnizo_decoder import schnizo_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter bit          Xdma        = 0,
   /// Enable F Extension (single).
@@ -22,14 +19,16 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
   parameter type         instr_dec_t = logic
 ) (
   // For assertions only.
-  input logic         clk_i,
-  input logic         rst_i,
+  input logic                   clk_i,
+  input logic                   rst_i,
 
-  input  logic [31:0] instr_fetch_data_i,
-  input  logic        instr_fetch_data_valid_i,
-  output logic        instr_valid_o,
-  output logic        instr_illegal_o,
-  output instr_dec_t  instr_dec_o
+  input  logic [31:0]           instr_fetch_data_i,
+  input  logic                  instr_fetch_data_valid_i,
+  input  fpnew_pkg::roundmode_e fpu_round_mode_i,
+  input  fpnew_pkg::fmt_mode_t  fpu_fmt_mode_i,
+  output logic                  instr_valid_o,
+  output logic                  instr_illegal_o,
+  output instr_dec_t            instr_dec_o
 );
   // --------------------
   // Instruction Types
@@ -161,6 +160,9 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
   instruction_t instr;
   assign instr = instruction_t'(instr_fetch_data_i);
 
+  // this instruction needs floating-point rounding-mode verification
+  logic check_fpround_mode;
+
   logic illegal_instr;
 
   assign instr_valid_o = instr_fetch_data_valid_i & ~illegal_instr;
@@ -174,6 +176,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
     instr_dec_o.alu_op = schnizo_pkg::AluOpAdd;
     instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoadByte;
     instr_dec_o.csr_op = schnizo_pkg::CsrOpNone;
+    instr_dec_o.fpu_op = schnizo_pkg::FpuOpFadd;
     // Set the default rd and rs_is_fp to zero such that if there is no write back required
     // we target register x0. x0 is read only and thus we have encoded that we have no write.
     instr_dec_o.rd = '0;
@@ -183,6 +186,9 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
     instr_dec_o.rs2 = '0;
     instr_dec_o.rs2_is_fp = 0;
     instr_dec_o.use_imm_as_rs3 = 1'b0;
+    instr_dec_o.fpu_fmt_src = fpnew_pkg::FP32;
+    instr_dec_o.fpu_fmt_dst = fpnew_pkg::FP32;
+    instr_dec_o.fpu_rnd_mode = fpnew_pkg::RNE;
     instr_dec_o.use_pc_as_op_a = 1'b0;
     instr_dec_o.use_rs1addr_as_op_a = 1'b0;
     instr_dec_o.is_branch = 1'b0;
@@ -194,6 +200,8 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
     instr_dec_o.is_mret   = 1'b0;
     instr_dec_o.is_sret   = 1'b0;
     instr_dec_o.is_wfi    = 1'b0;
+
+    check_fpround_mode = 1'b0;
 
     unique case (instr.rtype.opcode)
       // --------------------------------
@@ -279,7 +287,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
         endcase
       end
       OpcodeLoad: begin
-        instr_dec_o.fu = LOAD;
+        instr_dec_o.fu = schnizo_pkg::LOAD;
         imm_select = IIMM;
         instr_dec_o.rs1 = instr.itype.rs1;
         instr_dec_o.rd = instr.itype.rd;
@@ -299,7 +307,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
       // Floating-Point Load/store
       // --------------------------------
       OpcodeStoreFp: begin // STORE-FP
-        instr_dec_o.fu = STORE;
+        instr_dec_o.fu = schnizo_pkg::STORE;
         imm_select = SIMM;
         instr_dec_o.rs1 = instr.stype.rs1;
         instr_dec_o.rs2 = instr.stype.rs2;
@@ -323,7 +331,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
         endcase
       end
       OpcodeLoadFp: begin // LOAD-FP
-        instr_dec_o.fu = LOAD;
+        instr_dec_o.fu = schnizo_pkg::LOAD;
         imm_select = IIMM;
         instr_dec_o.rs1 = instr.itype.rs1;
         instr_dec_o.rd = instr.itype.rd;
@@ -332,7 +340,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
         unique case (instr.itype.funct3)
           // Only process instruction if corresponding extension is active (static)
           3'b000:
-          if (XF8) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadByte; // FLB
+          if (XF8 | XF8ALT) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadByte; // FLB
           else illegal_instr = 1'b1;
           3'b001:
           if (XF16 | XF16ALT) instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoadHalf; // FLH
@@ -347,10 +355,289 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
         endcase
       end
       // --------------------------------
+      // Floating-Point Fused Operations
+      // --------------------------------
+      OpcodeMadd, OpcodeMsub, OpcodeNmsub, OpcodeNmadd: begin
+        if (RVF || RVD) begin
+          instr_dec_o.fu             = schnizo_pkg::FPU;
+          instr_dec_o.rs1            = instr.r4type.rs1;
+          instr_dec_o.rs1_is_fp      = 1'b1;
+          instr_dec_o.rs2            = instr.r4type.rs2;
+          instr_dec_o.rs2_is_fp      = 1'b1;
+          instr_dec_o.rd             = instr.r4type.rd;
+          instr_dec_o.rd_is_fp       = 1'b1;
+          imm_select                = RS3;
+          instr_dec_o.use_imm_as_rs3 = 1'b1;
+
+          // Per default use the encoded format for src and dst (dst is not used for fused
+          // operations). Whether this format is suppored (i.e. RVF/RVD) is checked below.
+          // Any alternative format is set also below depending on the value in the CSR.
+          instr_dec_o.fpu_fmt_src = fpnew_pkg::fp_format_e'(instr.rftype.fmt);
+          instr_dec_o.fpu_fmt_dst = fpnew_pkg::fp_format_e'(instr.rftype.fmt);
+          // The integer format is not decoded here. Instead a separate fpu_op is defined.
+          // This is more space efficient as the int fmt differs only for a few instructions.
+
+          // The rounding mode contains additional decoding details for certain instructions.
+          instr_dec_o.fpu_rnd_mode = fpnew_pkg::roundmode_e'(instr.rftype.rm) == fpnew_pkg::DYN ?
+                                     fpu_round_mode_i : fpnew_pkg::roundmode_e'(instr.rftype.rm);
+          // Whether we check that the encoding contains a valid rounding mode.
+          // Certain instructions set the round mode for additional sub operations (e.g. FCMP)
+          // For such instructions the decoder sets the round mode to the appropriate value and no
+          // check can be performed anymore.
+          check_fpround_mode = 1'b1;
+
+          unique case (instr.r4type.opcode)
+            7'b1000011: instr_dec_o.fpu_op = schnizo_pkg::FpuOpFmadd; // FMADD
+            7'b1000111: instr_dec_o.fpu_op = schnizo_pkg::FpuOpFmsub; // FMSUB
+            7'b1001011: instr_dec_o.fpu_op = schnizo_pkg::FpuOpFnmsub; // FNMSUB
+            7'b1001111: instr_dec_o.fpu_op = schnizo_pkg::FpuOpFnmadd; // FNMADD
+            default: illegal_instr = 1'b1;
+          endcase
+
+          // --------------------------------
+          // Checks and alternative format assignment
+          // --------------------------------
+          // Assign alternative formats if enabled
+          if (fpu_fmt_mode_i.src == 1'b1) begin
+            unique case (instr_dec_o.fpu_fmt_src)
+              fpnew_pkg::FP16: instr_dec_o.fpu_fmt_src = fpnew_pkg::FP16ALT;
+              fpnew_pkg::FP8:  instr_dec_o.fpu_fmt_src = fpnew_pkg::FP8ALT;
+              default: ;
+            endcase
+          end
+          if (fpu_fmt_mode_i.dst == 1'b1) begin
+            unique case (instr_dec_o.fpu_fmt_dst)
+              fpnew_pkg::FP16: instr_dec_o.fpu_fmt_dst = fpnew_pkg::FP16ALT;
+              fpnew_pkg::FP8:  instr_dec_o.fpu_fmt_dst = fpnew_pkg::FP8ALT;
+              default: ;
+            endcase
+          end
+
+          // Check the FP format
+          unique case (fpnew_pkg::fp_format_e'(instr.rftype.fmt))
+            fpnew_pkg::FP32: if (~RVF) illegal_instr = 1'b1;
+            fpnew_pkg::FP64: if (~RVD) illegal_instr = 1'b1;
+            fpnew_pkg::FP16: if (~XF16) illegal_instr = 1'b1;
+            fpnew_pkg::FP16ALT: if (~XF16ALT) illegal_instr = 1'b1;
+            fpnew_pkg::FP8:  if (~XF8) illegal_instr = 1'b1;
+            fpnew_pkg::FP8ALT: if (~XF8ALT) illegal_instr = 1'b1;
+            default: illegal_instr = 1'b1;
+          endcase
+
+          if (check_fpround_mode) begin
+            unique case (instr.rftype.rm) inside
+              [ 3'b000 : 3'b100]: ; // legal round modes
+              3'b101: illegal_instr = 1'b1; // alternative Half-Precision mode. Not supported.
+              3'b111: begin
+                // round mode from CSR
+                unique case (fpu_round_mode_i) inside
+                  [3'b000 : 3'b100]: ;
+                  default: illegal_instr = 1'b1;
+                endcase
+              end
+              default: illegal_instr = 1'b1;
+            endcase
+          end
+        end else begin
+          illegal_instr = 1'b1;
+        end
+      end
+      // --------------------------------
+      // Floating-Point Reg-Reg Operations
+      // --------------------------------
+      OpcodeOpFp: begin
+        if (RVF || RVD) begin
+          instr_dec_o.fu        = schnizo_pkg::FPU;
+          instr_dec_o.rs1       = instr.rftype.rs1;
+          instr_dec_o.rs1_is_fp = 1'b1;
+          instr_dec_o.rs2       = instr.rftype.rs2;
+          instr_dec_o.rs2_is_fp = 1'b1;
+          instr_dec_o.rd        = instr.rftype.rd;
+          instr_dec_o.rd_is_fp  = 1'b1;
+
+          // Per default use the encoded format for src and dst. Whether this format is suppored
+          // (i.e. RVF/RVD) is checked below. Any alternative format is set also below depending
+          // on the value in the CSR. For conversion instructions, the decoder overwrite these
+          // values.
+          instr_dec_o.fpu_fmt_src = fpnew_pkg::fp_format_e'(instr.rftype.fmt);
+          instr_dec_o.fpu_fmt_dst = fpnew_pkg::fp_format_e'(instr.rftype.fmt);
+          // The integer format is not decoded here. Instead a separate fpu_op is defined.
+          // This is more space efficient as the int fmt differs only for a few instructions.
+
+          // The rounding mode contains additional decoding details for certain instructions.
+          instr_dec_o.fpu_rnd_mode = fpnew_pkg::roundmode_e'(instr.rftype.rm) == fpnew_pkg::DYN ?
+                                     fpu_round_mode_i : fpnew_pkg::roundmode_e'(instr.rftype.rm);
+          // Whether we check that the encoding contains a valid rounding mode.
+          // Certain instructions set the round mode for additional sub operations (e.g. FCMP)
+          // For such instructions the decoder sets the round mode to the appropriate value and no
+          // check can be performed anymore.
+          check_fpround_mode = 1'b1;
+
+          unique case (instr.rftype.funct5)
+            5'b00000: begin
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFadd; // FADD_S, FADD_D
+            end
+            5'b00001: begin
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsub; // FSUB_S, FSUB_D
+            end
+            5'b00010: begin
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFmul; // FMUL_S, FMUL_D
+            end
+            5'b00011: begin
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFdiv; // FDIV_S, FDIV_D
+            end
+            5'b01011: begin
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsqrt; // FSQRT_S, FSQRT_D
+              if (instr.rftype.rs2 != '0) illegal_instr = 1'b1;
+            end
+            5'b00100: begin
+              // FSGNJ, FSGNJN, FSGNJX - round mode represents the sub operation.
+              // Disable round mode check
+              check_fpround_mode = 1'b0;
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsgnj; // we only use op_mode zero (NaN boxed)
+              unique case (instr.rftype.rm)
+                3'b000: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RNE; // FSGNJ_S,  FSGNJ_D
+                3'b001: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RTZ; // FSGNJN_S, FSGNJN_D
+                3'b010: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RDN; // FSGNJX_S, FSGNJX_D
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            5'b00101: begin
+              // FMIN, FMAX - round mode represents the sub operation.
+              // Disable round mode check
+              check_fpround_mode = 1'b0;
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFminmax;
+              unique case (instr.rftype.rm)
+                3'b000: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RNE; // FMIN_S, FMIN_D
+                3'b001: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RTZ; // FMAX_S, FMAX_D
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            5'b01000: begin
+              // overwrite the destination format. Check the source format.
+              unique case ({instr.rftype.fmt, instr.rftype.rs2})
+                7'b01_00000: begin
+                  instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2F; // FCVT_D_S
+                  instr_dec_o.fpu_fmt_src = fpnew_pkg::FP32;
+                end
+                7'b00_00001: begin
+                  instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2F; // FCVT_S_D
+                  instr_dec_o.fpu_fmt_src = fpnew_pkg::FP64;
+                end
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            5'b11000: begin
+              instr_dec_o.rd_is_fp = 1'b0;
+              unique case (instr.rftype.rs2)
+                5'b00000: instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2I;        //FCVT_W_S, FCVT_W_D
+                5'b00001: instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2Iunsigned;//FCVT_WU_S, FCVT_WU_D
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            5'b10100: begin
+              check_fpround_mode = 1'b0;
+              instr_dec_o.rd_is_fp = 1'b0;
+              instr_dec_o.fpu_op = schnizo_pkg::FpuOpFcmp;
+              unique case (instr.rftype.rm)
+                3'b000: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RNE; // FLE_S, FLE_D
+                3'b001: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RTZ; // FLT_S, FLT_D
+                3'b010: instr_dec_o.fpu_rnd_mode = fpnew_pkg::RDN; // FEQ_S, FEQ_D
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            5'b11100: begin
+              check_fpround_mode = 1'b0;
+              unique case (instr.rftype.rm)
+                3'b000: begin
+                  instr_dec_o.rd_is_fp = 1'b0;
+                  // use sign injection with passthrough and sign-extend result
+                  instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsgnjSignExt; // FMV_X_W
+                  instr_dec_o.fpu_rnd_mode = fpnew_pkg::RUP; // passthrough
+                end
+                3'b001: begin
+                  instr_dec_o.rd_is_fp = 1'b0;
+                  instr_dec_o.fpu_op = schnizo_pkg::FpuOpFclassify; // FCLASS_S, FCLASS_D
+                  instr_dec_o.fpu_rnd_mode = fpnew_pkg::RNE;
+                end
+                default: illegal_instr = 1'b1;
+              endcase
+              if (instr.rftype.rs2 != '0) illegal_instr = 1'b1;
+            end
+            5'b11010: begin
+              instr_dec_o.rs1_is_fp  = 1'b0;
+              unique case (instr.rftype.rs2)
+                5'b00000: instr_dec_o.fpu_op = schnizo_pkg::FpuOpI2F;        //FCVT_S_W, FCVT_D_W
+                5'b00001: instr_dec_o.fpu_op = schnizo_pkg::FpuOpI2Funsigned;//FCVT_S_WU, FCVT_D_WU
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            5'b11110: begin
+              if (instr.rftype.rs2 == '0 && instr.rftype.rm == '0) begin
+              instr_dec_o.rs1_is_fp  = 1'b0;
+                instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsgnj; // FMV_W_X
+                instr_dec_o.fpu_rnd_mode = fpnew_pkg::RUP; // passthrough
+              end else begin
+                illegal_instr = 1'b1;
+              end
+            end
+            default: illegal_instr = 1'b1;
+          endcase
+          // --------------------------------
+          // Checks and alternative format assignment
+          // --------------------------------
+          // Assign alternative formats if enabled
+          if (fpu_fmt_mode_i.src == 1'b1) begin
+            unique case (instr_dec_o.fpu_fmt_src)
+              fpnew_pkg::FP16: instr_dec_o.fpu_fmt_src = fpnew_pkg::FP16ALT;
+              fpnew_pkg::FP8:  instr_dec_o.fpu_fmt_src = fpnew_pkg::FP8ALT;
+              default: ;
+            endcase
+          end
+
+          if (fpu_fmt_mode_i.dst == 1'b1) begin
+            unique case (instr_dec_o.fpu_fmt_dst)
+              fpnew_pkg::FP16: instr_dec_o.fpu_fmt_dst = fpnew_pkg::FP16ALT;
+              fpnew_pkg::FP8:  instr_dec_o.fpu_fmt_dst = fpnew_pkg::FP8ALT;
+              default: ;
+            endcase
+          end
+
+          // Check the FP format
+          unique case (fpnew_pkg::fp_format_e'(instr.rftype.fmt))
+            fpnew_pkg::FP32: if (~RVF) illegal_instr = 1'b1;
+            fpnew_pkg::FP64: if (~RVD) illegal_instr = 1'b1;
+            fpnew_pkg::FP16: if (~XF16) illegal_instr = 1'b1;
+            fpnew_pkg::FP16ALT: if (~XF16ALT) illegal_instr = 1'b1;
+            fpnew_pkg::FP8:  if (~XF8) illegal_instr = 1'b1;
+            fpnew_pkg::FP8ALT: if (~XF8ALT) illegal_instr = 1'b1;
+            default: illegal_instr = 1'b1;
+          endcase
+
+          if (check_fpround_mode) begin
+            unique case (instr.rftype.rm) inside
+              [ 3'b000 : 3'b100]: ; // legal round modes
+              3'b101: illegal_instr = 1'b1; // alternative Half-Precision mode. Not supported.
+              3'b111: begin
+                // round mode from CSR
+                unique case (fpu_round_mode_i) inside
+                  [3'b000 : 3'b100]: ;
+                  default: illegal_instr = 1'b1;
+                endcase
+              end
+              default: illegal_instr = 1'b1;
+            endcase
+          end
+
+        end else begin
+          illegal_instr = 1'b1;
+        end
+      end
+      // --------------------------------
       // Control Flow Instructions
       // --------------------------------
       OpcodeBranch: begin
-        instr_dec_o.fu        = CTRL_FLOW;
+        instr_dec_o.fu        = schnizo_pkg::CTRL_FLOW;
         imm_select            = SBIMM;
         instr_dec_o.rs1       = instr.stype.rs1;
         instr_dec_o.rs2       = instr.stype.rs2;
@@ -372,7 +659,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
       end
       // Jump and link - JAL
       OpcodeJal: begin
-        instr_dec_o.fu             = CTRL_FLOW;
+        instr_dec_o.fu             = schnizo_pkg::CTRL_FLOW;
         instr_dec_o.alu_op         = schnizo_pkg::AluOpAdd;
         imm_select                 = JIMM;
         instr_dec_o.rd             = instr.utype.rd;
@@ -381,7 +668,7 @@ module schnizo_decoder import schnizo_pkg::*; import snitch_pkg::*; import riscv
       end
       // Jump and link register - JALR
       OpcodeJalr: begin
-        instr_dec_o.fu      = CTRL_FLOW;
+        instr_dec_o.fu      = schnizo_pkg::CTRL_FLOW;
         instr_dec_o.alu_op  = schnizo_pkg::AluOpAdd;
         instr_dec_o.rs1     = instr.itype.rs1;
         imm_select          = IIMM;

@@ -161,6 +161,7 @@ sources:
       - hw/schnizo/src/schnizo_read_operands.sv
       - hw/schnizo/src/schnizo_scoreboard.sv
       - hw/schnizo/src/schnizo_csr.sv
+      - hw/schnizo/src/schnizo_fpu.sv
       # Level 2
       - hw/schnizo/src/schnizo_reservation_station.sv
       # Level 3

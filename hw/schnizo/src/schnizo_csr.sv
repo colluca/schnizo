@@ -122,6 +122,7 @@ module schnizo_csr import schnizo_pkg::*; #(
   output logic                    barrier_stall_o,
   // FPU state update from the retiring FPU instruction
   input  fpnew_pkg::status_t      fpu_status_i,
+  input  logic                    fpu_status_valid_i,
   // Current FPU configuration
   output fpnew_pkg::roundmode_e   fpu_rnd_mode_o,
   output fpnew_pkg::fmt_mode_t    fpu_fmt_mode_o
@@ -594,9 +595,6 @@ module schnizo_csr import schnizo_pkg::*; #(
     satp_d = satp_q;
     priv_lvl_d = priv_lvl_q;
 
-    // update FP CSR with current state
-    fcsr_d.fflags = fcsr_q.fflags | fpu_status_i;
-
     // If we have a write operation, update the CSR only if the request is valid.
     // Any invalid request (illegal CSR address or insufficient privileges) will cause an
     // exception which in turn will de-assert the disp_req_valid_i signal.
@@ -713,6 +711,9 @@ module schnizo_csr import schnizo_pkg::*; #(
         default: ;
       endcase
     end
+
+    // Update FP CSR with current state if its valid. This is on top of any write.
+    fcsr_d.fflags = fpu_status_valid_i ? (fpu_status_i | fcsr_d.fflags) : fcsr_d.fflags;
 
     // Handle current exceptions, wfi and privilege transitions.
     // For this we need some informations from the frontend and decoder.
@@ -832,7 +833,7 @@ module schnizo_csr import schnizo_pkg::*; #(
   assign illegal_csr_instr_o = illegal_csr_read | illegal_csr_priv | illegal_csr_write;
 
   // Only update the CSRs if the instruction is valid.
-  assign csr_write_en_int = csr_write_en & ~illegal_csr_instr_o;
+  assign csr_write_en_int = csr_write_en & ~illegal_csr_instr_o & disp_req_valid_i;
 
   // CSR FU is ready to execute instruction depending whether we have to write to the RF.
   // We have to write to the RF (read CSR) only if the csr instruction is valid. In this case,

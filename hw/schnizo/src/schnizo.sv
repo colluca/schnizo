@@ -136,6 +136,7 @@ module schnizo import schnizo_pkg::*; #(
     alu_op_e                  alu_op;
     lsu_op_e                  lsu_op;
     csr_op_e                  csr_op;
+    fpu_op_e                  fpu_op;
     // rd and rs_is_fp must be set to all zero to encoded that there is
     // no write back for this instruction.
     logic [REG_ADDR_SIZE-1:0] rd;
@@ -148,6 +149,10 @@ module schnizo import schnizo_pkg::*; #(
     // this field holds the address of the third operand (rs3) from the floating-point regfile
     logic [XLEN-1:0]          imm;
     logic                     use_imm_as_rs3; // set if rs3 is a FP register
+    fpnew_pkg::fp_format_e    fpu_fmt_src; // The FPU format field.
+    fpnew_pkg::fp_format_e    fpu_fmt_dst; // The FPU format field.
+    // The round mode for the FPU. If DYN was specified, it contains the value from the CSR.
+    fpnew_pkg::roundmode_e    fpu_rnd_mode;
     logic                     use_imm_as_op_b; // set if we need to use the immediate as ALU op b
     logic                     use_pc_as_op_a; // set if we need to use the PC as ALU operand a
     logic                     use_rs1addr_as_op_a; // set if CSR instruction uses rs1 address
@@ -163,16 +168,19 @@ module schnizo import schnizo_pkg::*; #(
   } instr_dec_t;
 
   typedef struct packed {
-    fu_t              fu;
-    alu_op_e          alu_op;
-    lsu_op_e          lsu_op;
-    csr_op_e          csr_op;
-    logic [OpLen-1:0] operand_a;
-    logic [OpLen-1:0] operand_b;
+    fu_t                   fu;
+    alu_op_e               alu_op;
+    lsu_op_e               lsu_op;
+    csr_op_e               csr_op;
+    fpu_op_e               fpu_op;
+    logic [OpLen-1:0]      operand_a;
+    logic [OpLen-1:0]      operand_b;
     // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the value of the third operand
-    logic [OpLen-1:0] imm;
-    // logic [TRANS_ID_BITS-1:0] trans_id;
+    logic [OpLen-1:0]      imm;
+    fpnew_pkg::fp_format_e fpu_fmt_src;
+    fpnew_pkg::fp_format_e fpu_fmt_dst;
+    fpnew_pkg::roundmode_e fpu_rnd_mode;
   } fu_data_t;
 
   typedef struct packed {
@@ -184,7 +192,7 @@ module schnizo import schnizo_pkg::*; #(
 
   typedef struct packed {
     logic [ProdAddrSize-1:0] prod_id;
-    logic                      is_produced; // set if prod_id is a valid mapping
+    logic                    is_produced; // set if prod_id is a valid mapping
   } rmt_entry_t;
 
   typedef struct packed {
@@ -246,9 +254,15 @@ module schnizo import schnizo_pkg::*; #(
   logic[31:0]      mepc;
   logic[31:0]      sepc;
 
+  fpnew_pkg::roundmode_e fpu_rnd_mode;
+  fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
+  instr_dec_t instr_decoded;
+
   alu_result_t alu_result;
   instr_tag_t  alu_result_tag;
   logic        lsu_empty;
+  fpnew_pkg::status_t fpu_status;
+  logic               fpu_status_valid;
 
   // ---------------------------
   // Snitch related unused signals
@@ -280,8 +294,6 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Decoder
   // ---------------------------
-  instr_dec_t instr_decoded;
-
   schnizo_decoder #(
     .XLEN   (XLEN),
     .RVF    (RVF),
@@ -296,6 +308,8 @@ module schnizo import schnizo_pkg::*; #(
     .rst_i,
     .instr_fetch_data_i      (instr_fetch_data_i),
     .instr_fetch_data_valid_i(instr_fetch_data_valid),
+    .fpu_round_mode_i        (fpu_rnd_mode),
+    .fpu_fmt_mode_i          (fpu_fmt_mode),
     .instr_valid_o           (instr_valid),
     .instr_illegal_o         (instr_decoded_illegal),
     .instr_dec_o             (instr_decoded)
@@ -511,6 +525,8 @@ module schnizo import schnizo_pkg::*; #(
   logic [0:0] lsu_disp_req_ready;
   logic       csr_disp_req_valid;
   logic       csr_disp_req_ready;
+  logic       fpu_disp_req_valid;
+  logic       fpu_disp_req_ready;
   schnizo_dispatcher #(
     .RegAddrSize(REG_ADDR_SIZE),
     .instr_dec_t(instr_dec_t),
@@ -534,7 +550,10 @@ module schnizo import schnizo_pkg::*; #(
     .lsu_disp_req_ready_i(lsu_disp_req_ready),
     .lsu_disp_res_i      ('0),  // RSS not yet implemented
     .csr_disp_req_valid_o(csr_disp_req_valid),
-    .csr_disp_req_ready_i(csr_disp_req_ready)
+    .csr_disp_req_ready_i(csr_disp_req_ready),
+    .fpu_disp_req_valid_o(fpu_disp_req_valid),
+    .fpu_disp_req_ready_i(fpu_disp_req_ready),
+    .fpu_disp_res_i      ('0) // RSS not yet implemented
   );
 
   // ---------------------------
@@ -555,6 +574,7 @@ module schnizo import schnizo_pkg::*; #(
     // ALU specific
     .HasBranch   (1'b1)
     // LSU specific are default
+    // FPU specific are default
   ) i_schnizo_res_stat_alu (
     .clk_i,
     .rst_i,
@@ -575,6 +595,10 @@ module schnizo import schnizo_pkg::*; #(
     .caq_req_ready_o      (),
     .caq_rsp_valid_i      ('0),
     .caq_rsp_valid_o      (),
+
+    // FPU specific
+    .hart_id_i('0),
+    .fpu_status_o(),
 
     // Write back port
     .result_o      (alu_result),
@@ -610,6 +634,7 @@ module schnizo import schnizo_pkg::*; #(
     .CaqEn                 (0), // TODO: Disabled for the first implementation
     .CaqDepth              (CaqDepth),
     .CaqTagWidth           (CaqTagWidth)
+    // FPU specific are default
   ) i_schnizo_res_stat_lsu (
     .clk_i,
     .rst_i,
@@ -632,6 +657,10 @@ module schnizo import schnizo_pkg::*; #(
     .caq_req_ready_o      (),
     .caq_rsp_valid_i      (1'b0),
     .caq_rsp_valid_o      (),
+
+    // FPU specific
+    .hart_id_i('0),
+    .fpu_status_o(),
 
     // Write back port
     .result_o      (lsu_result),
@@ -693,20 +722,77 @@ module schnizo import schnizo_pkg::*; #(
     .barrier_i              (barrier_i),
     .barrier_o              (barrier_o),
     .barrier_stall_o        (barrier_stall),
-    .fpu_status_i           (),
-    .fpu_rnd_mode_o         (),
-    .fpu_fmt_mode_o         ()
+    .fpu_status_i           (fpu_status),
+    .fpu_status_valid_i     (fpu_status_valid),
+    .fpu_rnd_mode_o         (fpu_rnd_mode),
+    .fpu_fmt_mode_o         (fpu_fmt_mode)
   );
 
-  // TODO: add FPU
   logic            fpu_result_valid;
   logic            fpu_result_ready;
   instr_tag_t      fpu_result_tag;
-  logic [FLEN-1:0] fpu_result;
+  // Create a typedef such that we can safely pass it to the RS
+  typedef logic [FLEN-1:0] fpu_result_t;
+  fpu_result_t     fpu_result;
 
-  assign fpu_result_valid = '0;
-  assign fpu_result_tag = '0;
-  assign fpu_result = '0;
+  schnizo_reservation_station #(
+    .ProdAddrSize(ProdAddrSize),
+    .XLEN        (XLEN),
+    .FLEN        (FLEN),
+    .disp_req_t  (disp_req_t),
+    .disp_res_t  (disp_res_t),
+    .result_t    (fpu_result_t),
+    .result_tag_t(instr_tag_t),
+    .fu_t        (fu_t),
+    .Fu          (schnizo_pkg::FPU),
+    // ALU specific are default
+    // LSU specific are default
+    // FPU specific
+    .FPUImplementation(FPUImplementation),
+    .RVF(RVF),
+    .RVD(RVD),
+    .XF16(XF16),
+    .XF16ALT(XF16ALT),
+    .XF8(XF8),
+    .XF8ALT(XF8ALT),
+    .XFVEC(XFVEC),
+    .RegisterFPUIn(RegisterFPUIn),
+    .RegisterFPUOut(RegisterFPUOut)
+  ) i_schnizo_res_stat_fpu (
+    .clk_i,
+    .rst_i,
+    .disp_req_i      (dispatch_req),
+    .disp_req_valid_i(fpu_disp_req_valid),
+    .disp_req_ready_o(fpu_disp_req_ready),
+    .disp_res_o      (), // not yet implemented
+    .rss_full_o      (), // asserted if all RSS are in use
+
+    // LSU specific - not connected
+    .lsu_data_req_o       (),
+    .lsu_data_rsp_i       ('0),
+    .lsu_empty_o          (),
+    .lsu_addr_misaligned_o(),
+    .caq_addr_i           ('0),
+    .caq_is_fp_store_i    ('0),
+    .caq_req_valid_i      ('0),
+    .caq_req_ready_o      (),
+    .caq_rsp_valid_i      ('0),
+    .caq_rsp_valid_o      (),
+
+    // FPU specific
+    .hart_id_i(hart_id_i),
+    .fpu_status_o(fpu_status),
+
+    // Write back port
+    .result_o      (fpu_result),
+    .result_tag_o  (fpu_result_tag),
+    .result_valid_o(fpu_result_valid),
+    .result_ready_i(fpu_result_ready)
+    // TODO: Xbar interface to other RS
+  );
+
+  // We may only update the FCSR fpu status bits if the result is handshaked.
+  assign fpu_status_valid = fpu_result_valid && fpu_result_ready;
 
   // ---------------------------
   // Write back
@@ -722,7 +808,7 @@ module schnizo import schnizo_pkg::*; #(
   // - LSU
   // - FPU
   // Prio for FPR
-  // - Accelertor master (currently not implemented)
+  // - Accelertor master (not implemented)
   // - FPU
   // - LSU
 
@@ -737,12 +823,12 @@ module schnizo import schnizo_pkg::*; #(
 
   // MUX the valid/ready signals to the correct register file.
   // TODO: This is probably unnecessary and stalls the core. However, the ALU should never
-  //        write to the FPR. How should we handle this case?
+  //        write to the FPR. How should we handle this case? -> Assertion?
   assign alu_valid_gpr = alu_result_tag.dest_reg_is_fp ? 1'b0 : alu_result_valid;
   // The ALU cannot write to the FPR -> no alu_valid_fpr
   assign alu_result_ready = alu_result_tag.dest_reg_is_fp ? 1'b0 : alu_ready_gpr;
 
-  // TODO: Same case as ALU. The CSR should never write to the FPR.
+  // TODO: Same case as ALU. The CSR should never write to the FPR. -> Assertion?
   assign csr_valid_gpr = csr_result_tag.dest_reg_is_fp ? 1'b0 : csr_result_valid;
   assign csr_result_ready = csr_result_tag.dest_reg_is_fp ? 1'b0 : csr_ready_gpr;
 
@@ -752,7 +838,7 @@ module schnizo import schnizo_pkg::*; #(
 
   assign fpu_valid_gpr = fpu_result_tag.dest_reg_is_fp ? 1'b0             : fpu_result_valid;
   assign fpu_valid_fpr = fpu_result_tag.dest_reg_is_fp ? fpu_result_valid : 1'b0;
-  assign fpu_result_ready = lsu_result_tag.dest_reg_is_fp ? fpu_ready_fpr : fpu_ready_gpr;
+  assign fpu_result_ready = fpu_result_tag.dest_reg_is_fp ? fpu_ready_fpr : fpu_ready_gpr;
 
   // Note: The register file must always be ready.
   // Otherwise the valid/ready handshaking is not AXI conform anymore.

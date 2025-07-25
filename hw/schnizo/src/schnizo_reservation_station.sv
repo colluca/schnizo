@@ -10,17 +10,18 @@
 
 module schnizo_reservation_station import schnizo_pkg::*; #(
   parameter int unsigned ProdAddrSize = 5,
-  parameter int unsigned XLEN = 32,
-  parameter int unsigned FLEN = 64,
-  parameter type         disp_req_t = logic,
-  parameter type         disp_res_t = logic,
-  parameter type         result_t = logic,
+  parameter int unsigned XLEN         = 32,
+  parameter type         disp_req_t   = logic,
+  parameter type         disp_res_t   = logic,
+  parameter type         result_t     = logic,
   parameter type         result_tag_t = logic,
-  parameter type         fu_t = logic,
+  parameter type         fu_t         = logic,
   parameter fu_t         Fu,
+
   /// ALU specific
   // Enable the branch comparison logic
   parameter bit          HasBranch = 0,
+
   /// LSU specific
   // Physical Address width of the core.
   parameter int unsigned AddrWidth = 48,
@@ -29,16 +30,32 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
   // Data port request type.
   parameter type         dreq_t    = logic,
   // Data port response type.
-  parameter type         drsp_t     = logic,
+  parameter type         drsp_t    = logic,
   parameter int unsigned NumIntOutstandingLoads = 0,
-  parameter int unsigned NumIntOutstandingMem = 0,
+  parameter int unsigned NumIntOutstandingMem   = 0,
   // Consistency Address Queue (CAQ) parameters
-  parameter bit          CaqEn = 0,
+  parameter bit          CaqEn       = 0,
   parameter int unsigned CaqDepth    = 0,
   parameter int unsigned CaqTagWidth = 0,
   // Derived parameter *Do not override*
   parameter type         addr_t = logic [AddrWidth-1:0],
-  parameter type         data_t = logic [DataWidth-1:0]
+  parameter type         data_t = logic [DataWidth-1:0],
+
+  /// LSU and FPU specific *Do not override*
+  parameter int unsigned FLEN         = DataWidth,
+
+  /// FPU specific
+  parameter fpnew_pkg::fpu_implementation_t FPUImplementation = '0,
+  parameter bit          RVF     = 0,
+  parameter bit          RVD     = 0,
+  parameter bit          XF16    = 0,
+  parameter bit          XF16ALT = 0,
+  parameter bit          XF8     = 0,
+  parameter bit          XF8ALT  = 0,
+  // Vectors are not implemented! Here for compatibility with Snitch.
+  parameter bit          XFVEC   = 0,
+  parameter bit          RegisterFPUIn  = 0,
+  parameter bit          RegisterFPUOut = 0
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
@@ -63,6 +80,10 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
   // Answer from other LSU
   input  logic        caq_rsp_valid_i,
   output logic        caq_rsp_valid_o,
+
+  // FPU signals
+  input  logic [31:0]        hart_id_i,
+  output fpnew_pkg::status_t fpu_status_o,
 
   // Write back port
   output result_t     result_o,
@@ -106,13 +127,7 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
     );
     // Feed through the tag directly as it is a combinatorial FU.
     assign result_tag_o = disp_req_i.tag;
-
-    // tie off unused signals
-    assign lsu_addr_misaligned_o = 1'b0;
-    assign lsu_empty_o = 1'b0;
-    assign caq_rsp_valid_o = 1'b0;
-    assign caq_req_ready_o = 1'b0;
-  end
+  end // no signals to tie off for ALU
 
   // ---------------------------
   // LSU
@@ -246,6 +261,88 @@ module schnizo_reservation_station import schnizo_pkg::*; #(
     // Result handshake
     assign result_valid_o = lsu_result_valid;
     assign lsu_result_ready = result_ready_i;
+  end else begin : gen_tieoff_lsu
+    assign lsu_addr_misaligned_o = 1'b0;
+    assign lsu_empty_o = 1'b0;
+    assign caq_rsp_valid_o = 1'b0;
+    assign caq_req_ready_o = 1'b0;
 
+    assign lsu_store_data = '0;
+    assign lsu_addr = '0;
+    assign is_store = '0;
+    assign is_signed = '0;
+    assign ls_size = schnizo_pkg::Word;
+    assign ls_amo = reqrsp_pkg::AMONone;
+    assign input_tag = '0;
+    assign result_tag = '0;
+    assign lsu_issue_valid = '0;
+    assign lsu_issue_ready = '0;
+    assign lsu_result_valid = '0;
+    assign  lsu_result_ready = '0;
+    assign lsu_result = '0;
   end
+
+  // ---------------------------
+  // FPU
+  // ---------------------------
+  // We decode the rest of the instruction in the FPU as it is specific to the chosen FPU.
+  logic fpu_issue_valid, fpu_issue_ready;
+  logic fpu_result_valid, fpu_result_ready;
+
+  logic [FLEN-1:0] fpu_result;
+  if (Fu == schnizo_pkg::FPU) begin : gen_fpu
+
+    assign fpu_issue_valid = disp_req_valid_i;
+    assign disp_req_ready_o = fpu_issue_ready;
+    schnizo_fpu #(
+      .FPUImplementation(FPUImplementation),
+      .RVF              (RVF),
+      .RVD              (RVD),
+      .XF16             (XF16),
+      .XF16ALT          (XF16ALT),
+      .XF8              (XF8),
+      .XF8ALT           (XF8ALT),
+      .XFVEC            (XFVEC),
+      .FLEN             (FLEN),
+      .RegisterFPUIn    (RegisterFPUIn),
+      .RegisterFPUOut   (RegisterFPUOut),
+      .instr_tag_t      (result_tag_t)
+    ) i_rs_fpu (
+      .clk_i,
+      .rst_ni(~rst_i),
+
+      .hart_id_i   (hart_id_i),
+      .op_i        (disp_req_i.fu_data.fpu_op),
+      .rs1_i       (disp_req_i.fu_data.operand_a),
+      .rs2_i       (disp_req_i.fu_data.operand_b),
+      .rs3_i       (disp_req_i.fu_data.imm),
+      .round_mode_i(disp_req_i.fu_data.fpu_rnd_mode),
+      .fmt_src_i   (disp_req_i.fu_data.fpu_fmt_src),
+      .fmt_dst_i   (disp_req_i.fu_data.fpu_fmt_dst),
+      .tag_i       (disp_req_i.tag),
+      // Input Handshake
+      .in_valid_i  (fpu_issue_valid),
+      .in_ready_o  (fpu_issue_ready),
+      // Output signals
+      .result_o    (fpu_result),
+      .status_o    (fpu_status_o),
+      .tag_o       (result_tag_o),
+      // Output handshake
+      .out_valid_o (fpu_result_valid),
+      .out_ready_i (fpu_result_ready)
+    );
+
+    assign result_o = fpu_result;
+
+    // Result handshake
+    assign result_valid_o = fpu_result_valid;
+    assign fpu_result_ready = result_ready_i;
+  end else begin : gen_tieoff_fpu
+    assign fpu_status_o = '0;
+    assign fpu_issue_valid = '0;
+    assign fpu_issue_ready = '0;
+    assign fpu_result_valid = '0;
+    assign fpu_result_ready = '0;
+  end
+
 endmodule
