@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: SHL-0.51
 
 // Author: Pascal Etterli <petterli@student.ethz.ch>
-// Description: The scoreboard module which checks for RAW and WAW conflicts
+// Description: The scoreboard module which checks for RAW and WAW conflicts.
+// Important: This module assumes that all functional units writing to the floating point register
+//            file are multi cycle instructions! Otherwise an optimization would lead to wrongly
+//            ordered commits.
 
 `include "common_cells/registers.svh"
 
@@ -55,8 +58,24 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
 
     dest_has_waw = instr_dec_i.rd_is_fp  ? sbf_q[instr_dec_i.rd]  : sbi_q[instr_dec_i.rd];
 
-    // Optimization: if the register is committed in this cycle, the destination is ready.
-    // TODO: Problem: If the new instruction writes combinatorially, then we have a clash!
+    // Optimization: If the register is committed in this cycle, the destination is ready.
+    // This is only possible depending on the write back arbiter priority and/or if all retiring
+    // instructions are not single cycle instructions!
+    // Assume an instruction is dispatched and takes some cycles. Durning its execution an other
+    // single cycle instruction targeting the same register is ready to dispatch. This second
+    // instruction stalls on the scoreboard / WAW conflict. In the cycle where the first
+    // instruction commits, the following logic would allow the second (single cycle) instruction
+    // to dispatch. Now, depending on the WB arbiter priority, the single cycle result could be
+    // selected as result. But this would "kill" the commit of the first instruction and rendering
+    // the dispatch of the second instruction invalid and thus create a combinatorial loop.
+    // For the Schnizo, the WB arbiter prioritizes any single cycle instruction and we thus have
+    // exactly the explained case. However, because only the LSU and FPU can write to the floating
+    // point registers and both functional units always are multi cycle, we still can implement the
+    // optimization for the floating point register file. The commit order of instructions is
+    // always guaranteed because no multi cycle instruction can overtake the in flight instruction.
+    // Any following instruction is only dispatched when the previous one commits and because all
+    // instructions are multi cycle, the later instruction cannot try to commit at the same cycle.
+    // This optimization has also effects on the write back update below!
     dest_is_written = 1'b0;
     if (write_enable_fpr_i && instr_dec_i.rd_is_fp) begin
       if (waddr_fpr_i == instr_dec_i.rd) begin
@@ -67,43 +86,42 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
     destination_ready_o = ~dest_has_waw | dest_is_written;
   end
 
-  logic is_single_cycle;
   always_comb begin : sb_disp_wb_update
     sbi_d = sbi_q;
     sbf_d = sbf_q;
 
-    // Remove the reservation when a write back happens
-    if (write_enable_gpr_i) begin
-      sbi_d[waddr_gpr_i] = 1'b0;
-    end
-    if (write_enable_fpr_i) begin
-      sbf_d[waddr_fpr_i] = 1'b0;
-    end
-
     // Place a reservation if dispatched. In case there is no write, the register address
     // and rd_is_fp signal defaults to all zero. Thus we place a reservation in gpr x0.
-    // However, this is hardwired to zero and thus it is always valid.
-    // Any reservation for x0 is reset.
-    //
-    // Do not place a reservation if we have a write back in the same cycle.
-    // Any ALU and CSR instruction is single cycle.
-
-    // TODO: Improve this to snoop the actual write back handshake.
-    // TODO: CAN WE SWITCH THE RESERVATION PLACING AND THE CLEARING?
-    // We need to now which instruction retires. Otherwise we could clear the reservation of a
-    // dispatched instruction with the write back of a previous instruction.
-
-    is_single_cycle = instr_dec_i.fu inside {schnizo_pkg::ALU,
-                                             schnizo_pkg::CSR,
-                                             schnizo_pkg::CTRL_FLOW};
-    if (dispatched_i && !is_single_cycle) begin
+    // However, this is hardwired to zero and thus it is always valid. Any reservation for x0
+    // is reset.
+    if (dispatched_i) begin
       if (instr_dec_i.rd_is_fp) begin
         sbf_d[instr_dec_i.rd] = 1'b1;
       end else begin
         sbi_d[instr_dec_i.rd] = 1'b1;
       end
     end
-    sbi_d[0] = 1'b0; // x0 is always valid
+
+    // Remove the reservation when a write back happens. This also catches the case of instructions
+    // writing back in the same cycle (single cycle instruction like ALU, CTRL_FLOW or CSR).
+    if (write_enable_gpr_i) begin
+      sbi_d[waddr_gpr_i] = 1'b0;
+    end
+    if (write_enable_fpr_i) begin
+      sbf_d[waddr_fpr_i] = 1'b0;
+      // Handle the WAW optimization (see above):
+      // The optimization for the floating point register file allows an instruction to dispatch in
+      // the cycle where the earlier WAW generating instruction commits. In this case we must keep
+      // the register as reserved.
+      if (dispatched_i && instr_dec_i.rd_is_fp) begin
+        if (waddr_fpr_i == instr_dec_i.rd) begin
+          sbf_d[waddr_fpr_i] = 1'b1;
+        end
+      end
+    end
+
+    // x0 is always valid
+    sbi_d[0] = 1'b0;
     // fp0 is a regular register
   end
 endmodule

@@ -9,6 +9,8 @@
 // This core implements the following RISC-V extensions: IMFD
 
 // Limitation:
+// - The scoreboard assumes that only multi cycle functional units write to the floating point
+//   register file!
 // - when reaching the end of a program, we somehow have to make sure that all instructions
 //   have committed before the core gets stopped.
 
