@@ -825,12 +825,16 @@ module schnizo import schnizo_pkg::*; #(
 
   // Asserted when the FPU accepts an instruction. This kind of also counts the retired
   // instructions by the FPU.
-  assign issue_fpu = fpu_disp_req_valid & fpu_disp_req_ready;
+  logic [NofFpus-1:0] all_issue_fpu_handshakes;
+  for (genvar i = 0; i < NofFpus; i++) begin : gen_issue_fpu
+    assign all_issue_fpu_handshakes[i] = fpu_disp_req_valid[i] & fpu_disp_req_ready[i];
+  end
+  assign issue_fpu = |all_issue_fpu_handshakes;
   // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
   // also FP loads as the FP register is in the subsystem. Schnizo cannot distinguish this case as
   // we handle all instructions in the core. We thus set the same signal.
   // TODO: rework the core events
-  assign issue_core_to_fpu = fpu_disp_req_valid & fpu_disp_req_ready;
+  assign issue_core_to_fpu = |all_issue_fpu_handshakes;
 
   assign core_events_o.retired_instr = instr_retired_q;
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
