@@ -385,7 +385,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
         res_reqs_ready[req_if]              = fpu_res_reqs_ready[fpu][fpu_req_if];
         req_if = req_if + 1;
       end
-      for (int rsp = 0; rsp < LsuNofResRspIfs; rsp++) begin
+      for (int rsp = 0; rsp < FpuNofResRspIfs; rsp++) begin
         // responses
         res_rsps[rsp_if]             = fpu_res_rsps[fpu][rsp];
         res_rsps_valid[rsp_if]       = fpu_res_rsps_valid[fpu][rsp];
