@@ -11,11 +11,15 @@
 /// `NumOutstandingMem` requests in total) and optionally NaNBox if used in a
 /// floating-point setting. It expects its memory sub-system to keep order (as if
 /// issued with a single ID).
-module schnizo_lsu #(
+module schnizo_lsu import schnizo_pkg::*; #(
+  parameter int unsigned XLEN                = 32,
+  parameter type         issue_req_t         = logic,
   parameter int unsigned AddrWidth           = 32,
   parameter int unsigned DataWidth           = 32,
+  parameter type         dreq_t              = logic,
+  parameter type         drsp_t              = logic,
   /// Tag passed from input to output. All transactions are in-order.
-  parameter type tag_t                       = logic [4:0],
+  parameter type         tag_t               = logic [4:0],
   /// Number of outstanding memory transactions.
   parameter int unsigned NumOutstandingMem   = 1,
   /// Number of outstanding loads.
@@ -36,55 +40,184 @@ module schnizo_lsu #(
   /// Whether the LSU should track repeated instructions issued by a sequencer
   /// and accordingly filter them from its CAQ responses as is necessary.
   parameter bit          CaqRespTrackSeq     = 0,
-  parameter type         dreq_t              = logic,
-  parameter type         drsp_t              = logic,
   /// Derived parameter *Do not override*
   parameter type addr_t = logic [AddrWidth-1:0],
   parameter type data_t = logic [DataWidth-1:0]
 ) (
-  input  logic                 clk_i,
-  input  logic                 rst_i,
-  // request channel
-  input  tag_t                 lsu_qtag_i,
-  input  logic                 lsu_qwrite_i,
-  input  logic                 lsu_qsigned_i,
-  // Whether to NaN Box values. Used for floating-point load/stores.
-  input  logic                 lsu_nan_box_i,
-  input  addr_t                lsu_qaddr_i,
-  input  data_t                lsu_qdata_i,
-  input  logic [1:0]           lsu_qsize_i,
-  input  reqrsp_pkg::amo_op_e  lsu_qamo_i,
-  input  logic                 lsu_qrepd_i,  // Whether this is a sequencer repetition
-  input  logic                 lsu_qvalid_i,
-  output logic                 lsu_qready_o,
-  // response channel
-  output data_t                lsu_pdata_o,
-  output tag_t                 lsu_ptag_o,
-  output logic                 lsu_perror_o,
-  output logic                 lsu_pvalid_o,
-  input  logic                 lsu_pready_i,
-  /// CAQ request snoop channel. Only some address bits will be read.
-  /// Fork offloaded loads/stores to here iff `Caq` is 1.
-  input  addr_t                caq_qaddr_i,
-  input  logic                 caq_qwrite_i,
-  input  logic                 caq_qvalid_i,
-  output logic                 caq_qready_o,
-  /// Incoming CAQ response snoop channel.
-  /// Fork responses to offloaded loads/stores to here iff `Caq` is 1.
-  input  logic                 caq_pvalid_i,
-  /// Outgoing CAQ response snoop channel.
-  /// Signals whether access response was handshaked iff `CaqResp` is 1.
-  output logic                 caq_pvalid_o,
-  /// High if there is currently no transaction pending.
-  output logic                 lsu_empty_o,
-  // Memory Interface Channel
-  output dreq_t                data_req_o,
-  input  drsp_t                data_rsp_i
+  input  logic clk_i,
+  input  logic rst_i,
+
+  // Instruction stream
+  input  issue_req_t issue_req_i,
+  input  logic       issue_req_valid_i,
+  output logic       issue_req_ready_o,
+  output data_t      result_o,
+  output tag_t       tag_o,
+  output logic       result_error_o,
+  output logic       result_valid_o,
+  input  logic       result_ready_i,
+  output logic       busy_o,
+  // High if there is currently no transaction pending.
+  output logic       empty_o,
+  output logic       addr_misaligned_o,
+
+  // LSU memory interface
+  output dreq_t data_req_o,
+  input  drsp_t data_rsp_i,
+
+  // Consistency address queue snoop channel. Only some address bits will be read.
+  // Fork offloaded loads/stores to here iff `Caq` is 1.
+  input  addr_t caq_addr_i,
+  // Whether the CAQ should track this write of the other LSU. (was named `caq_is_fp_store_i`).
+  input  logic  caq_track_write_i,
+  input  logic  caq_req_valid_i,
+  output logic  caq_req_ready_o,
+  // Incoming CAQ response snoop channel.
+  // Fork responses to offloaded loads/stores to here iff `Caq` is 1.
+  input  logic caq_rsp_valid_i,
+  // Outgoing CAQ response snoop channel.
+  // Signals whether access response was handshaked iff `CaqResp` is 1.
+  // Unconnected for the integer LSU
+  output logic caq_rsp_valid_o
 );
 
   `include "common_cells/assertions.svh"
 
   localparam int unsigned DataAlign = $clog2(DataWidth/8);
+
+  // -------------------------------
+  // Decoding
+  // -------------------------------
+  logic [XLEN-1:0]     address; // 32 bit address
+  addr_t               address_sys; // Address in system type
+  data_t               store_data;
+  logic                is_store;
+  logic                is_signed;
+  logic                do_nan_boxing;
+  lsu_size_e           ls_size;
+  reqrsp_pkg::amo_op_e ls_amo;
+
+  // Compute the address
+  // For the superscalar case we cannot use the ALU for this computation.
+  // Therefore, we create a separate adder.
+  // !! We may only take the lower XLEN bits as the operands are NOT sign extended
+  // to OpLen (OpLen = FLEN > XLEN ? FLEN : XLEN)
+  assign address = issue_req_i.fu_data.operand_a[XLEN-1:0] + issue_req_i.fu_data.imm[XLEN-1:0];
+
+  // Convert the 32bit address to a system address.
+  always_comb begin
+    address_sys = '0;
+    address_sys[XLEN-1:0] = address;
+  end
+
+  // Sign extend the data to be stored to the appropriate length
+  assign store_data = $unsigned(issue_req_i.fu_data.operand_b);
+
+  // Control signals
+  assign is_store  = issue_req_i.fu_data.lsu_op inside {LsuOpStore, LsuOpFpStore};
+  // All FP loads are signed to NaN box narrower values than FLEN
+  assign is_signed = issue_req_i.fu_data.lsu_op inside {LsuOpLoad, LsuOpAmoLr, LsuOpAmoSc,
+                                                        LsuOpAmoSwap, LsuOpAmoAdd, LsuOpAmoXor,
+                                                        LsuOpAmoAnd, LsuOpAmoOr, LsuOpAmoMin,
+                                                        LsuOpAmoMax, LsuOpAmoMinU, LsuOpAmoMaxU,
+                                                        LsuOpFpLoad};
+
+  // Whether to apply NaN boxing or not
+  assign do_nan_boxing = issue_req_i.fu_data.lsu_op inside {LsuOpFpLoad, LsuOpFpStore};
+  assign ls_size       = issue_req_i.fu_data.lsu_size;
+
+  always_comb begin
+    unique case (issue_req_i.fu_data.lsu_op)
+      LsuOpAmoLr:   ls_amo = reqrsp_pkg::AMOLR;
+      LsuOpAmoSc:   ls_amo = reqrsp_pkg::AMOSC;
+      LsuOpAmoSwap: ls_amo = reqrsp_pkg::AMOSwap;
+      LsuOpAmoAdd:  ls_amo = reqrsp_pkg::AMOAdd;
+      LsuOpAmoXor:  ls_amo = reqrsp_pkg::AMOXor;
+      LsuOpAmoAnd:  ls_amo = reqrsp_pkg::AMOAnd;
+      LsuOpAmoOr:   ls_amo = reqrsp_pkg::AMOOr;
+      LsuOpAmoMin:  ls_amo = reqrsp_pkg::AMOMin;
+      LsuOpAmoMax:  ls_amo = reqrsp_pkg::AMOMax;
+      LsuOpAmoMinU: ls_amo = reqrsp_pkg::AMOMinu;
+      LsuOpAmoMaxU: ls_amo = reqrsp_pkg::AMOMaxu;
+      default:      ls_amo = reqrsp_pkg::AMONone;
+    endcase
+  end
+
+  // Unaligned Address Check
+  always_comb begin
+    addr_misaligned_o = 1'b0;
+    unique case (ls_size)
+      HalfWord: if (address_sys[0] != 1'b0)     addr_misaligned_o = 1'b1;
+      Word:     if (address_sys[1:0] != 2'b00)  addr_misaligned_o = 1'b1;
+      Double:   if (address_sys[2:0] != 3'b000) addr_misaligned_o = 1'b1;
+      default:  addr_misaligned_o = 1'b0;
+    endcase
+  end
+
+  // The LSU is busy as long as it is not empty.
+  assign busy_o = !empty_o;
+
+  // --------------------
+  // Snitch compatibility
+  // --------------------
+  // To keep the similarity / compatibility to the Snitch LSU we reuse the same "interface".
+
+  // Request channel
+  tag_t lsu_qtag_i;
+  logic lsu_qwrite_i;
+  logic lsu_qsigned_i;
+  // Whether to NaN Box values. Used for floating-point load/stores.
+  logic                 lsu_nan_box_i;
+  addr_t                lsu_qaddr_i; // Address to load from / store to
+  data_t                lsu_qdata_i; // The data to store
+  logic [1:0]           lsu_qsize_i;
+  reqrsp_pkg::amo_op_e  lsu_qamo_i;
+  logic                 lsu_qrepd_i; // If it is a sequencer repetition
+  logic                 lsu_qvalid_i;
+  logic                 lsu_qready_o;
+  // Response channel
+  data_t lsu_pdata_o; // The loaded data
+  tag_t  lsu_ptag_o;
+  logic  lsu_perror_o; // Ignored for the moment
+  logic  lsu_pvalid_o;
+  logic  lsu_pready_i;
+  logic  lsu_empty_o;
+  // CAQ
+  addr_t caq_qaddr_i;
+  logic  caq_qwrite_i;
+  logic  caq_qvalid_i;
+  logic  caq_qready_o;
+  logic  caq_pvalid_i;
+  logic  caq_pvalid_o;
+
+  // Request
+  assign lsu_qtag_i        = issue_req_i.tag;
+  assign lsu_qwrite_i      = is_store;
+  assign lsu_qsigned_i     = is_signed;
+  assign lsu_nan_box_i     = do_nan_boxing;
+  assign lsu_qsize_i       = ls_size;
+  assign lsu_qamo_i        = ls_amo;
+  assign lsu_qrepd_i       = 1'b0;
+  assign lsu_qaddr_i       = address_sys;
+  assign lsu_qdata_i       = store_data;
+  assign lsu_qvalid_i      = issue_req_valid_i;
+  assign issue_req_ready_o = lsu_qready_o;
+  // Response
+  assign result_o       = lsu_pdata_o;
+  assign tag_o          = lsu_ptag_o;
+  assign result_error_o = lsu_perror_o;
+  assign result_valid_o = lsu_pvalid_o;
+  assign lsu_pready_i   = result_ready_i;
+  assign empty_o        = lsu_empty_o;
+
+  // Consistency address queue
+  assign caq_qaddr_i     = caq_addr_i;
+  assign caq_qwrite_i    = caq_track_write_i;
+  assign caq_qvalid_i    = caq_req_valid_i;
+  assign caq_req_ready_o = caq_qready_o;
+  assign caq_pvalid_i    = caq_rsp_valid_i;
+  assign caq_rsp_valid_o = caq_pvalid_o; // unconnected for the integer LSU
+  // The actual memory interface (data_req_o, data_rsp_i) is the same
 
   // -------------------------------
   // Consistency Address Queue (CAQ)

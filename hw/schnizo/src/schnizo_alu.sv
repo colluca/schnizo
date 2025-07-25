@@ -8,20 +8,45 @@
 //  shifter unit. It is based on the CVA6 alu module.
 
 module schnizo_alu import schnizo_pkg::*; #(
-  parameter int unsigned XLEN = 32,
-  parameter bit          HasBranch     = 1'b1
+  parameter int unsigned XLEN        = 32,
+  parameter bit          HasBranch   = 1'b1,
+  parameter type         issue_req_t = logic,
+  parameter type         instr_tag_t = logic
 )
 (
   input  logic            clk_i,
   input  logic            rst_i,
-
-  input  alu_op_e         alu_op_i,
-  input  logic [XLEN-1:0] opa_i,
-  input  logic [XLEN-1:0] opb_i,
+  input  issue_req_t      issue_req_i,
+  input  logic            issue_req_valid_i,
+  output logic            issue_req_ready_o,
   output logic [XLEN-1:0] result_o,
   /// Set if the comparison is true
-  output logic            compare_res_o
+  output logic            compare_res_o,
+  output instr_tag_t      tag_o,
+  output logic            result_valid_o,
+  input  logic            result_ready_i,
+  output logic            busy_o
 );
+  // ---------------------
+  // Valid/Ready handshake
+  // ---------------------
+  // This ALU is combinatorial only. Feed through handshake.
+  assign result_valid_o = issue_req_valid_i;
+  assign issue_req_ready_o = result_ready_i;
+  assign tag_o          = issue_req_i.tag;
+  // The ALU is busy if there is valid data passing through.
+  assign busy_o = issue_req_valid_i;
+
+  // ------------------
+  // Operand extraction
+  // ------------------
+  alu_op_e         alu_op;
+  logic [XLEN-1:0] opa;
+  logic [XLEN-1:0] opb;
+  assign alu_op = issue_req_i.fu_data.alu_op;
+  assign opa    = issue_req_i.fu_data.operand_a[XLEN-1:0];
+  assign opb    = issue_req_i.fu_data.operand_b[XLEN-1:0];
+
   // ------
   // Adder
   // ------
@@ -32,13 +57,13 @@ module schnizo_alu import schnizo_pkg::*; #(
   logic [XLEN-1:0] adder_result;
   logic            adder_res_is_zero;
 
-  assign adder_op_b_negate = alu_op_i inside {AluOpEq, AluOpNeq, AluOpSub};
+  assign adder_op_b_negate = alu_op inside {AluOpEq, AluOpNeq, AluOpSub};
 
   // prepare operand a
-  assign adder_in_a = {opa_i, 1'b1};
+  assign adder_in_a = {opa, 1'b1};
 
   // prepare operand b (negate if required)
-  assign operand_b_neg = {opb_i, 1'b0} ^ {XLEN + 1{adder_op_b_negate}};
+  assign operand_b_neg = {opb, 1'b0} ^ {XLEN + 1{adder_op_b_negate}};
   assign adder_in_b    = operand_b_neg;
 
   // actual adder
@@ -54,13 +79,13 @@ module schnizo_alu import schnizo_pkg::*; #(
     logic sgn;
     sgn = 1'b0;
 
-    if ((alu_op_i == AluOpSlt) ||
-        (alu_op_i == AluOpLt)  ||
-        (alu_op_i == AluOpGe)) begin
+    if ((alu_op == AluOpSlt) ||
+        (alu_op == AluOpLt)  ||
+        (alu_op == AluOpGe)) begin
       sgn = 1'b1;
     end
 
-    op_a_is_less = $signed({sgn & opa_i[XLEN-1], opa_i}) < $signed({sgn & opb_i[XLEN-1], opb_i});
+    op_a_is_less = $signed({sgn & opa[XLEN-1], opa}) < $signed({sgn & opb[XLEN-1], opb});
   end
 
   // -------
@@ -71,9 +96,9 @@ module schnizo_alu import schnizo_pkg::*; #(
   logic       shift_left;
   logic       shift_arithmetic;
 
-  assign shift_amt = opb_i[4:0];
-  assign shift_left = (alu_op_i == AluOpSll);
-  assign shift_arithmetic = (alu_op_i == AluOpSra);
+  assign shift_amt        = opb[4:0];
+  assign shift_left       = (alu_op == AluOpSll);
+  assign shift_arithmetic = (alu_op == AluOpSra);
 
   // shifter data path
   logic [XLEN-1:0] shift_opa, shift_opa_reversed;
@@ -83,7 +108,7 @@ module schnizo_alu import schnizo_pkg::*; #(
   logic [XLEN-1:0] shift_right_result, shift_left_result;
   logic [XLEN-1:0] shift_result;
 
-  assign shift_opa = opa_i;
+  assign shift_opa = opa;
 
   for (genvar i = 0; i < XLEN; i++) begin : gen_reverse_shift_opa
     assign shift_opa_reversed[i] = shift_opa[XLEN-1-i];
@@ -107,9 +132,9 @@ module schnizo_alu import schnizo_pkg::*; #(
   logic [XLEN-1:0] or_result;
   logic [XLEN-1:0] and_result;
 
-  assign xor_result = opa_i ^ opb_i;
-  assign or_result  = opa_i | opb_i;
-  assign and_result = opa_i & opb_i;
+  assign xor_result = opa ^ opb;
+  assign or_result  = opa | opb;
+  assign and_result = opa & opb;
 
   // -----------
   // Result MUX
@@ -117,7 +142,7 @@ module schnizo_alu import schnizo_pkg::*; #(
   always_comb begin : result_mux
     result_o = '0;
 
-    unique case (alu_op_i)
+    unique case (alu_op)
       AluOpAdd,
       AluOpSub:  result_o = adder_result;
       AluOpXor:  result_o = xor_result;
@@ -137,7 +162,7 @@ module schnizo_alu import schnizo_pkg::*; #(
   // ----------------
   if (HasBranch) begin : gen_branch_resolve
     always_comb begin
-      unique case (alu_op_i)
+      unique case (alu_op)
         AluOpEq:  compare_res_o = adder_res_is_zero;
         AluOpNeq: compare_res_o = ~adder_res_is_zero;
         AluOpLt,

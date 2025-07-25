@@ -483,46 +483,24 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   logic [0:0]  alu_result_valid;
   logic [0:0]  alu_result_ready;
-  schnizo_fu_wrapper #(
-    .XLEN        (XLEN),
-    .FLEN        (FLEN),
-    .issue_req_t (issue_req_t),
-    .result_t    (alu_result_t),
-    .result_tag_t(instr_tag_t),
-    .fu_t        (fu_t),
-    .Fu          (schnizo_pkg::ALU),
-    // ALU specific
-    .HasBranch   (1'b1)
-    // LSU specific are default
-    // FPU specific are default
-  ) i_schnizo_alu_wrapper (
+
+  schnizo_alu #(
+    .XLEN       (XLEN),
+    .HasBranch  (1),
+    .issue_req_t(issue_req_t),
+    .instr_tag_t(instr_tag_t)
+  ) i_alu (
     .clk_i,
     .rst_i,
     .issue_req_i      (issue_req),
     .issue_req_valid_i(alu_disp_req_valid),
     .issue_req_ready_o(alu_disp_req_ready),
-
-    // LSU specific - not connected
-    .lsu_data_req_o       (),
-    .lsu_data_rsp_i       ('0),
-    .lsu_empty_o          (),
-    .lsu_addr_misaligned_o(),
-    .caq_addr_i           ('0),
-    .caq_is_fp_store_i    ('0),
-    .caq_req_valid_i      ('0),
-    .caq_req_ready_o      (),
-    .caq_rsp_valid_i      ('0),
-    .caq_rsp_valid_o      (),
-
-    // FPU specific
-    .hart_id_i('0),
-    .fpu_status_o(),
-
-    // Write back port
-    .result_o      (alu_result),
-    .result_tag_o  (alu_result_tag),
-    .result_valid_o(alu_result_valid),
-    .result_ready_i(alu_result_ready)
+    .result_o         (alu_result.result),
+    .compare_res_o    (alu_result.compare_res),
+    .tag_o            (alu_result_tag),
+    .result_valid_o   (alu_result_valid),
+    .result_ready_i   (alu_result_ready),
+    .busy_o           ()
   );
 
   logic       lsu_result_valid;
@@ -530,56 +508,45 @@ module schnizo import schnizo_pkg::*; #(
   instr_tag_t lsu_result_tag;
   data_t      lsu_result;
 
-  schnizo_fu_wrapper #(
-    .XLEN        (XLEN),
-    .FLEN        (FLEN),
-    .issue_req_t (issue_req_t),
-    .result_t    (data_t),
-    .result_tag_t(instr_tag_t),
-    .fu_t        (fu_t),
-    .Fu          (schnizo_pkg::STORE), // can be store or load for LSU
-    // ALU specific are default
-    // LSU specific
-    .AddrWidth             (AddrWidth),
-    .DataWidth             (DataWidth),
-    .dreq_t                (dreq_t),
-    .drsp_t                (drsp_t),
-    .NumIntOutstandingMem  (NumOutstandingMem),
-    .NumIntOutstandingLoads(NumOutstandingLoads),
-    .CaqEn                 (0), // TODO: Disabled for the first implementation
-    .CaqDepth              (CaqDepth),
-    .CaqTagWidth           (CaqTagWidth)
-    // FPU specific are default
-  ) i_schnizo_lsu_wrapper (
+  schnizo_lsu #(
+    .XLEN               (XLEN),
+    .issue_req_t        (issue_req_t),
+    .AddrWidth          (AddrWidth),
+    .DataWidth          (DataWidth),
+    .dreq_t             (dreq_t),
+    .drsp_t             (drsp_t),
+    .tag_t              (instr_tag_t),
+    .NumOutstandingMem  (NumOutstandingMem),
+    .NumOutstandingLoads(NumOutstandingLoads),
+    .Caq                (0),
+    .CaqDepth           (CaqDepth),
+    .CaqTagWidth        (CaqTagWidth),
+    .CaqRespSrc         (0),
+    .CaqRespTrackSeq    (0)
+  ) i_lsu (
     .clk_i,
     .rst_i,
     .issue_req_i      (issue_req),
     .issue_req_valid_i(lsu_disp_req_valid),
     .issue_req_ready_o(lsu_disp_req_ready),
-
-    /// LSU specific
-    // LSU memory interface
-    .lsu_data_req_o       (data_req_o),
-    .lsu_data_rsp_i       (data_rsp_i),
-    .lsu_empty_o          (lsu_empty),
-    .lsu_addr_misaligned_o(lsu_addr_misaligned),
-    // Consistency address queue interface
-    .caq_addr_i           ('0),
-    .caq_is_fp_store_i    (1'b0),
-    .caq_req_valid_i      (1'b0),
-    .caq_req_ready_o      (),
-    .caq_rsp_valid_i      (1'b0),
-    .caq_rsp_valid_o      (),
-
-    // FPU specific
-    .hart_id_i('0),
-    .fpu_status_o(),
-
-    // Write back port
-    .result_o      (lsu_result),
-    .result_tag_o  (lsu_result_tag),
-    .result_valid_o(lsu_result_valid),
-    .result_ready_i(lsu_result_ready)
+    .result_o         (lsu_result),
+    .tag_o            (lsu_result_tag),
+    .result_error_o   (), // ignored for now
+    .result_valid_o   (lsu_result_valid),
+    .result_ready_i   (lsu_result_ready),
+    .busy_o           (),
+    .empty_o          (lsu_empty),
+    .addr_misaligned_o(lsu_addr_misaligned),
+    // Memory interface
+    .data_req_o       (data_req_o),
+    .data_rsp_i       (data_rsp_i),
+    // CAQ
+    .caq_addr_i       ('0),
+    .caq_track_write_i(1'b0),
+    .caq_req_valid_i  (1'b0),
+    .caq_req_ready_o  (),
+    .caq_rsp_valid_i  (1'b0),
+    .caq_rsp_valid_o  ()
   );
 
   // CSR FU & register file
@@ -598,7 +565,7 @@ module schnizo import schnizo_pkg::*; #(
     .VMSupport   (0),
     .issue_req_t (issue_req_t),
     .result_tag_t(instr_tag_t)
-  ) i_schnizo_csr (
+  ) i_csr (
     .clk_i(clk_i),
     .rst_i(rst_i),
 
@@ -642,62 +609,38 @@ module schnizo import schnizo_pkg::*; #(
     .instr_retired_i(instr_retired)
   );
 
-  logic       fpu_result_valid;
-  logic       fpu_result_ready;
-  instr_tag_t fpu_result_tag;
-  // Create a typedef such that we can safely pass it to the RS
-  typedef logic [FLEN-1:0] fpu_result_t;
-  fpu_result_t fpu_result;
+  logic [FLEN-1:0] fpu_result;
+  logic            fpu_result_valid;
+  logic            fpu_result_ready;
+  instr_tag_t      fpu_result_tag;
 
-  schnizo_fu_wrapper #(
-    .XLEN        (XLEN),
-    .FLEN        (FLEN),
-    .issue_req_t (issue_req_t),
-    .result_t    (fpu_result_t),
-    .result_tag_t(instr_tag_t),
-    .fu_t        (fu_t),
-    .Fu          (schnizo_pkg::FPU),
-    // ALU specific are default
-    // LSU specific are default
-    // FPU specific
+  schnizo_fpu #(
     .FPUImplementation(FPUImplementation),
-    .RVF(RVF),
-    .RVD(RVD),
-    .XF16(XF16),
-    .XF16ALT(XF16ALT),
-    .XF8(XF8),
-    .XF8ALT(XF8ALT),
-    .XFVEC(XFVEC),
-    .RegisterFPUIn(RegisterFPUIn),
-    .RegisterFPUOut(RegisterFPUOut)
-  ) i_schnizo_fpu_wrapper (
+    .RVF              (RVF),
+    .RVD              (RVD),
+    .XF16             (XF16),
+    .XF16ALT          (XF16ALT),
+    .XF8              (XF8),
+    .XF8ALT           (XF8ALT),
+    .XFVEC            (XFVEC),
+    .FLEN             (FLEN),
+    .RegisterFPUIn    (RegisterFPUIn),
+    .RegisterFPUOut   (RegisterFPUOut),
+    .issue_req_t      (issue_req_t),
+    .instr_tag_t      (instr_tag_t)
+  ) i_fpu (
     .clk_i,
-    .rst_i,
+    .rst_ni           (~rst_i),
+    .hart_id_i        (),
     .issue_req_i      (issue_req),
     .issue_req_valid_i(fpu_disp_req_valid),
     .issue_req_ready_o(fpu_disp_req_ready),
-
-    // LSU specific - not connected
-    .lsu_data_req_o       (),
-    .lsu_data_rsp_i       ('0),
-    .lsu_empty_o          (),
-    .lsu_addr_misaligned_o(),
-    .caq_addr_i           ('0),
-    .caq_is_fp_store_i    ('0),
-    .caq_req_valid_i      ('0),
-    .caq_req_ready_o      (),
-    .caq_rsp_valid_i      ('0),
-    .caq_rsp_valid_o      (),
-
-    // FPU specific
-    .hart_id_i(hart_id_i),
-    .fpu_status_o(fpu_status),
-
-    // Write back port
-    .result_o      (fpu_result),
-    .result_tag_o  (fpu_result_tag),
-    .result_valid_o(fpu_result_valid),
-    .result_ready_i(fpu_result_ready)
+    .result_o         (fpu_result),
+    .result_valid_o   (fpu_result_valid),
+    .result_ready_i   (fpu_result_ready),
+    .tag_o            (fpu_result_tag),
+    .status_o         (fpu_status),
+    .busy_o           ()
   );
 
   // We may only update the FCSR fpu status bits if the result is handshaked.

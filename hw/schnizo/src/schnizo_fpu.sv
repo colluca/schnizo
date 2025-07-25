@@ -24,32 +24,53 @@ module schnizo_fpu import schnizo_pkg::*; #(
   parameter bit          RegisterFPUIn  = 0,
   // Register the signals directly after the FPnew instance
   parameter bit          RegisterFPUOut = 0,
+  parameter type         issue_req_t    = logic,
   parameter type         instr_tag_t    = logic
 ) (
-  input  logic                  clk_i,
-  input  logic                  rst_ni,
+  input  logic               clk_i,
+  input  logic               rst_ni,
 
-  input  logic [31:0]           hart_id_i,
-  input  fpu_op_e               op_i,
-  input  logic [FLEN-1:0]       rs1_i,
-  input  logic [FLEN-1:0]       rs2_i,
-  input  logic [FLEN-1:0]       rs3_i,
-  input  fpnew_pkg::roundmode_e round_mode_i,
-  input  fpnew_pkg::fp_format_e fmt_src_i,
-  input  fpnew_pkg::fp_format_e fmt_dst_i,
-  input  instr_tag_t            tag_i,
+  input  logic [31:0]        hart_id_i,
   // Input Handshake
-  input  logic                  in_valid_i,
-  output logic                  in_ready_o,
+  input  issue_req_t         issue_req_i,
+  input  logic               issue_req_valid_i,
+  output logic               issue_req_ready_o,
 
   // Output signals
-  output logic [FLEN-1:0]       result_o,
-  output fpnew_pkg::status_t    status_o,
-  output instr_tag_t            tag_o,
-  // Output handshake
-  output logic                  out_valid_o,
-  input  logic                  out_ready_i
+  output logic [FLEN-1:0]    result_o,
+  output logic               result_valid_o,
+  input  logic               result_ready_i,
+  output instr_tag_t         tag_o,
+  output fpnew_pkg::status_t status_o,
+
+  // Asynchronous busy signal. Asserted when any instruction is in flight.
+  output logic               busy_o
 );
+  // ---------------------------
+  // Issue request to operand translation
+  // ---------------------------
+  fpu_op_e               op;
+  logic [FLEN-1:0]       rs1;
+  logic [FLEN-1:0]       rs2;
+  logic [FLEN-1:0]       rs3;
+  fpnew_pkg::roundmode_e round_mode;
+  fpnew_pkg::fp_format_e fmt_src;
+  fpnew_pkg::fp_format_e fmt_dst;
+  instr_tag_t            tag;
+
+  assign op         = issue_req_i.fu_data.fpu_op;
+  assign rs1        = issue_req_i.fu_data.operand_a;
+  assign rs2        = issue_req_i.fu_data.operand_b;
+  assign rs3        = issue_req_i.fu_data.imm;
+  assign round_mode = issue_req_i.fu_data.fpu_rnd_mode;
+  assign fmt_src    = issue_req_i.fu_data.fpu_fmt_src;
+  assign fmt_dst    = issue_req_i.fu_data.fpu_fmt_dst;
+  assign tag        = issue_req_i.tag;
+
+  // ---------------------------
+  // FPU definition
+  // ---------------------------
+
   localparam fpnew_pkg::fpu_features_t FPUFeatures = '{
     Width:         fpnew_pkg::maximum(FLEN, 32),
     EnableVectors: XFVEC,
@@ -99,6 +120,8 @@ module schnizo_fpu import schnizo_pkg::*; #(
   logic vectorial_op;
   fpnew_pkg::int_format_e int_fmt;
 
+  logic fpu_busy;
+
   // ---------------------------
   // Decoder
   // ---------------------------
@@ -116,7 +139,7 @@ module schnizo_fpu import schnizo_pkg::*; #(
     fpnew_op = fpnew_pkg::ADD;
     operand_mod = '0;
 
-    unique case (op_i)
+    unique case (op)
       schnizo_pkg::FpuOpFadd: begin
         fpnew_op = fpnew_pkg::ADD; // rs1 + rs2
         op_selection[0] = NONE;
@@ -221,14 +244,14 @@ module schnizo_fpu import schnizo_pkg::*; #(
   // Optionally cut the path to the FPU
   assign fpu_in = '{
     operands:     fpnew_operands,
-    rnd_mode:     round_mode_i,
+    rnd_mode:     round_mode,
     op:           fpnew_op,
     op_mod:       operand_mod,
-    src_fmt:      fmt_src_i,
-    dst_fmt:      fmt_dst_i,
+    src_fmt:      fmt_src,
+    dst_fmt:      fmt_dst,
     int_fmt:      int_fmt,
     vectorial_op: vectorial_op,
-    tag: tag_i
+    tag: tag
   };
 
   spill_register #(
@@ -237,8 +260,8 @@ module schnizo_fpu import schnizo_pkg::*; #(
     ) i_spill_register_fpu_in (
     .clk_i,
     .rst_ni,
-    .valid_i(in_valid_i),
-    .ready_o(in_ready_o),
+    .valid_i(issue_req_valid_i),
+    .ready_o(issue_req_ready_o),
     .data_i (fpu_in),
     .valid_o(in_valid_q),
     .ready_i(in_ready_q),
@@ -274,7 +297,7 @@ module schnizo_fpu import schnizo_pkg::*; #(
     .tag_o         (fpu_out.tag),
     .out_valid_o   (out_valid),
     .out_ready_i   (out_ready),
-    .busy_o        ()
+    .busy_o        (fpu_busy)
   );
 
   spill_register #(
@@ -286,12 +309,14 @@ module schnizo_fpu import schnizo_pkg::*; #(
     .valid_i(out_valid),
     .ready_o(out_ready),
     .data_i (fpu_out),
-    .valid_o(out_valid_o),
-    .ready_i(out_ready_i),
+    .valid_o(result_valid_o),
+    .ready_i(result_ready_i),
     .data_o (fpu_out_q)
   );
 
   assign result_o = fpu_out_q.result;
   assign status_o = fpu_out_q.status;
   assign tag_o = fpu_out_q.tag;
+  // The FPU is busy if anywhere is valid data. This includes the data before and after the cut.
+  assign busy_o = (|{issue_req_valid_i, fpu_busy, result_valid_o});
 endmodule
