@@ -100,6 +100,12 @@ SNRT_APPS += sw/apps/kbpcpa
 SNRT_APPS += sw/apps/box3d1r
 SNRT_APPS += sw/apps/j3d27pt
 
+# Create schnizo only target list for faster compilation.
+# The following apps are compiled in the regular flow and also if we only invoke the
+# sw-schnizo targets. For this they need to be added to the sw-schnizo target inside their app.mk file.
+.PHONY: sw-schnizo clean-sw-schnizo
+SNRT_APPS += sw/schnizo/sz_sum
+
 # Include Makefile from each app subdirectory
 $(foreach app,$(SNRT_APPS), \
 	$(eval include $(SN_ROOT)/target/snitch_cluster/$(app)/app.mk) \
