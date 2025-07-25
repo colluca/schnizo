@@ -128,7 +128,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   logic exit_frep;
   assign exit_frep = (unsupported_instr || rs_full_i) &&
                      (loop_info_q.loop_state inside {LoopLcp1}) &&
-                     instr_valid_i;
+                     instr_valid_i && ~wait_for_retirement_q;
   logic lep_ends;
 
   always_comb begin
