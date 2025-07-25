@@ -713,28 +713,6 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Write back
   // ---------------------------
-  // Handle the write back of all FUs.
-  // Branch results are directly returned to the controller.
-  //
-  // Prio for GPR
-  // - ALU
-  //   - if ALU result is a branch -> process branch and handle next write back
-  //   - if ALU result is a CSR bypass -> write back ALU result
-  // - CSR
-  // - LSU
-  // - FPU
-  // - Accelerator interface
-  // Prio for FPR
-  // - FPU
-  // - LSU
-  // - Accelerator interface (not implemented / there is no tag to select FP register)
-
-  // !!! WARNING !!!
-  // The accelerator request only contains an ID to specify the destination register.
-  // Due to this we cannot distinguish between floating point and integer registers!
-  // As of now, all accelerator responses target the integer register file.
-  // This should not be a problem, as the Snitch FPR is only in the FP_SS present.
-
   // Convert the accelerator response to a proper result and result tag such that the
   // write back and scoreboard functions properly.
   logic [XLEN-1:0] acc_result;
@@ -746,132 +724,55 @@ module schnizo import schnizo_pkg::*; #(
     acc_result_tag.dest_reg_is_fp = 1'b0;
   end
 
-  logic alu_valid_gpr; // The ALU only writes to the GPR
-  logic alu_ready_gpr;
-  logic csr_valid_gpr; // The CSR only writes to the GPR
-  logic csr_ready_gpr;
-  logic lsu_valid_gpr, lsu_valid_fpr;
-  logic lsu_ready_gpr, lsu_ready_fpr;
-  logic fpu_valid_gpr, fpu_valid_fpr;
-  logic fpu_ready_gpr, fpu_ready_fpr;
-  logic acc_valid_gpr; // The accelerator only writes to the GPR
-  logic acc_ready_gpr;
-
-  // MUX the valid/ready signals to the correct register file.
-  // TODO: This is probably unnecessary and stalls the core. However, the ALU should never
-  //        write to the FPR. How should we handle this case? -> Assertion?
-  assign alu_valid_gpr = alu_result_tag.dest_reg_is_fp ? 1'b0 : alu_result_valid;
-  // The ALU cannot write to the FPR -> no alu_valid_fpr
-  assign alu_result_ready = alu_result_tag.dest_reg_is_fp ? 1'b0 : alu_ready_gpr;
-
-  // TODO: Same case as ALU. The CSR should never write to the FPR. -> Assertion?
-  assign csr_valid_gpr = csr_result_tag.dest_reg_is_fp ? 1'b0 : csr_result_valid;
-  assign csr_result_ready = csr_result_tag.dest_reg_is_fp ? 1'b0 : csr_ready_gpr;
-
-  assign lsu_valid_gpr = lsu_result_tag.dest_reg_is_fp ? 1'b0             : lsu_result_valid;
-  assign lsu_valid_fpr = lsu_result_tag.dest_reg_is_fp ? lsu_result_valid : 1'b0;
-  assign lsu_result_ready = lsu_result_tag.dest_reg_is_fp ? lsu_ready_fpr : lsu_ready_gpr;
-
-  assign fpu_valid_gpr = fpu_result_tag.dest_reg_is_fp ? 1'b0             : fpu_result_valid;
-  assign fpu_valid_fpr = fpu_result_tag.dest_reg_is_fp ? fpu_result_valid : 1'b0;
-  assign fpu_result_ready = fpu_result_tag.dest_reg_is_fp ? fpu_ready_fpr : fpu_ready_gpr;
-
-  // TODO: The Accelerator should never write to the FPR. -> Assertion?
-  assign acc_valid_gpr = acc_result_tag.dest_reg_is_fp ? 1'b0 : acc_pvalid_i;
-  assign acc_pready_o = acc_result_tag.dest_reg_is_fp ? 1'b0 : acc_ready_gpr;
-
-  // Note: The register file must always be ready.
-  // Otherwise the valid/ready handshaking is not AXI conform anymore.
-  always_comb begin : int_regfile_writeback
-    gpr_we = 1'b0;
-    gpr_waddr = '0;
-    gpr_wdata = '0;
-
-    // interfaces to FU writing back to the integer RF
-    alu_ready_gpr = '0;
-    csr_ready_gpr = '0;
-    lsu_ready_gpr = '0;
-    fpu_ready_gpr = '0;
-    acc_ready_gpr = '0;
-
-    // If we have a valid request from the ALU, we have to check whether we actually want to write
-    // to a register. Any instruction which is retiring without a register write has the
-    // destination register set to rd = x0 (rd = 0, rd_is_fp = 0) as this register is not
-    // writeable.
-    // However, these requests still have to be acknowledged (assert the ready signal) as any
-    // combinatorial FU direclty feeds through the ready signal from the write back to the
-    // dispatcher. If these were not acknowledged the whole pipeline would stall forever.
-    if (alu_valid_gpr && alu_result_tag.dest_reg != '0) begin
-      gpr_we = 1'b1;
-      gpr_waddr = alu_result_tag.dest_reg;
-      // Select the data to write into rd.
-      // This can either be the ALU result or the consecutive PC (for JAL / JALR)
-      if (alu_result_tag.is_jump) begin
-        gpr_wdata = consecutive_pc;
-      end else begin
-        gpr_wdata = alu_result.result;
-      end
-
-      alu_ready_gpr = 1'b1;
-    end else begin
-      // We have no actual write request from the ALU but we still have to handle any ALU request
-      // without a write back (i.e. rd = 0 or branch instr).
-      if (alu_valid_gpr && alu_result_tag.dest_reg == '0) begin
-        alu_ready_gpr = 1'b1;
-      end
-      // The CSR writeback is similar to the ALU write back. Handle actual write requests and
-      // always acknowledge all other requests.
-      if (csr_valid_gpr && csr_result_tag.dest_reg != '0) begin
-        gpr_we = 1'b1;
-        gpr_waddr = csr_result_tag.dest_reg;
-        gpr_wdata = csr_result[XLEN-1:0];
-        csr_ready_gpr = 1'b1;
-      end else begin
-      // If there is no actual write request, we can serve a LSU or FPU request.
-        if (csr_valid_gpr && csr_result_tag.dest_reg == '0) begin
-          csr_ready_gpr = 1'b1;
-        end
-      if (lsu_valid_gpr) begin
-        gpr_we = 1'b1;
-        gpr_waddr = lsu_result_tag.dest_reg;
-        gpr_wdata = lsu_result[XLEN-1:0];
-        lsu_ready_gpr = 1'b1;
-      end else if (fpu_valid_gpr) begin
-        gpr_we = 1'b1;
-        gpr_waddr = fpu_result_tag.dest_reg;
-        gpr_wdata = fpu_result[XLEN-1:0];
-        fpu_ready_gpr = 1'b1;
-        end else if (acc_valid_gpr) begin
-          gpr_we = 1'b1;
-          gpr_waddr = acc_result_tag.dest_reg;
-          gpr_wdata = acc_result[XLEN-1:0];
-          acc_ready_gpr = 1'b1;
-        end
-      end
-    end
-  end
-
-  always_comb begin : fp_regfile_writeback
-    fpr_we = 1'b0;
-    fpr_waddr = '0;
-    fpr_wdata = '0;
-
-    // interfaces to FU writing back to the integer RF
-    lsu_ready_fpr = '0;
-    fpu_ready_fpr = '0;
-
-    if (lsu_valid_fpr) begin
-      fpr_we = 1'b1;
-      fpr_waddr = lsu_result_tag.dest_reg;
-      fpr_wdata = lsu_result[FLEN-1:0];
-      lsu_ready_fpr = 1'b1;
-    end else if (fpu_valid_fpr) begin
-      fpr_we = 1'b1;
-      fpr_waddr = fpu_result_tag.dest_reg;
-      fpr_wdata = fpu_result[FLEN-1:0];
-      fpu_ready_fpr = 1'b1;
-    end
-  end
+  // See module for details and specialities!
+  schnizo_writeback #(
+    .XLEN           (XLEN),
+    .FLEN           (FLEN),
+    .NrIntWritePorts(NrIntWritePorts),
+    .NrFpWritePorts (NrFpWritePorts),
+    .RegAddrSize    (REG_ADDR_SIZE),
+    .instr_tag_t    (instr_tag_t),
+    .alu_result_t   (alu_result_t),
+    .data_t         (data_t)
+  ) i_schnizo_writeback (
+    // ALU interface
+    .alu_result_i      (alu_result),
+    .alu_result_tag_i  (alu_result_tag),
+    .alu_result_valid_i(alu_result_valid),
+    .alu_result_ready_o(alu_result_ready),
+    .consecutive_pc_i  (consecutive_pc),
+    // CSR interface
+    .csr_result_i      (csr_result),
+    .csr_result_tag_i  (csr_result_tag),
+    .csr_result_valid_i(csr_result_valid),
+    .csr_result_ready_o(csr_result_ready),
+    // LSU interface
+    .lsu_result_i      (lsu_result),
+    .lsu_result_tag_i  (lsu_result_tag),
+    .lsu_result_valid_i(lsu_result_valid),
+    .lsu_result_ready_o(lsu_result_ready),
+    // FPU interface
+    .fpu_result_i      (fpu_result),
+    .fpu_result_tag_i  (fpu_result_tag),
+    .fpu_result_valid_i(fpu_result_valid),
+    .fpu_result_ready_o(fpu_result_ready),
+    // Accelerator interface
+    .acc_result_i      (acc_result),
+    .acc_result_tag_i  (acc_result_tag),
+    .acc_result_valid_i(acc_pvalid_i),
+    .acc_result_ready_o(acc_pready_o),
+    // Register file interface
+    .gpr_waddr_o       (gpr_waddr),
+    .gpr_wdata_o       (gpr_wdata),
+    .gpr_we_o          (gpr_we),
+    .fpr_waddr_o       (fpr_waddr),
+    .fpr_wdata_o       (fpr_wdata),
+    .fpr_we_o          (fpr_we),
+    // Core events signals
+    .retired_single_cycle_o(instr_retired_single_cycle),
+    .retired_load_o        (instr_retired_load),
+    .retired_acc_o         (instr_retired_acc)
+  );
 
   // ---------------------------
   // Core Events
@@ -885,14 +786,7 @@ module schnizo import schnizo_pkg::*; #(
   // have to count both retirements. As we only have single issue capabilities, we can count the
   // instructions simpler during issuing them (one bit only).
   assign instr_retired = !stall;
-  // However, we capture all retirements in regard to their type.
-  // TODO: For superscalar retirement we must count all retirements as it is possible that two LSUs
-  // retire at the same time (one to GPR, one to FPR).
-  assign instr_retired_single_cycle = (alu_valid_gpr & alu_ready_gpr) ||
-                                      (csr_valid_gpr & csr_ready_gpr);
-  assign instr_retired_load = (lsu_valid_gpr & lsu_ready_gpr) || (lsu_valid_fpr & lsu_ready_fpr);
-  // In Snitch this signal would also caputre the retired FPU instructions.
-  assign instr_retired_acc = (acc_valid_gpr & acc_ready_gpr);
+  // Other retired X signals are generated in the write back.
 
   // Asserted when the FPU accepts an instruction. This kind of also counts the retired
   // instructions by the FPU.

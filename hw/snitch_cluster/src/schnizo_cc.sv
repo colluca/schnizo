@@ -609,10 +609,14 @@ module schnizo_cc #(
       // OR we are retiring (issuing a writeback from) a load or fpu instruction
       if (
           !i_schnizo.stall || // ALU and CSR always commit in the dispatch cycle
-          (i_schnizo.lsu_valid_gpr & i_schnizo.lsu_ready_gpr) ||
-          (i_schnizo.fpu_valid_gpr & i_schnizo.fpu_ready_gpr) ||
-          (i_schnizo.lsu_valid_fpr & i_schnizo.lsu_ready_fpr) ||
-          (i_schnizo.fpu_valid_fpr & i_schnizo.fpu_ready_fpr)
+          (i_schnizo.i_schnizo_writeback.lsu_gpr_valid &
+           i_schnizo.i_schnizo_writeback.lsu_gpr_ready) ||
+          (i_schnizo.i_schnizo_writeback.fpu_gpr_valid &
+           i_schnizo.i_schnizo_writeback.fpu_gpr_ready) ||
+          (i_schnizo.i_schnizo_writeback.lsu_fpr_valid &
+           i_schnizo.i_schnizo_writeback.lsu_fpr_ready) ||
+          (i_schnizo.i_schnizo_writeback.fpu_fpr_valid &
+           i_schnizo.i_schnizo_writeback.fpu_fpr_ready)
       ) begin
         $sformat(trace_entry, "%t %1d %8d 0x%h DASM(%h) #; %s\n",
             $time, cycle, i_schnizo.priv_lvl, i_schnizo.i_schnizo_controller.pc_q,
