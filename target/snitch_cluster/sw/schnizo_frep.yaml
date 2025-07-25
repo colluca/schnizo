@@ -4,3 +4,15 @@
 
 runs:
   - elf: ./schnizo/sz_sum/build/sz_sum.elf
+  - elf: ./schnizo/tests/build/sz_intraloop_a.elf
+  - elf: ./schnizo/tests/build/sz_intraloop_a_multicycle.elf
+  - elf: ./schnizo/tests/build/sz_intraloop_chain.elf
+  - elf: ./schnizo/tests/build/sz_intraloop_chain_multicycle.elf
+  - elf: ./schnizo/tests/build/sz_loopcarried_a.elf
+  - elf: ./schnizo/tests/build/sz_loopcarried_b.elf
+  - elf: ./schnizo/tests/build/sz_loopcarried_c.elf
+  - elf: ./schnizo/tests/build/sz_loopcarried_mixed.elf
+  - elf: ./schnizo/tests/build/sz_outofslots.elf
+  - elf: ./schnizo/tests/build/sz_simple_multicycle.elf
+  - elf: ./schnizo/tests/build/sz_simple.elf
+  - elf: ./schnizo/tests/build/sz_unsupported_instr.elf
