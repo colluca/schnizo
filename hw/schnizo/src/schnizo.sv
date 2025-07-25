@@ -210,7 +210,7 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // RSS definitions / parameters
   // ---------------------------
-  localparam int unsigned NofAlus = 2;
+  localparam int unsigned NofAlus = 3;
   // localparam int unsigned NofLsus = 1;
   localparam int unsigned NofFpus = 1;
 
