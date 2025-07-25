@@ -1009,7 +1009,7 @@ module snitch_cluster
       parameter logic [31:0] BootAddrInternal = (AliasRegionEnable & IntBootromEnable) ?
                                                  BootRomAliasStart : BootAddr;
 
-      snitch_cc #(
+      schnizo_cc #( // snitch_cc schnizo_cc
         .AddrWidth (PhysicalAddrWidth),
         .DataWidth (NarrowDataWidth),
         .DMADataWidth (WideDataWidth),
