@@ -157,6 +157,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   res_req_t     [NofResultIfs-1:0]  res_reqs;
   logic         [NofResultIfs-1:0]  res_reqs_valid;
   logic         [NofResultIfs-1:0]  res_reqs_ready;
+  logic         [NofResultIfs-1:0]  res_iters;
 
   res_rsp_t     [NofResultIfs-1:0]  res_rsps;
   logic         [NofResultIfs-1:0]  res_rsps_valid;
@@ -185,6 +186,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   res_req_t     [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs_valid;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs_ready;
+  logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_iters;
   res_rsp_t     [NofAlus-1:0][AluNofRss-1:0]                     alu_res_rsps;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_rsps_valid;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_rsps_ready;
@@ -198,6 +200,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   res_req_t     [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs_valid;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs_ready;
+  logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_iters;
   res_rsp_t     [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_rsps;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_rsps_valid;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_rsps_ready;
@@ -211,6 +214,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   res_req_t     [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs_valid;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs_ready;
+  logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_iters;
   res_rsp_t     [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_rsps;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_rsps_valid;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_rsps_ready;
@@ -294,6 +298,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     alu_res_reqs_valid = '0;
     lsu_res_reqs       = '0;
     fpu_res_reqs       = '0;
+    res_iters          = '0;
 
     res_rsps           = '0;
     res_rsps_valid     = '0;
@@ -307,6 +312,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
         alu_res_reqs[alu][rss]       = res_reqs[res_if];
         alu_res_reqs_valid[alu][rss] = res_reqs_valid[res_if];
         res_reqs_ready[res_if]       = alu_res_reqs_ready[alu][rss];
+        // result iters
+        res_iters[res_if]            = alu_res_iters[alu][rss];
         // responses
         res_rsps[res_if]             = alu_res_rsps[alu][rss];
         res_rsps_valid[res_if]       = alu_res_rsps_valid[alu][rss];
@@ -321,6 +328,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
         lsu_res_reqs[lsu][rss]       = res_reqs[res_if];
         lsu_res_reqs_valid[lsu][rss] = res_reqs_valid[res_if];
         res_reqs_ready[res_if]       = lsu_res_reqs_ready[lsu][rss];
+        // result iters
+        res_iters[res_if]            = lsu_res_iters[lsu][rss];
         // responses
         res_rsps[res_if]             = lsu_res_rsps[lsu][rss];
         res_rsps_valid[res_if]       = lsu_res_rsps_valid[lsu][rss];
@@ -335,6 +344,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
         fpu_res_reqs[fpu][rss]       = res_reqs[res_if];
         fpu_res_reqs_valid[fpu][rss] = res_reqs_valid[res_if];
         res_reqs_ready[res_if]       = fpu_res_reqs_ready[fpu][rss];
+        // result iters
+        res_iters[res_if]            = fpu_res_iters[fpu][rss];
         // responses
         res_rsps[res_if]             = fpu_res_rsps[fpu][rss];
         res_rsps_valid[res_if]       = fpu_res_rsps_valid[fpu][rss];
@@ -354,7 +365,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     assign op_reqs_requests[i]  = op_reqs[i].request;
     assign op_reqs_producers[i] = op_reqs[i].producer;
   end
-  stream_xbar #(
+  schnizo_xbar #(
     .NumInp     (NofOperandIfs),
     .NumOut     (NofResultIfs),
     .payload_t  (res_req_t),
@@ -365,17 +376,18 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     .AxiVldMask ('0)
   ) i_request_xbar (
     .clk_i,
-    .rst_ni (~rst_i),
-    .flush_i('0),
-    .rr_i   ('0),
-    .data_i (op_reqs_requests),
-    .sel_i  (op_reqs_producers),
-    .valid_i(op_reqs_valid),
-    .ready_o(op_reqs_ready),
-    .data_o (res_reqs),
-    .idx_o  (),
-    .valid_o(res_reqs_valid),
-    .ready_i(res_reqs_ready)
+    .rst_ni    (~rst_i),
+    .flush_i   ('0),
+    .rr_i      ('0),
+    .data_i    (op_reqs_requests),
+    .sel_i     (op_reqs_producers),
+    .valid_i   (op_reqs_valid),
+    .ready_o   (op_reqs_ready),
+    .res_iter_i(res_iters),
+    .data_o    (res_reqs),
+    .idx_o     (),
+    .valid_o   (res_reqs_valid),
+    .ready_i   (res_reqs_ready)
   );
 
   // ---------------------------
@@ -501,6 +513,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .res_reqs_i      (alu_res_reqs[alu]),
       .res_reqs_valid_i(alu_res_reqs_valid[alu]),
       .res_reqs_ready_o(alu_res_reqs_ready[alu]),
+      .res_iters_o     (alu_res_iters[alu]),
       .res_rsps_o      (alu_res_rsps[alu]),
       .res_rsps_valid_o(alu_res_rsps_valid[alu]),
       .res_rsps_ready_i(alu_res_rsps_ready[alu]),
@@ -653,6 +666,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .res_reqs_i      (lsu_res_reqs[lsu]),
       .res_reqs_valid_i(lsu_res_reqs_valid[lsu]),
       .res_reqs_ready_o(lsu_res_reqs_ready[lsu]),
+      .res_iters_o     (lsu_res_iters[lsu]),
       .res_rsps_o      (lsu_res_rsps[lsu]),
       .res_rsps_valid_o(lsu_res_rsps_valid[lsu]),
       .res_rsps_ready_i(lsu_res_rsps_ready[lsu]),
@@ -822,6 +836,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .res_reqs_i      (fpu_res_reqs[fpu]),
       .res_reqs_valid_i(fpu_res_reqs_valid[fpu]),
       .res_reqs_ready_o(fpu_res_reqs_ready[fpu]),
+      .res_iters_o     (fpu_res_iters[fpu]),
       .res_rsps_o      (fpu_res_rsps[fpu]),
       .res_rsps_valid_o(fpu_res_rsps_valid[fpu]),
       .res_rsps_ready_i(fpu_res_rsps_ready[fpu]),
@@ -909,4 +924,12 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   // The complete core finishes if all RS finish.
   assign all_rs_finish_o = &{&alu_loop_finish_o, &lsu_loop_finish_o, &fpu_loop_finish_o};
 
+  // ---------------------------
+  // Tracer
+  // ---------------------------
+  typedef struct packed {
+    disp_req_t disp_req;
+    longint    disp_req_valid;
+    longint    disp_req_ready;
+  } schnizo_fu_trace;
 endmodule

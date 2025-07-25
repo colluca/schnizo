@@ -84,6 +84,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic     [NofRss-1:0] res_reqs_valid_i,
   output logic     [NofRss-1:0] res_reqs_ready_o,
 
+  // The current results iteration states
+  output logic     [NofRss-1:0] res_iters_o,
+
   // Result response interface - outgoing - result as operand response
   output res_rsp_t [NofRss-1:0] res_rsps_o,
   output logic     [NofRss-1:0] res_rsps_valid_o,
@@ -289,6 +292,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .res_reqs_i      (res_reqs_i),
     .res_reqs_valid_i(res_reqs_valid_i),
     .res_reqs_ready_o(res_reqs_ready_o),
+    // The current results iteration states
+    .res_iters_o     (res_iters_o),
     // Result response interface - outgoing - result as operand response
     .res_rsps_o      (res_rsps_o),
     .res_rsps_valid_o(res_rsps_valid_o),

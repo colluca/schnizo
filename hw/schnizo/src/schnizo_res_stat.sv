@@ -91,6 +91,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic     [NofRss-1:0] res_reqs_valid_i,
   output logic     [NofRss-1:0] res_reqs_ready_o,
 
+  // The current results iteration states
+  output logic     [NofRss-1:0] res_iters_o,
+
   // Result response interface - outgoing - result as operand response
   output res_rsp_t [NofRss-1:0] res_rsps_o,
   output logic     [NofRss-1:0] res_rsps_valid_o,
@@ -192,6 +195,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .is_last_result_iter_i(last_result_iter),
       .own_producer_id_i    (rss_id),
       .op_start_id_i        (op_start_id),
+      .res_iter_o           (res_iters_o[rss]),
       .retired_o            (rss_retiring[rss]),
 
       .disp_req_i      (disp_req),

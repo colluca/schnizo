@@ -43,6 +43,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  producer_id_t own_producer_id_i,
   // ID of operand 0. Operand 1,.. are consecutive.
   input  operand_id_t  op_start_id_i,
+  // The current result iteration state
+  output logic         res_iter_o,
   // Asserted in the cycle the instruction retires.
   output logic         retired_o,
 
@@ -569,6 +571,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   // The slot FF update after all manipulations
   assign slot_d = slot_wb;
+
+  // The current result iteration state is directly passed to the output
+  assign res_iter_o = slot_q.result.iteration;
 
   // Retired signal back to RS to step the result pointer.
   // For all instructions except stores, this retired signal is the same as used inside this RSS.
