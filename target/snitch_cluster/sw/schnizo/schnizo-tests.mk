@@ -15,6 +15,7 @@ SZ_TESTS_BUILDDIR = $(ROOT)/target/snitch_cluster/sw/schnizo/tests/build
 
 SZ_TESTS_RISCV_CFLAGS += $(RISCV_CFLAGS)
 SZ_TESTS_RISCV_CFLAGS += $(addprefix -I,$(SNRT_INCDIRS))
+SZ_TESTS_RISCV_CFLAGS += $(addprefix -I,$(SZRT_INCDIRS))
 
 SZ_BASE_LD    = $(SNRT_DIR)/base.ld
 SZ_MEMORY_LD ?= $(ROOT)/target/snitch_cluster/sw/runtime/memory.ld
