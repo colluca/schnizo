@@ -1643,38 +1643,24 @@ module schnizo import schnizo_pkg::*; #(
     $display("[Tracer] Logging Hart %d to %s", hart_id_i, file_name);
   end
 
-  // Keep the current trace header and dispatch event to reuse it when the actual dispatch happens
-  // during LCP.
-  schnizo_dispatch_trace_t dispatch_trace_q;
-  logic lcp_disp_happened_q;
+  // During LCP the dispatch & trace generation is at least one cycle apart. For the LSU it can
+  // even take longer (until the memory accepted the request).
+  // If there is a dispatch during LCP, push the details into a queue for each FU.
+  // When the FU issues, pop from the queue and generate the trace.
+  typedef struct {
+    string header;
+    schnizo_dispatch_trace_t dispatch_trace;
+  } lcp_dispatch_detail_t;
 
-  typedef struct packed {
-    schnizo_core_trace_t core_trace;
-  } header_info_t;
+  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
 
-  header_info_t prev_header_q, prev_header_d;
-
-  assign prev_header_d = '{
-    core_trace: core_trace
-  };
-
-  `FFAR(prev_header_q, prev_header_d, '0, clk_i, rst_i);
-
-  always_ff @(posedge clk_i) begin
-    if (~rst_i) begin
-      dispatch_trace_q    <= dispatch_trace;
-      lcp_disp_happened_q <= dispatch_trace.valid && (loop_state inside {LoopLcp1, LoopLcp2});
-    end else begin
-      dispatch_trace_q    <= dispatch_trace;
-      lcp_disp_happened_q <= '0;
-    end
-  end
+  lcp_dispatch_detail_t lcp_dispatch_queue[NofFus][$];
 
   // verilog_lint: waive-start always-ff-non-blocking
   always_ff @(posedge clk_i) begin
     string trace_header;
-    string prev_trace_header;
     string dispatch_event;
+    lcp_dispatch_detail_t lcp_details;
     if (~rst_i) begin
       cycle++;
 
@@ -1683,14 +1669,14 @@ module schnizo import schnizo_pkg::*; #(
       trace_header = format_trace_header($time, cycle, core_trace.priv_level, core_trace.state,
                                          core_trace.stall, core_trace.exception);
 
-      // TODO: HACK!! How can the time of the previous cycle be captured? Assinging $time to a FF
-      //       does not work... For now hard code the clock period to 1ns. If the clock is changed,
-      //       during LCP all dispatche events in the trace will have a wrong simulation time.
-      prev_trace_header = format_trace_header($time-1ns, cycle - 1,
-                                              prev_header_q.core_trace.priv_level,
-                                              prev_header_q.core_trace.state,
-                                              prev_header_q.core_trace.stall,
-                                              prev_header_q.core_trace.exception);
+      lcp_details = '{
+        header: trace_header,
+        dispatch_trace: dispatch_trace
+      };
+
+      if (dispatch_trace.valid && (loop_state inside {LoopLcp1, LoopLcp2})) begin
+        lcp_dispatch_queue[i_schnizo_dispatcher.fu_response.producer.rs_id].push_back(lcp_details);
+      end
 
       // TODO: We should create a class to capture all the common functions...
 
@@ -1749,36 +1735,58 @@ module schnizo import schnizo_pkg::*; #(
         // Format the single dispatch event but capture the producer by taking RSS issue trace.
         // There should also be one FU issue request active. Invalid traces are formated as "".
 
-        if (lcp_disp_happened_q) begin
-          // In the previous cycle we dispatched an instruction and it is now issued
-          // Take the trace from the previous cycle.
-          dispatch_event = format_dispatch_extras(dispatch_trace_q);
+        // If a FU issues, pop from the dispatch details queue and generate the trace.
+        lcp_dispatch_detail_t details;
+        for (int alu = 0; alu < NofAlus; alu++) begin
+          for (int rss = 0; rss < AluNofRss; rss++) begin
+            if (rss_alu_traces[alu][rss].valid) begin
+              details = lcp_dispatch_queue[alu].pop_front();
+              dispatch_event = format_dispatch_extras(details.dispatch_trace);
 
-          for (int alu = 0; alu < NofAlus; alu++) begin
-            for (int rss = 0; rss < AluNofRss; rss++) begin
               dispatch_event = $sformatf("%s%s", dispatch_event,
                                         format_alu_trace(rss_alu_traces[alu][rss]));
+              write_trace_event(file_id, details.header, "dispatch",
+                                dispatch_event, details.dispatch_trace.valid);
             end
           end
-          for (int lsu = 0; lsu < NofLsus; lsu++) begin
-            for (int rss = 0; rss < LsuNofRss; rss++) begin
+        end
+
+        for (int lsu = 0; lsu < NofLsus; lsu++) begin
+          for (int rss = 0; rss < LsuNofRss; rss++) begin
+            if (rss_lsu_traces[lsu][rss].valid) begin
+              details = lcp_dispatch_queue[NofAlus + lsu].pop_front();
+              dispatch_event = format_dispatch_extras(details.dispatch_trace);
+
               dispatch_event = $sformatf("%s%s", dispatch_event,
                                         format_lsu_trace(rss_lsu_traces[lsu][rss]));
+              write_trace_event(file_id, details.header, "dispatch",
+                                dispatch_event, details.dispatch_trace.valid);
             end
           end
-          for (int fpu = 0; fpu < NofFpus; fpu++) begin
-            for (int rss = 0; rss < FpuNofRss; rss++) begin
+        end
+
+        for (int fpu = 0; fpu < NofFpus; fpu++) begin
+          for (int rss = 0; rss < FpuNofRss; rss++) begin
+            if (rss_fpu_traces[fpu][rss].valid) begin
+              details = lcp_dispatch_queue[NofAlus + NofLsus + fpu].pop_front();
+              dispatch_event = format_dispatch_extras(details.dispatch_trace);
+
               dispatch_event = $sformatf("%s%s", dispatch_event,
                                         format_fpu_trace(rss_fpu_traces[fpu][rss]));
+              write_trace_event(file_id, details.header, "dispatch",
+                                dispatch_event, details.dispatch_trace.valid);
             end
           end
-          // CSR and ACC instructions are not supported in FREP. These should never be valid.
-          dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
-          dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
-
-          write_trace_event(file_id, prev_trace_header, "dispatch",
-                            dispatch_event, dispatch_trace_q.valid);
         end
+
+        // CSR and ACC instructions are not supported in FREP but can still execute (fallback in
+        // hw loop mode). These are not cut and thus dispatch immediately.
+        dispatch_event = format_dispatch_extras(dispatch_trace);
+        dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
+        dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
+
+        write_trace_event(file_id, trace_header, "dispatch", dispatch_event,
+                          dispatch_trace.valid && (csr_trace.valid || acc_trace.valid));
       end else if (loop_state inside {LoopLep}) begin
         // There is no dispatch request and we can have multiple events per cycle.
         // We must check each RSS issue request on its own.
