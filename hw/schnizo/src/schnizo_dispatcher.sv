@@ -163,6 +163,15 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
+      schnizo_pkg::DMA: begin
+        acc_disp_req_valid_raw = 1'b1;
+        acc_req_o.addr = snitch_pkg::DMA_SS; // TODO: use schnizo defined address.
+        acc_req_o.data_arga = instr_fu_data_i.operand_a;
+        acc_req_o.data_argb = instr_fu_data_i.operand_b;
+        acc_req_o.data_argc = '0; // unused for DMA
+        // no dispatch response
+        fu_ready = acc_disp_req_ready_i;
+      end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         none_disp_req_valid_raw = 1'b1;

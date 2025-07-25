@@ -296,6 +296,7 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   schnizo_decoder #(
     .XLEN   (XLEN),
+    .Xdma   (Xdma),
     .RVF    (RVF),
     .RVD    (RVD),
     .XF16   (XF16),
@@ -688,7 +689,7 @@ module schnizo import schnizo_pkg::*; #(
     .DebugSupport(0),
     .RVF(RVF),
     .RVD(RVD),
-    .Xdma(0),
+    .Xdma(Xdma),
     .VMSupport(0),
     .disp_req_t(disp_req_t),
     .result_tag_t(instr_tag_t)

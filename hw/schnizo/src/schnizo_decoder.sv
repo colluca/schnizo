@@ -776,6 +776,54 @@ module schnizo_decoder import schnizo_pkg::*; #(
           default: illegal_instr = 1'b1;
         endcase
       end
+      // --------------------------------
+      // DMA & SSR instructions
+      // --------------------------------
+      OpcodeCustom1: begin
+        if (Xdma) begin
+          unique case (instr.rtype.funct3)
+            3'b000: begin // DMA instructions
+              instr_dec_o.fu  = schnizo_pkg::DMA;
+              instr_dec_o.rd  = instr.rtype.rd;
+              instr_dec_o.rs1 = instr.rtype.rs1;
+              instr_dec_o.rs2 = instr.rtype.rs2;
+              // Check fixed bits
+              unique case (instr.rtype.funct7)
+                7'b0000000,       // DMSRC
+                7'b0000001,       // DMDST
+                7'b0000110: begin // DMSTR
+                  if (instr.rtype.rd != '0) illegal_instr = 1'b1;
+                end
+                7'b0000111: begin // DMREP
+                  if (instr.rtype.rd != '0) illegal_instr = 1'b1;
+                  if (instr.rtype.rs2 != '0) illegal_instr = 1'b1;
+                end
+                7'b0000010,   // DMCPYI
+                7'b0000011: ; // DMCPY - no additional check required
+                7'b0000100,       // DMSTATI
+                7'b0000101: begin // DMSTAT
+                  if (instr.rtype.rs1 != '0) illegal_instr = 1'b1;
+                end
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+            3'b001,
+            3'b010: begin // SSR instructions
+              // The Schnizo does not feature SSRs
+              illegal_instr = 1'b1;
+            end
+            default: illegal_instr = 1'b1;
+          endcase
+        end else begin
+          illegal_instr = 1'b1;
+        end
+      end
+      // --------------------------------
+      // Frep extension instructions
+      // --------------------------------
+      OpcodeCustom0: begin
+        illegal_instr = 1'b1;
+      end
       default: begin
         illegal_instr = 1'b1;
       end
