@@ -55,6 +55,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter type         issue_req_t    = logic,
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
+  parameter type         alu_res_val_t  = logic,
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
   /// Derived parameter *Do not override*
@@ -424,18 +425,19 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
     // Helper signals to merge the result and tag
-    alu_result_t alu_wb_result;
-    instr_tag_t  alu_wb_result_tag;
+    alu_res_val_t alu_wb_result_value;
+    instr_tag_t   alu_wb_result_tag;
 
     // Signals connecting the FU block and the actual FU
-    issue_req_t  alu_issue_req;
-    logic        alu_issue_req_valid;
-    logic        alu_issue_req_ready;
-    alu_result_t alu_result;
-    instr_tag_t  alu_result_tag;
-    logic        alu_result_valid;
-    logic        alu_result_ready;
-    logic        alu_busy;
+    issue_req_t   alu_issue_req;
+    logic         alu_issue_req_valid;
+    logic         alu_issue_req_ready;
+    alu_result_t  alu_result;
+    alu_res_val_t alu_result_value;
+    instr_tag_t   alu_result_tag;
+    logic         alu_result_valid;
+    logic         alu_result_ready;
+    logic         alu_busy;
 
     producer_id_t producer_start_id;
     operand_id_t  op_start_id;
@@ -446,7 +448,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
-      .result_t      (alu_result_t),
+      .result_t      (alu_res_val_t),
       .instr_tag_t   (instr_tag_t),
       .NofRss        (AluNofRss),
       .NofOperands   (AluNofOperands),
@@ -483,12 +485,12 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .issue_req_valid_o(alu_issue_req_valid),
       .issue_req_ready_i(alu_issue_req_ready),
       // From FU
-      .result_i         (alu_result),
+      .result_i         (alu_result.result),
       .result_tag_i     (alu_result_tag),
       .result_valid_i   (alu_result_valid),
       .result_ready_o   (alu_result_ready),
       // To writeback
-      .wb_result_o      (alu_wb_result),
+      .wb_result_o      (alu_wb_result_value),
       .wb_result_tag_o  (alu_wb_result_tag),
       .wb_result_valid_o(alu_wbs_result_valid[alu]),
       .wb_result_ready_i(alu_wbs_result_ready[alu]),
@@ -506,8 +508,17 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .op_rsps_valid_i (alu_op_rsps_valid[alu]),
       .op_rsps_ready_o (alu_op_rsps_ready[alu])
     );
-    assign alu_wbs_result_and_tag[alu].result = alu_wb_result;
-    assign alu_wbs_result_and_tag[alu].tag    = alu_wb_result_tag;
+    // DANGER!
+    // HACK: We do not pass the branch result into the RS so keep the same RS implementation for
+    // all FUs. For any write back we directly take the branch result from the FU. This is
+    // possible because if we want to do a writeback the RS accepts the result only if the
+    // writeback also accepts the writeback. Thus we can bypass the RS.
+    // TODO: find a clean solution how to handle the branch result.
+    assign alu_wbs_result_and_tag[alu].result = '{
+      result:      alu_wb_result_value,
+      compare_res: alu_result.compare_res
+    };
+    assign alu_wbs_result_and_tag[alu].tag = alu_wb_result_tag;
 
     schnizo_alu #(
       .XLEN       (XLEN),

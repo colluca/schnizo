@@ -278,9 +278,12 @@ module schnizo import schnizo_pkg::*; #(
     instr_tag_t tag;
   } issue_req_t;
 
+  // The ALU result without the branch decision
+  typedef logic [XLEN-1:0] alu_res_val_t;
+
   typedef struct packed {
-    logic [XLEN-1:0] result;
-    logic            compare_res;
+    alu_res_val_t result;
+    logic         compare_res;
   } alu_result_t;
 
   // ---------------------------
@@ -626,6 +629,7 @@ module schnizo import schnizo_pkg::*; #(
     .issue_req_t        (issue_req_t),
     .instr_tag_t        (instr_tag_t),
     .alu_result_t       (alu_result_t),
+    .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
     .drsp_t             (drsp_t)
   ) i_fu_stage (
