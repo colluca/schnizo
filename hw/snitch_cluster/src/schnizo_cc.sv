@@ -592,6 +592,8 @@ module schnizo_cc #(
         acc_pdata_32: i_schnizo.acc_prsp_i.data[31:0],
         // FPU offload - intercept dispatcher - FPU Reservation Station instead of offload
         fpu_offload:  i_schnizo.issue_fpu,
+                      // ((i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready) &&
+                      //   i_schnizo.dispatch_req.tag.dest_reg_is_fp),
         is_seq_insn:  '0
       };
 
@@ -612,11 +614,7 @@ module schnizo_cc #(
           (i_schnizo.i_schnizo_writeback.lsu_gpr_valid &
            i_schnizo.i_schnizo_writeback.lsu_gpr_ready) ||
           (i_schnizo.i_schnizo_writeback.fpu_gpr_valid &
-           i_schnizo.i_schnizo_writeback.fpu_gpr_ready) ||
-          (i_schnizo.i_schnizo_writeback.lsu_fpr_valid &
-           i_schnizo.i_schnizo_writeback.lsu_fpr_ready) ||
-          (i_schnizo.i_schnizo_writeback.fpu_fpr_valid &
-           i_schnizo.i_schnizo_writeback.fpu_fpr_ready)
+           i_schnizo.i_schnizo_writeback.fpu_gpr_ready)
       ) begin
         $sformat(trace_entry, "%t %1d %8d 0x%h DASM(%h) #; %s\n",
             $time, cycle, i_schnizo.priv_lvl, i_schnizo.i_schnizo_controller.pc_q,
@@ -631,8 +629,13 @@ module schnizo_cc #(
         // OR an FPU result is ready to be written back to an FPR register or the bus
         // OR an LSU result is ready to be written back to an FPR register or the bus
         // OR an FPU result, LSU result or bus value is ready to be written back to an FPR register
-        if (extras_fpu.acc_q_hs || extras_fpu.fpu_out_hs
-        || extras_fpu.lsu_q_hs || extras_fpu.fpr_we) begin
+        if (extras_fpu.acc_q_hs || extras_fpu.fpu_out_hs ||
+            extras_fpu.lsu_q_hs || extras_fpu.fpr_we ||
+            (i_schnizo.i_schnizo_writeback.lsu_fpr_valid &
+             i_schnizo.i_schnizo_writeback.lsu_fpr_ready) ||
+            (i_schnizo.i_schnizo_writeback.fpu_fpr_valid &
+             i_schnizo.i_schnizo_writeback.fpu_fpr_ready)
+        ) begin
           $sformat(trace_entry, "%t %1d %8d 0x%h DASM(%h) #; %s\n",
               $time, cycle, i_schnizo.priv_lvl, 32'hz, extras_fpu.op_in,
               // $time, cycle, i_schnizo.priv_lvl_q, 32'hz, extras_fpu.op_in,
