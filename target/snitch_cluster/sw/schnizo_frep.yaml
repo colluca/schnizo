@@ -18,6 +18,7 @@ runs:
   - elf: ./schnizo/tests/build/sz_lsu.elf
   - elf: ./schnizo/tests/build/sz_multislot_loop.elf
   - elf: ./schnizo/tests/build/sz_outofslots.elf
+  - elf: ./schnizo/tests/build/sz_outofslots_multicycle.elf
   - elf: ./schnizo/tests/build/sz_rf_wb_collision.elf
   - elf: ./schnizo/tests/build/sz_serialize_memory.elf
   - elf: ./schnizo/tests/build/sz_simple_multicycle.elf
