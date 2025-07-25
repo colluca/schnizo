@@ -772,38 +772,32 @@ def annotate_fpu(
     if extras['acc_q_hs']:
         # If computation initiated: remember FPU destination format and vector length
         if extras['use_fpu'] and not extras['fpu_in_acc']:
-            fpr_wb_info[extras['fpu_in_rd']].appendleft({
-                'fmt': extras['dst_fmt'],
-                'vlen': flt_op_vlen(insn, 'rd'),
-                'cycle': cycle
-            })
-        # Operands: omit on store
-        if not extras['is_store']:
-            for i_op in range(3):
-                # operand name and its value
-                oper_name, val = flt_oper(insn, extras, i_op)
-                if oper_name != 'NONE':
-                    ret.append('{:<4} = {}'.format(oper_name, val))
-        # Load / Store requests
-        if extras['lsu_q_hs']:
-            s = extras['ls_size']
-            if extras['is_load']:
-                perf_metrics[curr_sec]['fpss_loads'] += 1
-                # Load initiated: remember LSU destination format
-                fpr_wb_info[extras['rd']].appendleft({
-                    'fmt': LS_TO_FLOAT[s],
-                    'vlen': 1,
-                    'cycle': cycle
-                })
-                ret.append('{:<4} <~~ {}[{}]'.format(
-                    REG_ABI_NAMES_F[extras['rd']], LS_SIZES[s],
-                    int_lit(extras['lsu_qaddr'], as_hex=int_as_hex)))
-            if extras['is_store']:
-                perf_metrics[curr_sec]['fpss_stores'] += 1
-                _, val = flt_oper(insn, extras, 1)
-                ret.append('{} ~~> {}[{}]'.format(
-                    val, LS_SIZES[s],
-                    int_lit(extras['lsu_qaddr'], as_hex=int_as_hex)))
+            vlen = flt_op_vlen(insn, 'rd')
+            fpr_wb_info[extras['fpu_in_rd']].appendleft(
+                (extras['dst_fmt'], vlen, cycle))
+        # Operands: (this is never a load / store compared to snitch)
+        for i_op in range(3):
+            # operand name and its value
+            oper_name, val = flt_oper(insn, extras, i_op)
+            if oper_name != 'NONE':
+                ret.append('{:<4} = {}'.format(oper_name, val))
+    # Load / Store requests
+    if extras['lsu_q_hs']:
+        s = extras['ls_size']
+        if extras['is_load']:
+            perf_metrics[curr_sec]['fpss_loads'] += 1
+            # Load initiated: remember LSU destination format
+            vlen = 1
+            fpr_wb_info[extras['rd']].appendleft((LS_TO_FLOAT[s], vlen, cycle))
+            ret.append('{:<4} <~~ {}[{}]'.format(
+                REG_ABI_NAMES_F[extras['rd']], LS_SIZES[s],
+                int_lit(extras['lsu_qaddr'], as_hex=int_as_hex)))
+        if extras['is_store']:
+            perf_metrics[curr_sec]['fpss_stores'] += 1
+            _, val = flt_oper(insn, extras, 1)
+            ret.append('{} ~~> {}[{}]'.format(
+                val, LS_SIZES[s],
+                int_lit(extras['lsu_qaddr'], as_hex=int_as_hex)))
     # On FLOP completion
     if extras['fpu_out_hs']:
         perf_metrics[-1]['fpss_fpu_issues'] += 1

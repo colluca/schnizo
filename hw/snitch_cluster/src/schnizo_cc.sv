@@ -478,6 +478,51 @@ module schnizo_cc #(
   // Tracer
   // --------------------------
   // pragma translate_off
+
+  // This tries to match all Snitch signals... Schnizo has the optional cut inside the FPU
+  // activated to match the cut which would be there from the accelerator interface.
+  assign fpu_trace = '{
+    source:       snitch_pkg::SrcFpu,
+    acc_q_hs:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_valid_i &&
+                  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_ready_o,
+    fpu_out_hs:   (i_schnizo.fpu_result_valid && i_schnizo.fpu_result_ready),
+    lsu_q_hs:     (i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready &&
+                  i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp),
+    op_in:        i_schnizo.instr_fetch_data_i,
+    rs1:          i_schnizo.instr_decoded.rs1,
+    rs2:          i_schnizo.instr_decoded.rs2,
+    rs3:          i_schnizo.instr_decoded.imm,
+    rd:           i_schnizo.instr_decoded.rd,
+    // This operand selection enum does not match the Snitch enum!
+    op_sel_0:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.op_selection[0],
+    op_sel_1:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.op_selection[1],
+    op_sel_2:     i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.op_selection[2],
+    src_fmt:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fmt_src_i,
+    dst_fmt:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fmt_dst_i,
+    int_fmt:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.int_fmt,
+    acc_qdata_0:  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.rs1_i,
+    acc_qdata_1:  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.rs2_i,
+    acc_qdata_2:  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.rs3_i,
+    op_0:         i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpnew_operands[0],
+    op_1:         i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpnew_operands[1],
+    op_2:         i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpnew_operands[2],
+    use_fpu:      i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_valid_i &&
+                  i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.in_ready_o,
+    fpu_in_rd:    i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpu_in.tag.dest_reg,
+    fpu_in_acc:   !i_schnizo.i_schnizo_res_stat_fpu.gen_fpu.i_rs_fpu.fpu_in.tag.dest_reg_is_fp,
+    ls_size:      i_schnizo.i_schnizo_res_stat_lsu.ls_size,
+    is_load:      !i_schnizo.i_schnizo_res_stat_lsu.is_store,
+    is_store:     i_schnizo.i_schnizo_res_stat_lsu.is_store,
+    lsu_qaddr:    i_schnizo.i_schnizo_res_stat_lsu.lsu_addr,
+    lsu_rd:       i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg,
+    acc_wb_ready: 1'b0, // This signal is always false in Snitch..
+    // Any write to the Acc bus in Snitch must go to the GRP
+    fpu_out_acc:  !i_schnizo.fpu_result_tag.dest_reg_is_fp,
+    fpr_waddr:    i_schnizo.fpr_waddr[0],
+    fpr_wdata:    i_schnizo.fpr_wdata[0],
+    fpr_we:       i_schnizo.fpr_we[0]
+  };
+
   int f;
   string fn;
   logic [63:0] cycle;
@@ -503,6 +548,7 @@ module schnizo_cc #(
     automatic snitch_pkg::fpu_sequencer_trace_port_t extras_fpu_seq_out;
 
     if (rst_ni) begin
+      // We keep the Snitch tracer and thus must split the FP from integer stuff.
       extras_snitch = '{
         // State
         source:       snitch_pkg::SrcSnitch,
@@ -512,8 +558,14 @@ module schnizo_cc #(
         rs1:          i_schnizo.instr_decoded.rs1,
         rs2:          i_schnizo.instr_decoded.rs2,
         rd:           i_schnizo.instr_decoded.rd,
-        is_load:      ~i_schnizo.i_schnizo_res_stat_lsu.is_store,
-        is_store:     i_schnizo.i_schnizo_res_stat_lsu.is_store,
+        // Only take load and stores to the GPR.
+        // FPR transactions must be captured in the FPU trace
+        is_load:      (!i_schnizo.i_schnizo_res_stat_lsu.is_store) &&
+                      (!i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp) &&
+                      i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
+        is_store:     i_schnizo.i_schnizo_res_stat_lsu.is_store &&
+                      (!i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp) &&
+                      i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
         is_branch:    i_schnizo.instr_decoded.is_branch,
         pc_d:         i_schnizo.pc_d,
         // Operands
@@ -530,18 +582,17 @@ module schnizo_cc #(
         ls_size:      i_schnizo.i_schnizo_res_stat_lsu.ls_size,
         ld_result_32: i_schnizo.i_schnizo_res_stat_lsu.lsu_result[31:0],
         lsu_rd:       i_schnizo.i_schnizo_res_stat_lsu.result_tag.dest_reg,
-        retire_load:  '0, // i_schnizo.retire_load,
+        retire_load:  i_schnizo.instr_retired_load,
         alu_result:   i_schnizo.alu_result.result,
         // Atomics
-        ls_amo:       i_schnizo.i_schnizo_res_stat_lsu.ls_amo, // i_schnizo.ls_amo,
+        ls_amo:       i_schnizo.i_schnizo_res_stat_lsu.ls_amo,
         // Accelerator
-        retire_acc:   '0, // i_schnizo.retire_acc,
-        acc_pid:      '0, // i_schnizo.acc_prsp_i.id,
-        acc_pdata_32: '0, // i_schnizo.acc_prsp_i.data[31:0],
-        // FPU offload
-        fpu_offload:
-          (i_schnizo.acc_qready_i && i_schnizo.acc_qvalid_o && i_schnizo.acc_qreq_o.addr == 0),
-        is_seq_insn:  (i_schnizo.inst_data_i inside {riscv_instr::FREP_I, riscv_instr::FREP_O})
+        retire_acc:   i_schnizo.instr_retired_acc,
+        acc_pid:      i_schnizo.acc_prsp_i.id,
+        acc_pdata_32: i_schnizo.acc_prsp_i.data[31:0],
+        // FPU offload - intercept dispatcher - FPU Reservation Station instead of offload
+        fpu_offload:  i_schnizo.issue_fpu,
+        is_seq_insn:  '0
       };
 
       if (FPEn) begin
