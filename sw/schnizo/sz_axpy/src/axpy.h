@@ -5,7 +5,7 @@
 #include "args.h"
 #include "snrt.h"
 
-#define DOUBLE_BUFFER 0
+#define DOUBLE_BUFFER 1
 
 #define BANK_ALIGNMENT 8
 #define TCDM_ALIGNMENT (32 * BANK_ALIGNMENT)
@@ -19,7 +19,8 @@
 static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *y,
                              double *z, int increment) {
     int core_idx = snrt_cluster_core_idx();
-    int frac = n / snrt_cluster_compute_core_num();
+    int num_cores = snrt_cluster_compute_core_num();
+    int frac = n / num_cores;
     int offset = core_idx;
 
     // Loop but in assembly
@@ -37,14 +38,14 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
         "fld     ft1,   0(%[ya])          \n"
         "fmadd.d ft0,   %[a],    ft0,   ft1\n"
         "fsd     ft0,   0(%[za])          \n"
-        "addi    %[xa], %[xa],   %[inc]   \n" // ALU 0.0
+        "add     %[xa], %[xa],   %[inc]   \n" // ALU 0.0
         // Swap x and y such that z is on its own ALU (ALU1) (if 2 ALUs)
-        "addi    %[za], %[za],   %[inc]   \n" // ALU 1.0
-        "addi    %[ya], %[ya],   %[inc]   \n" // ALU 0.1
+        "add     %[za], %[za],   %[inc]   \n" // ALU 1.0
+        "add     %[ya], %[ya],   %[inc]   \n" // ALU 0.1
         // Outputs
         : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
         // Inputs
-        : [n_frep]"r"(frac-1), [a]"f"(a), [inc]"i"(increment)
+        : [n_frep]"r"(frac-1), [a]"f"(a), [inc]"r"(increment * num_cores)
         // Clobbers
         : "t0", "ft0", "ft1", "memory"
     );
@@ -252,7 +253,7 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
     uint32_t iterations, i, i_dma_in, i_compute, i_dma_out, buff_idx;
 
 
-    int double_buffer = 0; // disable double buffering because there are not enough banks
+    int double_buffer = 0; // double buffering is only possible with 48 banks
 
 #ifndef JOB_ARGS_PRELOADED
     // Allocate space for job arguments in TCDM
