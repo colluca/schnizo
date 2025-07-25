@@ -22,6 +22,10 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
   input  instr_dec_t instr_dec_i,
   output logic       operands_ready_o,
   output logic       destination_ready_o,
+  // If the following two signals are asserted at least one register of the corresponding register
+  // file is currently waiting on a result.
+  output logic       fpr_busy_o,
+  output logic       gpr_busy_o,
   input  logic       dispatched_i,
   // Register write back snooping
   input  logic                  write_enable_gpr_i,
@@ -36,6 +40,10 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
   logic [2**RegAddrSize-1:0] sbi_d, sbi_q, sbf_d, sbf_q;
   `FFAR(sbi_q, sbi_d, '0, clk_i, rst_i)
   `FFAR(sbf_q, sbf_d, '0, clk_i, rst_i)
+
+  // Check if any register is awaiting a write. This flag can be used to stall FCSR reads.
+  assign fpr_busy_o = |sbf_q;
+  assign gpr_busy_o = |sbi_q;
 
   // This checks the scoreboard for RAW conflicts using the decoded register addresses.
   // These addresses and the rx_is_fp signals default to zero. If a register is not used,

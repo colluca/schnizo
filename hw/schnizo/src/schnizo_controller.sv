@@ -89,6 +89,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic operands_ready;
   logic destination_ready;
   logic registers_ready;
+  logic fpr_busy;
+  logic gpr_busy;
 
   schnizo_scoreboard #(
     .RegAddrSize(REG_ADDR_SIZE),
@@ -99,6 +101,8 @@ module schnizo_controller import schnizo_pkg::*; #(
     .instr_dec_i        (instr_decoded_i),
     .operands_ready_o   (operands_ready),
     .destination_ready_o(destination_ready),
+    .fpr_busy_o         (fpr_busy),
+    .gpr_busy_o         (gpr_busy),
     .dispatched_i       (instr_dispatched),
     // The write back is snooped to place the reservations and
     // enable same cycle WAW conflict detection / resolution
@@ -178,6 +182,9 @@ module schnizo_controller import schnizo_pkg::*; #(
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
 
+  // ---------------------------
+  // Stalls
+  // ---------------------------
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
   logic all_lsus_empty, fence_stall;
   assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
@@ -188,6 +195,20 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic fence_i_stall;
   assign flush_i_valid_o = instr_decoded_i.is_fence_i & instr_valid_i;
   assign fence_i_stall = flush_i_valid_o & ~ flush_i_ready_i;
+
+  // Check if the current instruction wants to read or write the FCSR. If so, stall until no FPU
+  // instructions are ongoing. This ensures that any FCSR access is ordered.
+  logic [11:0] csr_addr;
+  logic        is_fcsr_instr;
+  logic        fcsr_stall;
+
+  assign csr_addr = instr_decoded_i.imm[11:0];
+  assign is_fcsr_instr = (csr_addr inside {riscv_instr::CSR_FFLAGS, riscv_instr::CSR_FRM,
+                                           riscv_instr::CSR_FMODE,  riscv_instr::CSR_FCSR})
+                         && (instr_decoded_i.fu == CSR);
+  // We must stall on both register file scoreboards as certain FPU instructions (FEQ etc.) do also
+  // write back into the integer register file.
+  assign fcsr_stall = fpr_busy & gpr_busy & is_fcsr_instr & instr_valid_i;
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
@@ -215,6 +236,7 @@ module schnizo_controller import schnizo_pkg::*; #(
                                   registers_ready &
                                   ~fence_stall    &
                                   ~fence_i_stall  &
+                                  ~fcsr_stall     &
                                   ~exception;
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has
