@@ -23,7 +23,7 @@ int main() {
         "mv      t0, t0\n"
         "fence\n"
         // loop
-        "frep.o %[n_frep], 12,     0,     0\n"
+        "frep.o %[n_frep], 14,     0,     0\n"
         "add    %[res],    %[res], %[inc]  \n"
         "add    %[res],    %[res], %[inc]  \n"
         "add    %[res],    %[res], %[inc]  \n"
