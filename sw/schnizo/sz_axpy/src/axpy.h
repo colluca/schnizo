@@ -5,7 +5,7 @@
 #include "args.h"
 #include "snrt.h"
 
-#define DOUBLE_BUFFER 1
+#define DOUBLE_BUFFER 0
 
 #define BANK_ALIGNMENT 8
 #define TCDM_ALIGNMENT (32 * BANK_ALIGNMENT)
@@ -32,7 +32,6 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
 
     asm volatile (
         // Code
-        "csrr    t0,    mcycle\n"
         "frep.o  %[n_frep], 7, 0, 0\n"
         "fld     ft0,   0(%[xa])          \n"
         "fld     ft1,   0(%[ya])          \n"
@@ -42,7 +41,6 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
         // Swap x and y such that z is on its own ALU (ALU1) (if 2 ALUs)
         "addi    %[za], %[za],   %[inc]   \n" // ALU 1.0
         "addi    %[ya], %[ya],   %[inc]   \n" // ALU 0.1
-        "csrr    t0,    mcycle\n"
         // Outputs
         : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
         // Inputs
@@ -54,6 +52,7 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
     snrt_fpu_fence();
 }
 
+// The matrixes are placed contiguously in memory.
 static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
                              double *z) {
     axpy_frep_increment(n, a, x, y, z, sizeof(double));
@@ -157,15 +156,6 @@ static inline void axpy_job(axpy_args_t *args) {
         local_z[1] = (double *)local_z1_addr;
     }
 
-    if (snrt_cluster_core_idx() == 0) {
-        DUMP((uint32_t)local_x0_addr);
-        DUMP((uint32_t)local_y0_addr);
-        DUMP((uint32_t)local_z0_addr);
-        DUMP((uint32_t)local_x1_addr);
-        DUMP((uint32_t)local_y1_addr);
-        DUMP((uint32_t)local_z1_addr);
-    }
-
     // Calculate number of iterations
     iterations = args->n_tiles;
     if (DOUBLE_BUFFER) iterations += 2;
@@ -249,7 +239,8 @@ static inline void axpy_job(axpy_args_t *args) {
 
 
 // instead of consecutive bank access, we align the arrays such that each array
-// is on a separate bank
+// is on a separate bank. This requires 48 banks for double buffering but we only
+// have 32 -> double buffering is disabled.
 static inline void axpy_job_distributed(axpy_args_t *args) {
     uint32_t frac, offset, size;
     uint64_t local_x0_addr, local_y0_addr, local_z0_addr, local_x1_addr,
@@ -259,6 +250,9 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
     double *local_z[2];
     double *remote_x, *remote_y, *remote_z;
     uint32_t iterations, i, i_dma_in, i_compute, i_dma_out, buff_idx;
+
+
+    int double_buffer = 0; // disable double buffering because there are not enough banks
 
 #ifndef JOB_ARGS_PRELOADED
     // Allocate space for job arguments in TCDM
@@ -278,48 +272,31 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
     size = frac;
 
     // Allocate space for job operands in TCDM
-    // Place X only in the bank 0
-    // Place Y only in the bank 1
-    // Place Z only in the bank 2
-    // Place 2nd buffers in banks 16, 17, 18.
+    // Place X only in the bank 0:ncores-1
+    // Place Y only in the bank ncores:2*ncores-1
+    // Place Z only in the bank 2*num_cores:3*num_cores-1
+    int num_cores = snrt_cluster_compute_core_num();
     local_x0_addr = ALIGN_UP_TCDM((uint64_t)args + sizeof(axpy_args_t));
-    local_y0_addr = local_x0_addr + 1 * BANK_ALIGNMENT;
-    local_z0_addr = local_x0_addr + 2 * BANK_ALIGNMENT;
+    local_y0_addr = local_x0_addr + num_cores * BANK_ALIGNMENT;
+    local_z0_addr = local_x0_addr + 2*num_cores * BANK_ALIGNMENT;
     local_x[0] = (double *)local_x0_addr;
     local_y[0] = (double *)local_y0_addr;
     local_z[0] = (double *)local_z0_addr;
-    if (DOUBLE_BUFFER) {
-        local_x1_addr = local_x0_addr + 16 * BANK_ALIGNMENT;
-        local_y1_addr = local_x0_addr + 17 * BANK_ALIGNMENT;
-        local_z1_addr = local_x0_addr + 18 * BANK_ALIGNMENT;
-        local_x[1] = (double *)local_x1_addr;
-        local_y[1] = (double *)local_y1_addr;
-        local_z[1] = (double *)local_z1_addr;
-    }
-
-    if (snrt_cluster_core_idx() == 0) {
-        DUMP((uint32_t)local_x0_addr);
-        DUMP((uint32_t)local_y0_addr);
-        DUMP((uint32_t)local_z0_addr);
-        DUMP((uint32_t)local_x1_addr);
-        DUMP((uint32_t)local_y1_addr);
-        DUMP((uint32_t)local_z1_addr);
-    }
 
     // Calculate number of iterations
     iterations = args->n_tiles;
-    if (DOUBLE_BUFFER) iterations += 2;
+    if (double_buffer) iterations += 2;
 
     // Iterate over all tiles
     for (i = 0; i < iterations; i++) {
         if (snrt_is_dm_core()) {
             // DMA in
-            if (!DOUBLE_BUFFER || (i < args->n_tiles)) {
+            if (!double_buffer || (i < args->n_tiles)) {
                 snrt_mcycle();
 
                 // Compute tile and buffer indices
                 i_dma_in = i;
-                buff_idx = DOUBLE_BUFFER ? i_dma_in % 2 : 0;
+                buff_idx = double_buffer ? i_dma_in % 2 : 0;
 
                 // Calculate size and pointers to current tile
                 offset = i_dma_in * frac;
@@ -327,34 +304,34 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
                 remote_y = args->y + offset;
 
                 // Copy job operands in TCDM
-                snrt_dma_start_2d(local_x[buff_idx], remote_x, sizeof(double),
-                                  TCDM_ALIGNMENT, sizeof(double), size);
-                snrt_dma_start_2d(local_y[buff_idx], remote_y, sizeof(double),
-                                  TCDM_ALIGNMENT, sizeof(double), size);
+                snrt_dma_start_2d(local_x[buff_idx], remote_x, num_cores * sizeof(double),
+                                  TCDM_ALIGNMENT, num_cores * sizeof(double), size / num_cores);
+                snrt_dma_start_2d(local_y[buff_idx], remote_y, num_cores * sizeof(double),
+                                  TCDM_ALIGNMENT, num_cores * sizeof(double), size / num_cores);
                 snrt_dma_wait_all();
 
                 snrt_mcycle();
             }
 
             // Additional barriers required when not double buffering
-            if (!DOUBLE_BUFFER) snrt_cluster_hw_barrier();
-            if (!DOUBLE_BUFFER) snrt_cluster_hw_barrier();
+            if (!double_buffer) snrt_cluster_hw_barrier();
+            if (!double_buffer) snrt_cluster_hw_barrier();
 
             // DMA out
-            if (!DOUBLE_BUFFER || (i > 1)) {
+            if (!double_buffer || (i > 1)) {
                 snrt_mcycle();
 
                 // Compute tile and buffer indices
-                i_dma_out = DOUBLE_BUFFER ? i - 2 : i;
-                buff_idx = DOUBLE_BUFFER ? i_dma_out % 2 : 0;
+                i_dma_out = double_buffer ? i - 2 : i;
+                buff_idx = double_buffer ? i_dma_out % 2 : 0;
 
                 // Calculate pointers to current tile
                 offset = i_dma_out * frac;
                 remote_z = args->z + offset;
 
                 // Copy job outputs from TCDM
-                snrt_dma_start_2d(remote_z, local_z[buff_idx], sizeof(double),
-                                  sizeof(double), TCDM_ALIGNMENT, size);
+                snrt_dma_start_2d(remote_z, local_z[buff_idx], num_cores * sizeof(double),
+                                  num_cores * sizeof(double), TCDM_ALIGNMENT, size / num_cores);
                 snrt_dma_wait_all();
 
                 snrt_mcycle();
@@ -364,14 +341,14 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
         // Compute
         if (snrt_is_compute_core()) {
             // Additional barrier required when not double buffering
-            if (!DOUBLE_BUFFER) snrt_cluster_hw_barrier();
+            if (!double_buffer) snrt_cluster_hw_barrier();
 
-            if (!DOUBLE_BUFFER || (i > 0 && i < (args->n_tiles + 1))) {
+            if (!double_buffer || (i > 0 && i < (args->n_tiles + 1))) {
                 snrt_mcycle();
 
                 // Compute tile and buffer indices
-                i_compute = DOUBLE_BUFFER ? i - 1 : i;
-                buff_idx = DOUBLE_BUFFER ? i_compute % 2 : 0;
+                i_compute = double_buffer ? i - 1 : i;
+                buff_idx = double_buffer ? i_compute % 2 : 0;
 
                 // Perform tile computation
                 axpy_fp_t fp = args->funcptr;
@@ -382,7 +359,7 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
             }
 
             // Additional barrier required when not double buffering
-            if (!DOUBLE_BUFFER) snrt_cluster_hw_barrier();
+            if (!double_buffer) snrt_cluster_hw_barrier();
         }
 
         // Synchronize cores after every iteration
