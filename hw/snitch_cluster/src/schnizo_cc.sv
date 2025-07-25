@@ -48,12 +48,9 @@ module schnizo_cc #(
   parameter fpnew_pkg::fpu_implementation_t FPUImplementation = '0,
   /// Boot address of core.
   parameter logic [31:0] BootAddr           = 32'h0000_1000,
-  /// Reduced-register extension
-  parameter bit          RVE                = 0,
   /// Enable F and D Extension
   parameter bit          RVF                = 1,
   parameter bit          RVD                = 1,
-  parameter bit          XDivSqrt           = 0,
   parameter bit          XF8                = 0,
   parameter bit          XF8ALT             = 0,
   parameter bit          XF16               = 0,
@@ -64,25 +61,16 @@ module schnizo_cc #(
   parameter bit          Xdma               = 0,
   /// Has `frep` support. For Schnizo this is the superscalar feature.
   parameter bit          Xfrep              = 0,
-  /// Has `SSR` support.
-  parameter bit          Xssr               = 0,
-  /// Has Xcopift support.
-  parameter bit          Xcopift            = 0,
-  /// Has `IPU` support.
-  parameter bit          Xipu               = 0,
-  /// Has virtual memory support.
-  parameter bit          VMSupport          = 0,
+  /// Xfrep config
+  parameter int unsigned NumAlus            = 3,
+  parameter int unsigned NumLsus            = 3,
+  parameter int unsigned NumFpus            = 1,
+  parameter int unsigned NumAluRss          = 3,
+  parameter int unsigned NumLsuRss          = 2,
+  parameter int unsigned NumFpuRss          = 4,
+  // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
-  parameter int unsigned NumFPOutstandingLoads  = 0,
-  parameter int unsigned NumFPOutstandingMem    = 0,
-  parameter int unsigned NumDTLBEntries         = 0,
-  parameter int unsigned NumITLBEntries         = 0,
-  parameter int unsigned NumSequencerInstr      = 0,
-  parameter int unsigned NumSsrs                = 0,
-  parameter int unsigned SsrMuxRespDepth        = 0,
-  parameter snitch_ssr_pkg::ssr_cfg_t [NumSsrs-1:0] SsrCfgs = '0,
-  parameter logic [NumSsrs-1:0][4:0] SsrRegs                = '0,
   /// Add isochronous clock-domain crossings e.g., make it possible to operate
   /// the core in a slower clock domain.
   parameter bit          IsoCrossing        = 0,
@@ -95,10 +83,6 @@ module schnizo_cc #(
   parameter bit          RegisterCoreReq    = 0,
   /// Insert Pipeline registers into data memory path (response)
   parameter bit          RegisterCoreRsp    = 0,
-  /// Insert Pipeline register into the FPU data path (request)
-  parameter bit          RegisterFPUReq     = 0,
-  /// Insert Pipeline registers after sequencer
-  parameter bit          RegisterSequencer  = 0,
   /// Insert Pipeline registers immediately before FPU datapath
   parameter bit          RegisterFPUIn      = 0,
   /// Insert Pipeline registers immediately after FPU datapath
@@ -113,7 +97,7 @@ module schnizo_cc #(
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
   /// Derived parameter *Do not override*
-  parameter int unsigned TCDMPorts = (NumSsrs > 1 ? NumSsrs : 1),
+  parameter int unsigned TCDMPorts = NumLsus,
   parameter type addr_t = logic [AddrWidth-1:0],
   parameter type data_t = logic [DataWidth-1:0]
 ) (
@@ -221,7 +205,12 @@ module schnizo_cc #(
     .acc_req_t             (acc_req_t),
     .acc_resp_t            (acc_resp_t),
     // FU configuration
-    .NofLsus               (NofLsus),
+    .NofAlus               (NumAlus),
+    .NofLsus               (NumLsus),
+    .NofFpus               (NumFpus),
+    .AluNofRss             (NumAluRss),
+    .LsuNofRss             (NumLsuRss),
+    .FpuNofRss             (NumFpuRss),
     .NumOutstandingLoads   (NumIntOutstandingLoads), // Use the int value for all LSUs
     .NumOutstandingMem     (NumIntOutstandingMem),
     .SnitchPMACfg          (SnitchPMACfg),

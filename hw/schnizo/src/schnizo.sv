@@ -57,7 +57,12 @@ module schnizo import schnizo_pkg::*; #(
   parameter type         acc_req_t  = logic,
   parameter type         acc_resp_t = logic,
   /// FU configuration
+  parameter int unsigned NofAlus    = 3,
   parameter int unsigned NofLsus    = 1,
+  parameter int unsigned NofFpus    = 1,
+  parameter int unsigned AluNofRss  = 3,
+  parameter int unsigned LsuNofRss  = 2,
+  parameter int unsigned FpuNofRss  = 4,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -212,17 +217,9 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // RSS definitions / parameters
   // ---------------------------
-  localparam int unsigned NofAlus = 3;
-  // localparam int unsigned NofLsus = 1; // defined via cluster config / SSR config
-  localparam int unsigned NofFpus = 1;
-
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofOperands = 3;
-
-  localparam integer unsigned AluNofRss      = 3;
-  localparam integer unsigned LsuNofRss      = 2;
-  localparam integer unsigned FpuNofRss      = 4;
 
   // ---------------------------
   // Operand distribution network definitions

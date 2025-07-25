@@ -116,19 +116,13 @@
         // no effect for Schnizo
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
-        // Add SSR configs to control the number of TCDM ports.
-        // This is a hack to reuse the same Compute Complex interface for Schnizo as used by Snitch
-        // (this means snitch_cc and schnizo_cc have the same interface).
-        // There we use the parameter "NumSsrs" to define the number of TCDM ports and LSUs.
-        // However, the generator will only update this parameter if it finds valid SSR configurations.
-        // See util/clustergen/cluster.py:283
-        // Enabling the SSRs has no effect on the Schnizo behaviour.
-        xssr: true,
-        ssrs: [ // each {} defines a SSR and therefore a LSU
-            {},
-            {},
-            {},
-        ],
+        // Superscalar configuration
+        num_alus: 3,
+        num_alu_slots: 4,
+        num_lsus: 3,
+        num_lsu_slots: 4,
+        num_fpus: 1,
+        num_fpu_slots: 4,
     },
     dma_core_template: {
         isa: "rv32imafd",

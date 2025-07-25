@@ -60,16 +60,16 @@ module ${cfg['cluster']['name']}_wrapper (
   output ${cfg['cluster']['name']}_pkg::tcdm_dma_rsp_t [${actual_num_exposed_wide_tcdm_ports}-1:0] tcdm_ext_resp_o
 );
 
+  localparam int unsigned NumAlus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alus')}};
+  localparam int unsigned NumLsus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsus')}};
+  localparam int unsigned NumFpus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpus')}};
+  localparam int unsigned NumAluRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_slots')}};
+  localparam int unsigned NumLsuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_slots')}};
+  localparam int unsigned NumFpuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_slots')}};
   localparam int unsigned NumIntOutstandingLoads [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_loads')}};
   localparam int unsigned NumIntOutstandingMem [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_mem')}};
-  localparam int unsigned NumFPOutstandingLoads [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fp_outstanding_loads')}};
-  localparam int unsigned NumFPOutstandingMem [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fp_outstanding_mem')}};
-  localparam int unsigned NumDTLBEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_dtlb_entries')}};
-  localparam int unsigned NumITLBEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_itlb_entries')}};
   localparam int unsigned NumSequencerInstr [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_instructions')}};
   localparam int unsigned NumSequencerLoops [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_loops')}};
-  localparam int unsigned NumSsrs [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_ssrs')}};
-  localparam int unsigned SsrMuxRespDepth [${cfg['cluster']['nr_cores']}] = '{${core_cfg('ssr_mux_resp_depth')}};
 
   // Snitch cluster under test.
   snitch_cluster #(
@@ -122,22 +122,18 @@ module ${cfg['cluster']['name']}_wrapper (
     .XFVEC (${core_cfg_flat('xfvec')}),
     .XFDOTP (${core_cfg_flat('xfdotp')}),
     .Xdma (${core_cfg_flat('xdma')}),
-    .Xssr (${core_cfg_flat('xssr')}),
     .Xfrep (${core_cfg_flat('xfrep')}),
     .Xcopift (${core_cfg_flat('xcopift')}),
     .FPUImplementation (${cfg['cluster']['name']}_pkg::FPUImplementation),
     .SnitchPMACfg (${cfg['cluster']['name']}_pkg::SnitchPMACfg),
+    .NumAlus (NumAlus),
+    .NumLsus (NumLsus),
+    .NumFpus (NumFpus),
+    .NumAluRss (NumAluRss),
+    .NumLsuRss (NumLsuRss),
+    .NumFpuRss (NumFpuRss),
     .NumIntOutstandingLoads (NumIntOutstandingLoads),
     .NumIntOutstandingMem (NumIntOutstandingMem),
-    .NumFPOutstandingLoads (NumFPOutstandingLoads),
-    .NumFPOutstandingMem (NumFPOutstandingMem),
-    .NumDTLBEntries (NumDTLBEntries),
-    .NumITLBEntries (NumITLBEntries),
-    .NumSsrsMax (${cfg['cluster']['num_ssrs_max']}),
-    .NumSsrs (NumSsrs),
-    .SsrMuxRespDepth (SsrMuxRespDepth),
-    .SsrRegs (${cfg['cluster']['name']}_pkg::SsrRegs),
-    .SsrCfgs (${cfg['cluster']['name']}_pkg::SsrCfgs),
     .NumSequencerInstr (NumSequencerInstr),
     .NumSequencerLoops (NumSequencerLoops),
     .Hive (${cfg['cluster']['name']}_pkg::Hive),

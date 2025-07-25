@@ -105,8 +105,6 @@ module snitch_cluster
   parameter bit [NrCores-1:0] XFDOTP        = '0,
   /// Per-core enabling of the custom `Xdma` ISA extensions.
   parameter bit [NrCores-1:0] Xdma          = '0,
-  /// Per-core enabling of the custom `Xssr` ISA extensions.
-  parameter bit [NrCores-1:0] Xssr          = '0,
   /// Per-core enabling of the custom `Xfrep` ISA extensions.
   parameter bit [NrCores-1:0] Xfrep         = '0,
   /// Per-core enabling of the custom `Xcopift` ISA extensions.
@@ -118,28 +116,22 @@ module snitch_cluster
   /// Physical Memory Attribute Configuration
   parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '0,
   /// # Per-core parameters
+  /// Per-core number of ALUs
+  parameter int unsigned NumAlus [NrCores] = '{default: 1},
+  /// Per-core number of LSUs
+  parameter int unsigned NumLsus [NrCores] = '{default: 1},
+  /// Per-core number of FPUs
+  parameter int unsigned NumFpus [NrCores] = '{default: 0},
+  /// Per-core number of Slots per ALU
+  parameter int unsigned NumAluRss [NrCores] = '{default: 0},
+  /// Per-core number of Slots per LSU
+  parameter int unsigned NumLsuRss [NrCores] = '{default: 0},
+  /// Per-core number of Slots per FPU
+  parameter int unsigned NumFpuRss [NrCores] = '{default: 0},
   /// Per-core integer outstanding loads
   parameter int unsigned NumIntOutstandingLoads [NrCores] = '{default: 0},
   /// Per-core integer outstanding memory operations (load and stores)
   parameter int unsigned NumIntOutstandingMem [NrCores] = '{default: 0},
-  /// Per-core floating-point outstanding loads
-  parameter int unsigned NumFPOutstandingLoads [NrCores] = '{default: 0},
-  /// Per-core floating-point outstanding memory operations (load and stores)
-  parameter int unsigned NumFPOutstandingMem [NrCores] = '{default: 0},
-  /// Per-core number of data TLB entries.
-  parameter int unsigned NumDTLBEntries [NrCores] = '{default: 0},
-  /// Per-core number of instruction TLB entries.
-  parameter int unsigned NumITLBEntries [NrCores] = '{default: 0},
-  /// Maximum number of SSRs per core.
-  parameter int unsigned NumSsrsMax = 0,
-  /// Per-core number of SSRs.
-  parameter int unsigned NumSsrs [NrCores] = '{default: 0},
-  /// Per-core depth of TCDM Mux unifying SSR 0 and Snitch requests.
-  parameter int unsigned SsrMuxRespDepth [NrCores] = '{default: 0},
-  /// Per-core internal parameters for each SSR.
-  parameter snitch_ssr_pkg::ssr_cfg_t [NumSsrsMax-1:0] SsrCfgs [NrCores] = '{default: '0},
-  /// Per-core register indices for each SSR.
-  parameter logic [NumSsrsMax-1:0][4:0]  SsrRegs [NrCores] = '{default: 0},
   /// Per-core amount of sequencer instructions for IPU and FPU if enabled.
   parameter int unsigned NumSequencerInstr [NrCores] = '{default: 0},
   /// Per-core amount of sequencer loops for FPU if enabled.
@@ -296,7 +288,7 @@ module snitch_cluster
   localparam int unsigned NrSuperBanks = NrBanks / BanksPerSuperBank;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return (NumSsrs[core] > 1 ? NumSsrs[core] : 1);
+    return NumLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1034,10 +1026,8 @@ module snitch_cluster
         .acc_resp_t (acc_resp_t),
         .dma_events_t (dma_events_t),
         .BootAddr (BootAddrInternal),
-        .RVE (RVE[i]),
         .RVF (RVF[i]),
         .RVD (RVD[i]),
-        .XDivSqrt (XDivSqrt[i]),
         .XF16 (XF16[i]),
         .XF16ALT (XF16ALT[i]),
         .XF8 (XF8[i]),
@@ -1047,29 +1037,19 @@ module snitch_cluster
         .Xdma (Xdma[i]),
         .IsoCrossing (IsoCrossing),
         .Xfrep (Xfrep[i]),
-        .Xssr (Xssr[i]),
-        .Xcopift (Xcopift[i]),
-        .Xipu (1'b0),
-        .VMSupport (VMSupport),
+        .NumAlus(NumAlus[i]),
+        .NumLsus(NumLsus[i]),
+        .NumFpus(NumFpus[i]),
+        .NumAluRss(NumAluRss[i]),
+        .NumLsuRss(NumLsuRss[i]),
+        .NumFpuRss(NumFpuRss[i]),
         .NumIntOutstandingLoads (NumIntOutstandingLoads[i]),
         .NumIntOutstandingMem (NumIntOutstandingMem[i]),
-        .NumFPOutstandingLoads (NumFPOutstandingLoads[i]),
-        .NumFPOutstandingMem (NumFPOutstandingMem[i]),
         .FPUImplementation (FPUImplementation[i]),
-        .NumDTLBEntries (NumDTLBEntries[i]),
-        .NumITLBEntries (NumITLBEntries[i]),
-        .NumSequencerInstr (NumSequencerInstr[i]),
-        .NumSequencerLoops (NumSequencerLoops[i]),
-        .NumSsrs (NumSsrs[i]),
-        .SsrMuxRespDepth (SsrMuxRespDepth[i]),
-        .SsrCfgs (SsrCfgs[i][NumSsrs[i]-1:0]),
-        .SsrRegs (SsrRegs[i][NumSsrs[i]-1:0]),
         .RegisterOffloadReq (RegisterOffloadReq),
         .RegisterOffloadRsp (RegisterOffloadRsp),
         .RegisterCoreReq (RegisterCoreReq),
         .RegisterCoreRsp (RegisterCoreRsp),
-        .RegisterFPUReq (RegisterFPUReq),
-        .RegisterSequencer (RegisterSequencer),
         .RegisterFPUIn (RegisterFPUIn),
         .RegisterFPUOut (RegisterFPUOut),
         .TCDMAddrWidth (TCDMAddrWidth),
