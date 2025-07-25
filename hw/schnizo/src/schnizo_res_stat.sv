@@ -339,21 +339,32 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic     res_rsp_ready;
 
   logic slot_found;
-  always_comb begin : gen_res_rsp_mux
-    slot_found     = 1'b0;
-    res_rsp        = '0;
-    res_rsp_valid  = '0;
-    res_rsps_ready = '0;
+  logic [NofRssWidth-1:0] sel_rss_rsp;
+  always_comb begin : gen_res_rsp_mux_sel
+    sel_rss_rsp = '0;
+    slot_found  = 1'b0;
 
+    // Select which RSS can write depending on the incoming request instead of the actual response.
     for (int slot = 0; slot < NofRss; slot++) begin
-      if (!slot_found && (res_rsps_valid[slot] == 1'b1)) begin
+      if (!slot_found && (dest_masks_valid[slot] == 1'b1)) begin
         slot_found = 1'b1;
-        res_rsp = res_rsps[slot];
-        res_rsp_valid = res_rsps_valid[slot];
-        res_rsps_ready[slot] = res_rsp_ready;
+        sel_rss_rsp = slot[NofRssWidth-1:0];
       end
     end
   end
+
+  stream_mux #(
+    .DATA_T(res_rsp_t),
+    .N_INP(NofRss)
+  ) i_res_rsp_mux (
+    .inp_data_i(res_rsps),
+    .inp_valid_i(res_rsps_valid),
+    .inp_ready_o(res_rsps_ready),
+    .inp_sel_i(sel_rss_rsp),
+    .oup_data_o(res_rsp),
+    .oup_valid_o(res_rsp_valid),
+    .oup_ready_i(res_rsp_ready)
+  );
 
   assign res_rsps_o       = res_rsp;
   assign res_rsps_valid_o = res_rsp_valid;
