@@ -67,6 +67,7 @@ include $(SN_ROOT)/target/snitch_cluster/sw/toolchain.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/runtime/runtime.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/tests/tests.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/riscv-tests/riscv-tests.mk
+include $(SN_ROOT)/target/snitch_cluster/sw/schnizo/schnizo-tests.mk
 
 SNRT_BUILD_APPS ?= ON
 
