@@ -117,11 +117,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   logic       acc_disp_req_valid_raw;
   logic       none_disp_req_valid_raw;
   always_comb begin : fu_selection
-    alu_disp_req_valid_raw = 1'b0;
-    lsu_disp_req_valid_raw = 1'b0;
-    csr_disp_req_valid_raw = 1'b0;
-    fpu_disp_req_valid_raw = 1'b0;
-    acc_disp_req_valid_raw = 1'b0;
+    alu_disp_req_valid_raw  = '0;
+    lsu_disp_req_valid_raw  = '0;
+    csr_disp_req_valid_raw  = 1'b0;
+    fpu_disp_req_valid_raw  = '0;
+    acc_disp_req_valid_raw  = 1'b0;
+    none_disp_req_valid_raw = 1'b0;
     fu_response = '0;
     fu_ready    = 1'b0;
 
