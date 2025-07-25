@@ -383,9 +383,11 @@ module schnizo_controller import schnizo_pkg::*; #(
       end else if (instr_decoded_i.is_jal || instr_decoded_i.is_jalr) begin
         // Set to alu result. Clear last bit if JALR
         pc_d = alu_result_i & {{31{1'b1}}, ~instr_decoded_i.is_jalr};
+      end else if (loop_jump) begin
+        pc_d = loop_jump_addr; // We jump back to the start of the loop
       end else begin
         // The consecutive address covers regular and branch instructions
-        pc_d = loop_jump ? loop_jump_addr : consecutive_pc;
+        pc_d = consecutive_pc;
       end
     end
   end
