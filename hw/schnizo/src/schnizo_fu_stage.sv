@@ -62,6 +62,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter bit          RegisterFPUOut = 0,
   /// Others
   parameter type         producer_id_t  = logic,
+  parameter type         slot_id_t      = logic,
+  parameter type         rs_id_t        = logic,
   parameter type         operand_id_t   = logic,
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
@@ -160,13 +162,13 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   // operands at once.
   typedef struct packed {
     logic        requested_iter;
-    operand_id_t consumer; // where to send the response to
+    slot_id_t    slot_id;
   } res_req_t;
 
   // The request going into the request crossbar
   typedef struct packed {
-    producer_id_t producer; // where to place the request
-    res_req_t     request;
+    rs_id_t   producer; // where to place the request
+    res_req_t request;
   } operand_req_t;
 
   localparam integer unsigned NofOperandIfsW = NofOperandIfs;
@@ -190,10 +192,9 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   logic         [NofOperandIfs-1:0] op_reqs_valid;
   logic         [NofOperandIfs-1:0] op_reqs_ready;
 
-  dest_mask_t   [NofResReqIfs-1:0]  res_reqs;
-  logic         [NofResReqIfs-1:0]  res_reqs_valid;
-  logic         [NofResReqIfs-1:0]  res_reqs_ready;
-  logic         [NofResReqIfs-1:0]  res_iters;
+  res_req_t     [NofResReqIfs-1:0][NofOperandIfs-1:0] res_reqs;
+  logic         [NofResReqIfs-1:0][NofOperandIfs-1:0] res_reqs_valid;
+  logic         [NofResReqIfs-1:0][NofOperandIfs-1:0] res_reqs_ready;
 
   res_rsp_t     [NofResRspIfs-1:0]  res_rsps;
   logic         [NofResRspIfs-1:0]  res_rsps_valid;
@@ -208,8 +209,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   // ---------------------------
   // Each RS needs a globally unique ID. We simply count all RS.
   localparam integer unsigned AluRsIdOffset = 0;
-  localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus * AluNofRss;
-  localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus * LsuNofRss;
+  localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus;
+  localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus;
 
   // Each RS needs a globally unique ID for its operand request ports.
   // These IDs are shared between the RSSs of a reservation station.
@@ -219,47 +220,44 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset +
                                               NofLsus * (LsuNofOperands * LsuNofOpPorts);
 
-  operand_req_t [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0] alu_op_reqs;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0] alu_op_reqs_valid;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0] alu_op_reqs_ready;
-  dest_mask_t   [NofAlus-1:0][AluNofResReqIfs-1:0]                   alu_res_reqs;
-  logic         [NofAlus-1:0][AluNofResReqIfs-1:0]                   alu_res_reqs_valid;
-  logic         [NofAlus-1:0][AluNofResReqIfs-1:0]                   alu_res_reqs_ready;
-  logic         [NofAlus-1:0][AluNofResReqIfs-1:0]                   alu_res_iters;
-  res_rsp_t     [NofAlus-1:0][AluNofResRspIfs-1:0]                   alu_res_rsps;
-  logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                   alu_res_rsps_valid;
-  logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                   alu_res_rsps_ready;
-  operand_t     [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0] alu_op_rsps;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0] alu_op_rsps_valid;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0] alu_op_rsps_ready;
+  operand_req_t [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs;
+  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs_valid;
+  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs_ready;
+  res_req_t     [NofAlus-1:0][AluNofResReqIfs-1:0][NofOperandIfs-1:0] alu_res_reqs;
+  logic         [NofAlus-1:0][AluNofResReqIfs-1:0][NofOperandIfs-1:0] alu_res_reqs_valid;
+  logic         [NofAlus-1:0][AluNofResReqIfs-1:0][NofOperandIfs-1:0] alu_res_reqs_ready;
+  res_rsp_t     [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_rsps;
+  logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_rsps_valid;
+  logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_rsps_ready;
+  operand_t     [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_rsps;
+  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_rsps_valid;
+  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_rsps_ready;
 
-  operand_req_t [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0] lsu_op_reqs;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0] lsu_op_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0] lsu_op_reqs_ready;
-  dest_mask_t   [NofLsus-1:0][LsuNofResReqIfs-1:0]                   lsu_res_reqs;
-  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0]                   lsu_res_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0]                   lsu_res_reqs_ready;
-  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0]                   lsu_res_iters;
-  res_rsp_t     [NofLsus-1:0][LsuNofResRspIfs-1:0]                   lsu_res_rsps;
-  logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                   lsu_res_rsps_valid;
-  logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                   lsu_res_rsps_ready;
-  operand_t     [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0] lsu_op_rsps;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0] lsu_op_rsps_valid;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0] lsu_op_rsps_ready;
+  operand_req_t [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs;
+  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs_valid;
+  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
+  res_req_t     [NofLsus-1:0][LsuNofResReqIfs-1:0][NofOperandIfs-1:0] lsu_res_reqs;
+  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0][NofOperandIfs-1:0] lsu_res_reqs_valid;
+  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0][NofOperandIfs-1:0] lsu_res_reqs_ready;
+  res_rsp_t     [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_rsps;
+  logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_rsps_valid;
+  logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_rsps_ready;
+  operand_t     [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_rsps;
+  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_rsps_valid;
+  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_rsps_ready;
 
-  operand_req_t [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0] fpu_op_reqs;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0] fpu_op_reqs_valid;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0] fpu_op_reqs_ready;
-  dest_mask_t   [NofFpus-1:0][FpuNofResReqIfs-1:0]                   fpu_res_reqs;
-  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0]                   fpu_res_reqs_valid;
-  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0]                   fpu_res_reqs_ready;
-  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0]                   fpu_res_iters;
-  res_rsp_t     [NofFpus-1:0][FpuNofResRspIfs-1:0]                   fpu_res_rsps;
-  logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                   fpu_res_rsps_valid;
-  logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                   fpu_res_rsps_ready;
-  operand_t     [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0] fpu_op_rsps;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0] fpu_op_rsps_valid;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0] fpu_op_rsps_ready;
+  operand_req_t [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs;
+  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs_valid;
+  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs_ready;
+  res_req_t     [NofFpus-1:0][FpuNofResReqIfs-1:0][NofOperandIfs-1:0] fpu_res_reqs;
+  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0][NofOperandIfs-1:0] fpu_res_reqs_valid;
+  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0][NofOperandIfs-1:0] fpu_res_reqs_ready;
+  res_rsp_t     [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_rsps;
+  logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_rsps_valid;
+  logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_rsps_ready;
+  operand_t     [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps;
+  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
+  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
   // Map the operand requests and responses to a linear array to connect to the xbar.
   // The array index must match the operand / consumer id.
@@ -338,7 +336,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     alu_res_reqs_valid = '0;
     lsu_res_reqs       = '0;
     fpu_res_reqs       = '0;
-    res_iters          = '0;
 
     res_rsps           = '0;
     res_rsps_valid     = '0;
@@ -347,13 +344,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     fpu_res_rsps_ready = '0;
 
     for (int alu = 0; alu < NofAlus; alu++) begin
-      for (int req = 0; req < AluNofResReqIfs; req++) begin
+      for (int alu_req_if = 0; alu_req_if < AluNofResReqIfs; alu_req_if++) begin
         // requests
-        alu_res_reqs[alu][req]       = res_reqs[req_if];
-        alu_res_reqs_valid[alu][req] = res_reqs_valid[req_if];
-        res_reqs_ready[req_if]       = alu_res_reqs_ready[alu][req];
-        // result iters
-        res_iters[req_if]            = alu_res_iters[alu][req];
+        alu_res_reqs[alu][alu_req_if]       = res_reqs[req_if];
+        alu_res_reqs_valid[alu][alu_req_if] = res_reqs_valid[req_if];
+        res_reqs_ready[req_if]              = alu_res_reqs_ready[alu][alu_req_if];
         req_if = req_if + 1;
       end
       for (int rsp = 0; rsp < AluNofResRspIfs; rsp++) begin
@@ -365,13 +360,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       end
     end
     for (int lsu = 0; lsu < NofLsus; lsu++) begin
-      for (int req = 0; req < LsuNofResReqIfs; req++) begin
+      for (int lsu_req_if = 0; lsu_req_if < LsuNofResReqIfs; lsu_req_if++) begin
         // requests
-        lsu_res_reqs[lsu][req]       = res_reqs[req_if];
-        lsu_res_reqs_valid[lsu][req] = res_reqs_valid[req_if];
-        res_reqs_ready[req_if]       = lsu_res_reqs_ready[lsu][req];
-        // result iters
-        res_iters[req_if]            = lsu_res_iters[lsu][req];
+        lsu_res_reqs[lsu][lsu_req_if]       = res_reqs[req_if];
+        lsu_res_reqs_valid[lsu][lsu_req_if] = res_reqs_valid[req_if];
+        res_reqs_ready[req_if]              = lsu_res_reqs_ready[lsu][lsu_req_if];
         req_if = req_if + 1;
       end
       for (int rsp = 0; rsp < LsuNofResRspIfs; rsp++) begin
@@ -383,13 +376,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       end
     end
     for (int fpu = 0; fpu < NofFpus; fpu++) begin
-      for (int req = 0; req < FpuNofResReqIfs; req++) begin
+      for (int fpu_req_if = 0; fpu_req_if < FpuNofResReqIfs; fpu_req_if++) begin
         // requests
-        fpu_res_reqs[fpu][req]       = res_reqs[req_if];
-        fpu_res_reqs_valid[fpu][req] = res_reqs_valid[req_if];
-        res_reqs_ready[req_if]       = fpu_res_reqs_ready[fpu][req];
-        // result iters
-        res_iters[req_if]            = fpu_res_iters[fpu][req];
+        fpu_res_reqs[fpu][fpu_req_if]       = res_reqs[req_if];
+        fpu_res_reqs_valid[fpu][fpu_req_if] = res_reqs_valid[req_if];
+        res_reqs_ready[req_if]              = fpu_res_reqs_ready[fpu][fpu_req_if];
         req_if = req_if + 1;
       end
       for (int rsp = 0; rsp < LsuNofResRspIfs; rsp++) begin
@@ -405,8 +396,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   // ---------------------------
   // Operand distribution network - request xbar
   // ---------------------------
-  res_req_t     [NofOperandIfs-1:0] op_reqs_requests;
-  producer_id_t [NofOperandIfs-1:0] op_reqs_producers;
+  res_req_t [NofOperandIfs-1:0] op_reqs_requests;
+  rs_id_t   [NofOperandIfs-1:0] op_reqs_producers;
   for (genvar i = 0; i < NofOperandIfs; i++) begin : gen_flatten_op_reqs
     assign op_reqs_requests[i]  = op_reqs[i].request;
     assign op_reqs_producers[i] = op_reqs[i].producer;
@@ -415,22 +406,20 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     .NumInp     (NofOperandIfs),
     .NumOut     (NofResReqIfs),
     .res_req_t  (res_req_t),
-    .dest_mask_t(dest_mask_t),
     .OutSpillReg(0),
     .AxiVldRdy  (0),
     .LockIn     (0),
     .AxiVldMask ('0)
   ) i_request_xbar (
     .clk_i,
-    .rst_ni     (~rst_i),
-    .data_i     (op_reqs_requests),
-    .sel_i      (op_reqs_producers),
-    .valid_i    (op_reqs_valid),
-    .ready_o    (op_reqs_ready),
-    .res_iter_i (res_iters),
-    .dest_mask_o(res_reqs),
-    .valid_o    (res_reqs_valid),
-    .ready_i    (res_reqs_ready)
+    .rst_ni   (~rst_i),
+    .data_i   (op_reqs_requests),
+    .sel_i    (op_reqs_producers),
+    .valid_i  (op_reqs_valid),
+    .ready_o  (op_reqs_ready),
+    .res_req_o(res_reqs),
+    .valid_o  (res_reqs_valid),
+    .ready_i  (res_reqs_ready)
   );
 
   // ---------------------------
@@ -503,8 +492,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
     producer_id_t producer_start_id;
     operand_id_t  op_start_id;
-    assign producer_start_id = producer_id_t'(AluRsIdOffset + alu * AluNofRss);
-    assign op_start_id       = operand_id_t'(AluOpIdOffset + alu * AluNofOperands * AluNofOpPorts);
+    assign producer_start_id = producer_id_t'{
+      slot_id: '0, // does not matter
+      rs_id:   rs_id_t'(AluRsIdOffset + alu)
+    };
+    assign op_start_id = operand_id_t'(AluOpIdOffset + alu * AluNofOperands * AluNofOpPorts);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -515,12 +507,13 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .NofRss        (AluNofRss),
       .NofOperands   (AluNofOperands),
       .NofOpPorts    (AluNofOpPorts),
-      .NofResReqIfs  (AluNofResReqIfs),
+      .NofOperandIfs (NofOperandIfs),
       .NofResRspIfs  (AluNofResRspIfs),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
+      .slot_id_t     (slot_id_t),
       .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
@@ -568,7 +561,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .res_reqs_i      (alu_res_reqs[alu]),
       .res_reqs_valid_i(alu_res_reqs_valid[alu]),
       .res_reqs_ready_o(alu_res_reqs_ready[alu]),
-      .res_iters_o     (alu_res_iters[alu]),
       .res_rsps_o      (alu_res_rsps[alu]),
       .res_rsps_valid_o(alu_res_rsps_valid[alu]),
       .res_rsps_ready_i(alu_res_rsps_ready[alu]),
@@ -669,8 +661,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
     producer_id_t producer_start_id;
     operand_id_t  op_start_id;
-    assign producer_start_id = producer_id_t'(LsuRsIdOffset + lsu * LsuNofRss);
-    assign op_start_id       = operand_id_t'(LsuOpIdOffset + lsu * LsuNofOperands * LsuNofOpPorts);
+    assign producer_start_id = producer_id_t'{
+      slot_id: '0, // does not matter
+      rs_id:   rs_id_t'(LsuRsIdOffset + lsu)
+    };
+    assign op_start_id = operand_id_t'(LsuOpIdOffset + lsu * LsuNofOperands * LsuNofOpPorts);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -681,12 +676,13 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .NofRss        (LsuNofRss),
       .NofOperands   (LsuNofOperands),
       .NofOpPorts    (LsuNofOpPorts),
-      .NofResReqIfs  (LsuNofResReqIfs),
+      .NofOperandIfs (NofOperandIfs),
       .NofResRspIfs  (LsuNofResRspIfs),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
+      .slot_id_t     (slot_id_t),
       .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
@@ -734,7 +730,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .res_reqs_i      (lsu_res_reqs[lsu]),
       .res_reqs_valid_i(lsu_res_reqs_valid[lsu]),
       .res_reqs_ready_o(lsu_res_reqs_ready[lsu]),
-      .res_iters_o     (lsu_res_iters[lsu]),
       .res_rsps_o      (lsu_res_rsps[lsu]),
       .res_rsps_valid_o(lsu_res_rsps_valid[lsu]),
       .res_rsps_ready_i(lsu_res_rsps_ready[lsu]),
@@ -843,8 +838,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
     producer_id_t producer_start_id;
     operand_id_t  op_start_id;
-    assign producer_start_id = producer_id_t'(FpuRsIdOffset + fpu * FpuNofRss);
-    assign op_start_id       = operand_id_t'(FpuOpIdOffset + fpu * FpuNofOperands * FpuNofOpPorts);
+    assign producer_start_id = producer_id_t'{
+      slot_id: '0, // does not matter
+      rs_id:   rs_id_t'(FpuRsIdOffset + fpu)
+    };
+    assign op_start_id = operand_id_t'(FpuOpIdOffset + fpu * FpuNofOperands * FpuNofOpPorts);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -855,12 +853,13 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .NofRss        (FpuNofRss),
       .NofOperands   (FpuNofOperands),
       .NofOpPorts    (FpuNofOpPorts),
-      .NofResReqIfs  (FpuNofResReqIfs),
+      .NofOperandIfs (NofOperandIfs),
       .NofResRspIfs  (FpuNofResRspIfs),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
+      .slot_id_t     (slot_id_t),
       .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
@@ -908,7 +907,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .res_reqs_i      (fpu_res_reqs[fpu]),
       .res_reqs_valid_i(fpu_res_reqs_valid[fpu]),
       .res_reqs_ready_o(fpu_res_reqs_ready[fpu]),
-      .res_iters_o     (fpu_res_iters[fpu]),
       .res_rsps_o      (fpu_res_rsps[fpu]),
       .res_rsps_valid_o(fpu_res_rsps_valid[fpu]),
       .res_rsps_ready_i(fpu_res_rsps_ready[fpu]),

@@ -16,12 +16,10 @@
 module schnizo_res_stat_slot import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 2,
   parameter int unsigned ConsumerCount  = 16,
-  parameter int unsigned NofResReqs     = 4,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth  = 5,
   parameter type         disp_req_t     = logic,
   parameter type         producer_id_t  = logic,
-  parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
@@ -58,9 +56,10 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
-  input  dest_mask_t res_req_i,
-  input  logic       res_req_valid_i,
-  output logic       res_req_ready_o,
+  // Result requests are converted to destination masks (where to send the result to) at RS level.
+  input  dest_mask_t dest_mask_i,
+  input  logic       dest_mask_valid_i,
+  output logic       dest_mask_ready_o,
 
   // Result response interface - outgoing - result as operand response
   output res_rsp_t res_rsp_o,
@@ -384,12 +383,12 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     for (int op = 0; op < NofOperands; op++) begin : gen_operand_req_op
       // Operand request generation
       op_reqs_o[op] = '{
-        producer: slot_op.operands[op].producer,
+        producer: slot_op.operands[op].producer.rs_id,
         request: res_req_t'{
           // Invert the iteration flag if we desire the result from the previous loop iteration
           requested_iter: slot_op.operands[op].is_from_current_iter ?  slot_op.instruction_iter :
                                                                       ~slot_op.instruction_iter,
-          consumer:       '0 // no need to set consumer ID. It will be set by the RS operand port.
+          slot_id:        slot_op.operands[op].producer.slot_id
         }
       };
 
@@ -494,10 +493,10 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // ---------------------------
     // We feed forward the current request directly to the response handling. Here we could add a
     // queue or a timing cut.
-    current_dest_mask       = res_req_i;
-    current_dest_mask_valid = res_req_valid_i;
+    current_dest_mask       = dest_mask_i;
+    current_dest_mask_valid = dest_mask_valid_i;
     current_dest_mask_ready = res_rsp_ready_i;
-    res_req_ready_o         = current_dest_mask_ready;
+    dest_mask_ready_o         = current_dest_mask_ready;
 
     // ---------------------------
     // Generate result responses

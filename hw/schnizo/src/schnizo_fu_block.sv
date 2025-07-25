@@ -20,7 +20,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   // The number of operand request / response ports to the operand distribution network.
   // 1 port has a connection for each operand.
   parameter int unsigned NofOpPorts     = 1,
-  parameter int unsigned NofResReqIfs   = 1,
+  parameter int unsigned NofOperandIfs  = 1,
   parameter int unsigned NofResRspIfs   = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
@@ -29,6 +29,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   // parameter type         rs_id_t        = logic,
   // parameter type         rss_id_t       = logic,
   parameter type         producer_id_t  = logic,
+  parameter type         slot_id_t      = logic,
   parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
@@ -86,13 +87,10 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   output logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
-  // Result request interface - incoming - translated operand request
-  input  dest_mask_t [NofResReqIfs-1:0] res_reqs_i,
-  input  logic       [NofResReqIfs-1:0] res_reqs_valid_i,
-  output logic       [NofResReqIfs-1:0] res_reqs_ready_o,
-
-  // The current results iteration states
-  output logic     [NofResReqIfs-1:0] res_iters_o,
+  // Result request interface - incoming - from each possible requester
+  input  res_req_t [NofOperandIfs-1:0] res_reqs_i,
+  input  logic     [NofOperandIfs-1:0] res_reqs_valid_i,
+  output logic     [NofOperandIfs-1:0] res_reqs_ready_o,
 
   // Result response interface - outgoing - result as operand response
   output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
@@ -245,7 +243,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .NofRss        (NofRss),
     .NofOperands   (NofOperands),
     .NofOpPorts    (NofOpPorts),
-    .NofResReqIfs  (NofResReqIfs),
+    .NofOperandIfs (NofOperandIfs),
     .NofResRspIfs  (NofResRspIfs),
     .ConsumerCount (ConsumerCount),
     .RegAddrWidth  (RegAddrWidth),
@@ -256,6 +254,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .result_t      (result_t),
     .result_tag_t  (instr_tag_t),
     .producer_id_t (producer_id_t),
+    .slot_id_t     (slot_id_t),
     .operand_id_t  (operand_id_t),
     .operand_req_t (operand_req_t),
     .operand_t     (operand_t),
@@ -303,8 +302,6 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .res_reqs_i      (res_reqs_i),
     .res_reqs_valid_i(res_reqs_valid_i),
     .res_reqs_ready_o(res_reqs_ready_o),
-    // The current results iteration states
-    .res_iters_o     (res_iters_o),
     // Result response interface - outgoing - result as operand response
     .res_rsps_o      (res_rsps_o),
     .res_rsps_valid_o(res_rsps_valid_o),

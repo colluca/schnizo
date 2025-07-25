@@ -252,10 +252,11 @@ module schnizo import schnizo_pkg::*; #(
                                               NofFpus * FpuNofOperandIfs;
 
   // We differentiate between result requests and result responses.
-  // Each slot has a result request crossbar output.
-  localparam integer unsigned AluNofResReqIfs = AluNofRss;
-  localparam integer unsigned LsuNofResReqIfs = LsuNofRss;
-  localparam integer unsigned FpuNofResReqIfs = FpuNofRss;
+  // Each reservation station has a result request crossbar output which is shared among the slots.
+  // We allow multi request handling by coalescing requests.
+  localparam integer unsigned AluNofResReqIfs = 1;
+  localparam integer unsigned LsuNofResReqIfs = 1;
+  localparam integer unsigned FpuNofResReqIfs = 1;
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
@@ -275,8 +276,23 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned NofResReqIfsW  = cf_math_pkg::idx_width(NofResReqIfs);
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
-  // Each slot has a unique number
-  typedef logic [NofResReqIfsW-1:0]  producer_id_t;
+
+  // Each RS has an unique number. The slots have unique numbers within the RS.
+  localparam integer unsigned MaxNofRss = (AluNofRss > LsuNofRss) ?
+                                          // AluNofRss > LsuNofRss
+                                          ((AluNofRss > FpuNofRss) ? AluNofRss : FpuNofRss)
+                                          : // AluNofRss < LsuNofRss
+                                          ((LsuNofRss > FpuNofRss) ? LsuNofRss : FpuNofRss);
+
+  localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
+
+  typedef logic [SlotIdWidth-1:0]   slot_id_t;
+  typedef logic [NofResReqIfsW-1:0] rs_id_t;
+
+  typedef struct packed {
+    slot_id_t slot_id; // used to select the slot of the request within the RS
+    rs_id_t   rs_id; // used to control the request crossbar
+  } producer_id_t;
 
   // ---------------------------
   // Dispatch/issue/result data types
@@ -666,6 +682,8 @@ module schnizo import schnizo_pkg::*; #(
     .RegisterFPUIn      (RegisterFPUIn),
     .RegisterFPUOut     (RegisterFPUOut),
     .producer_id_t      (producer_id_t),
+    .slot_id_t          (slot_id_t),
+    .rs_id_t            (rs_id_t),
     .operand_id_t       (operand_id_t),
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
@@ -1294,14 +1312,14 @@ module schnizo import schnizo_pkg::*; #(
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         assign alu_reqreq_traces[alu][rss][con] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_valid[rss] &&
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_ready[rss] &&
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs[rss][con],
+          valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.dest_masks_valid[rss] &&
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.dest_masks_ready[rss] &&
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.dest_masks[rss][con],
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
           consumer:       i_fu_stage.consumer_to_string(con),
           // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_iters_o[rss]
+          requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_iters[rss]
         };
       end
       assign alu_rescap_traces[alu][rss] = '{
@@ -1362,14 +1380,14 @@ module schnizo import schnizo_pkg::*; #(
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         assign lsu_reqreq_traces[lsu][rss][con] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_valid[rss] &&
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_ready[rss] &&
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs[rss][con],
+          valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.dest_masks_valid[rss] &&
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.dest_masks_ready[rss] &&
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.dest_masks[rss][con],
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
           consumer:       i_fu_stage.consumer_to_string(con),
           // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_iters_o[rss]
+          requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_iters[rss]
         };
       end
       assign lsu_rescap_traces[lsu][rss] = '{
@@ -1428,14 +1446,14 @@ module schnizo import schnizo_pkg::*; #(
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         assign fpu_reqreq_traces[fpu][rss][con] = '{
-          valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_valid[rss] &&
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_ready[rss] &&
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs[rss][con],
+          valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.dest_masks_valid[rss] &&
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.dest_masks_ready[rss] &&
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.dest_masks[rss][con],
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
           consumer:       i_fu_stage.consumer_to_string(con),
           // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_iters_o[rss]
+          requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_iters[rss]
         };
       end
       assign fpu_rescap_traces[fpu][rss] = '{

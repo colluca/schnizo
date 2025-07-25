@@ -22,7 +22,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 3,
   // How many slots in parallel can request / capture operands.
   parameter int unsigned NofOpPorts     = 1,
-  parameter int unsigned NofResReqIfs   = 1,
+  parameter int unsigned NofOperandIfs  = 1,
   parameter int unsigned NofResRspIfs   = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
@@ -34,6 +34,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter type         result_t       = logic,
   parameter type         result_tag_t   = logic,
   parameter type         producer_id_t  = logic,
+  parameter type         slot_id_t      = logic,
   parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
@@ -91,14 +92,13 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   output logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
-  // Result request interface - incoming - translated operand request
-  input  dest_mask_t [NofResReqIfs-1:0] res_reqs_i,
-  input  logic       [NofResReqIfs-1:0] res_reqs_valid_i,
-  output logic       [NofResReqIfs-1:0] res_reqs_ready_o,
-  // The current results iteration states
-  output logic       [NofResReqIfs-1:0] res_iters_o,
+  // Result request interface - incoming - from each possible requester
+  input  res_req_t [NofOperandIfs-1:0] res_reqs_i,
+  input  logic     [NofOperandIfs-1:0] res_reqs_valid_i,
+  output logic     [NofOperandIfs-1:0] res_reqs_ready_o,
 
   // Result response interface - outgoing - result as operand response
+  // Shared port for all slots.
   output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
   output logic     [NofResRspIfs-1:0] res_rsps_valid_o,
   input  logic     [NofResRspIfs-1:0] res_rsps_ready_i,
@@ -115,9 +115,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
   // We need to count from 0 to NofRss for the control logic -> +1 bit
   localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
-
-  // Result request queue size
-  localparam integer unsigned NofResReqs = 4;
 
   // ---------------------------
   // Reservation Station Slots
@@ -137,21 +134,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic [NofRssWidth-1:0] disp_idx;
   logic [NofRssWidth-1:0] result_idx;
 
-  // Operand distribution network
-  // These internal signals are for each slot and are MUXed below to the number of operand ports.
-  operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs;
-  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid;
-  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready;
-  dest_mask_t   [NofRss-1:0]                  res_reqs;
-  logic         [NofRss-1:0]                  res_reqs_valid;
-  logic         [NofRss-1:0]                  res_reqs_ready;
-  res_rsp_t     [NofRss-1:0]                  res_rsps;
-  logic         [NofRss-1:0]                  res_rsps_valid;
-  logic         [NofRss-1:0]                  res_rsps_ready;
-  operand_t     [NofRss-1:0][NofOperands-1:0] op_rsps;
-  logic         [NofRss-1:0][NofOperands-1:0] op_rsps_valid;
-  logic         [NofRss-1:0][NofOperands-1:0] op_rsps_ready;
-
   // To / from FU and RF writeback
   issue_req_t  [NofRss-1:0] issue_reqs;
   logic        [NofRss-1:0] issue_reqs_valid;
@@ -170,18 +152,44 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic last_result_instr;
   logic last_result_iter;
 
+  // ---------------------------
+  // Operand distribution network
+  // ---------------------------
+  // These internal signals are for each slot and are MUXed below to the number of xbar connections
+  operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs;
+  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid;
+  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready;
+  dest_mask_t   [NofRss-1:0]                  dest_masks;
+  logic         [NofRss-1:0]                  dest_masks_valid;
+  logic         [NofRss-1:0]                  dest_masks_ready;
+  res_rsp_t     [NofRss-1:0]                  res_rsps;
+  logic         [NofRss-1:0]                  res_rsps_valid;
+  logic         [NofRss-1:0]                  res_rsps_ready;
+  operand_t     [NofRss-1:0][NofOperands-1:0] op_rsps;
+  logic         [NofRss-1:0][NofOperands-1:0] op_rsps_valid;
+  logic         [NofRss-1:0][NofOperands-1:0] op_rsps_ready;
+
+  // ---------------------------
+  // Slots
+  // ---------------------------
+  // Local signals used for result request filtering
+  slot_id_t [NofRss-1:0] slot_ids;
+  logic     [NofRss-1:0] res_iters;
+
   for (genvar rss = 0; rss < NofRss; rss = rss + 1) begin : gen_rss
+    assign slot_ids[rss] = slot_id_t'(rss);
     producer_id_t rss_id;
-    assign rss_id = producer_id_t'(producer_id_i + rss);
+    assign rss_id = producer_id_t'{
+      slot_id: slot_ids[rss],
+      rs_id:   producer_id_i.rs_id
+    };
 
     schnizo_res_stat_slot #(
       .NofOperands  (NofOperands),
       .ConsumerCount(ConsumerCount),
-      .NofResReqs   (NofResReqs),
       .RegAddrWidth (RegAddrWidth),
       .disp_req_t   (disp_req_t),
       .producer_id_t(producer_id_t),
-      .operand_id_t (operand_id_t),
       .operand_req_t(operand_req_t),
       .operand_t    (operand_t),
       .res_req_t    (res_req_t),
@@ -198,7 +206,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
       .own_producer_id_i    (rss_id),
-      .res_iter_o           (res_iters_o[rss]),
+      .res_iter_o           (res_iters[rss]),
       .retired_o            (rss_retiring[rss]),
 
       .disp_req_i      (disp_req),
@@ -209,9 +217,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .op_reqs_valid_o(op_reqs_valid[rss]),
       .op_reqs_ready_i(op_reqs_ready[rss]),
 
-      .res_req_i      (res_reqs[rss]),
-      .res_req_valid_i(res_reqs_valid[rss]),
-      .res_req_ready_o(res_reqs_ready[rss]),
+      .dest_mask_i      (dest_masks[rss]),
+      .dest_mask_valid_i(dest_masks_valid[rss]),
+      .dest_mask_ready_o(dest_masks_ready[rss]),
 
       .res_rsp_o      (res_rsps[rss]),
       .res_rsp_valid_o(res_rsps_valid[rss]),
@@ -267,12 +275,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
         for (int op = 0; op < NofOperands; op++) begin
           // Request
           op_reqs_o[port][op] = op_reqs[sel_rss][op];
-          // Update consumer id to match it to the port
-          op_reqs_o[port][op].request.consumer = operand_id_t'(op_start_id_i +
-                                                               (port * NofOperands) + op);
           // Tie down if RSS selection is not valid
           op_reqs_valid_o[port][op]  = op_reqs_valid[sel_rss][op] & sel_rss_valid;
-          op_reqs_ready[sel_rss][op] = op_reqs_ready_i[sel_rss][op] & sel_rss_valid;
+          op_reqs_ready[sel_rss][op] = op_reqs_ready_i[port][op] & sel_rss_valid;
           // Response
           op_rsps[sel_rss][op]       = op_rsps_i[port][op];
           op_rsps_valid[sel_rss][op] = op_rsps_valid_i[port][op] & sel_rss_valid;
@@ -288,21 +293,40 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   end
 
   // Result requests:
-  // Each slot has a "dedicated" connection to the crossbar to accept requests. This is needed
-  // to support coalescing and the deadlock filtering (it maybe can be optimized but required
-  // logic is quite complex so the gain is not really clear).
-  // However, we can limit the inputs to the result crossbar such that only one slot can send
-  // a result at a time. This reduced the result crossbar complexity from
-  // "N*M to N" (N = # RS, M = #Slots) down to "N to N".
-  // It can simply be implemented with an arbiter.
+  // Each reservation station has one connection to the result request crossbar. This connection
+  // is shared between all slots. However, this connection must be able to serve requests from
+  // multiple operands at the same time as otherwise we have a hefty performance issue.
+  // We enable therefore coalescing requests. In addition, we need a filtering such that we only
+  // handle request which currently can be served. Otherwise, deadlocks will occur.
+  schnizo_res_req_mux #(
+    .NofOperandIfs(NofOperandIfs),
+    .NofSlots     (NofRss),
+    .res_req_t    (res_req_t),
+    .dest_mask_t  (dest_mask_t),
+    .slot_id_t    (slot_id_t)
+  ) i_res_req_mux (
+    .clk_i,
+    .rst_i,
+    .slot_ids_i       (slot_ids),
+    .res_iters_i      (res_iters),
+    .res_req_i        (res_reqs_i),
+    .res_req_valid_i  (res_reqs_valid_i),
+    .res_req_ready_o  (res_reqs_ready_o),
+    .dest_mask_o      (dest_masks),
+    .dest_mask_valid_o(dest_masks_valid),
+    .dest_mask_ready_i(dest_masks_ready)
+  );
+
+  // Result response:
+  // On the response side we can simplify it to one shared input to the result response crossbar.
+  // Now only one slot can send a result at a time. This reduces the result crossbar complexity
+  // from "N*M to N" (N = # RS, M = #Slots) down to "N to N". It can simply be implemented with an
+  // arbiter.
   // This reduction seems like a bottleneck but it should not affect performance drastically.
   // Reason is that inside a RS anyway only one result per cycle can be produced. If there would
   // be a collision (two requests to different slots) their result would be produced anyway in
   // two cycles. If two request "collide" to the same slot we have coalescing which keeps the
   // performance high.
-  assign res_reqs         = res_reqs_i;
-  assign res_reqs_valid   = res_reqs_valid_i;
-  assign res_reqs_ready_o = res_reqs_ready;
 
   // Arbitrate the input to the response crossbar between the slots.
   // A tree arbiter is slow therefore we use a static priority encoder.
@@ -616,7 +640,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .oup_ready_i(disp_reqs_ready)
   );
 
-  assign disp_rsp_o = producer_id_i + disp_idx;
+  assign disp_rsp_o = producer_id_t'{
+    // Here we can go out of bounds because this response is only valid if we use a existing slot.slot_id
+    slot_id: slot_ids[disp_idx],
+    rs_id:   producer_id_i.rs_id
+  };
 
   // Issue request MUX
   // As the disp_idx can overflow the MUX input, we tie down the handshake signals in this case.
