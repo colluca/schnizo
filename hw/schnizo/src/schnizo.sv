@@ -238,34 +238,33 @@ module schnizo import schnizo_pkg::*; #(
   logic [NrFpWritePorts-1:0][FLEN-1:0]          fpr_wdata;
   logic [NrFpWritePorts-1:0]                    fpr_we;
 
+  logic            instr_fetch_valid;
+  logic [31:0]     pc;
   logic            instr_valid;
   logic            instr_decoded_illegal;
   logic            instr_illegal;
   logic            stall;
-  logic            ecall;
+  logic            enter_wfi;
   logic            ebreak;
+  logic            ecall;
   logic            mret;
   logic            sret;
+  logic[31:0]      mtvec;
+  logic[31:0]      mepc;
+  logic[31:0]      sepc;
   logic            csr_exception_raw;
-  logic            csr_exception;
   logic            barrier_stall;
   logic            instr_addr_misaligned;
   logic            lsu_addr_misaligned;
   logic [0:0]      load_addr_misaligned;
   logic [0:0]      store_addr_misaligned;
   priv_lvl_t       priv_lvl;
-  logic            privileges_violated_raw;
-  logic            privileges_violated;
   logic            interrupt;
   logic            exception;
   logic            wfi; // asserted if we are waiting for an interrupt
   logic            dispatch_instr_valid;
   logic            dispatch_instr_ready;
-  logic            instr_dispatched;
   logic [XLEN-1:0] consecutive_pc;
-  logic[31:0]      mtvec;
-  logic[31:0]      mepc;
-  logic[31:0]      sepc;
 
   fpnew_pkg::roundmode_e fpu_rnd_mode;
   fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
@@ -273,7 +272,7 @@ module schnizo import schnizo_pkg::*; #(
 
   alu_result_t alu_result;
   instr_tag_t  alu_result_tag;
-  logic        lsu_empty;
+  logic [0:0]  lsu_empty;
   fpnew_pkg::status_t fpu_status;
   logic               fpu_status_valid;
 
@@ -311,16 +310,11 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Instruction fetch
   // ---------------------------
-  // Program counter
-  logic [31:0] pc_d, pc_q; // PC is fixed to 32 bits in RV32
-  `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i)
-
   // request the instruction at the current PC
-  assign instr_fetch_addr_o = {{{AddrWidth-32}{1'b0}}, pc_q};
+  assign instr_fetch_addr_o = {{{AddrWidth-32}{1'b0}}, pc};
   assign instr_fetch_cacheable_o =
     snitch_pma_pkg::is_inside_cacheable_regions(SnitchPMACfg, instr_fetch_addr_o);
-  // Request the next instruction if we dont stall on WFI or the cluster barrier.
-  assign instr_fetch_valid_o = ~barrier_stall && ~wfi;
+  assign instr_fetch_valid_o = instr_fetch_valid;
 
   logic instr_fetch_data_valid;
   assign instr_fetch_data_valid = instr_fetch_valid_o & instr_fetch_ready_i;
@@ -353,181 +347,60 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Controller
   // ---------------------------
-  // Check RAW and WAW hazards
-  logic operands_ready;
-  logic destination_ready;
-  logic registers_ready;
-
-  schnizo_scoreboard #(
+  schnizo_controller #(
+    .XLEN           (XLEN),
+    .BootAddr       (BootAddr),
+    .NrIntWritePorts(NrIntWritePorts),
+    .NrFpWritePorts(NrFpWritePorts),
     .RegAddrSize(REG_ADDR_SIZE),
-    .instr_dec_t(instr_dec_t)
-  ) i_schnizo_scoreboard (
+    .instr_dec_t(instr_dec_t),
+    .priv_lvl_t(priv_lvl_t)
+  ) i_schnizo_controller (
     .clk_i,
     .rst_i,
-    .instr_dec_i        (instr_decoded),
-    .operands_ready_o   (operands_ready),
-    .destination_ready_o(destination_ready),
-    .dispatched_i       (instr_dispatched),
-    // The write back is snooped to place the reservations and
-    // enable same cycle WAW conflict detection / resolution
-    .write_enable_gpr_i (gpr_we),
-    .waddr_gpr_i        (gpr_waddr),
-    .write_enable_fpr_i (fpr_we),
-    .waddr_fpr_i        (fpr_waddr)
-  );
-  assign registers_ready = operands_ready & destination_ready;
-
-  // Check if any exception occurred
-  assign ecall = instr_decoded.is_ecall & instr_valid;
-  assign ebreak = instr_decoded.is_ebreak & instr_valid;
-  assign csr_exception = (instr_decoded.fu == CSR) && csr_exception_raw && instr_valid;
-
-  // Unaligned address check
-  assign instr_addr_misaligned = (instr_decoded.is_branch |
-                                 instr_decoded.is_jal    |
-                                 instr_decoded.is_jalr)
-                                && (consecutive_pc[1:0] != 2'b0);
-
-  // Check LSU addresses. This exception may only be raised if the LSU dispatch request is valid.
-  // This means the operands must be valid. Otherwise we compute a wrong address and an exception
-  // raised. We may NOT use the dispatch valid signal as these exception signals control this
-  // signal. This would lead to loops. Therefore, we use the operands_ready signal.
-  assign load_addr_misaligned  = lsu_addr_misaligned && (instr_decoded.fu == LOAD) &&
-                                 instr_valid && operands_ready;
-  assign store_addr_misaligned = lsu_addr_misaligned && (instr_decoded.fu == STORE) &&
-                                 instr_valid && operands_ready;
-
-  logic enter_wfi;
-  assign enter_wfi = instr_decoded.is_wfi && instr_valid; // && !debug_q;
-
-  // Check privileges for certain instructions
-  always_comb begin : check_privileges
-    privileges_violated_raw = 1'b0;
-    if (instr_decoded.is_wfi) begin
-      // WFI is not allowed in U-mode
-      if ((priv_lvl == PrivLvlU)) begin
-        privileges_violated_raw = 1'b1;
-      end
-    end
-    if (instr_decoded.is_mret) begin
-      if (priv_lvl != PrivLvlM) begin
-        privileges_violated_raw = 1'b1;
-      end
-    end
-    if (instr_decoded.is_sret) begin
-      if (!(priv_lvl inside {PrivLvlM, PrivLvlS})) begin
-        privileges_violated_raw = 1'b1;
-      end
-    end
-  end
-  assign privileges_violated = privileges_violated_raw && instr_valid;
-
-  // Only update the privilege stack if there is a valid xRET instruction.
-  assign mret = instr_decoded.is_mret && instr_valid && !privileges_violated;
-  assign sret = instr_decoded.is_sret && instr_valid && !privileges_violated;
-
-  // A privilege violation is handled as illegal instruction
-  assign instr_illegal = instr_decoded_illegal | privileges_violated;
-
-  assign exception = instr_illegal
-                   | ecall
-                   | ebreak
-                   | csr_exception
-                   | instr_addr_misaligned
-                   | load_addr_misaligned
-                   | store_addr_misaligned
-                   | interrupt;
-                  //  | (dtlb_page_fault & dtlb_trans_valid)
-                  //  | (itlb_page_fault & itlb_trans_valid);
-
-  // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
-  logic all_lsus_empty, fence_stall;
-  assign all_lsus_empty = lsu_empty; // TODO: combine all LSUs
-  assign fence_stall = (instr_decoded.is_fence & ~all_lsus_empty) & instr_valid;
-
-  // TODO: synchronize all LSUs with the Consistency Address Queue (CAQ)
-
-  // We can dispatch the current instruction if:
-  // - it is valid
-  // - all registers are ready
-  // - no stall due to a FENCE
-  // - no exception occured
-  // - TODO: the Consistency Address Queue (CAQ) between all LSUs are ready
-  //
-  // Note: the cluster HW barrier only disables fetching new instructions.
-  //
-  // If there is an exception, we may not record the dispatch and start the exception handling.
-  // Also, the instruction must be killed. We can achieve this by resetting the dispatch valid
-  // signal. However, this is only possible for FUs which don't generate an exception. Resetting
-  // the valid signal to a FU which generates an exception would lead to a combinatorial loop.
-  // For FUs which generate exceptions (in this case only CSRs), we generate a separate dispatch
-  // valid signal which does not include the exception. If now an exception occurs, the FU kills
-  // itself and asserts the exception flag. The controller then can handle the exception and keep
-  // the "no exception" valid flag set.
-  assign dispatch_instr_valid = instr_valid & registers_ready & ~fence_stall & ~exception;
-  // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
-  // performed successfully. The signal instr_dispatched signals that the current instruction has
-  // been dispatched successfully and the scoreboard can update its state.
-  assign instr_dispatched = dispatch_instr_valid & dispatch_instr_ready;
-  assign stall = ~instr_dispatched;
-
-  // We now have to handle the PC update. In particular, we have to "execute" any branch / jump
-  // instruction. Any control flow instruction is performed using an ALU which is designed to be
-  // combinatorial only. Thus the result is immediately available.
-  //
-  // To retire an instruction we must make sure:
-  // ## If it is a non control flow instruction and goes to a pipelined FU:
-  //   The FU has accepted the instruction. Any congestion on the register update will be
-  //   handled by the write back logic as it can stall the FU.
-  //   --> When instr_dispatched is asserted we are done and can step to the next instruction.
-  //
-  // ## If it goes to a single cycle (combinatorial) FU (control and regular instructions):
-  //   In this case it is important that we handle the write back and any eventual PC manipulation
-  //   in the same cycle we dispatch it. Otherwise we cannot dispatch the instruction anyway as the
-  //   FU wont signal ready until the write back is ready to accept the result. This is the case
-  //   because the ready signal from a combinatorial FU is directly the ready signal of the write
-  //   back stage. As a consequence:
-  // !!! The write back stage must be implemented that it always acknowledges a retiring ALU
-  // !!! instruction which does not write to any register (branch inst).
-  //   The controller now only has to listen to the instr_dispatched signal and compute the new
-  //   PC value using the ALU result (value & comparison).
-  //   The write back of JAL and JALR is directly handled in the write back part.
-  //   To simplify the implementation, the Dispatcher may only dispatch control flow instructions
-  //   to one specific ALU.
-  //
-  // The next PC is selected as either (in priority order, first is most important):
-  // - Debug
-  // - Exception: go to trap handler
-  // - MRET, SRET: go to handlers
-  // - Jumped PC: for JAL, JALR we take the ALU result. JALR must have last bit reset
-  // - Branched & Consecutive PC: for all regular instructions & branches if taken
-
-  // We can merge the consecutive and branched PC computation such that we only have one adder.
-  // The consecutive PC is either +4B or + the branch offset.
-  // If we have a JAL or JALR, we store the regular consecutive PC (PC+4) in rd.
-  assign consecutive_pc = pc_q +
-    ((instr_decoded.is_branch & alu_result.compare_res) ? instr_decoded.imm : 'd4);
-
-  always_comb begin : pc_update
-    pc_d = pc_q; // per default stay at current PC
-
-    if (exception) begin
-      pc_d = mtvec;
-    end else if (!stall && !wfi && !barrier_stall) begin
-      // If we don't stall, step the PC unless we are waiting for an event or are stalled by the
-      // cluster hw barrier.
-      if (mret) begin
-        pc_d = mepc;
-      end else if (sret) begin
-        pc_d = sepc;
-      end else if (instr_decoded.is_jal || instr_decoded.is_jalr) begin
-        // set to alu result. clear last bit if JALR
-        pc_d = alu_result.result & {{31{1'b1}}, ~instr_decoded.is_jalr};
-      end else begin
-        pc_d = consecutive_pc; // covers regular or branch instruction
-      end
-    end
-  end
+    // Frontend interface
+    .pc_o                   (pc),
+    .instr_fetch_valid_o    (instr_fetch_valid),
+    // Decoder interface
+    .instr_decoded_i        (instr_decoded),
+    .instr_valid_i          (instr_valid),
+    .instr_decoded_illegal_i(instr_decoded_illegal),
+    // Interface to dispatcher
+    .dispatch_instr_valid_o (dispatch_instr_valid),
+    .dispatch_instr_ready_i (dispatch_instr_ready),
+    .stall_o                (stall),
+    // Exception source interface
+    .interrupt_i            (interrupt),
+    .wfi_i                  (wfi),
+    .barrier_stall_i        (barrier_stall),
+    .csr_exception_raw_i    (csr_exception_raw),
+    .lsu_empty_i            (lsu_empty),
+    .lsu_addr_misaligned_i  (lsu_addr_misaligned),
+    .priv_lvl_i             (priv_lvl),
+    .mtvec_i                (mtvec),
+    .mepc_i                 (mepc),
+    .sepc_i                 (sepc),
+    // Branch result
+    .alu_compare_res_i      (alu_result.compare_res),
+    .alu_result_i           (alu_result.result),
+    // Interface to CSR & write back for handling an exception
+    .exception_o            (exception),
+    .instr_illegal_o        (instr_illegal),
+    .instr_addr_misaligned_o(instr_addr_misaligned),
+    .load_addr_misaligned_o (load_addr_misaligned),
+    .store_addr_misaligned_o(store_addr_misaligned),
+    .enter_wfi_o            (enter_wfi),
+    .ecall_o                (ecall),
+    .ebreak_o               (ebreak),
+    .mret_o                 (mret),
+    .sret_o                 (sret),
+    .consecutive_pc_o(consecutive_pc),
+    // GPR & FPR Write back snooping for Scoreboard
+    .gpr_we_i               (gpr_we),
+    .gpr_waddr_i            (gpr_waddr),
+    .fpr_we_i               (fpr_we),
+    .fpr_waddr_i            (fpr_waddr)
+);
 
   // ---------------------------
   // Dispatch
@@ -543,7 +416,7 @@ module schnizo import schnizo_pkg::*; #(
     .instr_dec_t    (instr_dec_t),
     .fu_data_t     (fu_data_t)
   ) i_schnizo_read_operands (
-    .pc_i       (pc_q),
+    .pc_i       (pc),
     .instr_dec_i(instr_decoded),
     .gpr_raddr_o(gpr_raddr),
     .gpr_rdata_i(gpr_rdata),
@@ -743,7 +616,7 @@ module schnizo import schnizo_pkg::*; #(
 
     .irq_i                  (irq_i),
     .enter_wfi_i            (enter_wfi),
-    .pc_i                   (pc_q),
+    .pc_i                   (pc),
     .illegal_instr_i        (instr_illegal),
     .ecall_i                (ecall),
     .ebreak_i               (ebreak),

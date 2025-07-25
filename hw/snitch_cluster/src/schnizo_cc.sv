@@ -567,7 +567,7 @@ module schnizo_cc #(
                       (!i_schnizo.i_schnizo_res_stat_lsu.disp_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
         is_branch:    i_schnizo.instr_decoded.is_branch,
-        pc_d:         i_schnizo.pc_d,
+        pc_d:         i_schnizo.i_schnizo_controller.pc_d,
         // Operands
         opa:          i_schnizo.fu_data.operand_a,
         opb:          i_schnizo.fu_data.operand_b,
@@ -615,7 +615,8 @@ module schnizo_cc #(
           (i_schnizo.fpu_valid_fpr & i_schnizo.fpu_ready_fpr)
       ) begin
         $sformat(trace_entry, "%t %1d %8d 0x%h DASM(%h) #; %s\n",
-            $time, cycle, i_schnizo.priv_lvl, i_schnizo.pc_q, i_schnizo.inst_data_i,
+            $time, cycle, i_schnizo.priv_lvl, i_schnizo.i_schnizo_controller.pc_q,
+            i_schnizo.inst_data_i,
             // $time, cycle, i_schnizo.priv_lvl_q, i_schnizo.pc_q, i_schnizo.inst_data_i,
             snitch_pkg::print_snitch_trace(extras_snitch));
         $fwrite(f, trace_entry);

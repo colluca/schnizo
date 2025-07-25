@@ -165,6 +165,7 @@ sources:
       - hw/schnizo/src/schnizo_lsu.sv
       # Level 2
       - hw/schnizo/src/schnizo_reservation_station.sv
+      - hw/schnizo/src/schnizo_controller.sv
       # Level 3
       - hw/schnizo/src/schnizo.sv
     # We always enable the performance counters
