@@ -595,7 +595,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   stream_arbiter #(
     .DATA_T (alu_result_and_tag_t),
     .N_INP  (NofAlus),
-    .ARBITER("rr")
+    .ARBITER("prio")
   ) i_alu_wb_arbiter (
     .clk_i,
     .rst_ni     (~rst_i),
@@ -766,7 +766,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   stream_arbiter #(
     .DATA_T (lsu_result_and_tag_t),
     .N_INP  (NofLsus),
-    .ARBITER("rr")
+    .ARBITER("prio")
   ) i_lsu_wb_arbiter (
     .clk_i,
     .rst_ni     (~rst_i),
@@ -780,8 +780,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
   assign lsu_wb_result_o     = lsu_wb_result_and_tag_out.result;
   assign lsu_wb_result_tag_o = lsu_wb_result_and_tag_out.tag;
-
-  // LSU memory interface arbiter
 
   // ---------------------------
   // FPUs
@@ -946,7 +944,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   stream_arbiter #(
     .DATA_T (fpu_result_and_tag_t),
     .N_INP  (NofFpus),
-    .ARBITER("rr")
+    .ARBITER("prio")
   ) i_fpu_wb_arbiter (
     .clk_i,
     .rst_ni     (~rst_i),
