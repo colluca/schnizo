@@ -37,7 +37,11 @@ dependencies = [
     "pyyaml",
     "tabulate",
     "termcolor",
-    "yamllint"
+    "torch",
+    "yamllint",
+    "protobuf",
+    "protos",
+    "perfetto"
 ]
 
 [project.optional-dependencies]
