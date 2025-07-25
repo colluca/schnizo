@@ -25,6 +25,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
+  parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic,
   parameter type         issue_req_t    = logic,
   parameter type         result_t       = logic,
@@ -59,9 +60,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
-  input  res_req_t res_req_i,
-  input  logic     res_req_valid_i,
-  output logic     res_req_ready_o,
+  input  dest_mask_t res_req_i,
+  input  logic       res_req_valid_i,
+  output logic       res_req_ready_o,
 
   // Result response interface - outgoing - result as operand response
   output res_rsp_t res_rsp_o,
@@ -180,9 +181,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   rss_state_e state_q, state_d;
   `FFAR(state_q, state_d, Lcp1Init, clk_i, rst_i);
 
-  res_req_t current_res_req;
-  logic     current_res_req_valid;
-  logic     current_res_req_ready;
+  dest_mask_t current_dest_mask;
+  logic       current_dest_mask_valid;
+  logic       current_dest_mask_ready;
 
   logic [NofOperands-1:0] op_valid;
   logic                   enable_op_request;
@@ -495,10 +496,10 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // ---------------------------
     // We feed forward the current request directly to the response handling. Here we could add a
     // queue or a timing cut.
-    current_res_req       = res_req_i;
-    current_res_req_valid = res_req_valid_i;
-    current_res_req_ready = res_rsp_ready_i;
-    res_req_ready_o       = current_res_req_ready;
+    current_dest_mask       = res_req_i;
+    current_dest_mask_valid = res_req_valid_i;
+    current_dest_mask_ready = res_rsp_ready_i;
+    res_req_ready_o         = current_dest_mask_ready;
 
     // ---------------------------
     // Generate result responses
@@ -506,17 +507,19 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // Always answer requests using the "old" result (from the previous cycle) as otherwise we
     // would create a loop. The loop comes from the connection back to the operand response
     // handling. The generated result response is sent back to the operand interface.
-    res_rsp_o.consumer    = current_res_req.consumer;
-    res_rsp_o.operand     = slot_q.result.value;
-    res_rsp_valid_o       = current_res_req_valid &&
-                            (current_res_req.requested_iter == slot_q.result.iteration) &&
-                            slot_q.result.is_valid;
+    res_rsp_o.dest_mask = current_dest_mask;
+    res_rsp_o.operand   = slot_q.result.value;
+    // We don't need to check the iteration here as it is already checked in the request crossbar.
+    res_rsp_valid_o     = current_dest_mask_valid &&
+                          slot_q.result.is_valid;
 
     // When we served a result request, update consumer counter
     if (res_rsp_valid_o && res_rsp_ready_i) begin
-      slot_wb.consumed_by = slot_wb.consumed_by + 1;
+      // count the bits in the destination mask
+      slot_wb.consumed_by = slot_wb.consumed_by + $countones(current_dest_mask);
+      // During LCP there may be only one request at at time.. We still count all requests.
       if (slot_q.do_capture_consumers) begin
-        slot_wb.consumer_count = slot_wb.consumer_count + 1;
+        slot_wb.consumer_count = slot_wb.consumer_count + $countones(current_dest_mask);
       end
     end
 

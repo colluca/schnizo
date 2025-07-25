@@ -133,28 +133,42 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   // ---------------------------
   // Operand distribution network definitions
   // ---------------------------
+  // The request arriving at the crossbar output connections. This is converted to a destination
+  // mask inside the crossbar output logic. This mask is used to send the result to multiple
+  // operands at once.
   typedef struct packed {
     logic        requested_iter;
     operand_id_t consumer; // where to send the response to
   } res_req_t;
 
+  // The request going into the request crossbar
   typedef struct packed {
     producer_id_t producer; // where to place the request
     res_req_t     request;
   } operand_req_t;
 
+  localparam integer unsigned NofOperandIfsW = NofOperandIfs;
+
+  // To which operand we should send the current result. This is a bitvector selecting each operand
+  // where we want to send the result. The actual request uses the operand_id_t because this is
+  // smaller and thus the request crossbar is also smaller. The conversion happens at the output of
+  // the request crossbar. This signal then controls the response crossbar.
+  typedef logic [NofOperandIfsW-1:0] dest_mask_t;
+
+  // The data coming out of the response crossbar.
   typedef logic [OpLen-1:0] operand_t;
 
+  // The request going into the response crossbar.
   typedef struct packed {
-    operand_id_t consumer; // where to send the response to
-    operand_t    operand;
+    dest_mask_t dest_mask; // where to send the response to
+    operand_t   operand;
   } res_rsp_t;
 
   operand_req_t [NofOperandIfs-1:0] op_reqs;
   logic         [NofOperandIfs-1:0] op_reqs_valid;
   logic         [NofOperandIfs-1:0] op_reqs_ready;
 
-  res_req_t     [NofResultIfs-1:0]  res_reqs;
+  dest_mask_t   [NofResultIfs-1:0]  res_reqs;
   logic         [NofResultIfs-1:0]  res_reqs_valid;
   logic         [NofResultIfs-1:0]  res_reqs_ready;
   logic         [NofResultIfs-1:0]  res_iters;
@@ -183,7 +197,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   operand_req_t [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_reqs;
   logic         [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_reqs_valid;
   logic         [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_reqs_ready;
-  res_req_t     [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs;
+  dest_mask_t   [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs_valid;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs_ready;
   logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_iters;
@@ -197,7 +211,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   operand_req_t [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_reqs;
   logic         [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_reqs_valid;
   logic         [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_reqs_ready;
-  res_req_t     [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs;
+  dest_mask_t   [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs_valid;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs_ready;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_iters;
@@ -211,7 +225,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   operand_req_t [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_reqs;
   logic         [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_reqs_valid;
   logic         [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_reqs_ready;
-  res_req_t     [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs;
+  dest_mask_t   [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs_valid;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs_ready;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_iters;
@@ -365,44 +379,44 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     assign op_reqs_requests[i]  = op_reqs[i].request;
     assign op_reqs_producers[i] = op_reqs[i].producer;
   end
-  schnizo_xbar #(
+  schnizo_xbar_req #(
     .NumInp     (NofOperandIfs),
     .NumOut     (NofResultIfs),
-    .payload_t  (res_req_t),
+    .res_req_t  (res_req_t),
+    .dest_mask_t(dest_mask_t),
     .OutSpillReg(0),
-    .ExtPrio    (0),
     .AxiVldRdy  (0),
     .LockIn     (0),
     .AxiVldMask ('0)
   ) i_request_xbar (
     .clk_i,
-    .rst_ni    (~rst_i),
-    .flush_i   ('0),
-    .rr_i      ('0),
-    .data_i    (op_reqs_requests),
-    .sel_i     (op_reqs_producers),
-    .valid_i   (op_reqs_valid),
-    .ready_o   (op_reqs_ready),
-    .res_iter_i(res_iters),
-    .data_o    (res_reqs),
-    .idx_o     (),
-    .valid_o   (res_reqs_valid),
-    .ready_i   (res_reqs_ready)
+    .rst_ni     (~rst_i),
+    .data_i     (op_reqs_requests),
+    .sel_i      (op_reqs_producers),
+    .valid_i    (op_reqs_valid),
+    .ready_o    (op_reqs_ready),
+    .res_iter_i (res_iters),
+    .dest_mask_o(res_reqs),
+    .valid_o    (res_reqs_valid),
+    .ready_i    (res_reqs_ready)
   );
 
   // ---------------------------
   // Operand distribution network - response xbar
   // ---------------------------
-  operand_t    [NofResultIfs-1:0] res_rsps_operands;
-  operand_id_t [NofResultIfs-1:0] res_rsps_consumers;
+  operand_t   [NofResultIfs-1:0] res_rsps_operands;
+  dest_mask_t [NofResultIfs-1:0] res_rsps_dest_masks;
+
   for (genvar i = 0; i < NofResultIfs; i++) begin : gen_flatten_res_rsps
     assign res_rsps_operands[i]  = res_rsps[i].operand;
-    assign res_rsps_consumers[i] = res_rsps[i].consumer;
+    assign res_rsps_dest_masks[i] = res_rsps[i].dest_mask;
   end
-  stream_xbar #(
+
+  schnizo_xbar_rsp #(
     .NumInp     (NofResultIfs),
     .NumOut     (NofOperandIfs),
     .payload_t  (operand_t),
+    .dest_mask_t(dest_mask_t),
     .OutSpillReg(0),
     .ExtPrio    (0),
     .AxiVldRdy  (0),
@@ -414,7 +428,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     .flush_i('0),
     .rr_i   ('0),
     .data_i (res_rsps_operands),
-    .sel_i  (res_rsps_consumers),
+    .sel_i  (res_rsps_dest_masks),
     .valid_i(res_rsps_valid),
     .ready_o(res_rsps_ready),
     .data_o (op_rsps),
@@ -472,6 +486,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
+      .dest_mask_t   (dest_mask_t),
       .res_rsp_t     (res_rsp_t)
     ) i_alu_block (
       .clk_i,
@@ -625,6 +640,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
+      .dest_mask_t   (dest_mask_t),
       .res_rsp_t     (res_rsp_t)
     ) i_lsu_block (
       .clk_i,
@@ -795,6 +811,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
+      .dest_mask_t   (dest_mask_t),
       .res_rsp_t     (res_rsp_t)
     ) i_fpu_block (
       .clk_i,

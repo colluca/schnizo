@@ -1168,10 +1168,10 @@ module schnizo import schnizo_pkg::*; #(
   wb_fu_trace_t fpu_wb_trace;
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
-  // Traces for result requests (each RSS has one signal)
-  resreq_trace_t alu_reqreq_traces [NofAlus][AluNofRss];
-  resreq_trace_t lsu_reqreq_traces [NofLsus][LsuNofRss];
-  resreq_trace_t fpu_reqreq_traces [NofFpus][FpuNofRss];
+  // Traces for result requests (each RSS has one signal per request crossbar output)
+  resreq_trace_t alu_reqreq_traces [NofAlus][AluNofRss][NofOperandIfs];
+  resreq_trace_t lsu_reqreq_traces [NofLsus][LsuNofRss][NofOperandIfs];
+  resreq_trace_t fpu_reqreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
   // Traces for result captures (each RSS has one signal)
   rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
   rescap_trace_t lsu_rescap_traces [NofLsus][LsuNofRss];
@@ -1227,15 +1227,19 @@ module schnizo import schnizo_pkg::*; #(
         alu_opa:        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs[rss].fu_data.operand_a[XLEN-1:0],
         alu_opb:        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs[rss].fu_data.operand_b[XLEN-1:0]
       };
-      assign alu_reqreq_traces[alu][rss] = '{
-        valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_valid[rss] &&
-                        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_ready[rss],
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        consumer:       i_fu_stage.consumer_to_string(
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs[rss].consumer),
-        requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs[rss].requested_iter
-      };
+      // each consumer can place a result request simultaneously
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
+        assign alu_reqreq_traces[alu][rss][con] = '{
+          valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_valid[rss] &&
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_ready[rss] &&
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs[rss][con],
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          consumer:       i_fu_stage.consumer_to_string(con),
+          // we only forward requests which we can serve. Thus we can take the current result iteration.
+          requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_iters_o[rss]
+        };
+      end
       assign alu_rescap_traces[alu][rss] = '{
         valid:          (i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
@@ -1291,15 +1295,19 @@ module schnizo import schnizo_pkg::*; #(
         lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
         lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
       };
-      assign lsu_reqreq_traces[lsu][rss] = '{
-        valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_valid[rss] &&
-                        i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_ready[rss],
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        consumer:       i_fu_stage.consumer_to_string(
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs[rss].consumer),
-        requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs[rss].requested_iter
-      };
+      // each consumer can place a result request simultaneously
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
+        assign lsu_reqreq_traces[lsu][rss][con] = '{
+          valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_valid[rss] &&
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_ready[rss] &&
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs[rss][con],
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          consumer:       i_fu_stage.consumer_to_string(con),
+          // we only forward requests which we can serve. Thus we can take the current result iteration.
+          requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_iters_o[rss]
+        };
+      end
       assign lsu_rescap_traces[lsu][rss] = '{
         valid:          (i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
@@ -1353,15 +1361,19 @@ module schnizo import schnizo_pkg::*; #(
         // that there is no cut between the RSS and the FPU.
         fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
       };
-      assign fpu_reqreq_traces[fpu][rss] = '{
-        valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_valid[rss] &&
-                        i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_ready[rss],
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        consumer:       i_fu_stage.consumer_to_string(
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs[rss].consumer),
-        requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs[rss].requested_iter
-      };
+      // each consumer can place a result request simultaneously
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
+        assign fpu_reqreq_traces[fpu][rss][con] = '{
+          valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_valid[rss] &&
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_ready[rss] &&
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs[rss][con],
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          consumer:       i_fu_stage.consumer_to_string(con),
+          // we only forward requests which we can serve. Thus we can take the current result iteration.
+          requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_iters_o[rss]
+        };
+      end
       assign fpu_rescap_traces[fpu][rss] = '{
         valid:          (i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
@@ -1488,25 +1500,31 @@ module schnizo import schnizo_pkg::*; #(
 
       // Result request events - these should only be active during LCP and LEP.
       // We can capture them "always".
-        for (int alu = 0; alu < NofAlus; alu++) begin
+      for (int alu = 0; alu < NofAlus; alu++) begin
         for (int rss = 0; rss < AluNofRss; rss++) begin
-          write_trace_event(file_id, trace_header, "resreq",
-                            format_resreq_trace(alu_reqreq_traces[alu][rss]),
-                            alu_reqreq_traces[alu][rss].valid);
+          for (int con = 0; con < NofOperandIfs; con++) begin
+            write_trace_event(file_id, trace_header, "resreq",
+                              format_resreq_trace(alu_reqreq_traces[alu][rss][con]),
+                              alu_reqreq_traces[alu][rss][con].valid);
+          end
         end
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
         for (int rss = 0; rss < FpuNofRss; rss++) begin
-          write_trace_event(file_id, trace_header, "resreq",
-                            format_resreq_trace(lsu_reqreq_traces[lsu][rss]),
-                            lsu_reqreq_traces[lsu][rss].valid);
+          for (int con = 0; con < NofOperandIfs; con++) begin
+            write_trace_event(file_id, trace_header, "resreq",
+                              format_resreq_trace(lsu_reqreq_traces[lsu][rss][con]),
+                              lsu_reqreq_traces[lsu][rss][con].valid);
+          end
         end
       end
       for (int fpu = 0; fpu < NofFpus; fpu++) begin
         for (int rss = 0; rss < FpuNofRss; rss++) begin
-          write_trace_event(file_id, trace_header, "resreq",
-                            format_resreq_trace(fpu_reqreq_traces[fpu][rss]),
-                            fpu_reqreq_traces[fpu][rss].valid);
+          for (int con = 0; con < NofOperandIfs; con++) begin
+            write_trace_event(file_id, trace_header, "resreq",
+                              format_resreq_trace(fpu_reqreq_traces[fpu][rss][con]),
+                              fpu_reqreq_traces[fpu][rss][con].valid);
+          end
         end
       end
 

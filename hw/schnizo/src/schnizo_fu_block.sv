@@ -28,6 +28,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
+  parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic
 ) (
   input  logic clk_i,
@@ -80,9 +81,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
-  input  res_req_t [NofRss-1:0] res_reqs_i,
-  input  logic     [NofRss-1:0] res_reqs_valid_i,
-  output logic     [NofRss-1:0] res_reqs_ready_o,
+  input  dest_mask_t [NofRss-1:0] res_reqs_i,
+  input  logic       [NofRss-1:0] res_reqs_valid_i,
+  output logic       [NofRss-1:0] res_reqs_ready_o,
 
   // The current results iteration states
   output logic     [NofRss-1:0] res_iters_o,
@@ -250,6 +251,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .operand_req_t (operand_req_t),
     .operand_t     (operand_t),
     .res_req_t     (res_req_t),
+    .dest_mask_t   (dest_mask_t),
     .res_rsp_t     (res_rsp_t)
   ) i_res_stat (
     .clk_i,
