@@ -29,19 +29,6 @@ module schnizo_xbar_rsp #(
   parameter type         dest_mask_t = logic,
   /// Adds a spill register stage at each output.
   parameter bit          OutSpillReg = 1'b0,
-  /// Use external priority for the individual `rr_arb_trees`.
-  parameter int unsigned ExtPrio     = 1'b0,
-  /// Use strict AXI valid ready handshaking.
-  /// To be protocol conform also the parameter `LockIn` has to be set.
-  parameter int unsigned AxiVldRdy   = 1'b1,
-  /// Lock in the arbitration decision of the `rr_arb_tree`.
-  /// When this is set, valids have to be asserted until the corresponding transaction is indicated
-  /// by ready.
-  parameter int unsigned LockIn      = 1'b1,
-  /// If `AxiVldReady` is 1, which bits of the payload to check for stability on valid inputs.
-  /// In some cases, we may want to allow parts of the payload to change depending on the value of
-  /// other parts (e.g. write data in read requests), requiring more nuanced external assertions.
-  parameter payload_t    AxiVldMask  = '1,
   /// Derived parameter, do **not** overwrite!
   ///
   /// Width of the input index signal.
@@ -119,23 +106,21 @@ module schnizo_xbar_rsp #(
     spill_data_t arb;
     logic        arb_valid, arb_ready;
 
+    // As there is anyway only 1 active request, there will also be only one response at a time.
+    // We thus can simplify it to a static arbiter. In theory we could also | all valids and send
+    // back the ready to the incoming response.
     rr_arb_tree #(
       .NumIn    (NumInp),
       .DataType (payload_t),
-      .ExtPrio  (ExtPrio),
-      .AxiVldRdy(AxiVldRdy),
-      .LockIn   (LockIn)
-      // TODO: check this - potential area savings
-      // Assumption: We don't need fair arbitration because the system will stall due to the
-      // instruction dependencies.
-      // However: In cases where we have two independent instruction streams this could lead
-      // to the case that one stream is completely executed before the later one starts.
-      // .FairArb  (1'b0)
+      .ExtPrio  (1),
+      .AxiVldRdy(0),
+      .LockIn   (0),
+      .FairArb  (1'b0)
     ) i_rr_arb_tree (
       .clk_i,
       .rst_ni,
       .flush_i,
-      .rr_i    ( rr_i[j]      ),
+      .rr_i    ( '0           ),
       .req_i   ( out_valid[j] ),
       .gnt_o   ( out_ready[j] ),
       .data_i  ( out_data[j]  ),
@@ -170,26 +155,6 @@ module schnizo_xbar_rsp #(
   // Assertions
   // Make sure that the handshake and payload is stable
   `ifndef COMMON_CELLS_ASSERTS_OFF
-  if (AxiVldRdy) begin : gen_handshake_assertions
-    for (genvar i = 0; unsigned'(i) < NumInp; i++) begin : gen_inp_assertions
-      `ASSERT(input_data_unstable, valid_i[i] && !ready_o[i] |=> $stable(data_i[i] & AxiVldMask),
-              clk_i, !rst_ni, $sformatf("data_i is unstable at input: %0d", i))
-      `ASSERT(input_sel_unstable, valid_i[i] && !ready_o[i] |=> $stable(sel_i[i]), clk_i, !rst_ni,
-              $sformatf("sel_i is unstable at input: %0d", i))
-      `ASSERT(input_valid_taken, valid_i[i] && !ready_o[i] |=> valid_i[i], clk_i, !rst_ni,
-              $sformatf("valid_i at input %0d has been taken away without a ready.", i))
-    end
-    for (genvar i = 0; unsigned'(i) < NumOut; i++) begin : gen_out_assertions
-      `ASSERT(output_data_unstable, valid_o[i] && !ready_i[i] |=> $stable(data_o[i] & AxiVldMask),
-              clk_i, !rst_ni,
-              $sformatf("data_o is unstable at output: %0d Check that parameter LockIn is set.", i))
-      `ASSERT(output_idx_unstable, valid_o[i] && !ready_i[i] |=> $stable(idx_o[i]), clk_i, !rst_ni,
-              $sformatf("idx_o is unstable at output: %0d Check that parameter LockIn is set.", i))
-      `ASSERT(output_valid_taken, valid_o[i] && !ready_i[i] |=> valid_o[i], clk_i, !rst_ni,
-              $sformatf("valid_o at output %0d has been taken away without a ready.", i))
-    end
-  end
-
   `ASSERT_INIT(numinp_0, NumInp > 32'd0, "NumInp has to be > 0!")
   `ASSERT_INIT(numout_0, NumOut > 32'd0, "NumOut has to be > 0!")
   `endif

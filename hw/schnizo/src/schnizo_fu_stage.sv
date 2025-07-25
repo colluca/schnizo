@@ -422,11 +422,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     .NumOut     (NofOperandIfs),
     .payload_t  (operand_t),
     .dest_mask_t(dest_mask_t),
-    .OutSpillReg(0),
-    .ExtPrio    (0),
-    .AxiVldRdy  (0),
-    .LockIn     (0),
-    .AxiVldMask ('0)
+    .OutSpillReg(0)
   ) i_response_xbar (
     .clk_i,
     .rst_ni (~rst_i),
