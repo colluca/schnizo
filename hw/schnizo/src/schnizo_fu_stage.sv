@@ -76,6 +76,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
   /// Instruction streams & FU status signals
   input  disp_req_t               disp_req_i,
+  // Commit the dispatch request and allow the downstream passing.
+  // The FU blocks do not require a commit signal as when we won't commit we have an exception
+  // and thus anyway abort the LxP and reset the RS and RSSs.
+  input  logic                    instr_exec_commit_i,
   input  logic      [NofAlus-1:0] alu_disp_reqs_valid_i,
   output logic      [NofAlus-1:0] alu_disp_reqs_ready_o,
   output disp_rsp_t [NofAlus-1:0] alu_disp_rsp_o,
@@ -558,6 +562,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       .issue_req_i      (alu_issue_req),
       .issue_req_valid_i(alu_issue_req_valid),
+      .issue_commit_i   (instr_exec_commit_i),
       .issue_req_ready_o(alu_issue_req_ready),
       .result_o         (alu_result.result),
       .compare_res_o    (alu_result.compare_res),
@@ -713,6 +718,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       .issue_req_i      (lsu_issue_req),
       .issue_req_valid_i(lsu_issue_req_valid),
+      .issue_commit_i   (instr_exec_commit_i),
       .issue_req_ready_o(lsu_issue_req_ready),
       .result_o         (lsu_result),
       .tag_o            (lsu_result_tag),
@@ -735,13 +741,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
   // LSU empty & misalign signal combination
   assign lsu_empty_o = (&lsu_empty);
-  // Only propagate the exception when we don't fetch any operands via the ODN, i.e. when we are
-  // not in LCP or LEP.
-  // Reason is that any exception will "kill" the dispatch signal. The dispatch valid signal
-  // however is used to generate the requests. And if we now were to kill the signal, we
-  // create a loop..
-  assign lsu_addr_misaligned_o = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep} ?
-    '0 : (|lsu_addr_misaligned);
+  assign lsu_addr_misaligned_o =(|lsu_addr_misaligned);
 
   // LSU writeback arbiter
   lsu_result_and_tag_t lsu_wb_result_and_tag_out;
@@ -890,6 +890,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .hart_id_i        (hard_id_i),
       .issue_req_i      (fpu_issue_req),
       .issue_req_valid_i(fpu_issue_req_valid),
+      .issue_commit_i   (instr_exec_commit_i),
       .issue_req_ready_o(fpu_issue_req_ready),
       .result_o         (fpu_result),
       .tag_o            (fpu_result_tag),

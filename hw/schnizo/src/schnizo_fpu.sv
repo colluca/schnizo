@@ -34,6 +34,7 @@ module schnizo_fpu import schnizo_pkg::*; #(
   // Input Handshake
   input  issue_req_t         issue_req_i,
   input  logic               issue_req_valid_i,
+  input  logic               issue_commit_i,
   output logic               issue_req_ready_o,
 
   // Output signals
@@ -260,7 +261,8 @@ module schnizo_fpu import schnizo_pkg::*; #(
     ) i_spill_register_fpu_in (
     .clk_i,
     .rst_ni,
-    .valid_i(issue_req_valid_i),
+    // only pass it downstream if we commit to the issue
+    .valid_i(issue_req_valid_i & issue_commit_i),
     .ready_o(issue_req_ready_o),
     .data_i (fpu_in),
     .valid_o(in_valid_q),

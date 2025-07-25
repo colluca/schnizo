@@ -25,6 +25,8 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   input  logic [AddrWidth-1:0] next_instr_addr_i,
   // If we stall, do not update state / step in loop body.
   input  logic stall_i,
+  // If there is an exception abort the loop
+  input  logic exception_i,
   // Asserted if the current RS is full / no empty RSS anymore.
   input  logic rs_full_i,
   // Asserted if all reservation stations have no instructions in flight.
@@ -180,11 +182,11 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
             // We can jump in this cycle to the LCP2 start address. Waiting cycles won't set the
             // loop_jump_o flag because we are not at the loop end instruction anymore.
           end
-          if (wait_for_retirement_q) begin
-            loop_stall_o = 1'b1; // when we are already waiting we must stall the core
-          end
         end
-        if (exit_frep) begin // TODO: this is not working properly and will create a loop.
+        if (wait_for_retirement_q) begin
+          loop_stall_o = 1'b1; // when we are already waiting we must stall the core
+        end
+        if (exit_frep) begin
           loop_info_d.loop_state = LoopHwLoop;
         end
       end
@@ -202,9 +204,9 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
             // The last instruction is a multi cycle instruction. We must wait until it retires.
             wait_for_retirement_d = 1'b1;
           end
-          if (wait_for_retirement_q) begin
-            loop_stall_o = 1'b1; // when we are already waiting we must stall the core
-          end
+        end
+        if (wait_for_retirement_q) begin
+          loop_stall_o = 1'b1; // when we are already waiting we must stall the core
         end
       end
       LoopLep: begin
@@ -220,7 +222,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
       loop_info_d.loop_iterations = loop_info_d.loop_iterations - 1;
     end
 
-    if (current_loop_finish || lep_ends) begin
+    if (current_loop_finish || lep_ends || exception_i) begin
       loop_valid_d           = 1'b0;
       loop_info_d            = loop_info_reset;
       loop_info_d.loop_state = LoopRegular;

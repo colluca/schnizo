@@ -27,8 +27,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   input  instr_dec_t   instr_dec_i,
   input  fu_data_t     instr_fu_data_i,
   input  logic [31:0]  instr_fetch_data_i,
-  input  logic         instr_dec_valid_i,
-  output logic         instr_dec_ready_o,
+  input  logic         dispatch_valid_i,
+  output logic         dispatch_ready_o,
+  input  logic         instr_exec_commit_i,
 
   // Handshake to all possible FUs. Each FU has own ready/valid interface.
   output disp_req_t disp_req_o,
@@ -229,28 +230,19 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // Dispatch logic
   // ---------------------------
   // We may only dispatch the instruction if it is valid.
-  assign alu_disp_req_valid_o = {NofAlus{instr_dec_valid_i}} & alu_disp_req_valid_raw;
-  assign lsu_disp_req_valid_o = {NofLsus{instr_dec_valid_i}} & lsu_disp_req_valid_raw;
-  assign csr_disp_req_valid_o =          instr_dec_valid_i   & csr_disp_req_valid_raw;
-  assign fpu_disp_req_valid_o = {NofFpus{instr_dec_valid_i}} & fpu_disp_req_valid_raw;
-  assign acc_disp_req_valid_o =          instr_dec_valid_i   & acc_disp_req_valid_raw;
+  assign alu_disp_req_valid_o = {NofAlus{dispatch_valid_i}} & alu_disp_req_valid_raw;
+  assign lsu_disp_req_valid_o = {NofLsus{dispatch_valid_i}} & lsu_disp_req_valid_raw;
+  assign csr_disp_req_valid_o =          dispatch_valid_i   & csr_disp_req_valid_raw;
+  assign fpu_disp_req_valid_o = {NofFpus{dispatch_valid_i}} & fpu_disp_req_valid_raw;
+  assign acc_disp_req_valid_o =          dispatch_valid_i   & acc_disp_req_valid_raw;
   // The NONE FU always dispatches
-  logic none_disp_req_valid;
-  assign none_disp_req_valid = instr_dec_valid_i & none_disp_req_valid_raw;
 
-  // The instruction is dispatched when the FU handshakes the request.
-  // OR each valid vector and then OR all FUs
-  assign disp_req_valid = |alu_disp_req_valid_o | |lsu_disp_req_valid_o |
-                          |csr_disp_req_valid_o | |fpu_disp_req_valid_o |
-                          |acc_disp_req_valid_o | |none_disp_req_valid;
-  assign dispatched = disp_req_valid & fu_ready;
+  assign dispatched = instr_exec_commit_i & fu_ready;
+
   // Signal back the dispatch
-  assign instr_dec_ready_o = dispatched; // valid signal is factored in via disp_req_valid
+  assign dispatch_ready_o = dispatched; // valid signal is factored in via disp_req_valid
 
-  // Asserted if the currently selected FU has no empty RSS. This signal must never be combined
-  // with the instr valid signal. Reason is that this signal is used to "kill/stop" the FREP
-  // execution and thus will de-assert the valid flag. Combining it with the valid signal would
-  // generate a loop.
+  // Asserted if the currently selected FU has no empty RSS.
   assign rs_full_o = fu_rs_full;
 
   // ---------------------------

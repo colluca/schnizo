@@ -50,6 +50,7 @@ module schnizo_lsu import schnizo_pkg::*; #(
   // Instruction stream
   input  issue_req_t issue_req_i,
   input  logic       issue_req_valid_i,
+  input  logic       issue_commit_i,
   output logic       issue_req_ready_o,
   output data_t      result_o,
   output tag_t       tag_o,
@@ -200,7 +201,8 @@ module schnizo_lsu import schnizo_pkg::*; #(
   assign lsu_qrepd_i       = 1'b0;
   assign lsu_qaddr_i       = address_sys;
   assign lsu_qdata_i       = store_data;
-  assign lsu_qvalid_i      = issue_req_valid_i;
+  // Only pass the request downstream when we commit to the issue request.
+  assign lsu_qvalid_i      = issue_req_valid_i & issue_commit_i;
   assign issue_req_ready_o = lsu_qready_o;
   // Response
   assign result_o       = lsu_pdata_o;

@@ -37,6 +37,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Interface to dispatcher & RS
   output logic                      dispatch_instr_valid_o,
   input  logic                      dispatch_instr_ready_i,
+  output logic                      instr_exec_commit_o,
   output logic                      stall_o,
   input  logic                      rs_full_i,
   input  logic                      all_rs_finish_i,
@@ -159,13 +160,17 @@ module schnizo_controller import schnizo_pkg::*; #(
     .instr_decoded_i  (instr_decoded_i),
     .instr_valid_i    (instr_valid_i),
     .instr_addr_i     (pc_q),
-    .next_instr_addr_i(pc_d),
+    // The next instruction after an FREP can only be the immediately next instruction.
+    // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
+    // on the loop_jump signal. TODO: check address overflow..
+    .next_instr_addr_i(pc_q + 'd4),
     .stall_i          (stall),
+    .exception_i      (exception),
     .rs_full_i        (rs_full_i),
     .all_rs_finish_i  (all_rs_finish_i),
 
     .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
-    .loop_start_commit_i(instr_decoded_i.is_frep & dispatch_instr_valid_o),
+    .loop_start_commit_i(instr_decoded_i.is_frep & instr_exec_commit_o),
     // A ready response for the commit to adhere to the ready/valid flow.
     .loop_start_ready_o (loop_start_ready),
     .loop_bodysize_i    (loop_bodysize),
@@ -293,25 +298,30 @@ module schnizo_controller import schnizo_pkg::*; #(
   //
   // Note: the cluster HW barrier only disables fetching new instructions.
   //
-  // If there is an exception, we may not record the dispatch and start the exception handling.
-  // Also, the instruction must be killed. We can achieve this by resetting the dispatch valid
-  // signal. However, this is only possible for FUs which don't generate an exception. Resetting
-  // the valid signal to a FU which generates an exception would lead to a combinatorial loop.
-  // For FUs which generate exceptions (in this case only CSRs), we generate a separate dispatch
-  // valid signal which does not include the exception. If now an exception occurs, the FU kills
-  // itself and asserts the exception flag. The controller then can handle the exception and keep
-  // the "no exception" valid flag set.
+  // Request the dispatch of the instruction. This ignores any exceptions. The instruction
+  // dispatches if the commit signal is asserted. This commit signal includes the info about
+  // any exception. So the dispatch_instr_valid_o signal requests the execution of the instruction
+  // from the desired FU. The FU then can rise an exception and the commit signal will prevent
+  // any stateful update / blocks the execution.
   assign dispatch_instr_valid_o = instr_valid_i   &
                                   registers_ready &
                                   ~fence_stall    &
                                   ~fence_i_stall  &
                                   ~fcsr_stall     &
-                                  ~loop_stall     &
-                                  ~exception;
+                                  ~loop_stall;
+
+  // The instruction may only execute if there are no errors/exceptions.
+  // This signal controls all stateful updates like RF writes or multi-cycle issues.
+  logic instr_exec_commit;
+  assign instr_exec_commit = dispatch_instr_valid_o & ~exception;
+  // During LEP we give up any control over any exception (and also interrupt).
+  // We must set the commit signal to 1 for the whole LEP phase to enable the issues.
+  assign instr_exec_commit_o = loop_state_o inside {LoopLep} ? 1'b1 : instr_exec_commit;
+
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has
   // been dispatched successfully and the scoreboard can update its state.
-  assign instr_dispatched = dispatch_instr_valid_o & (dispatch_instr_ready_i || loop_start_ready);
+  assign instr_dispatched = instr_exec_commit_o & (dispatch_instr_ready_i || loop_start_ready);
   assign stall = ~instr_dispatched;
 
   // ---------------------------

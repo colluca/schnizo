@@ -330,6 +330,7 @@ module schnizo import schnizo_pkg::*; #(
   logic            wfi; // asserted if we are waiting for an interrupt
   logic            dispatch_instr_valid;
   logic            dispatch_instr_ready;
+  logic            instr_exec_commit;
   logic [XLEN-1:0] consecutive_pc;
 
   fpnew_pkg::roundmode_e fpu_rnd_mode;
@@ -459,6 +460,7 @@ module schnizo import schnizo_pkg::*; #(
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
+    .instr_exec_commit_o    (instr_exec_commit),
     .stall_o                (stall),
     .rs_full_i              (rs_full),
     .all_rs_finish_i        (all_rs_finish),
@@ -536,8 +538,9 @@ module schnizo import schnizo_pkg::*; #(
     .instr_dec_i         (instr_decoded),
     .instr_fu_data_i     (fu_data),
     .instr_fetch_data_i  (instr_fetch_data_i),
-    .instr_dec_valid_i   (dispatch_instr_valid), // main control signal / stall signal
-    .instr_dec_ready_o   (dispatch_instr_ready),
+    .dispatch_valid_i    (dispatch_instr_valid), // main control signal / stall signal
+    .instr_exec_commit_i (instr_exec_commit),
+    .dispatch_ready_o    (dispatch_instr_ready),
     // Instruction stream
     .disp_req_o          (dispatch_req),
     // ALU
@@ -642,6 +645,8 @@ module schnizo import schnizo_pkg::*; #(
     .goto_lcp2_i          (goto_lcp2),
     .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
+    // Global commit signal
+    .instr_exec_commit_i  (instr_exec_commit),
     // ALU
     .alu_disp_reqs_valid_i(alu_disp_req_valid),
     .alu_disp_reqs_ready_o(alu_disp_req_ready),
@@ -833,12 +838,12 @@ module schnizo import schnizo_pkg::*; #(
   for (genvar i = 0; i < NofFpus; i++) begin : gen_issue_fpu
     assign all_issue_fpu_handshakes[i] = fpu_disp_req_valid[i] & fpu_disp_req_ready[i];
   end
-  assign issue_fpu = |all_issue_fpu_handshakes;
+  assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
   // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
   // also FP loads as the FP register is in the subsystem. Schnizo cannot distinguish this case as
   // we handle all instructions in the core. We thus set the same signal.
   // TODO: rework the core events
-  assign issue_core_to_fpu = |all_issue_fpu_handshakes;
+  assign issue_core_to_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
 
   assign core_events_o.retired_instr = instr_retired_q;
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
