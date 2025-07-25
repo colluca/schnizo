@@ -102,7 +102,7 @@
     compute_core_template: {
         isa: "rv32imafd",
         xdma: false,
-        xfrep: false,
+        xfrep: true, // enables the superscalar feature
         xf16: false,
         xf16alt: false,
         xf8: false,

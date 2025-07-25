@@ -7,6 +7,8 @@
 //              superscalar data / control path.
 
 module schnizo_fu_block import schnizo_pkg::*; #(
+  // Globally enable the superscalar feature
+  parameter bit          Xfrep          = 1,
   /// Instruction stream parameters
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
@@ -98,6 +100,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_valid_i,
   output logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_ready_o
 );
+
+if (Xfrep) begin : gen_superscalar
   // Module global switch between regular execution and superscalar path
   logic sel_lxp_path;
   assign sel_lxp_path = in_lxp_i;
@@ -305,5 +309,63 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .op_rsps_valid_i (op_rsps_valid_i),
     .op_rsps_ready_o (op_rsps_ready_o)
   );
+end else begin : gen_scalar
+  // In the non superscalar version the dispatch request is simply "converted" to an issue request.
+  // The result is directly passed to the writeback.
 
+  // Convert the dispatch request to a issue request
+  issue_req_t scalar_issue_req;
+  logic       scalar_issue_req_valid;
+  logic       scalar_issue_req_ready;
+
+  assign scalar_issue_req.fu_data = disp_req_i.fu_data;
+  assign scalar_issue_req.tag     = disp_req_i.tag;
+  assign scalar_issue_req_valid   = disp_req_valid_i;
+  assign disp_req_ready_o         = scalar_issue_req_ready;
+  // Dispatch response must match FU without superscalar feature
+  assign disp_rsp_o = producer_id_t'{
+    slot_id: '0,
+    rs_id:   producer_id_i.rs_id
+  };
+
+  // From issue to FU
+  assign issue_req_o = scalar_issue_req;
+  assign issue_req_valid_o = scalar_issue_req_valid;
+  assign scalar_issue_req_ready = issue_req_ready_i;
+
+  // From FU result to the writeback. Direct pass-through.
+  assign wb_result_o       = result_i;
+  assign wb_result_tag_o   = result_tag_i;
+  assign wb_result_valid_o = result_valid_i;
+  assign result_ready_o    = wb_result_ready_i;
+
+  /// Superscalar specific signals
+  // The "RS" has always finished
+  assign loop_finish_o = 1'b1;
+  // The "RS" is never full
+  assign rs_full_o = 1'b0;
+
+  /// Operand distribution network
+  // There are no request signals connected anywhere. Simply set all signals to zero and ignore
+  // the inputs.
+  // Operand request interface - outgoing - request a result as operand
+  assign op_reqs_o       = '0;
+  assign op_reqs_valid_o = '0;
+  // ignore the ready: op_reqs_ready_i
+
+  // Result request interface - incoming - from each possible requester
+  // ingore input: res_reqs_i
+  // ingore input: res_reqs_valid_i
+  assign res_reqs_ready_o = '0;
+
+  // Result response interface - outgoing - result as operand response
+  assign res_rsps_o       = '0;
+  assign res_rsps_valid_o = '0;
+  // ignore the ready: res_rsps_ready_i
+
+  // Operand response interface - incoming - returning result as operand
+  // ingore the input: op_rsps_i,
+  // ingore the input: op_rsps_valid_i,
+  assign op_rsps_ready_o = '0;
+end
 endmodule

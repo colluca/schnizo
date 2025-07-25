@@ -35,6 +35,8 @@ module schnizo import schnizo_pkg::*; #(
   parameter int unsigned DataWidth = 64,
   /// Enable Snitch DMA as accelerator.
   parameter bit          Xdma      = 0,
+  /// Enable the Superscalar FREP mode
+  parameter bit          Xfrep     = 1,
   /// Enable FP in general
   parameter bit          FP_EN     = 0,
   /// Enable F Extension.
@@ -429,6 +431,7 @@ module schnizo import schnizo_pkg::*; #(
   schnizo_decoder #(
     .XLEN   (XLEN),
     .Xdma   (Xdma),
+    .Xfrep  (Xfrep),
     .RVF    (RVF),
     .RVD    (RVD),
     .XF16   (XF16),
@@ -479,6 +482,7 @@ module schnizo import schnizo_pkg::*; #(
   logic                           all_rs_finish;
 
   schnizo_controller #(
+    .Xfrep          (Xfrep),
     .XLEN           (XLEN),
     .BootAddr       (BootAddr),
     .NrIntWritePorts(NrIntWritePorts),
@@ -638,6 +642,7 @@ module schnizo import schnizo_pkg::*; #(
   instr_tag_t      fpu_result_tag;
 
   schnizo_fu_stage #(
+    .Xfrep              (Xfrep),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
@@ -1227,8 +1232,45 @@ module schnizo import schnizo_pkg::*; #(
   issue_acc_trace_t acc_trace;
   // Traces for RSS issues
   issue_alu_trace_t rss_alu_traces [NofAlus][AluNofRss];
+  issue_alu_trace_t rss_alu_traces_empty;
   issue_lsu_trace_t rss_lsu_traces [NofLsus][LsuNofRss];
+  issue_lsu_trace_t rss_lsu_traces_empty;
   issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
+  issue_fpu_trace_t rss_fpu_traces_empty;
+
+  assign rss_alu_traces_empty = '{
+    valid: '0,
+    instr_iter: '0,
+    producer: "",
+    alu_opa: '0,
+    alu_opb: '0
+  };
+
+  assign rss_lsu_traces_empty = '{
+    valid:          1'b0,
+    instr_iter:     '0,
+    producer:       "",
+    lsu_store_data: '0,
+    lsu_is_float:   '0,
+    lsu_is_load:    '0,
+    lsu_is_store:   '0,
+    lsu_addr:       '0,
+    lsu_size:       '0,
+    lsu_amo:        '0
+  };
+
+  assign rss_fpu_traces_empty = '{
+    valid:       1'b0,
+    instr_iter:  '0,
+    producer:    "",
+    fpu_opa:     '0,
+    fpu_opb:     '0,
+    fpu_opc:     '0,
+    fpu_src_fmt: '0,
+    fpu_dst_fmt: '0,
+    fpu_int_fmt: '0
+  };
+
   // Traces for retirements
   retire_fu_trace_t alu_retirements [NofAlus];
   retire_fu_trace_t lsu_retirements [NofLsus];
@@ -1242,13 +1284,33 @@ module schnizo import schnizo_pkg::*; #(
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
   // Traces for result requests (each RSS has one signal per request crossbar output)
-  resreq_trace_t alu_reqreq_traces [NofAlus][AluNofRss][NofOperandIfs];
-  resreq_trace_t lsu_reqreq_traces [NofLsus][LsuNofRss][NofOperandIfs];
-  resreq_trace_t fpu_reqreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
+  resreq_trace_t alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs];
+  resreq_trace_t lsu_resreq_traces [NofLsus][LsuNofRss][NofOperandIfs];
+  resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
+  resreq_trace_t reqreq_trace_empty;
+
+  assign reqreq_trace_empty = '{
+    valid:          '0,
+    producer:       "",
+    consumer:       "",
+    requested_iter: '0
+  };
+
   // Traces for result captures (each RSS has one signal)
   rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
   rescap_trace_t lsu_rescap_traces [NofLsus][LsuNofRss];
   rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
+  rescap_trace_t rescap_trace_empty;
+
+  assign rescap_trace_empty = '{
+    valid:        '0,
+    producer:     "",
+    result_iter:  '0,
+    enable_rf_wb: '0,
+    rd:           '0,
+    rd_is_fp:     '0,
+    result:       '0
+  };
 
   assign core_trace = '{
     priv_level: priv_lvl,
@@ -1291,40 +1353,49 @@ module schnizo import schnizo_pkg::*; #(
 
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
       // verilog_lint: waive-start line-length
-      assign rss_alu_traces[alu][rss] = '{
-        valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs_valid[rss] &&
-                        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs_ready[rss],
-        instr_iter:     i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        alu_opa:        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs[rss].fu_data.operand_a[XLEN-1:0],
-        alu_opb:        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs[rss].fu_data.operand_b[XLEN-1:0]
-      };
+      if (Xfrep) begin : gen_alu_traces_rss_trace_resreq
+        assign rss_alu_traces[alu][rss] = '{
+          valid:          i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
+                          i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
+          instr_iter:     i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          alu_opa:        i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b[XLEN-1:0]
+        };
+        assign alu_rescap_traces[alu][rss] = '{
+          valid:          (i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                          i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                          !i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          result_iter:    i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+          enable_rf_wb:   i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+          rd:             i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+          rd_is_fp:       i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+          result:         i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+        };
+      end else begin : gen_alu_traces_rss_no_trace_resreq
+        assign rss_alu_traces[alu][rss]      = rss_alu_traces_empty;
+        assign alu_rescap_traces[alu][rss] = rescap_trace_empty;
+      end
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
-        assign alu_reqreq_traces[alu][rss][con] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.dest_masks_valid[rss] &&
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.dest_masks_ready[rss] &&
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.dest_masks[rss][con],
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          consumer:       i_fu_stage.consumer_to_string(con),
-          // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_iters[rss]
-        };
+        if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
+          assign alu_resreq_traces[alu][rss][con] = '{
+            valid:          i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+                            i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
+                            i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            producer:       i_fu_stage.producer_to_string(
+                              i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+            consumer:       i_fu_stage.consumer_to_string(con),
+            // we only forward requests which we can serve. Thus we can take the current result iteration.
+            requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.gen_superscalar.i_res_stat.res_iters[rss]
+          };
+        end else begin : gen_alu_traces_rss_no_resreq
+          assign alu_resreq_traces[alu][rss][con] = reqreq_trace_empty;
+        end
       end
-      assign alu_rescap_traces[alu][rss] = '{
-        valid:          (i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                         i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                        !i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        result_iter:    i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-        enable_rf_wb:   i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-        rd:             i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-        rd_is_fp:       i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-        result:         i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
-      };
       // verilog_lint: waive-stop line-length
     end
   end
@@ -1352,47 +1423,56 @@ module schnizo import schnizo_pkg::*; #(
 
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
       // verilog_lint: waive-start line-length
-      assign rss_lsu_traces[lsu][rss] = '{
-        valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.issue_reqs_valid[rss] &&
-                        i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.issue_reqs_ready[rss],
-        instr_iter:     i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        // Directly access the LSU because theses signals are decoded in the LSU. This requires
-        // that there is no cut between the RSS and the LSU.
-        lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
-        lsu_is_float:   i_fu_stage.gen_lsus[lsu].i_lsu.do_nan_boxing, // misuse this signal
-        lsu_is_load:    !i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
-        lsu_is_store:   i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
-        lsu_addr:       i_fu_stage.gen_lsus[lsu].i_lsu.address_sys,
-        lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
-        lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
-      };
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
-        assign lsu_reqreq_traces[lsu][rss][con] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.dest_masks_valid[rss] &&
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.dest_masks_ready[rss] &&
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.dest_masks[rss][con],
+      if (Xfrep) begin : gen_lsu_traces_rss_trace_resreq
+        assign rss_lsu_traces[lsu][rss] = '{
+          valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
+          instr_iter:     i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          consumer:       i_fu_stage.consumer_to_string(con),
-          // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_iters[rss]
+                            i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          // Directly access the LSU because theses signals are decoded in the LSU. This requires
+          // that there is no cut between the RSS and the LSU.
+          lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
+          lsu_is_float:   i_fu_stage.gen_lsus[lsu].i_lsu.do_nan_boxing, // misuse this signal
+          lsu_is_load:    !i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+          lsu_is_store:   i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+          lsu_addr:       i_fu_stage.gen_lsus[lsu].i_lsu.address_sys,
+          lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
+          lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
         };
+        assign lsu_rescap_traces[lsu][rss] = '{
+          valid:          (i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                          !i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          result_iter:    i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+          enable_rf_wb:   i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+          rd:             i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+          rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+          result:         i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+        };
+      end else begin : gen_lsu_traces_rss_no_trace_resreq
+        assign rss_lsu_traces[lsu][rss]    = rss_lsu_traces_empty;
+        assign lsu_rescap_traces[lsu][rss] = rescap_trace_empty;
       end
-      assign lsu_rescap_traces[lsu][rss] = '{
-        valid:          (i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                         i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                        !i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        result_iter:    i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-        enable_rf_wb:   i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-        rd:             i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-        rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-        result:         i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
-      };
+      // each consumer can place a result request simultaneously
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
+        if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
+          assign lsu_resreq_traces[lsu][rss][con] = '{
+            valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            producer:       i_fu_stage.producer_to_string(
+                              i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+            consumer:       i_fu_stage.consumer_to_string(con),
+            // we only forward requests which we can serve. Thus we can take the current result iteration.
+            requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.gen_superscalar.i_res_stat.res_iters[rss]
+          };
+        end else begin : gen_lsu_traces_rss_no_resreq
+          assign lsu_resreq_traces[lsu][rss][con] = reqreq_trace_empty;
+        end
+      end
       // verilog_lint: waive-stop line-length
     end
   end
@@ -1419,46 +1499,55 @@ module schnizo import schnizo_pkg::*; #(
 
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
       // verilog_lint: waive-start line-length
-      assign rss_fpu_traces[fpu][rss] = '{
-        valid:       i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs_valid[rss] &&
-                     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs_ready[rss],
-        instr_iter:  i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
-        producer:    i_fu_stage.producer_to_string(
-                       i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.operand_a,
-        fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.operand_b,
-        fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.imm,
-        fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_src,
-        fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_dst,
-        // Directly access the FPU because theses signals are decoded in the FPU. This requires
-        // that there is no cut between the RSS and the FPU.
-        fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
-      };
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
-        assign fpu_reqreq_traces[fpu][rss][con] = '{
-          valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.dest_masks_valid[rss] &&
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.dest_masks_ready[rss] &&
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.dest_masks[rss][con],
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          consumer:       i_fu_stage.consumer_to_string(con),
-          // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_iters[rss]
+      if (Xfrep) begin : gen_fpu_traces_rss_trace
+        assign rss_fpu_traces[fpu][rss] = '{
+          valid:       i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
+                      i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
+          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          producer:    i_fu_stage.producer_to_string(
+                        i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_dst,
+          // Directly access the FPU because theses signals are decoded in the FPU. This requires
+          // that there is no cut between the RSS and the FPU.
+          fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
         };
+        assign fpu_rescap_traces[fpu][rss] = '{
+          valid:          (i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                           i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                          !i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+          result_iter:    i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+          enable_rf_wb:   i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+          rd:             i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+          rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+          result:         i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+        };
+      end else begin : gen_fpu_traces_no_rss
+        assign rss_fpu_traces[fpu][rss]    = rss_fpu_traces_empty;
+        assign fpu_rescap_traces[fpu][rss] = rescap_trace_empty;
       end
-      assign fpu_rescap_traces[fpu][rss] = '{
-        valid:          (i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                         i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                        !i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        result_iter:    i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-        enable_rf_wb:   i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-        rd:             i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-        rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-        result:         i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
-      };
+      // each consumer can place a result request simultaneously
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
+        if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
+          assign fpu_resreq_traces[fpu][rss][con] = '{
+            valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            producer:       i_fu_stage.producer_to_string(
+                              i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+            consumer:       i_fu_stage.consumer_to_string(con),
+            // we only forward requests which we can serve. Thus we can take the current result iteration.
+            requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.gen_superscalar.i_res_stat.res_iters[rss]
+          };
+        end else begin : gen_fpu_traces_no_resreq
+          assign fpu_resreq_traces[fpu][rss][con] = reqreq_trace_empty;
+        end
+      end
       // verilog_lint: waive-stop line-length
     end
   end
@@ -1614,8 +1703,8 @@ module schnizo import schnizo_pkg::*; #(
         for (int rss = 0; rss < AluNofRss; rss++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
-                              format_resreq_trace(alu_reqreq_traces[alu][rss][con]),
-                              alu_reqreq_traces[alu][rss][con].valid);
+                              format_resreq_trace(alu_resreq_traces[alu][rss][con]),
+                              alu_resreq_traces[alu][rss][con].valid);
           end
         end
       end
@@ -1623,8 +1712,8 @@ module schnizo import schnizo_pkg::*; #(
         for (int rss = 0; rss < FpuNofRss; rss++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
-                              format_resreq_trace(lsu_reqreq_traces[lsu][rss][con]),
-                              lsu_reqreq_traces[lsu][rss][con].valid);
+                              format_resreq_trace(lsu_resreq_traces[lsu][rss][con]),
+                              lsu_resreq_traces[lsu][rss][con].valid);
           end
         end
       end
@@ -1632,8 +1721,8 @@ module schnizo import schnizo_pkg::*; #(
         for (int rss = 0; rss < FpuNofRss; rss++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
-                              format_resreq_trace(fpu_reqreq_traces[fpu][rss][con]),
-                              fpu_reqreq_traces[fpu][rss][con].valid);
+                              format_resreq_trace(fpu_resreq_traces[fpu][rss][con]),
+                              fpu_resreq_traces[fpu][rss][con].valid);
           end
         end
       end

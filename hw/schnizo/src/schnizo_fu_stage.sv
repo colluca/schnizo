@@ -8,6 +8,8 @@
 `include "common_cells/registers.svh"
 
 module schnizo_fu_stage import schnizo_pkg::*; #(
+  // Globally enable the superscalar feature
+  parameter bit          Xfrep           = 1,
   parameter int unsigned NofAlus         = 1,
   parameter int unsigned AluNofRss       = 3,
   parameter int unsigned AluNofOperands  = 2,
@@ -261,6 +263,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
   logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
+if (Xfrep) begin : gen_odn
   // Map the operand requests and responses to a linear array to connect to the xbar.
   // The array index must match the operand / consumer id.
   always_comb begin : fu_op_reqs_rsps
@@ -456,27 +459,71 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     .ready_i(op_rsps_ready)
   );
 
+end else begin : gen_no_odn
+  // Tie down all signals of the operand distribution network which are set either by a crossbar
+  // or when distributing to the reservation stations.
+  assign op_reqs           = '0;
+  assign op_reqs_valid     = '0;
+  assign alu_op_reqs_ready = '0;
+  assign lsu_op_reqs_ready = '0;
+  assign fpu_op_reqs_ready = '0;
+
+  assign op_rsps_ready     = '0;
+  assign alu_op_rsps       = '0;
+  assign alu_op_rsps_valid = '0;
+  assign lsu_op_rsps       = '0;
+  assign lsu_op_rsps_valid = '0;
+  assign fpu_op_rsps       = '0;
+  assign fpu_op_rsps_valid = '0;
+
+  assign res_reqs_ready     = '0;
+  assign alu_res_reqs       = '0;
+  assign alu_res_reqs_valid = '0;
+  assign lsu_res_reqs       = '0;
+  assign fpu_res_reqs       = '0;
+
+  assign res_rsps           = '0;
+  assign res_rsps_valid     = '0;
+  assign alu_res_rsps_ready = '0;
+  assign lsu_res_rsps_ready = '0;
+  assign fpu_res_rsps_ready = '0;
+
+  assign op_reqs_ready  = '0;
+  assign res_reqs       = '0;
+  assign res_reqs_valid = '0;
+
+  assign res_rsps_ready = '0;
+  assign op_rsps        = '0;
+  assign op_rsps_valid  = '0;
+end
+
   // ---------------------------
   // LxP data path selection
   // ---------------------------
   // We generate one global signal which then controls all request/issue/result/wb MUXs.
   // This should enable the timing separation for the branch result.
   logic in_lxp;
-  assign in_lxp = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep};
+  assign in_lxp = Xfrep ? loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep} : 1'b0;
 
   logic in_lcp;
-  assign in_lcp = loop_state_i inside {LoopLcp1, LoopLcp2};
+  assign in_lcp = Xfrep ? loop_state_i inside {LoopLcp1, LoopLcp2} : 1'b0;
 
   // Cut the commit signal during LCP. This is required due to the dispatch cut inside the RS.
   logic instr_exec_commit_d;
   logic instr_exec_commit_q;
   logic instr_exec_commit;
 
+if (Xfrep) begin : gen_exec_commit_cut
   `FFAR(instr_exec_commit_q, instr_exec_commit_d, '0, clk_i, rst_i);
   assign instr_exec_commit_d = instr_exec_commit_i;
 
   // Only select the delayed commit signal in LCP
   assign instr_exec_commit = in_lcp ? instr_exec_commit_q : instr_exec_commit_i;
+end else begin : gen_no_exec_commit_cut
+  assign instr_exec_commit_d = '0;
+  assign instr_exec_commit_q = '0;
+  assign instr_exec_commit   = instr_exec_commit_i;
+end
 
   // ---------------------------
   // ALUs
@@ -514,6 +561,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     };
 
     schnizo_fu_block #(
+      .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
@@ -630,6 +678,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   assign branch_result_o = alu_wbs_result_and_tag[0].result;
 
   // ALU writeback arbiter
+  // The stream_arbiter has a feed through for 1 input so no special handling for disabled FREP
+  // is required.
   alu_result_and_tag_t alu_wb_result_and_tag_out;
   stream_arbiter #(
     .DATA_T (alu_result_and_tag_t),
@@ -687,6 +737,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     };
 
     schnizo_fu_block #(
+      .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
@@ -803,6 +854,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   assign lsu_addr_misaligned_o =(|lsu_addr_misaligned);
 
   // LSU writeback arbiter
+  // The stream_arbiter has a feed through for 1 input so no special handling for disabled FREP
+  // is required.
   lsu_result_and_tag_t lsu_wb_result_and_tag_out;
   stream_arbiter #(
     .DATA_T (lsu_result_and_tag_t),
@@ -860,6 +913,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     };
 
     schnizo_fu_block #(
+      .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
@@ -983,6 +1037,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   assign fpu_status_valid_o = fpu_status_valid;
 
   // FPU writeback arbiter
+  // The stream_arbiter has a feed through for 1 input so no special handling for disabled FREP
+  // is required.
   fpu_result_and_tag_t fpu_wb_result_and_tag_out;
   stream_arbiter #(
     .DATA_T (fpu_result_and_tag_t),

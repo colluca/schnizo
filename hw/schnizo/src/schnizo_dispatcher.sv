@@ -9,6 +9,8 @@
 `include "common_cells/assertions.svh"
 
 module schnizo_dispatcher import schnizo_pkg::*; #(
+  // Enable the superscalar feature
+  parameter bit          FREP_EN     = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
   parameter int unsigned NofAlus     = 1,
@@ -76,13 +78,21 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
+
   // ---------------------------
   // Register Mapping Table (RMT)
   // ---------------------------
   // Two RMT for the integer (rmti) and floating point register (rmtf) file.
   rmt_entry_t [2**RegAddrSize-1:0] rmti_d, rmti_q, rmtf_d, rmtf_q;
+if (FREP_EN) begin : gen_rmt_ff
   `FFAR(rmti_q, rmti_d, '0, clk_i, rst_i)
   `FFAR(rmtf_q, rmtf_d, '0, clk_i, rst_i)
+end else begin : gen_no_rmt_ff
+  assign rmti_q = '0;
+  assign rmti_d = '0;
+  assign rmtf_q = '0;
+  assign rmtf_d = '0;
+end
 
   // ---------------------------
   // Request generation
@@ -99,28 +109,36 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     disp_req_o = '0;
     disp_req_o.fu_data = instr_fu_data_i;
 
-    // Operand A
-    disp_req_o.producer_op_a = instr_dec_i.rs1_is_fp ? rmtf_q[instr_dec_i.rs1] :
-                                                       rmti_q[instr_dec_i.rs1];
+    // Producer fields are only used if FREP_EN
+    if (FREP_EN) begin
+      // Operand A
+      disp_req_o.producer_op_a = instr_dec_i.rs1_is_fp ? rmtf_q[instr_dec_i.rs1] :
+                                                         rmti_q[instr_dec_i.rs1];
 
-    // Operand B
-    disp_req_o.producer_op_b = instr_dec_i.rs2_is_fp ? rmtf_q[instr_dec_i.rs2] :
-                                                       rmti_q[instr_dec_i.rs2];
+      // Operand B
+      disp_req_o.producer_op_b = instr_dec_i.rs2_is_fp ? rmtf_q[instr_dec_i.rs2] :
+                                                         rmti_q[instr_dec_i.rs2];
 
-    // Operand C
-    disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
+      // Operand C
+      disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
                                  rmtf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
                                  no_mapping;
 
-    // current destination producer
-    disp_req_o.current_producer_dest = instr_dec_i.rd_is_fp ? rmtf_q[instr_dec_i.rd] :
-                                                              rmti_q[instr_dec_i.rd];
+      // current destination producer
+      disp_req_o.current_producer_dest = instr_dec_i.rd_is_fp ? rmtf_q[instr_dec_i.rd] :
+                                                                rmti_q[instr_dec_i.rd];
+    end else begin
+      disp_req_o.producer_op_a         = '0;
+      disp_req_o.producer_op_b         = '0;
+      disp_req_o.producer_op_c         = '0;
+      disp_req_o.current_producer_dest = '0;
+    end
 
     // generate the tag
-    disp_req_o.tag.dest_reg = instr_dec_i.rd;
+    disp_req_o.tag.dest_reg       = instr_dec_i.rd;
     disp_req_o.tag.dest_reg_is_fp = instr_dec_i.rd_is_fp;
-    disp_req_o.tag.is_branch = instr_dec_i.is_branch;
-    disp_req_o.tag.is_jump = instr_dec_i.is_jal | instr_dec_i.is_jalr;
+    disp_req_o.tag.is_branch      = instr_dec_i.is_branch;
+    disp_req_o.tag.is_jump        = instr_dec_i.is_jal | instr_dec_i.is_jalr;
   end
 
   // ---------------------------
@@ -150,15 +168,15 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // may never combine any signals with the valid signal. This is required because this block can
   // generate errors which will kill the instruction and therefore a loop would be created.
   always_comb begin : fu_selection_disp
-    alu_disp_req_valid_raw  = '0;
-    lsu_disp_req_valid_raw  = '0;
-    csr_disp_req_valid_raw  = 1'b0;
-    fpu_disp_req_valid_raw  = '0;
-    acc_disp_req_valid_raw  = 1'b0;
+    alu_disp_req_valid_raw = '0;
+    lsu_disp_req_valid_raw = '0;
+    csr_disp_req_valid_raw = 1'b0;
+    fpu_disp_req_valid_raw = '0;
+    acc_disp_req_valid_raw = 1'b0;
 
-    acc_req_o           = '0;
-    acc_req_o.id        = instr_dec_i.rd; // TODO: currently only GPR address supported
-    acc_req_o.data_op   = instr_fetch_data_i;
+    acc_req_o         = '0;
+    acc_req_o.id      = instr_dec_i.rd; // TODO: currently only GPR address supported
+    acc_req_o.data_op = instr_fetch_data_i;
 
     unique case (instr_dec_i.fu)
       schnizo_pkg::CTRL_FLOW: begin
@@ -214,43 +232,43 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     unique case(instr_dec_i.fu)
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch instructions
-        fu_response               = alu_disp_rsp_i[0];
-        fu_ready                  = alu_disp_req_ready_i[0];
-        fu_rs_full                = alu_rs_full_i[0];
+        fu_response = alu_disp_rsp_i[0];
+        fu_ready    = alu_disp_req_ready_i[0];
+        fu_rs_full  = alu_rs_full_i[0];
       end
       schnizo_pkg::ALU: begin
-        fu_response                     = alu_disp_rsp_i[alu_idx];
-        fu_ready                        = alu_disp_req_ready_i[alu_idx];
-        fu_rs_full                      = alu_rs_full_i[alu_idx];
+        fu_response = alu_disp_rsp_i[alu_idx];
+        fu_ready    = alu_disp_req_ready_i[alu_idx];
+        fu_rs_full  = alu_rs_full_i[alu_idx];
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
         // per default take the non consistent mode.
-        fu_response                     = lsu_disp_rsp_i[lsu_idx];
-        fu_ready                        = lsu_disp_req_ready_i[lsu_idx];
-        fu_rs_full                      = lsu_rs_full_i[lsu_idx];
+        fu_response = lsu_disp_rsp_i[lsu_idx];
+        fu_ready    = lsu_disp_req_ready_i[lsu_idx];
+        fu_rs_full  = lsu_rs_full_i[lsu_idx];
       end
       schnizo_pkg::CSR : begin
         // There is no response because there is no reservation station.
-        fu_ready               = csr_disp_req_ready_i;
+        fu_ready = csr_disp_req_ready_i;
       end
       schnizo_pkg::FPU: begin
-        fu_response                     = fpu_disp_rsp_i[fpu_idx];
-        fu_ready                        = fpu_disp_req_ready_i[fpu_idx];
-        fu_rs_full                      = fpu_rs_full_i[fpu_idx];
+        fu_response = fpu_disp_rsp_i[fpu_idx];
+        fu_ready    = fpu_disp_req_ready_i[fpu_idx];
+        fu_rs_full  = fpu_rs_full_i[fpu_idx];
       end
       schnizo_pkg::MULDIV: begin
         // no dispatch response
-        fu_ready               = acc_disp_req_ready_i;
+        fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::DMA: begin
         // no dispatch response
-        fu_ready               = acc_disp_req_ready_i;
+        fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         // But we must stall if there is an ongoing FREP loop.
-        fu_ready                = in_lep ? 1'b0 : 1'b1;
+        fu_ready = in_lep ? 1'b0 : 1'b1;
       end
       default: begin
         // CRASH - should never happen as long as decoder returns valid decoding.
@@ -278,6 +296,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // Asserted if the currently selected FU has no empty RSS.
   assign rs_full_o = fu_rs_full;
 
+if (FREP_EN) begin : gen_fu_sel_cnts
   // ---------------------------
   // FU selection counters
   // ---------------------------
@@ -374,7 +393,17 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     .q_o       (fpu_idx_raw),
     .overflow_o()
   );
+end else begin : gen_fix_fu_sel
+  // Always take the first FU
+  assign alu_idx     = '0;
+  assign lsu_idx     = '0;
+  assign fpu_idx     = '0;
+  assign alu_idx_raw = '0;
+  assign lsu_idx_raw = '0;
+  assign fpu_idx_raw = '0;
+end
 
+if (FREP_EN) begin : gen_rmt
   // ---------------------------
   // Register mapping table (RMT) Update
   // ---------------------------
@@ -439,6 +468,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     // register x0 can never be produced.
     rmti_d[0] = reset_entry;
   end
+end
 
   // Assert that only one dispatch request is set at a time
   // TODO: How to suppress spikes at beginning of cycle?

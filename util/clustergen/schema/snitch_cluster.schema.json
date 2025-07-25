@@ -476,7 +476,7 @@
                                         "xfrep": {
                                             "type": "boolean",
                                             "title": "Enable Xfrep Extension",
-                                            "description": "Floating-point repetition buffer (Xfrep) custom extension.",
+                                            "description": "Enables the superscalar loop execution feature for Schnizo.",
                                             "default": true
                                         },
                                         "xdma": {
@@ -592,7 +592,7 @@
                                         "ssrs": {
                                             "type": "array",
                                             "title": "SSRs",
-                                            "description": "List of all SSRs in the respective core.",
+                                            "description": "List of all SSRs in the respective core. For Schnizo each SSR defines a LSU.",
                                             "minItems": 0,
                                             "default": [{}, {}, {}],
                                             "items": {

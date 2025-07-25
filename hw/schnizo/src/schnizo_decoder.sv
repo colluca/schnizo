@@ -8,6 +8,7 @@
 module schnizo_decoder import schnizo_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter bit          Xdma        = 0,
+  parameter bit          Xfrep       = 1,
   /// Enable F Extension (single).
   parameter bit          RVF         = 1,
   /// Enable D Extension (double).
@@ -844,14 +845,18 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // Frep extension instructions
       // --------------------------------
       OpcodeCustom0: begin
-        if (instr.freptype.is_outer) begin
-          instr_dec_o.is_frep = 1'b1;
-          // The parsed max_instr is actually -1 of the instructions we loop. This is to match the Snitch behaviour.
-          // When executing the loop we actually execute max_instr+1 instructions.
-          instr_dec_o.frep_bodysize = instr.freptype.max_instr;
-          // The iterations are from a register specified by the max_iters field
-          instr_dec_o.rs1_is_fp = 1'b0;
-          instr_dec_o.rs1       = instr.freptype.max_iters_reg;
+        if (Xfrep) begin
+          if (instr.freptype.is_outer) begin
+            instr_dec_o.is_frep = 1'b1;
+            // The parsed max_instr is actually -1 of the instructions we loop. This is to match the Snitch behaviour.
+            // When executing the loop we actually execute max_instr+1 instructions.
+            instr_dec_o.frep_bodysize = instr.freptype.max_instr;
+            // The iterations are from a register specified by the max_iters field
+            instr_dec_o.rs1_is_fp = 1'b0;
+            instr_dec_o.rs1       = instr.freptype.max_iters_reg;
+          end else begin
+            illegal_instr = 1'b1;
+          end
         end else begin
           illegal_instr = 1'b1;
         end

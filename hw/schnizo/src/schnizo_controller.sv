@@ -8,6 +8,8 @@
 `include "common_cells/registers.svh"
 
 module schnizo_controller import schnizo_pkg::*; #(
+  // Enable the superscalar feature
+  parameter bit          Xfrep           = 1,
   parameter int unsigned XLEN            = 32,
   parameter logic [31:0] BootAddr        = 32'h0000_1000,
   parameter int unsigned NrIntWritePorts = 1,
@@ -139,54 +141,67 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic        frep_sw_error;
   logic        goto_hw_loop;
 
-  // Convert the decoded loop iterations to the actual number of iterations.
-  // In Snitch we specify one less in the encoding. The same correction is applied to the
-  // max_instr but in the decoder.
-  logic [MaxIterationsW-1:0] loop_iterations;
-  assign loop_iterations = frep_iterations_i + 1;
+  if (Xfrep) begin : gen_loop_ctrl
+    // Convert the decoded loop iterations to the actual number of iterations.
+    // In Snitch we specify one less in the encoding. The same correction is applied to the
+    // max_instr but in the decoder.
+    logic [MaxIterationsW-1:0] loop_iterations;
+    assign loop_iterations = frep_iterations_i + 1;
 
-  // Convert the loop body size to the actual number of iterations. In Snitch there are
-  // frep_bodysize+1 instructions looped. This loop controller uses the actual loop number.
-  logic [FREP_BODYSIZE_WIDTH-1:0] loop_bodysize;
-  assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
+    // Convert the loop body size to the actual number of iterations. In Snitch there are
+    // frep_bodysize+1 instructions looped. This loop controller uses the actual loop number.
+    logic [FREP_BODYSIZE_WIDTH-1:0] loop_bodysize;
+    assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
 
-  schnizo_loop_controller #(
-    .AddrWidth     (32),
-    .MaxBodysizeW  (FREP_BODYSIZE_WIDTH),
-    .MaxIterationsW(MaxIterationsW),
-    .instr_dec_t   (instr_dec_t)
-  ) i_loop_ctrl (
-    .clk_i,
-    .rst_i,
-    .instr_decoded_i  (instr_decoded_i),
-    .instr_valid_i    (instr_valid_i),
-    .instr_addr_i     (pc_q),
-    // The next instruction after an FREP can only be the immediately next instruction.
-    // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
-    // on the loop_jump signal. TODO: check address overflow..
-    .next_instr_addr_i(pc_q + 'd4),
-    .stall_i          (stall),
-    .exception_i      (exception),
-    .rs_full_i        (rs_full_i),
-    .all_rs_finish_i  (all_rs_finish_i),
+    schnizo_loop_controller #(
+      .AddrWidth     (32),
+      .MaxBodysizeW  (FREP_BODYSIZE_WIDTH),
+      .MaxIterationsW(MaxIterationsW),
+      .instr_dec_t   (instr_dec_t)
+    ) i_loop_ctrl (
+      .clk_i,
+      .rst_i,
+      .instr_decoded_i  (instr_decoded_i),
+      .instr_valid_i    (instr_valid_i),
+      .instr_addr_i     (pc_q),
+      // The next instruction after an FREP can only be the immediately next instruction.
+      // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
+      // on the loop_jump signal. TODO: check address overflow..
+      .next_instr_addr_i(pc_q + 'd4),
+      .stall_i          (stall),
+      .exception_i      (exception),
+      .rs_full_i        (rs_full_i),
+      .all_rs_finish_i  (all_rs_finish_i),
 
-    .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
-    .loop_start_commit_i(instr_decoded_i.is_frep & instr_exec_commit_o),
-    // A ready response for the commit to adhere to the ready/valid flow.
-    .loop_start_ready_o (loop_start_ready),
-    .loop_bodysize_i    (loop_bodysize),
-    .loop_iterations_i  (loop_iterations),
+      .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
+      .loop_start_commit_i(instr_decoded_i.is_frep & instr_exec_commit_o),
+      // A ready response for the commit to adhere to the ready/valid flow.
+      .loop_start_ready_o (loop_start_ready),
+      .loop_bodysize_i    (loop_bodysize),
+      .loop_iterations_i  (loop_iterations),
 
-    .loop_jump_o     (loop_jump),
-    .loop_jump_addr_o(loop_jump_addr),
-    .loop_stall_o    (loop_stall),
-    .sw_err_o        (frep_sw_error),
-    .loop_state_o    (loop_state_o),
-    .goto_lcp2_o     (goto_lcp2_o),
-    .lep_iterations_o(lep_iterations_o),
-    .rs_restart_o    (rs_restart_o),
-    .goto_hw_loop_o  (goto_hw_loop)
-  );
+      .loop_jump_o     (loop_jump),
+      .loop_jump_addr_o(loop_jump_addr),
+      .loop_stall_o    (loop_stall),
+      .sw_err_o        (frep_sw_error),
+      .loop_state_o    (loop_state_o),
+      .goto_lcp2_o     (goto_lcp2_o),
+      .lep_iterations_o(lep_iterations_o),
+      .rs_restart_o    (rs_restart_o),
+      .goto_hw_loop_o  (goto_hw_loop)
+    );
+  end else begin : gen_no_loop_ctrl
+    assign loop_start_ready = 1'b0;
+    assign loop_jump        = 1'b0;
+    assign loop_jump_addr   = '0;
+    assign loop_stall       = 1'b0;
+    assign frep_sw_error    = 1'b0;
+    assign loop_state_o     = LoopRegular;
+    assign goto_lcp2_o      = 1'b0;
+    assign lep_iterations_o = '0;
+    assign rs_restart_o     = 1'b1;
+    assign goto_hw_loop     = 1'b0;
+  end
 
   // ---------------------------
   // Exceptions
