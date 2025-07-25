@@ -59,6 +59,12 @@
             // register_fpu_req cuts the request between FPU LSU and SoC/TCDM MUX.
             // This has no effect in Schnizo.
             register_fpu_req: false,
+            // Cut the instruction and data path to and from the FPU.
+            // In Snitch, this cut was implemented via the offload cut (register_offload_req).
+            // In Schnizo, there the FPU is connected directly to the core. We thus use the existing
+            // cuts in the FPU module to have the same cuts.
+            register_fpu_in: true,
+            register_fpu_out: true,
             register_ext_narrow: false,
             register_ext_wide: false
         },
@@ -72,6 +78,7 @@
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
+                    { $ref: "#/dma_core_template" },
                 ]
             }
         ]
@@ -92,9 +99,9 @@
     // Templates.
     compute_core_template: {
         isa: "rv32imafd",
+        xdma: false,
         xssr: false,
         xfrep: false,
-        xdma: false,
         xf16: false,
         xf16alt: false,
         xf8: false,
@@ -120,12 +127,9 @@
         xf8alt: false,
         xfdotp: false,
         xfvec: false,
-        num_int_outstanding_loads: 1,
+        num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
-        num_sequencer_instructions: 16,
-        num_dtlb_entries: 1,
-        num_itlb_entries: 1,
     }
 }
