@@ -670,7 +670,9 @@ def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
             fu_id = extras['producer'].split('.')[0]
             if (extras['producer'].startswith(FU_LSU)):
                 start_time, is_fp = lsu_pipelines[fu_id].pop()
-                latency = cycle - start_time
+                # We define the latency as the number of cycles we need, i.e., the duration
+                # Thus we do +1
+                latency = cycle - start_time + 1
                 perf_metrics[-1]['schnizo_load_latency'] += latency
                 if (is_fp):
                     perf_metrics[-1]['schnizo_fpr_load_latency'] += latency
@@ -678,7 +680,7 @@ def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
                     perf_metrics[-1]['schnizo_gpr_load_latency'] += latency
             if (extras['producer'].startswith(FU_FPU)):
                 start_time, _ = fpu_pipelines[fu_id].pop()
-                latency = cycle - start_time
+                latency = cycle - start_time + 1
                 perf_metrics[-1]['schnizo_fpu_latency'] += latency
         except IndexError:
             message = f"Retirement: In cycle {cycle}, {extras['producer']} tried to retire, but no load is in flight."
