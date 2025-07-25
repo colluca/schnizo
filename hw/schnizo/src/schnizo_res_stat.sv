@@ -64,12 +64,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  disp_req_t disp_req_i,
   input  logic      disp_req_valid_i,
   output logic      disp_req_ready_o,
+  input  logic      instr_exec_commit_i,
   output disp_rsp_t disp_rsp_o,
 
   // The issued instruction - to FU
   output issue_req_t issue_req_o,
   output logic       issue_req_valid_o,
   input  logic       issue_req_ready_i,
+  output logic       instr_exec_commit_o,
 
   // Result from FU
   input  result_t result_i,
@@ -177,11 +179,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic disp_req_valid_guarded;
   logic disp_req_ready_o_raw;
   // Do not accept a new dispatch request if we are currently handling one or we are full.
-  assign disp_req_valid_guarded = disp_req_valid_i && !disp_req_valid_i_q && !rs_full_o;
+  // Only accept it if we commit to the dispatch.
+  assign disp_req_valid_guarded = disp_req_valid_i && !disp_req_valid_i_q && !rs_full_o &&
+                                  instr_exec_commit_i;
   // Do not signal ready until we are processing the request. This allows to handle branches where
   // the target address is only valid in the cycle the ALU computes it.
   // This is in the effective dispatch cycle because the ALU is single cycle.
-  assign disp_req_ready_o = disp_req_ready_o_raw && !disp_req_valid_i_q && !rs_full_o;
+  assign disp_req_ready_o = disp_req_ready_o_raw && !disp_req_valid_i_q && !rs_full_o &&
+                            instr_exec_commit_i;
 
   spill_register_flushable #(
     .T     (disp_req_t),
@@ -673,6 +678,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // tie down valid & data signal if we overflow.
   assign issue_req_valid_o = (disp_idx >= NofRss) ? 1'b0 : issue_req_valid_raw;
   assign issue_req_o       = (disp_idx >= NofRss) ?   '0 : issue_req_raw;
+  // Each accepted dispatch request was committed so we also commit to each issue request
+  assign instr_exec_commit_o = issue_req_valid_o;
 
   // Result DEMUX
   // result_idx can overflow the same way as the disp_idx. Tie down the ready in case of overflow.

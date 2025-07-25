@@ -508,23 +508,6 @@ end
   logic in_lcp;
   assign in_lcp = Xfrep ? loop_state_i inside {LoopLcp1, LoopLcp2} : 1'b0;
 
-  // Cut the commit signal during LCP. This is required due to the dispatch cut inside the RS.
-  logic instr_exec_commit_d;
-  logic instr_exec_commit_q;
-  logic instr_exec_commit;
-
-if (Xfrep) begin : gen_exec_commit_cut
-  `FFAR(instr_exec_commit_q, instr_exec_commit_d, '0, clk_i, rst_i);
-  assign instr_exec_commit_d = instr_exec_commit_i;
-
-  // Only select the delayed commit signal in LCP
-  assign instr_exec_commit = in_lcp ? instr_exec_commit_q : instr_exec_commit_i;
-end else begin : gen_no_exec_commit_cut
-  assign instr_exec_commit_d = '0;
-  assign instr_exec_commit_q = '0;
-  assign instr_exec_commit   = instr_exec_commit_i;
-end
-
   // ---------------------------
   // ALUs
   // ---------------------------
@@ -546,6 +529,7 @@ end
     issue_req_t   alu_issue_req;
     logic         alu_issue_req_valid;
     logic         alu_issue_req_ready;
+    logic         alu_exec_commit;
     alu_result_t  alu_result;
     alu_res_val_t alu_result_value;
     instr_tag_t   alu_result_tag;
@@ -586,48 +570,50 @@ end
       .clk_i,
       .rst_i,
       /// RS control signals
-      .producer_id_i   (producer_start_id),
-      .restart_i       (restart_i),
-      .loop_state_i    (loop_state_i),
-      .in_lxp_i        (in_lxp),
-      .lep_iterations_i(lep_iterations_i),
-      .goto_lcp2_i     (goto_lcp2_i),
-      .fu_busy_i       (alu_busy),
-      .loop_finish_o   (alu_loop_finish_o[alu]),
-      .rs_full_o       (alu_rs_full_o[alu]),
+      .producer_id_i      (producer_start_id),
+      .restart_i          (restart_i),
+      .loop_state_i       (loop_state_i),
+      .in_lxp_i           (in_lxp),
+      .lep_iterations_i   (lep_iterations_i),
+      .goto_lcp2_i        (goto_lcp2_i),
+      .fu_busy_i          (alu_busy),
+      .loop_finish_o      (alu_loop_finish_o[alu]),
+      .rs_full_o          (alu_rs_full_o[alu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i       (disp_req_i),
-      .disp_req_valid_i (alu_disp_reqs_valid_i[alu]),
-      .disp_req_ready_o (alu_disp_reqs_ready_o[alu]),
-      .disp_rsp_o       (alu_disp_rsp_o[alu]),
+      .disp_req_i         (disp_req_i),
+      .disp_req_valid_i   (alu_disp_reqs_valid_i[alu]),
+      .disp_req_ready_o   (alu_disp_reqs_ready_o[alu]),
+      .instr_exec_commit_i(instr_exec_commit_i),
+      .disp_rsp_o         (alu_disp_rsp_o[alu]),
       // To FU
-      .issue_req_o      (alu_issue_req),
-      .issue_req_valid_o(alu_issue_req_valid),
-      .issue_req_ready_i(alu_issue_req_ready),
+      .issue_req_o        (alu_issue_req),
+      .issue_req_valid_o  (alu_issue_req_valid),
+      .issue_req_ready_i  (alu_issue_req_ready),
+      .instr_exec_commit_o(alu_exec_commit),
       // From FU
-      .result_i         (alu_result.result),
-      .result_tag_i     (alu_result_tag),
-      .result_valid_i   (alu_result_valid),
-      .result_ready_o   (alu_result_ready),
+      .result_i           (alu_result.result),
+      .result_tag_i       (alu_result_tag),
+      .result_valid_i     (alu_result_valid),
+      .result_ready_o     (alu_result_ready),
       // To writeback
-      .wb_result_o      (alu_wb_result_value),
-      .wb_result_tag_o  (alu_wb_result_tag),
-      .wb_result_valid_o(alu_wbs_result_valid[alu]),
-      .wb_result_ready_i(alu_wbs_result_ready[alu]),
+      .wb_result_o        (alu_wb_result_value),
+      .wb_result_tag_o    (alu_wb_result_tag),
+      .wb_result_valid_o  (alu_wbs_result_valid[alu]),
+      .wb_result_ready_i  (alu_wbs_result_ready[alu]),
       /// Operand distribution network
-      .op_reqs_o       (alu_op_reqs[alu]),
-      .op_reqs_valid_o (alu_op_reqs_valid[alu]),
-      .op_reqs_ready_i (alu_op_reqs_ready[alu]),
-      .res_reqs_i      (alu_res_reqs[alu]),
-      .res_reqs_valid_i(alu_res_reqs_valid[alu]),
-      .res_reqs_ready_o(alu_res_reqs_ready[alu]),
-      .res_rsps_o      (alu_res_rsps[alu]),
-      .res_rsps_valid_o(alu_res_rsps_valid[alu]),
-      .res_rsps_ready_i(alu_res_rsps_ready[alu]),
-      .op_rsps_i       (alu_op_rsps[alu]),
-      .op_rsps_valid_i (alu_op_rsps_valid[alu]),
-      .op_rsps_ready_o (alu_op_rsps_ready[alu])
+      .op_reqs_o          (alu_op_reqs[alu]),
+      .op_reqs_valid_o    (alu_op_reqs_valid[alu]),
+      .op_reqs_ready_i    (alu_op_reqs_ready[alu]),
+      .res_reqs_i         (alu_res_reqs[alu]),
+      .res_reqs_valid_i   (alu_res_reqs_valid[alu]),
+      .res_reqs_ready_o   (alu_res_reqs_ready[alu]),
+      .res_rsps_o         (alu_res_rsps[alu]),
+      .res_rsps_valid_o   (alu_res_rsps_valid[alu]),
+      .res_rsps_ready_i   (alu_res_rsps_ready[alu]),
+      .op_rsps_i          (alu_op_rsps[alu]),
+      .op_rsps_valid_i    (alu_op_rsps_valid[alu]),
+      .op_rsps_ready_o    (alu_op_rsps_ready[alu])
     );
     // DANGER!
     // HACK: We do not pass the branch result into the RS so keep the same RS implementation for
@@ -666,7 +652,7 @@ end
     // Therefore, we must "kill" the writeback if we don't commit. The kill must be after the result
     // as otherwise we create a loop. For the other FUs the "kill" is before we pass the instruction
     // downstream.
-    assign alu_result_valid = alu_result_valid_raw & instr_exec_commit;
+    assign alu_result_valid = alu_result_valid_raw & alu_exec_commit;
   end
 
   // ALU branch result forwarding
@@ -724,6 +710,8 @@ end
     issue_req_t  lsu_issue_req;
     logic        lsu_issue_req_valid;
     logic        lsu_issue_req_ready;
+    logic        lsu_exec_commit;
+    logic        lsu_addr_misaligned_raw;
     lsu_result_t lsu_result;
     instr_tag_t  lsu_result_tag;
     logic        lsu_result_valid;
@@ -762,48 +750,50 @@ end
       .clk_i,
       .rst_i,
       /// RS control signals
-      .producer_id_i   (producer_start_id),
-      .restart_i       (restart_i),
-      .loop_state_i    (loop_state_i),
-      .in_lxp_i        (in_lxp),
-      .lep_iterations_i(lep_iterations_i),
-      .goto_lcp2_i     (goto_lcp2_i),
-      .fu_busy_i       (lsu_busy),
-      .loop_finish_o   (lsu_loop_finish_o[lsu]),
-      .rs_full_o       (lsu_rs_full_o[lsu]),
+      .producer_id_i      (producer_start_id),
+      .restart_i          (restart_i),
+      .loop_state_i       (loop_state_i),
+      .in_lxp_i           (in_lxp),
+      .lep_iterations_i   (lep_iterations_i),
+      .goto_lcp2_i        (goto_lcp2_i),
+      .fu_busy_i          (lsu_busy),
+      .loop_finish_o      (lsu_loop_finish_o[lsu]),
+      .rs_full_o          (lsu_rs_full_o[lsu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i       (disp_req_i),
-      .disp_req_valid_i (lsu_disp_reqs_valid_i[lsu]),
-      .disp_req_ready_o (lsu_disp_reqs_ready_o[lsu]),
-      .disp_rsp_o       (lsu_disp_rsp_o[lsu]),
+      .disp_req_i         (disp_req_i),
+      .disp_req_valid_i   (lsu_disp_reqs_valid_i[lsu]),
+      .disp_req_ready_o   (lsu_disp_reqs_ready_o[lsu]),
+      .instr_exec_commit_i(instr_exec_commit_i),
+      .disp_rsp_o         (lsu_disp_rsp_o[lsu]),
       // To FU
-      .issue_req_o      (lsu_issue_req),
-      .issue_req_valid_o(lsu_issue_req_valid),
-      .issue_req_ready_i(lsu_issue_req_ready),
+      .issue_req_o        (lsu_issue_req),
+      .issue_req_valid_o  (lsu_issue_req_valid),
+      .issue_req_ready_i  (lsu_issue_req_ready),
+      .instr_exec_commit_o(lsu_exec_commit),
       // From FU
-      .result_i         (lsu_result),
-      .result_tag_i     (lsu_result_tag),
-      .result_valid_i   (lsu_result_valid),
-      .result_ready_o   (lsu_result_ready),
+      .result_i           (lsu_result),
+      .result_tag_i       (lsu_result_tag),
+      .result_valid_i     (lsu_result_valid),
+      .result_ready_o     (lsu_result_ready),
       // To writeback
-      .wb_result_o      (lsu_wb_result),
-      .wb_result_tag_o  (lsu_wb_result_tag),
-      .wb_result_valid_o(lsu_wbs_result_valid[lsu]),
-      .wb_result_ready_i(lsu_wbs_result_ready[lsu]),
+      .wb_result_o        (lsu_wb_result),
+      .wb_result_tag_o    (lsu_wb_result_tag),
+      .wb_result_valid_o  (lsu_wbs_result_valid[lsu]),
+      .wb_result_ready_i  (lsu_wbs_result_ready[lsu]),
       /// Operand distribution network
-      .op_reqs_o       (lsu_op_reqs[lsu]),
-      .op_reqs_valid_o (lsu_op_reqs_valid[lsu]),
-      .op_reqs_ready_i (lsu_op_reqs_ready[lsu]),
-      .res_reqs_i      (lsu_res_reqs[lsu]),
-      .res_reqs_valid_i(lsu_res_reqs_valid[lsu]),
-      .res_reqs_ready_o(lsu_res_reqs_ready[lsu]),
-      .res_rsps_o      (lsu_res_rsps[lsu]),
-      .res_rsps_valid_o(lsu_res_rsps_valid[lsu]),
-      .res_rsps_ready_i(lsu_res_rsps_ready[lsu]),
-      .op_rsps_i       (lsu_op_rsps[lsu]),
-      .op_rsps_valid_i (lsu_op_rsps_valid[lsu]),
-      .op_rsps_ready_o (lsu_op_rsps_ready[lsu])
+      .op_reqs_o          (lsu_op_reqs[lsu]),
+      .op_reqs_valid_o    (lsu_op_reqs_valid[lsu]),
+      .op_reqs_ready_i    (lsu_op_reqs_ready[lsu]),
+      .res_reqs_i         (lsu_res_reqs[lsu]),
+      .res_reqs_valid_i   (lsu_res_reqs_valid[lsu]),
+      .res_reqs_ready_o   (lsu_res_reqs_ready[lsu]),
+      .res_rsps_o         (lsu_res_rsps[lsu]),
+      .res_rsps_valid_o   (lsu_res_rsps_valid[lsu]),
+      .res_rsps_ready_i   (lsu_res_rsps_ready[lsu]),
+      .op_rsps_i          (lsu_op_rsps[lsu]),
+      .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
+      .op_rsps_ready_o    (lsu_op_rsps_ready[lsu])
     );
     assign lsu_wbs_result_and_tag[lsu].result = lsu_wb_result;
     assign lsu_wbs_result_and_tag[lsu].tag    = lsu_wb_result_tag;
@@ -828,7 +818,7 @@ end
       .rst_i,
       .issue_req_i      (lsu_issue_req),
       .issue_req_valid_i(lsu_issue_req_valid),
-      .issue_commit_i   (instr_exec_commit),
+      .issue_commit_i   (lsu_exec_commit),
       .issue_req_ready_o(lsu_issue_req_ready),
       .result_o         (lsu_result),
       .tag_o            (lsu_result_tag),
@@ -837,7 +827,7 @@ end
       .result_ready_i   (lsu_result_ready),
       .busy_o           (lsu_busy),
       .empty_o          (lsu_empty[lsu]),
-      .addr_misaligned_o(lsu_addr_misaligned[lsu]),
+      .addr_misaligned_o(lsu_addr_misaligned_raw),
       .data_req_o       (lsu_dreq_o[lsu]),
       .data_rsp_i       (lsu_drsp_i[lsu]),
       .caq_addr_i       (caq_addr_i[lsu]),
@@ -847,6 +837,9 @@ end
       .caq_rsp_valid_i  (caq_rsp_valid_i[lsu]),
       .caq_rsp_valid_o  (caq_rsp_valid_o[lsu])
     );
+
+    // Suppress exceptions in LCP and LEP because we anyway don't handle them one cycle later.
+    assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw & !in_lxp;
   end
 
   // LSU empty & misalign signal combination
@@ -902,6 +895,7 @@ end
     issue_req_t  fpu_issue_req;
     logic        fpu_issue_req_valid;
     logic        fpu_issue_req_ready;
+    logic        fpu_exec_commit;
     fpu_result_t fpu_result;
     instr_tag_t  fpu_result_tag;
     logic        fpu_busy;
@@ -938,48 +932,50 @@ end
       .clk_i,
       .rst_i,
       /// RS control signals
-      .producer_id_i   (producer_start_id),
-      .restart_i       (restart_i),
-      .loop_state_i    (loop_state_i),
-      .in_lxp_i        (in_lxp),
-      .lep_iterations_i(lep_iterations_i),
-      .goto_lcp2_i     (goto_lcp2_i),
-      .fu_busy_i       (fpu_busy),
-      .loop_finish_o   (fpu_loop_finish_o[fpu]),
-      .rs_full_o       (fpu_rs_full_o[fpu]),
+      .producer_id_i      (producer_start_id),
+      .restart_i          (restart_i),
+      .loop_state_i       (loop_state_i),
+      .in_lxp_i           (in_lxp),
+      .lep_iterations_i   (lep_iterations_i),
+      .goto_lcp2_i        (goto_lcp2_i),
+      .fu_busy_i          (fpu_busy),
+      .loop_finish_o      (fpu_loop_finish_o[fpu]),
+      .rs_full_o          (fpu_rs_full_o[fpu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i       (disp_req_i),
-      .disp_req_valid_i (fpu_disp_reqs_valid_i[fpu]),
-      .disp_req_ready_o (fpu_disp_reqs_ready_o[fpu]),
-      .disp_rsp_o       (fpu_disp_rsp_o[fpu]),
+      .disp_req_i         (disp_req_i),
+      .disp_req_valid_i   (fpu_disp_reqs_valid_i[fpu]),
+      .disp_req_ready_o   (fpu_disp_reqs_ready_o[fpu]),
+      .instr_exec_commit_i(instr_exec_commit_i),
+      .disp_rsp_o         (fpu_disp_rsp_o[fpu]),
       // To FU
-      .issue_req_o      (fpu_issue_req),
-      .issue_req_valid_o(fpu_issue_req_valid),
-      .issue_req_ready_i(fpu_issue_req_ready),
+      .issue_req_o        (fpu_issue_req),
+      .issue_req_valid_o  (fpu_issue_req_valid),
+      .issue_req_ready_i  (fpu_issue_req_ready),
+      .instr_exec_commit_o(fpu_exec_commit),
       // From FU
-      .result_i         (fpu_result),
-      .result_tag_i     (fpu_result_tag),
-      .result_valid_i   (fpu_result_valid[fpu]),
-      .result_ready_o   (fpu_result_ready[fpu]),
+      .result_i           (fpu_result),
+      .result_tag_i       (fpu_result_tag),
+      .result_valid_i     (fpu_result_valid[fpu]),
+      .result_ready_o     (fpu_result_ready[fpu]),
       // To writeback
-      .wb_result_o      (fpu_wb_result),
-      .wb_result_tag_o  (fpu_wb_result_tag),
-      .wb_result_valid_o(fpu_wbs_result_valid[fpu]),
-      .wb_result_ready_i(fpu_wbs_result_ready[fpu]),
+      .wb_result_o        (fpu_wb_result),
+      .wb_result_tag_o    (fpu_wb_result_tag),
+      .wb_result_valid_o  (fpu_wbs_result_valid[fpu]),
+      .wb_result_ready_i  (fpu_wbs_result_ready[fpu]),
       /// Operand distribution network
-      .op_reqs_o       (fpu_op_reqs[fpu]),
-      .op_reqs_valid_o (fpu_op_reqs_valid[fpu]),
-      .op_reqs_ready_i (fpu_op_reqs_ready[fpu]),
-      .res_reqs_i      (fpu_res_reqs[fpu]),
-      .res_reqs_valid_i(fpu_res_reqs_valid[fpu]),
-      .res_reqs_ready_o(fpu_res_reqs_ready[fpu]),
-      .res_rsps_o      (fpu_res_rsps[fpu]),
-      .res_rsps_valid_o(fpu_res_rsps_valid[fpu]),
-      .res_rsps_ready_i(fpu_res_rsps_ready[fpu]),
-      .op_rsps_i       (fpu_op_rsps[fpu]),
-      .op_rsps_valid_i (fpu_op_rsps_valid[fpu]),
-      .op_rsps_ready_o (fpu_op_rsps_ready[fpu])
+      .op_reqs_o          (fpu_op_reqs[fpu]),
+      .op_reqs_valid_o    (fpu_op_reqs_valid[fpu]),
+      .op_reqs_ready_i    (fpu_op_reqs_ready[fpu]),
+      .res_reqs_i         (fpu_res_reqs[fpu]),
+      .res_reqs_valid_i   (fpu_res_reqs_valid[fpu]),
+      .res_reqs_ready_o   (fpu_res_reqs_ready[fpu]),
+      .res_rsps_o         (fpu_res_rsps[fpu]),
+      .res_rsps_valid_o   (fpu_res_rsps_valid[fpu]),
+      .res_rsps_ready_i   (fpu_res_rsps_ready[fpu]),
+      .op_rsps_i          (fpu_op_rsps[fpu]),
+      .op_rsps_valid_i    (fpu_op_rsps_valid[fpu]),
+      .op_rsps_ready_o    (fpu_op_rsps_ready[fpu])
     );
     assign fpu_wbs_result_and_tag[fpu].result = fpu_wb_result;
     assign fpu_wbs_result_and_tag[fpu].tag    = fpu_wb_result_tag;
@@ -1004,7 +1000,7 @@ end
       .hart_id_i        (hard_id_i),
       .issue_req_i      (fpu_issue_req),
       .issue_req_valid_i(fpu_issue_req_valid),
-      .issue_commit_i   (instr_exec_commit),
+      .issue_commit_i   (fpu_exec_commit),
       .issue_req_ready_o(fpu_issue_req_ready),
       .result_o         (fpu_result),
       .tag_o            (fpu_result_tag),

@@ -341,10 +341,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   // This signal controls all stateful updates like RF writes or multi-cycle issues.
   logic instr_exec_commit;
   assign instr_exec_commit = dispatch_instr_valid_o & ~exception & ~goto_hw_loop;
-  // During LEP we give up any control over any exception (and also interrupt).
-  // We must set the commit signal to 1 for the whole LEP phase to enable the issues.
-  // In LCP we must enable the commit when we wait for retirement.
-  assign instr_exec_commit_o = (loop_state_o inside {LoopLep}) ? 1'b1 : instr_exec_commit;
+  assign instr_exec_commit_o = instr_exec_commit;
 
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has

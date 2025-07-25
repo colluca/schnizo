@@ -63,11 +63,13 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  disp_req_t disp_req_i,
   input  logic      disp_req_valid_i,
   output logic      disp_req_ready_o,
+  input  logic      instr_exec_commit_i,
   output disp_rsp_t disp_rsp_o,
   // From issue MUX to FU
   output issue_req_t issue_req_o,
   output logic       issue_req_valid_o,
   input  logic       issue_req_ready_i,
+  output logic       instr_exec_commit_o,
   // From FU to the result DEMUX
   input  result_t    result_i,
   input  instr_tag_t result_tag_i,
@@ -124,6 +126,7 @@ if (Xfrep) begin : gen_superscalar
   issue_req_t rs_issue_req;
   logic       rs_issue_req_valid;
   logic       rs_issue_req_ready;
+  logic       rs_instr_exec_commit;
   // From dispatch2issue converter to issue MUX
   issue_req_t si_issue_req;
   logic       si_issue_req_valid;
@@ -186,6 +189,8 @@ if (Xfrep) begin : gen_superscalar
     .oup_valid_o(issue_req_valid_o),
     .oup_ready_i(issue_req_ready_i)
   );
+
+  assign instr_exec_commit_o = sel_lxp_path ? rs_instr_exec_commit : instr_exec_commit_i;
 
   // Result DEMUX
   assign rs_result        = result_i;
@@ -264,50 +269,52 @@ if (Xfrep) begin : gen_superscalar
     .clk_i,
     .rst_i,
     // Control signals
-    .producer_id_i    (producer_id_i),
-    .restart_i        (restart_i),
-    .loop_state_i     (loop_state_i),
-    .lep_iterations_i (lep_iterations_i),
-    .goto_lcp2_i      (goto_lcp2_i),
-    .loop_finish_o    (loop_finish_o),
-    .rs_full_o        (rs_full_o),
-    .fu_busy_i        (fu_busy_i),
+    .producer_id_i      (producer_id_i),
+    .restart_i          (restart_i),
+    .loop_state_i       (loop_state_i),
+    .lep_iterations_i   (lep_iterations_i),
+    .goto_lcp2_i        (goto_lcp2_i),
+    .loop_finish_o      (loop_finish_o),
+    .rs_full_o          (rs_full_o),
+    .fu_busy_i          (fu_busy_i),
     // The dispatched instruction - from Dispatcher
-    .disp_req_i       (rs_disp_req),
-    .disp_req_valid_i (rs_disp_req_valid),
-    .disp_req_ready_o (rs_disp_req_ready),
-    .disp_rsp_o       (rs_disp_rsp),
+    .disp_req_i         (rs_disp_req),
+    .disp_req_valid_i   (rs_disp_req_valid),
+    .disp_req_ready_o   (rs_disp_req_ready),
+    .instr_exec_commit_i(instr_exec_commit_i),
+    .disp_rsp_o         (rs_disp_rsp),
     // The issued instruction - to FU
-    .issue_req_o      (rs_issue_req),
-    .issue_req_valid_o(rs_issue_req_valid),
-    .issue_req_ready_i(rs_issue_req_ready),
+    .issue_req_o        (rs_issue_req),
+    .issue_req_valid_o  (rs_issue_req_valid),
+    .issue_req_ready_i  (rs_issue_req_ready),
+    .instr_exec_commit_o(rs_instr_exec_commit),
     // Result from FU
-    .result_i         (rs_result),
-    .result_valid_i   (rs_result_valid),
-    .result_ready_o   (rs_result_ready),
+    .result_i           (rs_result),
+    .result_valid_i     (rs_result_valid),
+    .result_ready_o     (rs_result_ready),
     // RF writeback
-    .rf_wb_result_o   (rs_wb_result),
-    .rf_wb_tag_o      (rs_wb_result_tag),
-    .rf_wb_valid_o    (rs_wb_result_valid),
-    .rf_wb_ready_i    (rs_wb_result_ready),
+    .rf_wb_result_o     (rs_wb_result),
+    .rf_wb_tag_o        (rs_wb_result_tag),
+    .rf_wb_valid_o      (rs_wb_result_valid),
+    .rf_wb_ready_i      (rs_wb_result_ready),
 
     /// Operand distribution network - directly fed through
     // Operand request interface - outgoing - request a result as operand
-    .op_reqs_o       (op_reqs_o),
-    .op_reqs_valid_o (op_reqs_valid_o),
-    .op_reqs_ready_i (op_reqs_ready_i),
+    .op_reqs_o          (op_reqs_o),
+    .op_reqs_valid_o    (op_reqs_valid_o),
+    .op_reqs_ready_i    (op_reqs_ready_i),
     // Result request interface - incoming - translated operand request
-    .res_reqs_i      (res_reqs_i),
-    .res_reqs_valid_i(res_reqs_valid_i),
-    .res_reqs_ready_o(res_reqs_ready_o),
+    .res_reqs_i         (res_reqs_i),
+    .res_reqs_valid_i   (res_reqs_valid_i),
+    .res_reqs_ready_o   (res_reqs_ready_o),
     // Result response interface - outgoing - result as operand response
-    .res_rsps_o      (res_rsps_o),
-    .res_rsps_valid_o(res_rsps_valid_o),
-    .res_rsps_ready_i(res_rsps_ready_i),
+    .res_rsps_o         (res_rsps_o),
+    .res_rsps_valid_o   (res_rsps_valid_o),
+    .res_rsps_ready_i   (res_rsps_ready_i),
     // Operand response interface - incoming - returning result as operand
-    .op_rsps_i       (op_rsps_i),
-    .op_rsps_valid_i (op_rsps_valid_i),
-    .op_rsps_ready_o (op_rsps_ready_o)
+    .op_rsps_i          (op_rsps_i),
+    .op_rsps_valid_i    (op_rsps_valid_i),
+    .op_rsps_ready_o    (op_rsps_ready_o)
   );
 end else begin : gen_scalar
   // In the non superscalar version the dispatch request is simply "converted" to an issue request.
@@ -329,9 +336,10 @@ end else begin : gen_scalar
   };
 
   // From issue to FU
-  assign issue_req_o = scalar_issue_req;
-  assign issue_req_valid_o = scalar_issue_req_valid;
+  assign issue_req_o            = scalar_issue_req;
+  assign issue_req_valid_o      = scalar_issue_req_valid;
   assign scalar_issue_req_ready = issue_req_ready_i;
+  assign instr_exec_commit_o    = instr_exec_commit_i;
 
   // From FU result to the writeback. Direct pass-through.
   assign wb_result_o       = result_i;
