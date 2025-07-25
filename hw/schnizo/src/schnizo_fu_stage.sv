@@ -734,8 +734,14 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   end
 
   // LSU empty & misalign signal combination
-  assign lsu_empty_o           = &lsu_empty;
-  assign lsu_addr_misaligned_o = |lsu_addr_misaligned;
+  assign lsu_empty_o = (&lsu_empty);
+  // Only propagate the exception when we don't fetch any operands via the ODN, i.e. when we are
+  // not in LCP or LEP.
+  // Reason is that any exception will "kill" the dispatch signal. The dispatch valid signal
+  // however is used to generate the requests. And if we now were to kill the signal, we
+  // create a loop..
+  assign lsu_addr_misaligned_o = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep} ?
+    '0 : (|lsu_addr_misaligned);
 
   // LSU writeback arbiter
   lsu_result_and_tag_t lsu_wb_result_and_tag_out;
