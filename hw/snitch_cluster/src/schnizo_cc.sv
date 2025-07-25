@@ -540,6 +540,90 @@ module schnizo_cc #(
   snitch_pkg::fpu_trace_port_t fpu_trace;
   snitch_pkg::fpu_sequencer_trace_port_t fpu_sequencer_trace;
 
+  // Extract info from multiple FUs to active FU
+  // Generate the handshake signals for all LSUs. Only one can be dispatched into at once because
+  // we do single dispatch in regular mode. We only capture loads/stores to the GPR as FPR are
+  // handled by the FPU part.
+  logic [NofLsus-1:0] all_lsu_hs;
+  logic [NofLsus-1:0] all_lsu_fpr_hs;
+  logic [NofLsus-1:0] all_is_load_hs;
+  logic [NofLsus-1:0] all_gpr_is_load_hs;
+  logic [NofLsus-1:0] all_is_store_hs;
+  logic [NofLsus-1:0] all_gpr_is_store_hs;
+  for (genvar i = 0; i < NofLsus; i++) begin : gen_all_is_xxx
+    assign all_lsu_hs[i] = i_schnizo.lsu_disp_req_valid[i] && i_schnizo.lsu_disp_req_ready[i];
+
+    assign all_lsu_fpr_hs[i] =
+      all_lsu_hs[i] &&
+      i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.issue_req_i.tag.dest_reg_is_fp;
+
+    assign all_is_load_hs[i] =
+      all_lsu_hs[i] &&
+      (!i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.is_store);
+
+    assign all_gpr_is_load_hs[i] =
+      all_is_load_hs[i] &&
+      (!i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.issue_req_i.tag.dest_reg_is_fp);
+    // assign all_fpr_is_load_hs[i] =
+    //   all_is_load_hs[i] &&
+    //   i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.issue_req_i.tag.dest_reg_is_fp;
+
+    assign all_is_store_hs[i] =
+      all_lsu_hs[i] &&
+      i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.is_store;
+    assign all_gpr_is_store_hs[i] =
+      all_is_store_hs[i] &&
+      (!i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.issue_req_i.tag.dest_reg_is_fp);
+      // assign all_fpr_is_store_hs[i] =
+      // all_is_store_hs[i] &&
+      // i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.issue_req_i.tag.dest_reg_is_fp;
+  end
+
+  // Pick out the signals from the currently active LSU (the one we dispatch into)
+  longint issued_lsu_ls_size;
+  longint issued_lsu_ls_amo;
+  longint issued_lsu_is_store;
+  longint issued_lsu_is_load;
+  longint issued_lsu_addr_sys;
+  longint issued_lsu_dest_reg;
+  longint all_lsu_ls_size  [NofLsus];
+  longint all_lsu_ls_amo   [NofLsus];
+  longint all_lsu_is_store [NofLsus];
+  longint all_lsu_is_load  [NofLsus];
+  longint all_lsu_addr_sys [NofLsus];
+  longint all_lsu_dest_reg [NofLsus];
+  int     issued_lsu;
+  logic   found_issued_lsu;
+
+  // We cannot index a generate block with a variable. Thus we access it indirectly.
+  for (genvar i = 0; i < NofLsus; i++) begin : gen_all_lsu_details
+    assign all_lsu_ls_size[i]  = i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.ls_size;
+    assign all_lsu_ls_amo[i]   = i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.ls_amo;
+    assign all_lsu_is_store[i] = i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.is_store;
+    assign all_lsu_is_load[i]  = !i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.is_store;
+    assign all_lsu_addr_sys[i] = i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.address_sys;
+    assign all_lsu_dest_reg[i] = i_schnizo.i_fu_stage.gen_lsus[i].i_lsu.issue_req_i.tag.dest_reg;
+  end
+
+  // Find the first active LSU. There can only be one active because in regular execution we only
+  // dispatch a single instruction at once.
+  always_comb begin
+    issued_lsu = 0;
+    found_issued_lsu  = 1'b0;
+    for (int i = 0; i < NofLsus; i++) begin
+      if (!found_issued_lsu) begin
+        issued_lsu = i;
+        found_issued_lsu = all_is_load_hs[i] || all_is_store_hs[i];
+      end
+    end
+    issued_lsu_ls_size  = all_lsu_ls_size[issued_lsu];
+    issued_lsu_ls_amo   = all_lsu_ls_amo[issued_lsu];
+    issued_lsu_is_store = all_lsu_is_store[issued_lsu];
+    issued_lsu_is_load  = all_lsu_is_load[issued_lsu];
+    issued_lsu_addr_sys = all_lsu_addr_sys[issued_lsu];
+    issued_lsu_dest_reg = all_lsu_dest_reg[issued_lsu];
+  end
+
   // This tries to match all Snitch signals... Schnizo has the optional cut inside the FPU
   // activated to match the cut which would be there from the accelerator interface.
   // We only track the first FU instance.
@@ -548,8 +632,7 @@ module schnizo_cc #(
     acc_q_hs:     i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_valid_i &&
                   i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_ready_o,
     fpu_out_hs:   (i_schnizo.fpu_result_valid && i_schnizo.fpu_result_ready),
-    lsu_q_hs:     (i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready &&
-                  i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg_is_fp),
+    lsu_q_hs:     |all_lsu_fpr_hs,
     op_in:        i_schnizo.instr_fetch_data_i,
     rs1:          i_schnizo.instr_decoded.rs1,
     rs2:          i_schnizo.instr_decoded.rs2,
@@ -572,11 +655,11 @@ module schnizo_cc #(
                   i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_ready_o,
     fpu_in_rd:    i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpu_in.tag.dest_reg,
     fpu_in_acc:   !i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpu_in.tag.dest_reg_is_fp,
-    ls_size:      i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.ls_size,
-    is_load:      !i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store,
-    is_store:     i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store,
-    lsu_qaddr:    i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.address_sys,
-    lsu_rd:       i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg,
+    ls_size:      issued_lsu_ls_size,
+    is_load:      issued_lsu_is_load,
+    is_store:     issued_lsu_is_store,
+    lsu_qaddr:    issued_lsu_addr_sys,
+    lsu_rd:       issued_lsu_dest_reg,
     acc_wb_ready: 1'b0, // This signal is always false in Snitch..
     // Any write to the Acc bus in Snitch must go to the GRP
     fpu_out_acc:  !i_schnizo.fpu_result_tag.dest_reg_is_fp,
@@ -620,14 +703,10 @@ module schnizo_cc #(
         rs1:          i_schnizo.instr_decoded.rs1,
         rs2:          i_schnizo.instr_decoded.rs2,
         rd:           i_schnizo.instr_decoded.rd,
-        // Only take load and stores to the GPR.
+        // Only take load and stores to the GPR. Consider all LSUs.
         // FPR transactions must be captured in the FPU trace
-        is_load:      (!i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store) &&
-                      (!i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg_is_fp) &&
-                      i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
-        is_store:     i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store &&
-                      (!i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg_is_fp) &&
-                      i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
+        is_load:      |all_gpr_is_load_hs,
+        is_store:     |all_gpr_is_store_hs,
         is_branch:    i_schnizo.instr_decoded.is_branch,
         pc_d:         i_schnizo.i_schnizo_controller.pc_d,
         // Operands
@@ -641,13 +720,14 @@ module schnizo_cc #(
         writeback:    i_schnizo.gpr_wdata,
         // Load/Store
         gpr_rdata_1:  i_schnizo.gpr_rdata[1],
-        ls_size:      i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.ls_size,
-        ld_result_32: i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.result_o[31:0],
-        lsu_rd:       i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.tag_o.dest_reg,
+        ls_size:      issued_lsu_ls_size,
+        ld_result_32: i_schnizo.lsu_result,
+        lsu_rd:       i_schnizo.lsu_result_tag,
         retire_load:  i_schnizo.instr_retired_load,
-        alu_result:   i_schnizo.alu_result.result,
+        alu_result:   i_schnizo.instr_decoded.is_branch ? i_schnizo.alu_result.compare_res :
+                                                          i_schnizo.alu_result.result,
         // Atomics
-        ls_amo:       i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.ls_amo,
+        ls_amo:       issued_lsu_ls_amo,
         // Accelerator
         retire_acc:   i_schnizo.instr_retired_acc,
         acc_pid:      i_schnizo.acc_prsp_i.id,
