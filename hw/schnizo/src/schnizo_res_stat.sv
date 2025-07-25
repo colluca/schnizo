@@ -14,22 +14,46 @@
 // RF:  Register File
 
 `include "common_cells/registers.svh"
+`include "common_cells/assertions.svh"
 
 module schnizo_res_stat import schnizo_pkg::*; #(
-  // Bits to address all other producers
-  parameter int unsigned NofRs         = 5,
-  parameter int unsigned NofRss        = 4,
+  parameter int unsigned NofRss         = 4,
+  // The maximal number of operands
+  parameter int unsigned NofOperands    = 3,
+  parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
-  parameter int unsigned RegAddrWidth  = 5,
-  parameter int unsigned OpLen         = 32,
-  parameter type         disp_req_t    = logic,
-  parameter type         disp_rsp_t    = logic,
-  parameter type         issue_req_t   = logic,
-  parameter type         result_t      = logic,
-  parameter type         result_tag_t  = logic
+  parameter int unsigned RegAddrWidth   = 5,
+  parameter int unsigned MaxIterationsW = 5,
+  parameter type         rs_id_t        = logic,
+  parameter type         rss_id_t       = logic,
+  parameter type         disp_req_t     = logic,
+  parameter type         disp_rsp_t     = logic,
+  parameter type         issue_req_t    = logic,
+  parameter type         result_t       = logic,
+  parameter type         result_tag_t   = logic,
+  parameter type         producer_id_t  = logic,
+  parameter type         operand_req_t  = logic,
+  parameter type         operand_t      = logic,
+  parameter type         res_req_t      = logic,
+  parameter type         res_rsp_t      = logic
 ) (
   input  logic clk_i,
   input  logic rst_i,
+
+  input  rs_id_t                    rs_id_i,
+  // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
+  // handling logic.
+  input  logic                      restart_i,
+  input  loop_state_e               loop_state_i,
+  input  logic [MaxIterationsW-1:0] lep_iterations_i,
+  // Asserted in the last LCP1 cycle (the cycle before we start LCP2)
+  input  logic                      goto_lcp2_i,
+  // Asserted when all RSS have finish execution (in this cycle).
+  // LCP: No instructions in flight. LEP: All iterations done
+  output logic                      loop_finish_o,
+  output logic                      rs_full_o,
+  // FU busy state. Asserted if valid data is in flight.
+  input  logic                      fu_busy_i,
 
   // The dispatched instruction - from Dispatcher
   input  disp_req_t disp_req_i,
@@ -48,77 +72,69 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   output logic    result_ready_o,
 
   // RF writeback
-  output result_t     rf_wb_result,
+  output result_t     rf_wb_result_o,
   output result_tag_t rf_wb_tag_o,
   output logic        rf_wb_valid_o,
-  input  logic        rf_wb_ready_i
+  input  logic        rf_wb_ready_i,
+
+  /// Operand distribution network
+  // Operand request interface - outgoing - request a result as operand
+  output operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs_o,
+  output logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid_o,
+  input  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready_i,
+
+  // Result request interface - incoming - translated operand request
+  input  res_req_t [NofRss-1:0] res_reqs_i,
+  input  logic     [NofRss-1:0] res_reqs_valid_i,
+  output logic     [NofRss-1:0] res_reqs_ready_o,
+
+  // Result response interface - outgoing - result as operand response
+  output res_rsp_t [NofRss-1:0] res_rsps_o,
+  output logic     [NofRss-1:0] res_rsps_valid_o,
+  input  logic     [NofRss-1:0] res_rsps_ready_i,
+
+  // Operand response interface - incoming - returning result as operand
+  input  operand_t [NofRss-1:0][NofOperands-1:0] op_rsps_i,
+  input  logic     [NofRss-1:0][NofOperands-1:0] op_rsps_valid_i,
+  output logic     [NofRss-1:0][NofOperands-1:0] op_rsps_ready_o
 );
   // ---------------------------
   // Reservation Station definitions
   // ---------------------------
-  localparam integer unsigned NofRsWidth  = cf_math_pkg::idx_width(NofRs);
-  localparam integer unsigned NofRssWidth = cf_math_pkg::idx_width(NofRss);
-  // The maximal number of operands.
-  localparam int NofOperands = 3;
+  // The RSS pointer / index vector width
+  localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
+  // We need to count from 0 to NofRss for the control logic -> +1 bit
+  localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
 
-  typedef logic [OpLen-1:0] operand_t;
-
-  typedef logic [NofRsWidth-1:0]  rs_id_t;
-  typedef logic [NofRssWidth-1:0] rss_id_t;
-  typedef logic [NofOperands-1:0] op_id_t; // onehot encoded operands to fuse response requests.
-
-  typedef struct packed {
-    rs_id_t  rs;
-    rss_id_t rss;
-  } producer_id_t;
-
-  typedef struct packed {
-    rs_id_t  rs;
-    rss_id_t rss;
-    op_id_t  operand;
-  } consumer_id_t;
-
-  // In theory each other RSS in the system and the RSS itself could be a consumer. Thus use full width.
-  // TODO: optimize to a useful number
-  localparam integer unsigned ConsumerCount = 2**$bits(consumer_id_t);
-
-  typedef struct packed {
-    result_tag_t  tag;
-    producer_id_t producer;
-  } rs_result_tag_t;
-
-  typedef struct packed {
-    producer_id_t producer;
-    logic         requested_iter;
-  } operand_req_t;
-
-  typedef struct packed {
-    logic         requested_iter;
-    consumer_id_t consumer;
-  } result_req_t;
-
-  typedef struct packed {
-    consumer_id_t consumer;
-    operand_t     operand;
-  } result_rsp_t;
+  // Result request queue size
+  localparam integer unsigned NofResReqs = 4;
 
   // ---------------------------
-  // Reservation Station
+  // Reservation Station Slots
   // ---------------------------
-  rs_id_t rs_id; // this module's id
+  disp_req_t              disp_req;
+  logic                   disp_req_valid;
+  logic                   disp_req_ready;
+  // disp_req_t              disp_req_internal; // not required
+  logic                   disp_req_internal_valid;
+  logic                   disp_req_internal_ready; // unused, internal disp logic is always valid
+  logic      [NofRss-1:0] disp_reqs_valid;
+  logic      [NofRss-1:0] disp_reqs_ready;
+  logic      [NofRss-1:0] rss_retiring;
 
-  disp_req_t [NofRss-1:0] disp_reqs;
-  logic      [NofRss-1:0] disps_valid;
-  logic      [NofRss-1:0] disps_ready;
+  // The pointers / indexes to select the appropriate RSS. The issue MUX is always in sync with
+  // the dispatch DEMUX.
+  logic [NofRssWidth-1:0] disp_idx;
+  logic [NofRssWidth-1:0] result_idx;
 
   // Operand distribution network
   operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs;
   logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid;
   logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready;
-  result_req_t  [NofRss-1:0]                  res_reqs;
+  res_req_t     [NofRss-1:0]                  res_reqs;
   logic         [NofRss-1:0]                  res_reqs_valid;
   logic         [NofRss-1:0]                  res_reqs_ready;
-  result_rsp_t  [NofRss-1:0]                  res_rsps;
+  res_rsp_t     [NofRss-1:0]                  res_rsps;
   logic         [NofRss-1:0]                  res_rsps_valid;
   logic         [NofRss-1:0]                  res_rsps_ready;
   operand_t     [NofRss-1:0][NofOperands-1:0] op_rsps;
@@ -127,8 +143,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // To / from FU and RF writeback
   issue_req_t  [NofRss-1:0] issue_reqs;
-  logic        [NofRss-1:0] issues_valid;
-  logic        [NofRss-1:0] issues_ready;
+  logic        [NofRss-1:0] issue_reqs_valid;
+  logic        [NofRss-1:0] issue_reqs_ready;
   result_t     [NofRss-1:0] results;
   logic        [NofRss-1:0] results_valid;
   logic        [NofRss-1:0] results_ready;
@@ -137,21 +153,28 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic        [NofRss-1:0] rf_wbs_valid;
   logic        [NofRss-1:0] rf_wbs_ready;
 
-  for (genvar rss = 0; rss < NofRss; rss = rss + 1) begin : gen_operand_req_rss
+  // loop control
+  logic last_disp_instr;
+  logic last_disp_iter;
+  logic last_result_instr;
+  logic last_result_iter;
+
+  for (genvar rss = 0; rss < NofRss; rss = rss + 1) begin : gen_rss
     producer_id_t rss_id;
-    assign rss_id.rs = rs_id;
+    assign rss_id.rs = rs_id_i;
     assign rss_id.rss = rss_id_t'(rss);
 
     schnizo_res_stat_slot #(
       .NofOperands  (NofOperands),
       .ConsumerCount(ConsumerCount),
+      .NofResReqs   (NofResReqs),
       .RegAddrWidth (RegAddrWidth),
       .disp_req_t   (disp_req_t),
       .producer_id_t(producer_id_t),
       .operand_req_t(operand_req_t),
       .operand_t    (operand_t),
-      .result_req_t (result_req_t),
-      .result_rsp_t(result_rsp_t),
+      .res_req_t    (res_req_t),
+      .res_rsp_t    (res_rsp_t),
       .issue_req_t  (issue_req_t),
       .result_t     (result_t),
       .result_tag_t (result_tag_t)
@@ -159,13 +182,15 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
 
-      // TODO: Add reset
-      .is_last_lep_i    (),
+      .restart_i        (restart_i),
+      .is_last_disp_iter_i  (last_disp_iter),
+      .is_last_result_iter_i(last_result_iter),
       .own_producer_id_i(rss_id),
+      .retired_o        (rss_retiring[rss]),
 
-      .disp_req_i      (disp_reqs[rss]),
-      .disp_req_valid_i(disps_valid[rss]),
-      .disp_req_ready_o(disps_ready[rss]),
+      .disp_req_i      (disp_req),
+      .disp_req_valid_i(disp_reqs_valid[rss]),
+      .disp_req_ready_o(disp_reqs_ready[rss]),
 
       .op_reqs_o      (op_reqs[rss]),
       .op_reqs_valid_o(op_reqs_valid[rss]),
@@ -184,8 +209,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .op_rsps_ready_o(op_rsps_ready[rss]),
 
       .issue_req_o      (issue_reqs[rss]),
-      .issue_req_valid_o(issues_valid[rss]),
-      .issue_req_ready_i(issues_ready[rss]),
+      .issue_req_valid_o(issue_reqs_valid[rss]),
+      .issue_req_ready_i(issue_reqs_ready[rss]),
 
       .result_i      (results[rss]),
       .result_valid_i(results_valid[rss]),
@@ -199,19 +224,480 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   end
 
+  // ---------------------------
+  // Operand Distribution Network
+  // ---------------------------
+  // Here we connect the RSSs to the crossbar networks. For now we use a full crossbar,
+  // i.e., each RSS operand has a dedicated crossbar port. This is probably too expensive
+  // and arbiters can be added here.
+  assign op_reqs_o       = op_reqs;
+  assign op_reqs_valid_o = op_reqs_valid;
+  assign op_reqs_ready   = op_reqs_ready_i;
 
+  assign res_reqs         = res_reqs_i;
+  assign res_reqs_valid   = res_reqs_valid_i;
+  assign res_reqs_ready_o = res_reqs_ready;
 
+  assign res_rsps_o       = res_rsps;
+  assign res_rsps_valid_o = res_rsps_valid;
+  assign res_rsps_ready   = res_rsps_ready_i;
 
+  assign op_rsps         = op_rsps_i;
+  assign op_rsps_valid   = op_rsps_valid_i;
+  assign op_rsps_ready_o = op_rsps_ready;
 
+  // ---------------------------
+  // LxP Controller
+  // ---------------------------
+  // Generates the instruction dispatch, issue, retire & writeback control signals and handles
+  // the LEP iterations.
+  logic dispatching;
+  // logic issuing;
 
+  assign dispatching = disp_req_valid && disp_req_ready;
+  // assign issuing     = issue_req_valid_o && issue_req_ready_i;
 
+  logic retiring;
+  // An instruction retires as soon as the result is handshaked, i.e.:
+  // assign retiring    = result_valid_i && result_ready_o;
+  // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
+  // if the instruction is a store or any other instruction.
+  // The result pointer can point to +1 of NofRSS. We thus have to limit it inside the range.
+  assign retiring = (result_idx >= NofRss) ? 1'b0 : rss_retiring[result_idx];
 
+  // The counters for the index control logic
+  // The lcp_xxx and lep_xxx counters count instructions and do count up.
+  // The lep_xxx_iter counters count instructions and do count down.
+  logic [NofRssWidthExt-1:0] lcp_disp_count;
+  logic                      lcp_disp_inc;
+  logic                      lcp_disp_reset;
 
+  logic [NofRssWidthExt-1:0] lcp_result_count;
+  logic                      lcp_result_inc;
+  logic                      lcp_result_reset;
 
+  logic [NofRssWidthExt-1:0] lep_disp_count;
+  logic                      lep_disp_inc;
+  logic                      lep_disp_reset;
 
+  logic [MaxIterationsW-1:0] lep_disp_iter_count;
+  logic                      lep_disp_iter_dec;
+  logic                      lep_disp_iter_load;
+  logic [MaxIterationsW-1:0] lep_disp_iter_load_value;
+  logic                      lep_disp_iter_clear;
 
+  logic [NofRssWidthExt-1:0] lep_result_count;
+  logic                      lep_result_inc;
+  logic                      lep_result_reset;
 
+  logic [MaxIterationsW-1:0] lep_result_iter_count;
+  logic                      lep_result_iter_dec;
+  logic                      lep_result_iter_load;
+  logic [MaxIterationsW-1:0] lep_result_iter_load_value;
+  logic                      lep_result_iter_clear;
 
-  // TODO: we must add a RSS tag to the result. -> No, step the DEMUX only when a handshake happened
+  // The LCP counter serves as RSS allocated counter to know the iteration size in LEP.
+  // It is not reset when switching from LCP2 to LEP.
+  logic [NofRssWidthExt-1:0] rss_allocated_count;
+  assign rss_allocated_count = lcp_disp_count;
+
+  assign last_disp_instr   = lep_disp_count == (rss_allocated_count - 1);
+  assign last_disp_iter    = lep_disp_iter_count == 1;
+  assign last_result_instr = lep_result_count == (rss_allocated_count - 1);
+  assign last_result_iter  = lep_result_iter_count == 1;
+
+  assign rs_full_o = (rss_allocated_count == NofRss[NofRssWidthExt-1:0]);
+
+  logic any_instr_captured;
+  assign any_instr_captured = (rss_allocated_count != '0);
+
+  always_comb begin : counter_control
+    lcp_disp_inc          = 1'b0;
+    lcp_disp_reset        = 1'b0;
+    lcp_result_inc        = 1'b0;
+    lcp_result_reset      = 1'b0;
+    lep_disp_iter_load    = 1'b0;
+    lep_result_iter_load  = 1'b0;
+    lep_disp_inc          = 1'b0;
+    lep_result_inc        = 1'b0;
+    lep_disp_reset        = 1'b0;
+    lep_result_reset      = 1'b0;
+    lep_disp_iter_dec     = 1'b0;
+    lep_disp_iter_clear   = 1'b0;
+    lep_result_iter_dec   = 1'b0;
+    lep_result_iter_clear = 1'b0;
+
+    lep_disp_iter_load_value   = lep_iterations_i;
+    lep_result_iter_load_value = lep_iterations_i;
+
+    unique case(loop_state_i)
+      LoopRegular,
+      LoopHwLoop: ; // do nothing
+      LoopLcp1: begin
+        lcp_disp_inc   = dispatching;
+        lcp_result_inc = retiring;
+        if (goto_lcp2_i) begin
+          lcp_disp_reset   = 1'b1;
+          lcp_result_reset = 1'b1;
+        end
+      end
+      LoopLcp2: begin
+        lcp_disp_inc   = dispatching;
+        lcp_result_inc = retiring;
+        // Load the iteration counters
+        lep_disp_iter_load   = 1'b1;
+        lep_result_iter_load = 1'b1;
+      end
+      LoopLep: begin
+        lep_disp_inc     = dispatching;
+        lep_result_inc   = retiring;
+        // Reset has higher prio than increment
+        lep_disp_reset   = last_disp_instr && dispatching;
+        lep_result_reset = last_result_instr && retiring;
+        // Iteration handling - iteration has finished when instr counters wrap
+        lep_disp_iter_dec   = lep_disp_reset;
+        // Decrement the iteration counter as long as there are results to capture.
+        // This counter can underflow in case we have only store instructions. Reason is that any
+        // store instruction always retires because there is no result to capture. We therefore let
+        // the result counter immediately count down to zero.
+        lep_result_iter_dec = (lep_result_iter_count > '0) ? lep_result_reset : 1'b0;
+      end
+      default: ; // do nothing
+    endcase
+
+    // Reset the RS
+    if (restart_i) begin
+      lcp_disp_reset        = 1'b1;
+      lcp_result_reset      = 1'b1;
+      lep_disp_reset        = 1'b1;
+      lep_disp_iter_clear   = 1'b1;
+      lep_result_reset      = 1'b1;
+      lep_result_iter_clear = 1'b1;
+    end
+  end
+
+  // ---------------------------
+  // Finish detection
+  // ---------------------------
+  // Finished: Asserted if we have finished in any cycle before.
+  // Finish: Asserted if we finish in THIS cycle or have already finished.
+  logic lcp_finished, lcp_finish;
+  logic lep_finished, lep_finished_result, lep_finished_alternatively;
+  logic lep_finish, lep_finish_disp, lep_finish_result;
+  logic lep_finished_disp;
+
+  // In LCP1 and LCP2 the RS has finished all instructions if:
+  // - There is no instruction in flight
+  // - No dispatch request is pending
+  // The FU's busy flag is asserted as long as there is valid data in the path. This includes the
+  // output and thus the FU is busy also in the cycle were we retire the instruction.
+  assign lcp_finished = !fu_busy_i && !disp_req_valid_i &&
+                        (loop_state_i inside {LoopLcp1, LoopLcp2});
+
+  // In LCP1 and LCP2 we finish in this cycle if:
+  // - We have already finished
+  // OR
+  // - The result index is at the dispatch index and we retire in this cycle.
+  // In LCP the dispatch index can never overtake the result pointer as we only increment the
+  // index and never have a wrap around. A wrap around would only occur if we run out of slots.
+  // But this can never happen as we would revert to regular loop execution if there are not
+  // enough slots.
+  assign lcp_finish =
+    (lcp_finished || ((lcp_disp_count == lcp_result_count) && retiring)) &&
+    (loop_state_i inside {LoopLcp1, LoopLcp2});
+
+  // In LEP the RS has finished if:
+  // - All iterations are dispatched -> this is given if all results are captured
+  // - All results are captured
+  assign lep_finished_disp   = lep_disp_iter_count == '0;
+  assign lep_finished_result = lep_result_iter_count == '0;
+  // Stores will immediately finish the result iterations. Thus we need to factor in the dispatch
+  // pointer.
+  assign lep_finished        = (lep_finished_result && lep_finished_disp) || !any_instr_captured;
+  // This should be equivalent to:
+  // - There is no instruction in flight & no dispatch request is pending
+  // This approach could make the result iteration counter obsolete. But we must ensure that there
+  // is always a valid dispatch request during the whole LEP. However, the finish detection anyway
+  // requires the result iteration counter.
+  assign lep_finished_alternatively = !fu_busy_i && !disp_req_internal_valid;
+  `ASSERT(LepAlternativeFinished, lep_finished_alternatively == lep_finished, clk_i, rst_i);
+
+  // In LEP the finish condition is tricky as the dispatch index can "overtake" the result index.
+  // The overtake can happen if the FU pipeline depth is larger than the number of slots.
+  // We thus have to check also the iteration count.
+  //
+  // We finish during LEP if:
+  // - We have already finished
+  // OR
+  // - All iterations were dispatched -> included in the result condition but used for LEP engine.
+  // - No result capture is pending or we capture the last instruction in this cycle
+  assign lep_finish_disp   = (last_disp_iter & last_disp_instr & dispatching);
+  assign lep_finish_result = last_result_iter && last_result_instr && retiring;
+  // The dispatch finish condition is included in the result finish condition.
+  assign lep_finish        = (lep_finish_disp && lep_finish_result) || lep_finished;
+
+  always_comb begin : finish_selection
+    loop_finish_o = 1'b0;
+    unique case(loop_state_i)
+      LoopRegular,
+      LoopHwLoop: loop_finish_o = 1'b0;
+      LoopLcp1,
+      LoopLcp2:   loop_finish_o = lcp_finish;
+      LoopLep:    loop_finish_o = lep_finish;
+      default:    loop_finish_o = 1'b0;
+    endcase
+  end
+
+  // ---------------------------
+  // LEP Dispatcher
+  // ---------------------------
+  // In LEP we can dispatch the RSSs if we have a instruction captured until we reached the amount
+  // of iterations. The actual dispatch request data is irrelevant as the instruction is captured
+  // in the RSS.
+  logic lep_do_dispatch;
+  assign lep_do_dispatch         = !lep_finished_disp && (loop_state_i inside {LoopLep}) &&
+                                   any_instr_captured;
+  assign disp_req_internal_valid = lep_do_dispatch;
+
+  // ---------------------------
+  // Dispatch & issue MUX, Result MUX
+  // ---------------------------
+  // The dispatch request selection. Either select request from outside or from LEP engine.
+  logic sel_disp_req_internal;
+
+  always_comb begin : index_selection
+    disp_idx              = '0;
+    result_idx            = '0;
+    sel_disp_req_internal = 1'b0;
+
+    unique case(loop_state_i)
+      LoopRegular,
+      LoopHwLoop: begin
+        disp_idx   = '0;
+        result_idx = '0;
+      end
+      LoopLcp1,
+      LoopLcp2: begin
+        disp_idx   = lcp_disp_count[NofRssWidth-1:0];
+        result_idx = lcp_result_count[NofRssWidth-1:0];
+      end
+      LoopLep: begin
+        disp_idx              = lep_disp_count[NofRssWidth-1:0];
+        result_idx            = lep_result_count[NofRssWidth-1:0];
+        sel_disp_req_internal = 1'b1;
+      end
+      default: begin
+        disp_idx   = '0;
+        result_idx = '0;
+      end
+    endcase
+  end
+
+  // Select between external (LCP) and internal dispatch request (LEP). The internal dispatch
+  // request has no actual data as the instruction is already captured in the RSS. Thus we can
+  // simplify the MUX to only mux the valid/ready handshake.
+  assign disp_req = disp_req_i; // Always use the external dispatch request.
+  stream_mux #(
+    .DATA_T(logic),
+    .N_INP (2)
+  ) i_disp_req_mux (
+    .inp_data_i ('0), // dummy data
+    .inp_valid_i({disp_req_internal_valid, disp_req_valid_i}),
+    .inp_ready_o({disp_req_internal_ready, disp_req_ready_o}),
+    .inp_sel_i  (sel_disp_req_internal),
+    .oup_data_o (), // don't use the MUX output data
+    .oup_valid_o(disp_req_valid),
+    .oup_ready_i(disp_req_ready)
+  );
+
+  // Dispatch request DEMUX
+  // As disp_idx can take a value outside of the DEMUX range, we must tie down the ready in
+  // this case.
+  logic disp_req_ready_raw;
+  assign disp_req_ready = (disp_idx >= NofRss) ? 1'b0 : disp_req_ready_raw;
+
+  stream_demux #(
+    .N_OUP (NofRss)
+  ) i_disp_demux (
+    .inp_valid_i(disp_req_valid),
+    .inp_ready_o(disp_req_ready_raw),
+    .oup_sel_i  (disp_idx),
+    .oup_valid_o(disp_reqs_valid),
+    .oup_ready_i(disp_reqs_ready)
+  );
+
+  producer_id_t current_rss_id;
+  assign current_rss_id.rs  = rs_id_i;
+  assign current_rss_id.rss = rss_id_t'(disp_idx);
+  assign disp_rsp_o         = current_rss_id;
+
+  // Issue request MUX
+  // As the disp_idx can overflow the MUX input, we tie down the handshake signals in this case.
+  logic issue_req_valid_raw;
+  issue_req_t issue_req_raw;
+  logic [NofRss-1:0] issue_reqs_ready_raw;
+  assign issue_reqs_ready = (disp_idx >= NofRss) ? {NofRss{1'b0}} : issue_reqs_ready_raw;
+
+  stream_mux #(
+    .DATA_T(issue_req_t),
+    .N_INP (NofRss)
+  ) i_issue_mux (
+    .inp_data_i (issue_reqs),
+    .inp_valid_i(issue_reqs_valid),
+    .inp_ready_o(issue_reqs_ready_raw),
+    // The same MUX ctrl signal as for the dispatch demux because dispatch & issue handshake
+    // simultaneously.
+    .inp_sel_i  (disp_idx), // This idx can overflow and this would set the req handshake to X!
+    .oup_data_o (issue_req_raw),
+    .oup_valid_o(issue_req_valid_raw),
+    .oup_ready_i(issue_req_ready_i)
+  );
+  // tie down valid & data signal if we overflow.
+  assign issue_req_valid_o = (disp_idx >= NofRss) ? 1'b0 : issue_req_valid_raw;
+  assign issue_req_o       = (disp_idx >= NofRss) ?   '0 : issue_req_raw;
+
+  // Result DEMUX
+  // result_idx can overflow the same way as the disp_idx. Tie down the ready in case of overflow.
+  logic result_ready_raw;
+  assign result_ready_o = (result_idx >= NofRss) ? 1'b0 : result_ready_raw;
+
+  assign results = {NofRss{result_i}};
+  stream_demux #(
+    .N_OUP (NofRss)
+  ) i_result_demux (
+    .inp_valid_i(result_valid_i),
+    .inp_ready_o(result_ready_raw),
+    .oup_sel_i  (result_idx),
+    .oup_valid_o(results_valid),
+    .oup_ready_i(results_ready)
+  );
+
+  // Writeback MUX - This could also be implemented with an arbiter but a MUX is simpler & smaller.
+  typedef struct packed {
+    result_t     result;
+    result_tag_t tag;
+  } result_and_tag_t;
+
+  result_and_tag_t [NofRss-1:0] results_and_tags;
+  result_and_tag_t              result_and_tag;
+
+  for (genvar rss = 0; rss < NofRss; rss++) begin : gen_merge_wb
+    assign results_and_tags[rss].result = rf_wb_results[rss];
+    assign results_and_tags[rss].tag    = rf_wb_tags[rss];
+  end
+
+  // result_idx overflow tie down
+  logic            rf_wb_valid_raw;
+  result_and_tag_t result_and_tag_raw;
+  stream_mux #(
+    .DATA_T(result_and_tag_t),
+    .N_INP (NofRss)
+  ) i_wb_mux (
+    .inp_data_i (results_and_tags),
+    .inp_ready_o(rf_wbs_ready),
+    .inp_valid_i(rf_wbs_valid),
+    .inp_sel_i  (result_idx),
+    .oup_data_o (result_and_tag_raw),
+    .oup_valid_o(rf_wb_valid_raw),
+    .oup_ready_i(rf_wb_ready_i)
+  );
+  assign rf_wb_valid_o = (result_idx >= NofRss) ? 1'b0 : rf_wb_valid_raw;
+  assign result_and_tag = (result_idx >= NofRss) ?  '0 : result_and_tag_raw;
+
+  assign rf_wb_result_o = result_and_tag.result;
+  assign rf_wb_tag_o    = result_and_tag.tag;
+
+  // ---------------------------
+  // Counters
+  // ---------------------------
+  counter #(
+    .WIDTH          (NofRssWidthExt),
+    .STICKY_OVERFLOW(0)
+  ) i_lcp_disp_counter (
+    .clk_i,
+    .rst_ni    (~rst_i),
+    .clear_i   (lcp_disp_reset),
+    .en_i      (lcp_disp_inc),
+    .load_i    ('0),
+    .down_i    ('0),
+    .d_i       ('0),
+    .q_o       (lcp_disp_count),
+    .overflow_o()
+  );
+
+  counter #(
+    .WIDTH          (NofRssWidthExt),
+    .STICKY_OVERFLOW(0)
+  ) i_lcp_result_counter (
+    .clk_i,
+    .rst_ni    (~rst_i),
+    .clear_i   (lcp_result_reset),
+    .en_i      (lcp_result_inc),
+    .load_i    ('0),
+    .down_i    ('0),
+    .d_i       ('0),
+    .q_o       (lcp_result_count),
+    .overflow_o()
+  );
+
+  counter #(
+    .WIDTH          (NofRssWidthExt),
+    .STICKY_OVERFLOW(0)
+  ) i_lep_disp_counter (
+    .clk_i,
+    .rst_ni    (~rst_i),
+    .clear_i   (lep_disp_reset),
+    .en_i      (lep_disp_inc),
+    .load_i    ('0),
+    .down_i    ('0),
+    .d_i       ('0),
+    .q_o       (lep_disp_count),
+    .overflow_o()
+  );
+
+  counter #(
+    .WIDTH          (MaxIterationsW),
+    .STICKY_OVERFLOW(0)
+  ) i_lep_disp_iter_counter (
+    .clk_i,
+    .rst_ni    (~rst_i),
+    .clear_i   (lep_disp_iter_clear),
+    .en_i      (lep_disp_iter_dec),
+    .load_i    (lep_disp_iter_load),
+    .down_i    (1'b1),
+    .d_i       (lep_disp_iter_load_value),
+    .q_o       (lep_disp_iter_count),
+    .overflow_o()
+  );
+
+  counter #(
+    .WIDTH          (NofRssWidthExt),
+    .STICKY_OVERFLOW(0)
+  ) i_lep_result_counter (
+    .clk_i,
+    .rst_ni    (~rst_i),
+    .clear_i   (lep_result_reset),
+    .en_i      (lep_result_inc),
+    .load_i    ('0),
+    .down_i    ('0),
+    .d_i       ('0),
+    .q_o       (lep_result_count),
+    .overflow_o()
+  );
+
+  counter #(
+    .WIDTH          (MaxIterationsW),
+    .STICKY_OVERFLOW(0)
+  ) i_lep_result_iter_counter (
+    .clk_i,
+    .rst_ni    (~rst_i),
+    .clear_i   (lep_result_iter_clear),
+    .en_i      (lep_result_iter_dec),
+    .load_i    (lep_result_iter_load),
+    .down_i    (1'b1),
+    .d_i       (lep_result_iter_load_value),
+    .q_o       (lep_result_iter_count),
+    .overflow_o()
+  );
 
 endmodule
