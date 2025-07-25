@@ -54,6 +54,8 @@ module schnizo import schnizo_pkg::*; #(
   /// Accelerator interface types
   parameter type         acc_req_t  = logic,
   parameter type         acc_resp_t = logic,
+  /// FU configuration
+  parameter int unsigned NofLsus    = 1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -80,12 +82,11 @@ module schnizo import schnizo_pkg::*; #(
   input  logic          clk_i,
   input  logic          rst_i,
   input  logic [31:0]   hart_id_i,
-  /// Interrupts
   input  interrupts_t   irq_i,
-  /// Instruction cache flush request (for FENCE_I instruction)
+  // Instruction cache flush request (for FENCE_I instruction)
   output logic          flush_i_valid_o,
-  /// Flush has completed when the signal goes to `1`.
-  /// Tie to `1` if unused
+  // Flush has completed when the signal goes to `1`.
+  // Tie to `1` if unused
   input  logic          flush_i_ready_i,
   // Instruction Refill Port
   output addr_t         inst_addr_o,
@@ -97,22 +98,22 @@ module schnizo import schnizo_pkg::*; #(
   /// Independent channels for transaction request and read completion.
   /// AXI-like handshaking.
   /// Same IDs need to be handled in-order.
-  output acc_req_t      acc_qreq_o,
-  output logic          acc_qvalid_o,
-  input  logic          acc_qready_i,
-  input  acc_resp_t     acc_prsp_i,
-  input  logic          acc_pvalid_i,
-  output logic          acc_pready_o,
+  output acc_req_t  acc_qreq_o,
+  output logic      acc_qvalid_o,
+  input  logic      acc_qready_i,
+  input  acc_resp_t acc_prsp_i,
+  input  logic      acc_pvalid_i,
+  output logic      acc_pready_o,
   /// TCDM Data Interface
   /// Write transactions do not return data on the `P Channel`
   /// Transactions need to be handled strictly in-order.
-  output dreq_t         data_req_o,
-  input  drsp_t         data_rsp_i,
-  // Core events for performance counters
+  output dreq_t [NofLsus-1:0] data_req_o,
+  input  drsp_t [NofLsus-1:0] data_rsp_i,
+  /// Core events for performance counters
   output snitch_pkg::core_events_t core_events_o,
-  // Cluster HW barrier
-  output logic          barrier_o,
-  input  logic          barrier_i
+  /// Cluster HW barrier
+  output logic barrier_o,
+  input  logic barrier_i
 );
   // Clarify signal names of the instruction fetch interface without changing the interface.
   // This way we can simply replace the snitch core with the schnizo core.
@@ -133,7 +134,6 @@ module schnizo import schnizo_pkg::*; #(
   localparam int unsigned NrIntWritePorts = 1;
   localparam int unsigned NrFpReadPorts = 3;
   localparam int unsigned NrFpWritePorts = 1;
-  localparam int unsigned ProdAddrSize = 5;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
   // common data type for all FUs.
@@ -211,7 +211,7 @@ module schnizo import schnizo_pkg::*; #(
   // RSS definitions / parameters
   // ---------------------------
   localparam int unsigned NofAlus = 1;
-  localparam int unsigned NofLsus = 1;
+  // localparam int unsigned NofLsus = 1;
   localparam int unsigned NofFpus = 1;
 
   localparam integer unsigned AluNofRss      = 3;
@@ -428,6 +428,7 @@ module schnizo import schnizo_pkg::*; #(
   logic                           goto_lcp2;
   loop_state_e                    loop_state;
   logic [FREP_MAXITERS_WIDTH-1:0] lep_iterations;
+  logic                           all_rs_finish;
 
   schnizo_controller #(
     .XLEN           (XLEN),
@@ -457,7 +458,7 @@ module schnizo import schnizo_pkg::*; #(
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .stall_o                (stall),
     .rs_full_i              (rs_full),
-    .all_rs_finish_i        ('0),
+    .all_rs_finish_i        (all_rs_finish),
     .goto_lcp2_o            (goto_lcp2),
     .lep_iterations_o       (lep_iterations),
     .loop_state_o           (loop_state),
@@ -500,14 +501,21 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Create the dispatch request
   disp_req_t dispatch_req;
-  logic [0:0] alu_disp_req_valid;
-  logic [0:0] alu_disp_req_ready;
-  logic [0:0] lsu_disp_req_valid;
-  logic [0:0] lsu_disp_req_ready;
-  logic       csr_disp_req_valid;
-  logic       csr_disp_req_ready;
-  logic       fpu_disp_req_valid;
-  logic       fpu_disp_req_ready;
+  logic      [NofAlus-1:0] alu_disp_req_valid;
+  logic      [NofAlus-1:0] alu_disp_req_ready;
+  disp_rsp_t [NofAlus-1:0] alu_disp_rsp;
+  logic      [NofAlus-1:0] alu_rs_full;
+  logic      [NofLsus-1:0] lsu_disp_req_valid;
+  logic      [NofLsus-1:0] lsu_disp_req_ready;
+  disp_rsp_t [NofLsus-1:0] lsu_disp_rsp;
+  logic      [NofLsus-1:0] lsu_rs_full;
+  logic                    csr_disp_req_valid;
+  logic                    csr_disp_req_ready;
+  logic      [NofFpus-1:0] fpu_disp_req_valid;
+  logic      [NofFpus-1:0] fpu_disp_req_ready;
+  disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
+  logic      [NofFpus-1:0] fpu_rs_full;
+
   schnizo_dispatcher #(
     .RegAddrSize(REG_ADDR_SIZE),
     .NofAlus    (NofAlus),
@@ -527,22 +535,26 @@ module schnizo import schnizo_pkg::*; #(
     .instr_fetch_data_i  (instr_fetch_data_i),
     .instr_dec_valid_i   (dispatch_instr_valid), // main control signal / stall signal
     .instr_dec_ready_o   (dispatch_instr_ready),
-
+    // Instruction stream
     .disp_req_o          (dispatch_req),
+    // ALU
     .alu_disp_req_valid_o(alu_disp_req_valid),
     .alu_disp_req_ready_i(alu_disp_req_ready),
     .alu_disp_rsp_i      (alu_disp_rsp),
     .alu_rs_full_i       (alu_rs_full),
+    // LSU
     .lsu_disp_req_valid_o(lsu_disp_req_valid),
     .lsu_disp_req_ready_i(lsu_disp_req_ready),
-    .lsu_disp_rsp_i      (lsu_disp_rsp_i),
-    .lsu_rs_full_i       (lsu_rs_full_i),
+    .lsu_disp_rsp_i      (lsu_disp_rsp),
+    .lsu_rs_full_i       (lsu_rs_full),
+    // CSR
     .csr_disp_req_valid_o(csr_disp_req_valid),
     .csr_disp_req_ready_i(csr_disp_req_ready),
+    // FPU
     .fpu_disp_req_valid_o(fpu_disp_req_valid),
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
-    .fpu_rs_full_i       (fpu_rs_full_i),
+    .fpu_rs_full_i       (fpu_rs_full),
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
@@ -563,72 +575,114 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Functional Units
   // ---------------------------
-  logic [0:0]  alu_result_valid;
-  logic [0:0]  alu_result_ready;
+  logic            alu_result_valid;
+  logic            alu_result_ready;
+  logic            lsu_result_valid;
+  logic            lsu_result_ready;
+  instr_tag_t      lsu_result_tag;
+  data_t           lsu_result;
+  logic [FLEN-1:0] fpu_result;
+  logic            fpu_result_valid;
+  logic            fpu_result_ready;
+  instr_tag_t      fpu_result_tag;
 
-  schnizo_alu #(
-    .XLEN       (XLEN),
-    .HasBranch  (1),
-    .issue_req_t(issue_req_t),
-    .instr_tag_t(instr_tag_t)
-  ) i_alu (
-    .clk_i,
-    .rst_i,
-    .issue_req_i      (issue_req),
-    .issue_req_valid_i(alu_disp_req_valid),
-    .issue_req_ready_o(alu_disp_req_ready),
-    .result_o         (alu_result.result),
-    .compare_res_o    (alu_result.compare_res),
-    .tag_o            (alu_result_tag),
-    .result_valid_o   (alu_result_valid),
-    .result_ready_i   (alu_result_ready),
-    .busy_o           ()
-  );
-
-  logic       lsu_result_valid;
-  logic       lsu_result_ready;
-  instr_tag_t lsu_result_tag;
-  data_t      lsu_result;
-
-  schnizo_lsu #(
+  schnizo_fu_stage #(
+    .NofAlus            (NofAlus),
+    .AluNofRss          (AluNofRss),
+    .AluNofOperands     (AluNofOperands),
+    .NofLsus            (NofLsus),
+    .LsuNofRss          (LsuNofRss),
+    .LsuNofOperands     (LsuNofOperands),
+    .NofFpus            (NofFpus),
+    .FpuNofRss          (FpuNofRss),
+    .FpuNofOperands     (FpuNofOperands),
+    .NofOperandIfs      (NofOperandIfs),
+    .NofResultIfs       (NofResultIfs),
     .XLEN               (XLEN),
-    .issue_req_t        (issue_req_t),
+    .FLEN               (FLEN),
+    .OpLen              (OpLen),
     .AddrWidth          (AddrWidth),
     .DataWidth          (DataWidth),
-    .dreq_t             (dreq_t),
-    .drsp_t             (drsp_t),
-    .tag_t              (instr_tag_t),
-    .NumOutstandingMem  (NumOutstandingMem),
-    .NumOutstandingLoads(NumOutstandingLoads),
-    .Caq                (0),
+    .RegAddrWidth       (REG_ADDR_SIZE),
+    .MaxIterationsW     (FREP_MAXITERS_WIDTH),
     .CaqDepth           (CaqDepth),
     .CaqTagWidth        (CaqTagWidth),
-    .CaqRespSrc         (0),
-    .CaqRespTrackSeq    (0)
-  ) i_lsu (
+    .NumOutstandingLoads(NumOutstandingLoads),
+    .NumOutstandingMem  (NumOutstandingMem),
+    .FPUImplementation  (FPUImplementation),
+    .RVF                (RVF),
+    .RVD                (RVD),
+    .XF16               (XF16),
+    .XF16ALT            (XF16ALT),
+    .XF8                (XF8),
+    .XF8ALT             (XF8ALT),
+    .XFVEC              (XFVEC),
+    .RegisterFPUIn      (RegisterFPUIn),
+    .RegisterFPUOut     (RegisterFPUOut),
+    .producer_id_t      (producer_id_t),
+    .operand_id_t       (operand_id_t),
+    .disp_req_t         (disp_req_t),
+    .disp_rsp_t         (disp_rsp_t),
+    .issue_req_t        (issue_req_t),
+    .instr_tag_t        (instr_tag_t),
+    .alu_result_t       (alu_result_t),
+    .dreq_t             (dreq_t),
+    .drsp_t             (drsp_t)
+  ) i_fu_stage (
     .clk_i,
     .rst_i,
-    .issue_req_i      (issue_req),
-    .issue_req_valid_i(lsu_disp_req_valid),
-    .issue_req_ready_o(lsu_disp_req_ready),
-    .result_o         (lsu_result),
-    .tag_o            (lsu_result_tag),
-    .result_error_o   (), // ignored for now
-    .result_valid_o   (lsu_result_valid),
-    .result_ready_i   (lsu_result_ready),
-    .busy_o           (),
-    .empty_o          (lsu_empty),
-    .addr_misaligned_o(lsu_addr_misaligned),
-    // Memory interface
-    .data_req_o       (data_req_o),
-    .data_rsp_i       (data_rsp_i),
-    // CAQ
-    .caq_addr_i       ('0),
-    .caq_track_write_i(1'b0),
-    .caq_req_valid_i  (1'b0),
-    .caq_req_ready_o  (),
-    .caq_rsp_valid_i  (1'b0),
-    .caq_rsp_valid_o  ()
+    .hard_id_i            (hart_id_i),
+    .restart_i            (lxp_restart),
+    .loop_state_i         (loop_state),
+    .lep_iterations_i     (lep_iterations),
+    .goto_lcp2_i          (goto_lcp2),
+    .disp_req_i           (dispatch_req),
+    .all_rs_finish_o      (all_rs_finish),
+    // ALU
+    .alu_disp_reqs_valid_i(alu_disp_req_valid),
+    .alu_disp_reqs_ready_o(alu_disp_req_ready),
+    .alu_disp_rsp_o       (alu_disp_rsp),
+    .alu_loop_finish_o    (), // unused because of all_rs_finish_i
+    .alu_rs_full_o        (alu_rs_full),
+    // LSU
+    .lsu_disp_reqs_valid_i(lsu_disp_req_valid),
+    .lsu_disp_reqs_ready_o(lsu_disp_req_ready),
+    .lsu_disp_rsp_o       (lsu_disp_rsp),
+    .lsu_empty_o          (lsu_empty),
+    .lsu_addr_misaligned_o(lsu_addr_misaligned),
+    .lsu_dreq_o           (data_req_o), // Each LSU has its own reqrsp port
+    .lsu_drsp_i           (data_rsp_i), // Each LSU has its own reqrsp port
+    .lsu_loop_finish_o    (), // unused because of all_rs_finish_i
+    .lsu_rs_full_o        (lsu_rs_full),
+    .caq_addr_i           ('0),
+    .caq_track_write_i    ('0),
+    .caq_req_valid_i      ('0),
+    .caq_req_ready_o      (),
+    .caq_rsp_valid_i      ('0),
+    .caq_rsp_valid_o      (),
+    //FPU
+    .fpu_disp_reqs_valid_i(fpu_disp_req_valid),
+    .fpu_disp_reqs_ready_o(fpu_disp_req_ready),
+    .fpu_disp_rsp_o       (fpu_disp_rsp),
+    .fpu_loop_finish_o    (), // unused because of all_rs_finish_i
+    .fpu_rs_full_o        (fpu_rs_full),
+    .fpu_status_o         (fpu_status),
+    .fpu_status_valid_o   (fpu_status_valid),
+    // ALU WB
+    .alu_wb_result_o      (alu_result),
+    .alu_wb_result_tag_o  (alu_result_tag),
+    .alu_wb_result_valid_o(alu_result_valid),
+    .alu_wb_result_ready_i(alu_result_ready),
+    // LSU WB
+    .lsu_wb_result_o      (lsu_result),
+    .lsu_wb_result_tag_o  (lsu_result_tag),
+    .lsu_wb_result_valid_o(lsu_result_valid),
+    .lsu_wb_result_ready_i(lsu_result_ready),
+    // FPU WB
+    .fpu_wb_result_o      (fpu_result),
+    .fpu_wb_result_tag_o  (fpu_result_tag),
+    .fpu_wb_result_valid_o(fpu_result_valid),
+    .fpu_wb_result_ready_i(fpu_result_ready)
   );
 
   // CSR FU & register file
@@ -690,43 +744,6 @@ module schnizo import schnizo_pkg::*; #(
 
     .instr_retired_i(instr_retired)
   );
-
-  logic [FLEN-1:0] fpu_result;
-  logic            fpu_result_valid;
-  logic            fpu_result_ready;
-  instr_tag_t      fpu_result_tag;
-
-  schnizo_fpu #(
-    .FPUImplementation(FPUImplementation),
-    .RVF              (RVF),
-    .RVD              (RVD),
-    .XF16             (XF16),
-    .XF16ALT          (XF16ALT),
-    .XF8              (XF8),
-    .XF8ALT           (XF8ALT),
-    .XFVEC            (XFVEC),
-    .FLEN             (FLEN),
-    .RegisterFPUIn    (RegisterFPUIn),
-    .RegisterFPUOut   (RegisterFPUOut),
-    .issue_req_t      (issue_req_t),
-    .instr_tag_t      (instr_tag_t)
-  ) i_fpu (
-    .clk_i,
-    .rst_ni           (~rst_i),
-    .hart_id_i        (),
-    .issue_req_i      (issue_req),
-    .issue_req_valid_i(fpu_disp_req_valid),
-    .issue_req_ready_o(fpu_disp_req_ready),
-    .result_o         (fpu_result),
-    .result_valid_o   (fpu_result_valid),
-    .result_ready_i   (fpu_result_ready),
-    .tag_o            (fpu_result_tag),
-    .status_o         (fpu_status),
-    .busy_o           ()
-  );
-
-  // We may only update the FCSR fpu status bits if the result is handshaked.
-  assign fpu_status_valid = fpu_result_valid && fpu_result_ready;
 
   // ---------------------------
   // Write back

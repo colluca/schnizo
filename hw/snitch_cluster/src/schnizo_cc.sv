@@ -1,8 +1,8 @@
-// Copyright 2020 ETH Zurich and University of Bologna.
+// Copyright 2025 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// Author: Florian Zaruba <zarubaf@iis.ee.ethz.ch>
+// Author: Pascal Etterli <petterli@student.ethz.ch>
 
 `include "common_cells/assertions.svh"
 `include "common_cells/registers.svh"
@@ -174,9 +174,30 @@ module schnizo_cc #(
 
   snitch_pkg::core_events_t schnizo_events;
 
-  // Schnizo Core Memory request
-  dreq_t schnizo_dreq_d, schnizo_dreq_q, merged_dreq;
-  drsp_t schnizo_drsp_d, schnizo_drsp_q, merged_drsp;
+  // Schnizo Memory requests
+  // For now we misuse the NumSsrs parameter to define the number of LSUs. This allows to keep
+  // the CC interface the same as the Snitch CC. The NumSsrs defines also the number of TCDM
+  // interfaces.
+  // Note that NumSsrs=0 and =1 result in only one LSU whereas in Snitch the core and FP SS have
+  // their own LSU. However, these LSUs share a TCDM interface. As of this we achieve almost the
+  // same performance with only one LSU. The difference is that Snitch can "buffer" more memory
+  // requests in the LSU queue (more outstanding transactions).
+  // TODO: create parameter for number of FUs.
+  localparam int unsigned NofLsus               = TCDMPorts;
+  // Request buffering & cuts
+  // For a first implementation we use a buffer depth of 4.
+  // This is as similar to the Snitch as possible.
+  // The depth of the demux deciding whether to go to the TCDM or SoC.
+  localparam int unsigned RespDepthTcdmOrSoc    = 4;
+  // Whether to cut the memory requests going to the SoC.
+  localparam bit          RegisterToSocReq      = 0;
+  // The depth of the MUX merging all requests going to the SoC.
+  localparam int unsigned RespDepthToSoc        = 4;
+  // The depth of the reqrsp to TCDM conversion
+  localparam int unsigned RespDepthReqrspToTcdm = 4;
+
+  dreq_t [NofLsus-1:0] schnizo_dreq;
+  drsp_t [NofLsus-1:0] schnizo_drsp;
 
   `SNITCH_VM_TYPEDEF(AddrWidth)
 
@@ -198,6 +219,8 @@ module schnizo_cc #(
     .drsp_t                (drsp_t),
     .acc_req_t             (acc_req_t),
     .acc_resp_t            (acc_resp_t),
+    // FU configuration
+    .NofLsus               (NofLsus),
     .NumOutstandingLoads   (NumIntOutstandingLoads), // Use the int value for all LSUs
     .NumOutstandingMem     (NumIntOutstandingMem),
     .SnitchPMACfg          (SnitchPMACfg),
@@ -225,31 +248,16 @@ module schnizo_cc #(
     .acc_prsp_i      (acc_demux_schnizo),
     .acc_pvalid_i    (acc_demux_snitch_valid),
     .acc_pready_o    (acc_demux_snitch_ready),
-    .data_req_o      (schnizo_dreq_d),
-    .data_rsp_i      (schnizo_drsp_d),
+    .data_req_o      (schnizo_dreq),
+    .data_rsp_i      (schnizo_drsp),
     .core_events_o   (schnizo_events),
     .barrier_o       (barrier_o),
     .barrier_i       (barrier_i)
   );
 
-  reqrsp_iso #(
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .req_t    (dreq_t),
-    .rsp_t    (drsp_t),
-    .BypassReq(!RegisterCoreReq),
-    .BypassRsp(!IsoCrossing && !RegisterCoreRsp)
-  ) i_reqrsp_iso (
-    .src_clk_i (clk_d2_i),
-    .src_rst_ni(rst_ni),
-    .src_req_i (schnizo_dreq_d),
-    .src_rsp_o (schnizo_drsp_d),
-    .dst_clk_i (clk_i),
-    .dst_rst_ni(rst_ni),
-    .dst_req_o (schnizo_dreq_q),
-    .dst_rsp_i (schnizo_drsp_q)
-  );
-
+  // ---------------------------
+  // Accelerator offloading path
+  // ---------------------------
   // Cut off-loading request path
   isochronous_spill_register #(
     .T      (acc_req_t),
@@ -327,6 +335,9 @@ module schnizo_cc #(
     .oup_ready_i(acc_demux_snitch_ready_q)
   );
 
+  // ---------------------------
+  // DMA
+  // ---------------------------
   if (Xdma) begin : gen_dma
     idma_inst64_top #(
       .AxiAddrWidth   (AddrWidth),
@@ -372,37 +383,9 @@ module schnizo_cc #(
     assign axi_dma_events_o = '0;
   end
 
-  // pragma translate_off
-  snitch_pkg::fpu_trace_port_t fpu_trace;
-  snitch_pkg::fpu_sequencer_trace_port_t fpu_sequencer_trace;
-  // pragma translate_on
-
-  // gen_no_fpu
-  assign merged_dreq = schnizo_dreq_q;
-  assign schnizo_drsp_q = merged_drsp;
-
-  // Decide whether to go to SoC or TCDM
-  dreq_t data_tcdm_req;
-  drsp_t data_tcdm_rsp;
-  localparam int unsigned SelectWidth = cf_math_pkg::idx_width(2);
-  typedef logic [SelectWidth-1:0] select_t;
-  select_t slave_select;
-  reqrsp_demux #(
-    .NrPorts  (2),
-    .req_t    (dreq_t),
-    .rsp_t    (drsp_t),
-    // TODO(zarubaf): Make a parameter.
-    .RespDepth(4)
-  ) i_reqrsp_demux (
-    .clk_i,
-    .rst_ni,
-    .slv_select_i(slave_select),
-    .slv_req_i   (merged_dreq),
-    .slv_rsp_o   (merged_drsp),
-    .mst_req_o   ({data_tcdm_req, data_req_o}),
-    .mst_rsp_i   ({data_tcdm_rsp, data_rsp_i})
-  );
-
+  // ---------------------------
+  // Memory request path
+  // ---------------------------
   typedef struct packed {
     int unsigned idx;
     logic [AddrWidth-1:0] base;
@@ -421,48 +404,124 @@ module schnizo_cc #(
       base: TCDMAliasStart,
       mask: ({AddrWidth{1'b1}} << TCDMAddrWidth)
     };
+
   end
 
-  addr_decode_napot #(
-    .NoIndices(2),
-    .NoRules  (1 + TCDMAliasEnable),
-    .addr_t   (logic [AddrWidth-1:0]),
-    .rule_t   (reqrsp_rule_t)
-  ) i_addr_decode_napot (
-    .addr_i          (merged_dreq.q.addr),
-    .addr_map_i      (addr_map),
-    .idx_o           (slave_select),
-    .dec_valid_o     (),
-    .dec_error_o     (),
-    .en_default_idx_i(1'b1),
-    .default_idx_i   ('0)
-  );
+  localparam int unsigned SelectWidth = cf_math_pkg::idx_width(2);
+  typedef logic [SelectWidth-1:0] select_t;
 
-  tcdm_req_t core_tcdm_req;
-  tcdm_rsp_t core_tcdm_rsp;
+  dreq_t [NofLsus-1:0] to_soc_req;
+  drsp_t [NofLsus-1:0] to_soc_rsp;
 
-  reqrsp_to_tcdm #(
-    .AddrWidth   (AddrWidth),
-    .DataWidth   (DataWidth),
-    // TODO(zarubaf): Make a parameter.
-    .BufDepth    (4),
-    .reqrsp_req_t(dreq_t),
-    .reqrsp_rsp_t(drsp_t),
-    .tcdm_req_t  (tcdm_req_t),
-    .tcdm_rsp_t  (tcdm_rsp_t)
-  ) i_reqrsp_to_tcdm (
+  // For each LSU we cut the path and decide whether to go to the SoC or TCDM.
+  // Finally we convert the request to a TCDM request and connect it to the interface.
+  for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_cut_dreq_drsp
+    dreq_t     schnizo_dreq_cut;
+    drsp_t     schnizo_drsp_cut;
+    dreq_t     to_tcdm_req;
+    drsp_t     to_tcdm_rsp;
+    tcdm_req_t tcdm_req;
+    tcdm_rsp_t tcdm_rsp;
+
+    // Cut req & rsp from core to address decision
+    reqrsp_iso #(
+      .AddrWidth(AddrWidth),
+      .DataWidth(DataWidth),
+      .req_t    (dreq_t),
+      .rsp_t    (drsp_t),
+      .BypassReq(!RegisterCoreReq),
+      .BypassRsp(!IsoCrossing && !RegisterCoreRsp)
+    ) i_cut_schnizo_dreq (
+      .src_clk_i (clk_d2_i),
+      .src_rst_ni(rst_ni),
+      .src_req_i (schnizo_dreq[lsu]),
+      .src_rsp_o (schnizo_drsp[lsu]),
+      .dst_clk_i (clk_i),
+      .dst_rst_ni(rst_ni),
+      .dst_req_o (schnizo_dreq_cut),
+      .dst_rsp_i (schnizo_drsp_cut)
+    );
+
+    // Decide whether to go to SoC or TCDM
+    select_t slave_select;
+    addr_decode_napot #(
+      .NoIndices(2),
+      .NoRules  (1 + TCDMAliasEnable),
+      .addr_t   (logic [AddrWidth-1:0]),
+      .rule_t   (reqrsp_rule_t)
+    ) i_addr_decode_napot_tcdm_soc (
+      .addr_i          (schnizo_dreq_cut.q.addr),
+      .addr_map_i      (addr_map),
+      .idx_o           (slave_select),
+      .dec_valid_o     (),
+      .dec_error_o     (),
+      .en_default_idx_i(1'b1),
+      .default_idx_i   ('0)
+    );
+
+    reqrsp_demux #(
+      .NrPorts  (2),
+      .req_t    (dreq_t),
+      .rsp_t    (drsp_t),
+      .RespDepth(RespDepthTcdmOrSoc)
+    ) i_reqrsp_demux_tcdm_soc (
+      .clk_i,
+      .rst_ni,
+      .slv_select_i(slave_select),
+      .slv_req_i   (schnizo_dreq_cut),
+      .slv_rsp_o   (schnizo_drsp_cut),
+      .mst_req_o   ({to_tcdm_req, to_soc_req[lsu]}),
+      .mst_rsp_i   ({to_tcdm_rsp, to_soc_rsp[lsu]})
+    );
+
+    // Convert the request to a TCDM request
+    reqrsp_to_tcdm #(
+      .AddrWidth   (AddrWidth),
+      .DataWidth   (DataWidth),
+      .BufDepth    (RespDepthReqrspToTcdm),
+      .reqrsp_req_t(dreq_t),
+      .reqrsp_rsp_t(drsp_t),
+      .tcdm_req_t  (tcdm_req_t),
+      .tcdm_rsp_t  (tcdm_rsp_t)
+    ) i_reqrsp_to_tcdm (
+      .clk_i,
+      .rst_ni,
+      .reqrsp_req_i(to_tcdm_req),
+      .reqrsp_rsp_o(to_tcdm_rsp),
+      .tcdm_req_o  (tcdm_req),
+      .tcdm_rsp_i  (tcdm_rsp)
+    );
+
+    // Connect to TCDM outputs. This works as long as NofLsus == NofTcdmInterfaces.
+    assign tcdm_req_o[lsu] = tcdm_req;
+    assign tcdm_rsp        = tcdm_rsp_i[lsu];
+  end
+
+  `ASSERT_INIT(TcdmAndLsuInterfacesMatch, NofLsus==TCDMPorts,
+               "The number of LSU does not match the number of TCDM ports.");
+
+  // Merge all requests going to the SoC into one
+  reqrsp_mux #(
+    .NrPorts    (NofLsus),
+    .AddrWidth  (AddrWidth),
+    .DataWidth  (DataWidth),
+    .req_t      (dreq_t),
+    .rsp_t      (drsp_t),
+    .RespDepth  (RespDepthToSoc),
+    .RegisterReq({NofLsus{RegisterToSocReq}})
+  ) i_reqrsp_mux_to_soc (
     .clk_i,
     .rst_ni,
-    .reqrsp_req_i(data_tcdm_req),
-    .reqrsp_rsp_o(data_tcdm_rsp),
-    .tcdm_req_o  (core_tcdm_req),
-    .tcdm_rsp_i  (core_tcdm_rsp)
+    .slv_req_i(to_soc_req),
+    .slv_rsp_o(to_soc_rsp),
+    .mst_req_o(data_req_o),
+    .mst_rsp_i(data_rsp_i),
+    .idx_o    ()
   );
-  // gen_no_ssrs
-  // Connect single TCDM port
-  assign tcdm_req_o[0] = core_tcdm_req;
-  assign core_tcdm_rsp = tcdm_rsp_i[0];
 
+  // --------------------------
+  // Core events
+  // --------------------------
   // Core events for performance counters
   assign core_events_o.retired_instr = schnizo_events.retired_instr;
   assign core_events_o.retired_load  = schnizo_events.retired_load;
@@ -478,43 +537,46 @@ module schnizo_cc #(
   // Tracer
   // --------------------------
   // pragma translate_off
+  snitch_pkg::fpu_trace_port_t fpu_trace;
+  snitch_pkg::fpu_sequencer_trace_port_t fpu_sequencer_trace;
 
   // This tries to match all Snitch signals... Schnizo has the optional cut inside the FPU
   // activated to match the cut which would be there from the accelerator interface.
+  // We only track the first FU instance.
   assign fpu_trace = '{
     source:       snitch_pkg::SrcFpu,
-    acc_q_hs:     i_schnizo.i_fpu.issue_req_valid_i &&
-                  i_schnizo.i_fpu.issue_req_ready_o,
+    acc_q_hs:     i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_valid_i &&
+                  i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_ready_o,
     fpu_out_hs:   (i_schnizo.fpu_result_valid && i_schnizo.fpu_result_ready),
     lsu_q_hs:     (i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready &&
-                  i_schnizo.i_lsu.issue_req_i.tag.dest_reg_is_fp),
+                  i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg_is_fp),
     op_in:        i_schnizo.instr_fetch_data_i,
     rs1:          i_schnizo.instr_decoded.rs1,
     rs2:          i_schnizo.instr_decoded.rs2,
     rs3:          i_schnizo.instr_decoded.imm,
     rd:           i_schnizo.instr_decoded.rd,
     // This operand selection enum does not match the Snitch enum!
-    op_sel_0:     i_schnizo.i_fpu.op_selection[0],
-    op_sel_1:     i_schnizo.i_fpu.op_selection[1],
-    op_sel_2:     i_schnizo.i_fpu.op_selection[2],
-    src_fmt:      i_schnizo.i_fpu.fmt_src,
-    dst_fmt:      i_schnizo.i_fpu.fmt_dst,
-    int_fmt:      i_schnizo.i_fpu.int_fmt,
-    acc_qdata_0:  i_schnizo.i_fpu.rs1,
-    acc_qdata_1:  i_schnizo.i_fpu.rs2,
-    acc_qdata_2:  i_schnizo.i_fpu.rs3,
-    op_0:         i_schnizo.i_fpu.fpnew_operands[0],
-    op_1:         i_schnizo.i_fpu.fpnew_operands[1],
-    op_2:         i_schnizo.i_fpu.fpnew_operands[2],
-    use_fpu:      i_schnizo.i_fpu.issue_req_valid_i &&
-                  i_schnizo.i_fpu.issue_req_ready_o,
-    fpu_in_rd:    i_schnizo.i_fpu.fpu_in.tag.dest_reg,
-    fpu_in_acc:   !i_schnizo.i_fpu.fpu_in.tag.dest_reg_is_fp,
-    ls_size:      i_schnizo.i_lsu.ls_size,
-    is_load:      !i_schnizo.i_lsu.is_store,
-    is_store:     i_schnizo.i_lsu.is_store,
-    lsu_qaddr:    i_schnizo.i_lsu.address_sys,
-    lsu_rd:       i_schnizo.i_lsu.issue_req_i.tag.dest_reg,
+    op_sel_0:     i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.op_selection[0],
+    op_sel_1:     i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.op_selection[1],
+    op_sel_2:     i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.op_selection[2],
+    src_fmt:      i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fmt_src,
+    dst_fmt:      i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fmt_dst,
+    int_fmt:      i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.int_fmt,
+    acc_qdata_0:  i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.rs1,
+    acc_qdata_1:  i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.rs2,
+    acc_qdata_2:  i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.rs3,
+    op_0:         i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpnew_operands[0],
+    op_1:         i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpnew_operands[1],
+    op_2:         i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpnew_operands[2],
+    use_fpu:      i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_valid_i &&
+                  i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.issue_req_ready_o,
+    fpu_in_rd:    i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpu_in.tag.dest_reg,
+    fpu_in_acc:   !i_schnizo.i_fu_stage.gen_fpus[0].i_fpu.fpu_in.tag.dest_reg_is_fp,
+    ls_size:      i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.ls_size,
+    is_load:      !i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store,
+    is_store:     i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store,
+    lsu_qaddr:    i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.address_sys,
+    lsu_rd:       i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg,
     acc_wb_ready: 1'b0, // This signal is always false in Snitch..
     // Any write to the Acc bus in Snitch must go to the GRP
     fpu_out_acc:  !i_schnizo.fpu_result_tag.dest_reg_is_fp,
@@ -560,11 +622,11 @@ module schnizo_cc #(
         rd:           i_schnizo.instr_decoded.rd,
         // Only take load and stores to the GPR.
         // FPR transactions must be captured in the FPU trace
-        is_load:      (!i_schnizo.i_lsu.is_store) &&
-                      (!i_schnizo.i_lsu.issue_req_i.tag.dest_reg_is_fp) &&
+        is_load:      (!i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store) &&
+                      (!i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
-        is_store:     i_schnizo.i_lsu.is_store &&
-                      (!i_schnizo.i_lsu.issue_req_i.tag.dest_reg_is_fp) &&
+        is_store:     i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.is_store &&
+                      (!i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.issue_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
         is_branch:    i_schnizo.instr_decoded.is_branch,
         pc_d:         i_schnizo.i_schnizo_controller.pc_d,
@@ -579,13 +641,13 @@ module schnizo_cc #(
         writeback:    i_schnizo.gpr_wdata,
         // Load/Store
         gpr_rdata_1:  i_schnizo.gpr_rdata[1],
-        ls_size:      i_schnizo.i_lsu.ls_size,
-        ld_result_32: i_schnizo.i_lsu.result_o[31:0],
-        lsu_rd:       i_schnizo.i_lsu.tag_o.dest_reg,
+        ls_size:      i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.ls_size,
+        ld_result_32: i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.result_o[31:0],
+        lsu_rd:       i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.tag_o.dest_reg,
         retire_load:  i_schnizo.instr_retired_load,
         alu_result:   i_schnizo.alu_result.result,
         // Atomics
-        ls_amo:       i_schnizo.i_lsu.ls_amo,
+        ls_amo:       i_schnizo.i_fu_stage.gen_lsus[0].i_lsu.ls_amo,
         // Accelerator
         retire_acc:   i_schnizo.instr_retired_acc,
         acc_pid:      i_schnizo.acc_prsp_i.id,
