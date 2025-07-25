@@ -316,7 +316,7 @@ static inline void dot(uint32_t n, double *x, double *y, double *result) {
 
     // Compute partial sums
     if (snrt_is_compute_core()) {
-        dot_frep_6unrolled(frac_core, local_x, local_y, &partial_sums[core_idx]);
+        dot_frep_4unrolled(frac_core, local_x, local_y, &partial_sums[core_idx]);
     }
 
     snrt_cluster_hw_barrier();
