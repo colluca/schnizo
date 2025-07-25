@@ -637,7 +637,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   assign disp_rsp_o = producer_id_t'{
     // Here we can go out of bounds because this response is only valid if we use a existing slot.slot_id
-    slot_id: slot_ids[disp_idx],
+    slot_id: (disp_idx >= NofRss) ? 1'b0 : slot_ids[disp_idx],
     rs_id:   producer_id_i.rs_id
   };
 
