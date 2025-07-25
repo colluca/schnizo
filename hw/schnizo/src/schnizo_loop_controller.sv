@@ -231,9 +231,11 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   assign loop_state_o = loop_info_q.loop_state;
   // Hack: The RS loads the LEP iter counters during LCP2. However, the correct number
   // is only available in the first LEP cycle. Thus we prematurely decrement it by 1 to account
-  // for the LCP2 decrement. Which is the same as taking the _d value in the last LCP2 cycle.
-  // TODO: What is the timing impact of this? There is certainly a cleaner solution possible.
-  assign lep_iterations_o = loop_info_d.loop_iterations;
+  // for the LCP2 decrement.
+  // This would be the the same as taking the _d value in the last LCP2 cycle. However, this adds
+  // timing overhead as the _d value depends on the actual execution of the instruction. Directly
+  // computing it is faster.
+  assign lep_iterations_o = loop_info_q.loop_iterations - 1;
 
   logic loop_iteration_err;
   logic loop_branch_err;
