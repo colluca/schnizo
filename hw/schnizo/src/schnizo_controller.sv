@@ -309,13 +309,16 @@ module schnizo_controller import schnizo_pkg::*; #(
   // any exception. So the dispatch_instr_valid_o signal requests the execution of the instruction
   // from the desired FU. The FU then can rise an exception and the commit signal will prevent
   // any stateful update / blocks the execution.
+  logic stall_raw;
+  assign stall_raw = fence_stall   |
+                     fence_i_stall |
+                     fcsr_stall    |
+                     loop_stall    |
+                     frep_start_stall;
+
   assign dispatch_instr_valid_o = instr_valid_i   &
                                   registers_ready &
-                                  ~fence_stall    &
-                                  ~fence_i_stall  &
-                                  ~fcsr_stall     &
-                                  ~loop_stall     &
-                                  ~frep_start_stall;
+                                  ~stall_raw;
 
   // The instruction may only execute if there are no errors/exceptions.
   // This signal controls all stateful updates like RF writes or multi-cycle issues.
@@ -323,12 +326,16 @@ module schnizo_controller import schnizo_pkg::*; #(
   assign instr_exec_commit = dispatch_instr_valid_o & ~exception;
   // During LEP we give up any control over any exception (and also interrupt).
   // We must set the commit signal to 1 for the whole LEP phase to enable the issues.
-  assign instr_exec_commit_o = loop_state_o inside {LoopLep} ? 1'b1 : instr_exec_commit;
+  // In LCP we must enable the commit when we wait for retirement.
+  assign instr_exec_commit_o = (loop_state_o inside {LoopLep}) ? 1'b1 : instr_exec_commit;
 
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has
   // been dispatched successfully and the scoreboard can update its state.
-  assign instr_dispatched = instr_exec_commit_o & (dispatch_instr_ready_i || loop_start_ready);
+  assign instr_dispatched = dispatch_instr_valid_o &&
+                            instr_exec_commit_o    &&
+                            (dispatch_instr_ready_i || loop_start_ready);
+  // During LEP the commit signal is always high but we must stall on the loop stall.
   assign stall = ~instr_dispatched;
 
   // ---------------------------
