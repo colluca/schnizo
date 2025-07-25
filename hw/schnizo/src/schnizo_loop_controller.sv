@@ -1,0 +1,249 @@
+// Copyright 2025 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
+// Author: Pascal Etterli <petterli@student.ethz.ch>
+// Description: The Schnizo Loop Controller. It handles hardware loops.
+
+`include "common_cells/registers.svh"
+
+module schnizo_loop_controller import schnizo_pkg::*; #(
+  parameter int unsigned AddrWidth      = 32,
+  parameter int unsigned MaxBodysizeW   = 12,
+  parameter int unsigned MaxIterationsW = 6,
+  parameter type         instr_dec_t    = logic
+) (
+  input logic clk_i,
+  input logic rst_i,
+
+  // The current instruction state and address. This is snooped to check if we reached the last
+  // instruction of the current loop.
+  input  instr_dec_t           instr_decoded_i,
+  input  logic                 instr_valid_i,
+  input  logic [AddrWidth-1:0] instr_addr_i,
+  // The instruction address following the current instruction (i.e., the first loop instruction)
+  input  logic [AddrWidth-1:0] next_instr_addr_i,
+  // If we stall, do not update state / step in loop body.
+  input  logic stall_i,
+  // Asserted if the current RS is full / no empty RSS anymore.
+  input  logic rs_full_i,
+  // Asserted if all reservation stations have no instructions in flight.
+  input  logic all_rs_finish_i,
+
+  // Request a loop start at the current instruction address. Any errors will be checked by the
+  // controller which then asserts the commit signal if no errors arose.
+  input  logic                      loop_start_req_i,
+  input  logic                      loop_start_commit_i,
+  output logic                      loop_start_ready_o,
+  input  logic [MaxBodysizeW-1:0]   loop_bodysize_i,
+  input  logic [MaxIterationsW-1:0] loop_iterations_i,
+
+  // Request to jump to the loop start address
+  output logic                      loop_jump_o,
+  output logic [AddrWidth-1:0]      loop_jump_addr_o,
+  // Asserted when the core should wait for the LCP or LEP to end.
+  output logic                      loop_stall_o,
+  // Asserted when a wrong config is supplied at loop start or end.
+  output logic                      sw_err_o,
+  // The current state of the loop
+  output loop_state_e               loop_state_o,
+  // Asserted when the last instruction of LCP1 is retiring.
+  output logic                      goto_lcp2_o,
+  // Number of iterations in LEP. Valid in the last LCP2 cycle (when the last iteration retires).
+  output logic [MaxIterationsW-1:0] lep_iterations_o,
+  // Asserted when the RS and RSS should reset synchronously.
+  output logic                      rs_restart_o
+);
+  typedef struct packed {
+    logic [AddrWidth-1:0] loop_start;
+    logic [AddrWidth-1:0] loop_end;
+  } loop_addr_info_t;
+
+  typedef struct packed {
+    loop_addr_info_t           loop_addr_info;
+    logic [MaxIterationsW-1:0] loop_iterations;
+    loop_state_e               loop_state;
+  } loop_info_t;
+
+  // ---------------------------
+  // Capture the new loop request
+  // ---------------------------
+  loop_info_t                 new_loop;
+  logic       [AddrWidth:0]   new_loop_end_addr_full;
+  logic       [AddrWidth-1:0] new_loop_end_addr;
+
+  assign new_loop_end_addr_full = AddrWidth'(instr_addr_i) + AddrWidth'({loop_bodysize_i, 2'b00});
+  assign new_loop_end_addr = new_loop_end_addr_full[AddrWidth-1:0];
+  // TODO: Check top bit and abort if overflow detected?
+
+  assign new_loop = '{
+    loop_addr_info:  '{loop_start: next_instr_addr_i, loop_end: new_loop_end_addr},
+    loop_iterations: loop_iterations_i,
+    loop_state:      loop_iterations_i >= 3'd3 ? LoopLcp1 : LoopHwLoop
+  };
+
+  loop_info_t loop_info_d, loop_info_q, loop_info_reset;
+  assign loop_info_reset = '{
+    loop_addr_info:  '0,
+    loop_iterations: '0,
+    loop_state:      LoopRegular
+  };
+  `FFAR(loop_info_q, loop_info_d, loop_info_reset, clk_i, rst_i);
+
+  logic loop_valid_d, loop_valid_q;
+  `FFAR(loop_valid_q, loop_valid_d, '0, clk_i, rst_i);
+
+  logic wait_for_retirement_d, wait_for_retirement_q;
+  `FFAR(wait_for_retirement_q, wait_for_retirement_d, '0, clk_i, rst_i);
+
+  logic at_loop_end_instr;
+  assign at_loop_end_instr =
+    loop_valid_q & (loop_info_q.loop_addr_info.loop_end == instr_addr_i) &
+    instr_valid_i;
+
+  logic current_loop_finish;
+  assign current_loop_finish = at_loop_end_instr & (loop_info_q.loop_iterations == 1)
+    & ~stall_i;
+
+  assign loop_jump_addr_o = loop_info_q.loop_addr_info.loop_start;
+
+  logic decrement_loop_iterations;
+
+  // Set if the current instruction is a jump or branch instruction. The last instruction of a
+  // loop may not be a jump or branch as we want to control whether we jump to the loop beginning.
+  logic jump_or_branch;
+  assign jump_or_branch = (instr_decoded_i.is_branch ||
+                           instr_decoded_i.is_jal    ||
+                           instr_decoded_i.is_jalr)  &&
+                          instr_valid_i;
+
+  // Checks the current loop body instruction. Is asserted also for FREP instruction.
+  logic unsupported_instr;
+  assign unsupported_instr = (instr_decoded_i.fu inside {NONE, CTRL_FLOW, MULDIV, CSR, DMA} ||
+                              jump_or_branch) &&
+                             instr_valid_i;
+
+  logic exit_frep;
+  assign exit_frep = (unsupported_instr || rs_full_i) &&
+                     (loop_info_q.loop_state inside {LoopLcp1}) &&
+                     instr_valid_i;
+  logic lep_ends;
+
+  always_comb begin
+    loop_info_d  = loop_info_q;
+    loop_valid_d = loop_valid_q;
+
+    loop_start_ready_o        = 1'b0;
+    loop_jump_o               = 1'b0;
+    decrement_loop_iterations = 1'b0;
+    wait_for_retirement_d     = 1'b0;
+    loop_stall_o              = 1'b0;
+    lep_ends                  = 1'b0;
+    // When asserting restart, we must ensure that no instruction is in flight.
+    // Otherwise the FU cannot retire the instruction and we create a blockage or write back the
+    // wrong value into the RFs. As we only abort when dispatching an instruction in LCP
+    // (and we stall) we are save because there is never an instruction in flight when asserting
+    // the restart flag.
+    rs_restart_o              = 1'b0;
+    goto_lcp2_o               = 1'b0;
+
+    unique case(loop_info_q.loop_state)
+      LoopRegular: begin
+        rs_restart_o = 1'b1;
+        if (loop_start_commit_i) begin
+          loop_info_d  = new_loop; // jumps to HwLoop or Lcp1 depending on the amount of iterations
+          loop_valid_d = 1'b1;
+          loop_start_ready_o = 1'b1;
+        end
+      end
+      LoopHwLoop: begin
+        rs_restart_o = 1'b1; // reset the RS(S) in this cycle
+        loop_jump_o  = at_loop_end_instr & ~current_loop_finish;
+        if (~stall_i & at_loop_end_instr) begin
+          decrement_loop_iterations = 1'b1;
+        end
+      end
+      LoopLcp1: begin
+        loop_jump_o = at_loop_end_instr & ~current_loop_finish;
+        // If the last instruction of LCP1 is a multicycle one, we go in a special waiting state.
+        // This state is a substate of LCP1 to simplify the state handling in the RS.
+        if ((~stall_i & at_loop_end_instr ) || wait_for_retirement_q) begin
+          if (all_rs_finish_i) begin
+            // The last instruction also retires in this cycle. We can directly go to LCP2.
+            loop_info_d.loop_state    = LoopLcp2;
+            decrement_loop_iterations = 1'b1;
+            goto_lcp2_o               = 1'b1;
+          end else begin
+            // The last instruction is a multi cycle instruction or a previous is still in flight.
+            // We must wait until all have retired.
+            wait_for_retirement_d = 1'b1;
+            // We can jump in this cycle to the LCP2 start address. Waiting cycles won't set the
+            // loop_jump_o flag because we are not at the loop end instruction anymore.
+          end
+          if (wait_for_retirement_q) begin
+            loop_stall_o = 1'b1; // when we are already waiting we must stall the core
+          end
+        end
+        if (exit_frep) begin // TODO: this is not working properly and will create a loop.
+          loop_info_d.loop_state = LoopHwLoop;
+        end
+      end
+      LoopLcp2: begin
+        loop_jump_o = at_loop_end_instr & ~current_loop_finish;
+        // If the last instruction of LC21 is a multicycle one, we go in a special waiting state.
+        // This state is a substate of LCP2 to simplify the state handling in the RS.
+        if ((~stall_i & at_loop_end_instr) || wait_for_retirement_q) begin
+          loop_jump_o = 1'b0; // Never jump after LCP2
+          if (all_rs_finish_i) begin
+            // The last instruction also retires in this cycle. We can directly go to LEP.
+            loop_info_d.loop_state    = LoopLep;
+            decrement_loop_iterations = 1'b1;
+          end else begin
+            // The last instruction is a multi cycle instruction. We must wait until it retires.
+            wait_for_retirement_d = 1'b1;
+          end
+          if (wait_for_retirement_q) begin
+            loop_stall_o = 1'b1; // when we are already waiting we must stall the core
+          end
+        end
+      end
+      LoopLep: begin
+        loop_stall_o = 1'b1;
+        if (all_rs_finish_i) begin
+          lep_ends = 1'b1;
+        end
+      end
+      default: ; // TODO: crash
+    endcase
+
+    if (decrement_loop_iterations) begin
+      loop_info_d.loop_iterations = loop_info_d.loop_iterations - 1;
+    end
+
+    if (current_loop_finish || lep_ends) begin
+      loop_valid_d           = 1'b0;
+      loop_info_d            = loop_info_reset;
+      loop_info_d.loop_state = LoopRegular;
+      // we still must stall for this cycle
+    end
+  end
+
+  assign loop_state_o = loop_info_q.loop_state;
+  // Hack: The RS loads the LEP iter counters during LCP2. However, the correct number
+  // is only available in the first LEP cycle. Thus we prematurely decrement it by 1 to account
+  // for the LCP2 decrement. Which is the same as taking the _d value in the last LCP2 cycle.
+  // TODO: What is the timing impact of this? There is certainly a cleaner solution possible.
+  assign lep_iterations_o = loop_info_d.loop_iterations;
+
+  logic loop_iteration_err;
+  logic loop_branch_err;
+  logic loop_at_end_err;
+  assign loop_iteration_err = (loop_iterations_i == '0) & loop_start_req_i;
+  assign loop_branch_err    = at_loop_end_instr & jump_or_branch;
+  assign loop_at_end_err    = at_loop_end_instr & loop_start_req_i;
+
+  assign sw_err_o = loop_iteration_err |
+                    loop_branch_err    |
+                    loop_at_end_err;
+
+endmodule

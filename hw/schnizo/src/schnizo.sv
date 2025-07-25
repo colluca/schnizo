@@ -370,14 +370,21 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Controller
   // ---------------------------
+  logic                           rs_full;
+  logic                           lxp_restart;
+  logic                           goto_lcp2;
+  loop_state_e                    loop_state;
+  logic [FREP_MAXITERS_WIDTH-1:0] lep_iterations;
+
   schnizo_controller #(
     .XLEN           (XLEN),
     .BootAddr       (BootAddr),
     .NrIntWritePorts(NrIntWritePorts),
-    .NrFpWritePorts(NrFpWritePorts),
-    .RegAddrSize(REG_ADDR_SIZE),
-    .instr_dec_t(instr_dec_t),
-    .priv_lvl_t(priv_lvl_t)
+    .NrFpWritePorts (NrFpWritePorts),
+    .RegAddrSize    (REG_ADDR_SIZE),
+    .MaxIterationsW (FREP_MAXITERS_WIDTH),
+    .instr_dec_t    (instr_dec_t),
+    .priv_lvl_t     (priv_lvl_t)
   ) i_schnizo_controller (
     .clk_i,
     .rst_i,
@@ -394,6 +401,12 @@ module schnizo import schnizo_pkg::*; #(
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .stall_o                (stall),
+    .rs_full_i              ('0),
+    .all_rs_finish_i        ('0),
+    .goto_lcp2_o            (goto_lcp2),
+    .lep_iterations_o       (lep_iterations),
+    .loop_state_o           (loop_state),
+    .rs_restart_o           (lxp_restart),
     // Exception source interface
     .interrupt_i            (interrupt),
     .wfi_i                  (wfi),
@@ -419,7 +432,7 @@ module schnizo import schnizo_pkg::*; #(
     .ebreak_o               (ebreak),
     .mret_o                 (mret),
     .sret_o                 (sret),
-    .consecutive_pc_o(consecutive_pc),
+    .consecutive_pc_o       (consecutive_pc),
     // GPR & FPR Write back snooping for Scoreboard
     .gpr_we_i               (gpr_we),
     .gpr_waddr_i            (gpr_waddr),

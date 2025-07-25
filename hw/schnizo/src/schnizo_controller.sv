@@ -13,6 +13,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
   parameter int unsigned RegAddrSize     = 5,
+  parameter int unsigned MaxIterationsW = 6,
   parameter type         instr_dec_t     = logic,
   parameter type         priv_lvl_t      = logic
 ) (
@@ -30,10 +31,17 @@ module schnizo_controller import schnizo_pkg::*; #(
   input  logic       instr_valid_i,
   input  logic       instr_decoded_illegal_i,
 
-  // Interface to dispatcher
-  output logic dispatch_instr_valid_o,
-  input  logic dispatch_instr_ready_i,
-  output logic stall_o,
+  // Interface to dispatcher & RS
+  output logic                      dispatch_instr_valid_o,
+  input  logic                      dispatch_instr_ready_i,
+  output logic                      stall_o,
+  input  logic                      rs_full_i,
+  input  logic                      all_rs_finish_i,
+  output logic                      goto_lcp2_o,
+  // Number of iterations in LEP. Valid in the last LCP2 cycle (when the last iteration retires).
+  output logic [MaxIterationsW-1:0] lep_iterations_o,
+  output loop_state_e               loop_state_o,
+  output logic                      rs_restart_o,
 
   // Exception source interface
   input  logic        interrupt_i,
@@ -83,6 +91,9 @@ module schnizo_controller import schnizo_pkg::*; #(
   assign mret_o = mret;
   assign sret_o = sret;
 
+  logic [31:0]     pc_d, pc_q; // PC is fixed to 32 bits in RV32
+  `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i);
+
   // ---------------------------
   // Check RAW and WAW hazards
   // ---------------------------
@@ -113,6 +124,47 @@ module schnizo_controller import schnizo_pkg::*; #(
   );
 
   assign registers_ready = operands_ready & destination_ready;
+
+  // ---------------------------
+  // Loop control logic
+  // ---------------------------
+  logic        loop_start_ready;
+  logic        loop_jump;
+  logic [31:0] loop_jump_addr;
+  logic        loop_stall;
+  logic        frep_sw_error;
+  schnizo_loop_controller #(
+    .AddrWidth     (32),
+    .MaxBodysizeW  (FREP_BODYSIZE_WIDTH),
+    .MaxIterationsW(MaxIterationsW),
+    .instr_dec_t   (instr_dec_t)
+  ) i_loop_ctrl (
+    .clk_i,
+    .rst_i,
+    .instr_decoded_i  (instr_decoded_i),
+    .instr_valid_i    (instr_valid_i),
+    .instr_addr_i     (pc_q),
+    .next_instr_addr_i(pc_d),
+    .stall_i          (stall),
+    .rs_full_i        (rs_full_i),
+    .all_rs_finish_i  (all_rs_finish_i),
+
+    .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
+    .loop_start_commit_i(instr_decoded_i.is_frep & dispatch_instr_valid_o),
+    // A ready response for the commit to adhere to the ready/valid flow.
+    .loop_start_ready_o (loop_start_ready),
+    .loop_bodysize_i    (instr_decoded_i.frep_bodysize),
+    .loop_iterations_i  (instr_decoded_i.frep_iters),
+
+    .loop_jump_o     (loop_jump),
+    .loop_jump_addr_o(loop_jump_addr),
+    .loop_stall_o    (loop_stall),
+    .sw_err_o        (frep_sw_error),
+    .loop_state_o    (loop_state_o),
+    .goto_lcp2_o     (goto_lcp2_o),
+    .lep_iterations_o(lep_iterations_o),
+    .rs_restart_o    (rs_restart_o)
+  );
 
   // ---------------------------
   // Exceptions
@@ -178,7 +230,8 @@ module schnizo_controller import schnizo_pkg::*; #(
                    | instr_addr_misaligned_o
                    | load_addr_misaligned_o
                    | store_addr_misaligned_o
-                   | interrupt_i;
+                   | interrupt_i
+                   | frep_sw_error;
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
 
@@ -218,7 +271,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   // We can dispatch the current instruction if:
   // - it is valid
   // - all registers are ready
-  // - no stall due to a FENCE
+  // - no stall due to a FENCE or FCSR
+  // - no stall due to the loop controller
   // - no exception occurred
   // - TODO: the Consistency Address Queue (CAQ) between all LSUs are ready
   //
@@ -237,11 +291,12 @@ module schnizo_controller import schnizo_pkg::*; #(
                                   ~fence_stall    &
                                   ~fence_i_stall  &
                                   ~fcsr_stall     &
+                                  ~loop_stall     &
                                   ~exception;
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has
   // been dispatched successfully and the scoreboard can update its state.
-  assign instr_dispatched = dispatch_instr_valid_o & dispatch_instr_ready_i;
+  assign instr_dispatched = dispatch_instr_valid_o & (dispatch_instr_ready_i || loop_start_ready);
   assign stall = ~instr_dispatched;
 
   // ---------------------------
@@ -279,9 +334,6 @@ module schnizo_controller import schnizo_pkg::*; #(
   // - Branched & Consecutive PC: for all regular instructions & branches if taken
 
   // Program counter
-  logic [31:0]     pc_d, pc_q; // PC is fixed to 32 bits in RV32
-  `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i)
-
   assign consecutive_pc_o = consecutive_pc;
   assign pc_o             = pc_q;
 
@@ -307,7 +359,8 @@ module schnizo_controller import schnizo_pkg::*; #(
         // Set to alu result. Clear last bit if JALR
         pc_d = alu_result_i & {{31{1'b1}}, ~instr_decoded_i.is_jalr};
       end else begin
-        pc_d = consecutive_pc; // Covers regular or branch instruction
+        // The consecutive address covers regular and branch instructions
+        pc_d = loop_jump ? loop_jump_addr : consecutive_pc;
       end
     end
   end
