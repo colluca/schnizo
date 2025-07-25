@@ -339,6 +339,7 @@ module schnizo import schnizo_pkg::*; #(
 
   alu_result_t alu_result;
   instr_tag_t  alu_result_tag;
+  alu_result_t branch_result;
   logic [0:0]  lsu_empty;
   fpnew_pkg::status_t fpu_status;
   logic               fpu_status_valid;
@@ -480,8 +481,8 @@ module schnizo import schnizo_pkg::*; #(
     .mepc_i                 (mepc),
     .sepc_i                 (sepc),
     // Branch result
-    .alu_compare_res_i      (alu_result.compare_res),
-    .alu_result_i           (alu_result.result),
+    .alu_compare_res_i      (branch_result.compare_res),
+    .alu_result_i           (branch_result.result),
     // Interface to CSR & write back for handling an exception
     .exception_o            (exception),
     .instr_illegal_o        (instr_illegal),
@@ -683,6 +684,7 @@ module schnizo import schnizo_pkg::*; #(
     .alu_wb_result_tag_o  (alu_result_tag),
     .alu_wb_result_valid_o(alu_result_valid_raw),
     .alu_wb_result_ready_i(alu_result_ready),
+    .branch_result_o      (branch_result),
     // LSU WB
     .lsu_wb_result_o      (lsu_result),
     .lsu_wb_result_tag_o  (lsu_result_tag),

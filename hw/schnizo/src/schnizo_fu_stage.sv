@@ -116,6 +116,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   output instr_tag_t  alu_wb_result_tag_o,
   output logic        alu_wb_result_valid_o,
   input  logic        alu_wb_result_ready_i,
+  output alu_result_t branch_result_o,
 
   output data_t      lsu_wb_result_o,
   output instr_tag_t lsu_wb_result_tag_o,
@@ -571,6 +572,15 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .busy_o           (alu_busy)
     );
   end
+
+  // ALU branch result forwarding
+  // We bypass the arbiter for branch results as only ALU 0 has branch logic.
+  // We also only forward the branch results in regular mode as we don't support branches in
+  // FREP execution. This simplifies the path even more as there is no instruction address check
+  // to be computed in LxP.
+  logic in_lxp;
+  assign in_lxp = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep};
+  assign branch_result_o = in_lxp ? '0 : alu_wbs_result_and_tag[0].result;
 
   // ALU writeback arbiter
   alu_result_and_tag_t alu_wb_result_and_tag_out;
