@@ -71,7 +71,7 @@ inline unsigned szrt_nof_lsu_slots() {
     return (szrt_frep_config() >> (1 * FREP_FU_OFFSET + FREP_NOF_SLOTS_OFFSET)) & FREP_NOF_SLOTS_MASK;
 }
 
-inline unsigned szrt_nof_fps() {
+inline unsigned szrt_nof_fpus() {
     return (szrt_frep_config() >> (2 * FREP_FU_OFFSET)) & FREP_NOF_FU_MASK;
 }
 
