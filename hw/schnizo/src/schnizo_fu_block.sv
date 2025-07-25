@@ -44,6 +44,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   // handling logic.
   input  logic                      restart_i,
   input  loop_state_e               loop_state_i,
+  input  logic                      in_lxp_i,
   input  logic [MaxIterationsW-1:0] lep_iterations_i,
   // Asserted in the last LCP1 cycle (the cycle before we start LCP2)
   input  logic                      goto_lcp2_i,
@@ -100,7 +101,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
 );
   // Module global switch between regular execution and superscalar path
   logic sel_lxp_path;
-  assign sel_lxp_path = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep};
+  assign sel_lxp_path = in_lxp_i;
 
   // ---------------------------
   // Control & Datapath MUX/DEMUX

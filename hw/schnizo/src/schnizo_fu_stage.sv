@@ -443,6 +443,14 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   );
 
   // ---------------------------
+  // LxP data path selection
+  // ---------------------------
+  // We generate one global signal which then controls all request/issue/result/wb MUXs.
+  // This should enable the timing separation for the branch result.
+  logic in_lxp;
+  assign in_lxp = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep};
+
+  // ---------------------------
   // ALUs
   // ---------------------------
   typedef struct packed {
@@ -501,6 +509,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
+      .in_lxp_i        (in_lxp),
       .lep_iterations_i(lep_iterations_i),
       .goto_lcp2_i     (goto_lcp2_i),
       .fu_busy_i       (alu_busy),
@@ -663,6 +672,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
+      .in_lxp_i        (in_lxp),
       .lep_iterations_i(lep_iterations_i),
       .goto_lcp2_i     (goto_lcp2_i),
       .fu_busy_i       (lsu_busy),
@@ -835,6 +845,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
+      .in_lxp_i        (in_lxp),
       .lep_iterations_i(lep_iterations_i),
       .goto_lcp2_i     (goto_lcp2_i),
       .fu_busy_i       (fpu_busy),
