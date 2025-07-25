@@ -27,3 +27,4 @@ runs:
   - elf: ./schnizo/tests/build/sz_function_call.elf
   - elf: ./schnizo/tests/build/sz_branch.elf
   - elf: ./schnizo/tests/build/sz_retirement.elf
+  - elf: ./schnizo/tests/build/sz_frep_csr.elf
