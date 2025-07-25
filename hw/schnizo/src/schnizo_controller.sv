@@ -137,6 +137,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic [31:0] loop_jump_addr;
   logic        loop_stall;
   logic        frep_sw_error;
+  logic        goto_hw_loop;
 
   // Convert the decoded loop iterations to the actual number of iterations.
   // In Snitch we specify one less in the encoding. The same correction is applied to the
@@ -183,7 +184,8 @@ module schnizo_controller import schnizo_pkg::*; #(
     .loop_state_o    (loop_state_o),
     .goto_lcp2_o     (goto_lcp2_o),
     .lep_iterations_o(lep_iterations_o),
-    .rs_restart_o    (rs_restart_o)
+    .rs_restart_o    (rs_restart_o),
+    .goto_hw_loop_o  (goto_hw_loop)
   );
 
   // ---------------------------
@@ -323,7 +325,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   // The instruction may only execute if there are no errors/exceptions.
   // This signal controls all stateful updates like RF writes or multi-cycle issues.
   logic instr_exec_commit;
-  assign instr_exec_commit = dispatch_instr_valid_o & ~exception;
+  assign instr_exec_commit = dispatch_instr_valid_o & ~exception & ~goto_hw_loop;
   // During LEP we give up any control over any exception (and also interrupt).
   // We must set the commit signal to 1 for the whole LEP phase to enable the issues.
   // In LCP we must enable the commit when we wait for retirement.

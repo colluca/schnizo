@@ -54,7 +54,11 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   // Number of iterations in LEP. Valid in the last LCP2 cycle (when the last iteration retires).
   output logic [MaxIterationsW-1:0] lep_iterations_o,
   // Asserted when the RS and RSS should reset synchronously.
-  output logic                      rs_restart_o
+  output logic                      rs_restart_o,
+  // Asserted when slots are full and we need to enter HW mode. This will "kill/delay" the
+  // current instruction for the first cycle. The stall signal will stall until all in-flight
+  // instructions have finished.
+  output logic                      goto_hw_loop_o
 );
   typedef struct packed {
     logic [AddrWidth-1:0] loop_start;
@@ -97,6 +101,9 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
 
   logic wait_for_retirement_d, wait_for_retirement_q;
   `FFAR(wait_for_retirement_q, wait_for_retirement_d, '0, clk_i, rst_i);
+
+  logic wait_for_hw_loop_d, wait_for_hw_loop_q;
+  `FFAR(wait_for_hw_loop_q, wait_for_hw_loop_d, '0, clk_i, rst_i);
 
   logic at_loop_end_instr;
   assign at_loop_end_instr =
@@ -141,6 +148,8 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
     wait_for_retirement_d     = 1'b0;
     loop_stall_o              = 1'b0;
     lep_ends                  = 1'b0;
+    wait_for_hw_loop_d        = 1'b0;
+    goto_hw_loop_o            = 1'b0;
     // When asserting restart, we must ensure that no instruction is in flight.
     // Otherwise the FU cannot retire the instruction and we create a blockage or write back the
     // wrong value into the RFs. As we only abort when dispatching an instruction in LCP
@@ -187,7 +196,26 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
           loop_stall_o = 1'b1; // when we are already waiting we must stall the core
         end
         if (exit_frep) begin
-          loop_info_d.loop_state = LoopHwLoop;
+          // We must wait until all ongoing instructions have finished before switching into HW
+          // loop mode. Otherwise a dispatched instruction can get stuck in the RS (after the LCP
+          // cut).
+          goto_hw_loop_o = 1'b1;
+          if (all_rs_finish_i) begin
+            // we can go directly without waiting
+            loop_info_d.loop_state = LoopHwLoop;
+          end else begin
+            // wait for retirement
+            wait_for_hw_loop_d = 1'b1;
+          end
+        end
+        if (wait_for_hw_loop_q) begin
+          loop_stall_o       = 1'b1;
+          wait_for_hw_loop_d = 1'b1;
+          if (all_rs_finish_i) begin
+            // now we can switch
+            wait_for_hw_loop_d     = 1'b0;
+            loop_info_d.loop_state = LoopHwLoop;
+          end
         end
       end
       LoopLcp2: begin
