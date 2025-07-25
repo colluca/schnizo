@@ -29,7 +29,7 @@ ADDR2LINE    ?= $(LLVM_BINROOT)/llvm-addr2line
 VLT_BIN       = $(shell $(VERILATOR_SEPP) which verilator_bin | tail -n1 | $(VERILATOR_SEPP) xargs realpath | tail -n1)
 
 # Internal executables
-GENTRACE_PY       ?= $(UTIL_DIR)/trace/gen_trace.py
+GENTRACE_PY       ?= $(UTIL_DIR)/sz_trace/sz_gen_trace.py
 ANNOTATE_PY       ?= $(UTIL_DIR)/trace/annotate.py
 EVENTS_PY         ?= $(UTIL_DIR)/trace/events.py
 JOIN_PY           ?= $(UTIL_DIR)/bench/join.py
@@ -134,10 +134,10 @@ endef
 # Traces #
 ##########
 
-SNITCH_DASM_TRACES      = $(shell (ls $(LOGS_DIR)/trace_hart_*.dasm 2>/dev/null))
+SNITCH_DASM_TRACES      = $(shell (ls $(LOGS_DIR)/sz_trace_hart_*.dasm 2>/dev/null))
 SNITCH_TXT_TRACES       = $(shell (echo $(SNITCH_DASM_TRACES) | sed 's/\.dasm/\.txt/g'))
 SNITCH_ANNOTATED_TRACES = $(shell (echo $(SNITCH_DASM_TRACES) | sed 's/\.dasm/\.s/g'))
-SNITCH_PERF_DUMPS       = $(shell (echo $(SNITCH_DASM_TRACES) | sed 's/trace_hart/hart/g' | sed 's/.dasm/_perf.json/g'))
+SNITCH_PERF_DUMPS       = $(shell (echo $(SNITCH_DASM_TRACES) | sed 's/sz_trace_hart/sz_hart/g' | sed 's/.dasm/_perf.json/g'))
 DMA_PERF_DUMPS          = $(LOGS_DIR)/dma_*_perf.json
 
 TXT_TRACES       += $(SNITCH_TXT_TRACES)
@@ -163,8 +163,8 @@ clean-perf:
 clean-visual-trace:
 	rm -f $(VISUAL_TRACE)
 
-$(addprefix $(LOGS_DIR)/,trace_hart_%.txt hart_%_perf.json dma_%_perf.json): $(LOGS_DIR)/trace_hart_%.dasm $(GENTRACE_PY) $(SN_GENTRACE_SRC)
-	$(GENTRACE_PY) $< --mc-exec $(RISCV_MC) --mc-flags "$(RISCV_MC_FLAGS)" --dma-trace $(SIM_DIR)/dma_trace_$*_00000.log --dump-hart-perf $(LOGS_DIR)/hart_$*_perf.json --dump-dma-perf $(LOGS_DIR)/dma_$*_perf.json -o $(LOGS_DIR)/trace_hart_$*.txt
+$(addprefix $(LOGS_DIR)/,sz_trace_hart_%.txt sz_hart_%_perf.json dma_%_perf.json): $(LOGS_DIR)/sz_trace_hart_%.dasm $(GENTRACE_PY)
+	$(GENTRACE_PY) $< --mc-exec $(RISCV_MC) --mc-flags "$(RISCV_MC_FLAGS)" --permissive --dma-trace $(SIM_DIR)/dma_trace_$*_00000.log --dump-hart-perf $(LOGS_DIR)/sz_hart_$*_perf.json --dump-dma-perf $(LOGS_DIR)/dma_$*_perf.json --perfetto-trace $(LOGS_DIR)/sz_perfetto_hart_$*.tb -o $(LOGS_DIR)/sz_trace_hart_$*.txt
 
 # Generate source-code interleaved traces for all harts. Reads the binary from
 # the logs/.rtlbinary file that is written at start of simulation in the vsim script
