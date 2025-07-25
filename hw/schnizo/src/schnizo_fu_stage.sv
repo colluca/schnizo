@@ -575,12 +575,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
 
   // ALU branch result forwarding
   // We bypass the arbiter for branch results as only ALU 0 has branch logic.
-  // We also only forward the branch results in regular mode as we don't support branches in
-  // FREP execution. This simplifies the path even more as there is no instruction address check
-  // to be computed in LxP.
-  logic in_lxp;
-  assign in_lxp = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep};
-  assign branch_result_o = in_lxp ? '0 : alu_wbs_result_and_tag[0].result;
+  // We need the branch result at least in LCP1 to support jump & branch instructions where we
+  // fallback into the HW loop mode. If we decide to crash if an unsupported instruction is
+  // encountered, it is possible to optimize the timing by only forwarding the ALU result in
+  // regular mode. This will gain around 10ps for a 1ns target clock cycle.
+  assign branch_result_o = alu_wbs_result_and_tag[0].result;
 
   // ALU writeback arbiter
   alu_result_and_tag_t alu_wb_result_and_tag_out;
