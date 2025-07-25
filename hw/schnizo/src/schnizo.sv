@@ -262,10 +262,10 @@ module schnizo import schnizo_pkg::*; #(
                                              NofLsus * LsuNofResReqIfs +
                                              NofFpus * FpuNofResReqIfs;
 
-  // There is one shared result response crossbar input per RS.
-  localparam integer unsigned AluNofResRspIfs = 1;
-  localparam integer unsigned LsuNofResRspIfs = 1;
-  localparam integer unsigned FpuNofResRspIfs = 1;
+  // Each slot has its dedicated response crossbar input.
+  localparam integer unsigned AluNofResRspIfs = AluNofRss;
+  localparam integer unsigned LsuNofResRspIfs = LsuNofRss;
+  localparam integer unsigned FpuNofResRspIfs = FpuNofRss;
 
   localparam integer unsigned NofResRspIfs = NofAlus * AluNofResRspIfs +
                                              NofLsus * LsuNofResRspIfs +

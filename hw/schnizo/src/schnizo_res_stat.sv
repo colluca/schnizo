@@ -318,57 +318,12 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   );
 
   // Result response:
-  // On the response side we can simplify it to one shared input to the result response crossbar.
-  // Now only one slot can send a result at a time. This reduces the result crossbar complexity
-  // from "N*M to N" (N = # RS, M = #Slots) down to "N to N". It can simply be implemented with an
-  // arbiter.
-  // This reduction seems like a bottleneck but it should not affect performance drastically.
-  // Reason is that inside a RS anyway only one result per cycle can be produced. If there would
-  // be a collision (two requests to different slots) their result would be produced anyway in
-  // two cycles. If two request "collide" to the same slot we have coalescing which keeps the
-  // performance high.
-
-  // Arbitrate the input to the response crossbar between the slots.
-  // A tree arbiter is slow therefore we use a static priority encoder.
-  // Any unfair selection will be resolved as soon as the request of an instruction will be
-  // filtered out when the value is not ready yet (if it requests the next iteration).
-  `ASSERT_INIT(nofResRspIfs, NofResRspIfs == 32'd1, "Only 1 Result response port is supported!")
-
-  res_rsp_t res_rsp;
-  logic     res_rsp_valid;
-  logic     res_rsp_ready;
-
-  logic slot_found;
-  logic [NofRssWidth-1:0] sel_rss_rsp;
-  always_comb begin : gen_res_rsp_mux_sel
-    sel_rss_rsp = '0;
-    slot_found  = 1'b0;
-
-    // Select which RSS can write depending on the incoming request instead of the actual response.
-    for (int slot = 0; slot < NofRss; slot++) begin
-      if (!slot_found && (dest_masks_valid[slot] == 1'b1)) begin
-        slot_found = 1'b1;
-        sel_rss_rsp = slot[NofRssWidth-1:0];
-      end
-    end
-  end
-
-  stream_mux #(
-    .DATA_T(res_rsp_t),
-    .N_INP(NofRss)
-  ) i_res_rsp_mux (
-    .inp_data_i(res_rsps),
-    .inp_valid_i(res_rsps_valid),
-    .inp_ready_o(res_rsps_ready),
-    .inp_sel_i(sel_rss_rsp),
-    .oup_data_o(res_rsp),
-    .oup_valid_o(res_rsp_valid),
-    .oup_ready_i(res_rsp_ready)
-  );
-
-  assign res_rsps_o       = res_rsp;
-  assign res_rsps_valid_o = res_rsp_valid;
-  assign res_rsp_ready    = res_rsps_ready_i;
+  // On the response side we could simplify it to one shared input to the result response crossbar.
+  // However, having an arbiter in the path drastically degrades the critical path.
+  // Therefore we keep a dedicated input for each slot.
+  assign res_rsps_o       = res_rsps;
+  assign res_rsps_valid_o = res_rsps_valid;
+  assign res_rsps_ready   = res_rsps_ready_i;
 
   // ---------------------------
   // LxP Controller
