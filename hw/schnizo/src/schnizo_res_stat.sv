@@ -305,34 +305,31 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   assign res_reqs_ready_o = res_reqs_ready;
 
   // Arbitrate the input to the response crossbar between the slots.
-  // We use a static arbiter because any other unfair selection will be resolved as soon as the
-  // request of an instruction will be filtered out because the value is not ready yet (if it
-  // requests the next iteration).
+  // A tree arbiter is slow therefore we use a static priority encoder.
+  // Any unfair selection will be resolved as soon as the request of an instruction will be
+  // filtered out when the value is not ready yet (if it requests the next iteration).
   `ASSERT_INIT(nofResRspIfs, NofResRspIfs == 32'd1, "Only 1 Result response port is supported!")
 
   res_rsp_t res_rsp;
   logic     res_rsp_valid;
   logic     res_rsp_ready;
-  rr_arb_tree #(
-    .NumIn    (NofRss),
-    .DataType (res_rsp_t),
-    .ExtPrio  (1),
-    .AxiVldRdy(0),
-    .LockIn   (0),
-    .FairArb  (1'b0)
-  ) i_res_rsp_arb_tree (
-    .clk_i,
-    .rst_ni (~rst_i),
-    .flush_i('0),
-    .rr_i   ('0),
-    .req_i  (res_rsps_valid),
-    .gnt_o  (res_rsps_ready),
-    .data_i (res_rsps),
-    .req_o  (res_rsp_valid),
-    .gnt_i  (res_rsp_ready),
-    .data_o (res_rsp),
-    .idx_o  (/* unused */)
-  );
+
+  logic slot_found;
+  always_comb begin : gen_res_rsp_mux
+    slot_found     = 1'b0;
+    res_rsp        = '0;
+    res_rsp_valid  = '0;
+    res_rsps_ready = '0;
+
+    for (int slot = 0; slot < NofRss; slot++) begin
+      if (!slot_found && (res_rsps_valid[slot] == 1'b1)) begin
+        slot_found = 1'b1;
+        res_rsp = res_rsps[slot];
+        res_rsp_valid = res_rsps_valid[slot];
+        res_rsps_ready[slot] = res_rsp_ready;
+      end
+    end
+  end
 
   assign res_rsps_o       = res_rsp;
   assign res_rsps_valid_o = res_rsp_valid;
