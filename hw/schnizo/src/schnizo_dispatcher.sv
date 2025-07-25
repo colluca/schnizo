@@ -68,6 +68,8 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   input  loop_state_e loop_state_i,
   // Asserted in the last LCP1 cycle (the cycle before we start LCP2)
   input  logic        goto_lcp2_i,
+  // Memory consistency mode during FREP loop
+  input frep_mem_cons_mode_e frep_mem_cons_mode_i,
   // Asserted if the currently selected FU for the instruction does not have an empty RSS.
   output logic        rs_full_o
 );
@@ -223,6 +225,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
+        // per default take the non consistent mode.
         fu_response                     = lsu_disp_rsp_i[lsu_idx];
         fu_ready                        = lsu_disp_req_ready_i[lsu_idx];
         fu_rs_full                      = lsu_rs_full_i[lsu_idx];
@@ -316,6 +319,10 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         // Increment the counter if we dispatched into the FU during LCP
         alu_idx_inc = (|(alu_disp_req_valid_o & alu_disp_req_ready_i));
         lsu_idx_inc = (|(lsu_disp_req_valid_o & lsu_disp_req_ready_i));
+        // Do not increment index if we want serialized memory accesses
+        if (frep_mem_cons_mode_i inside {FREP_MEM_SERIALIZED}) begin
+          lsu_idx_inc = 1'b0;
+        end
         fpu_idx_inc = (|(fpu_disp_req_valid_o & fpu_disp_req_ready_i));
       end
       LoopLep: ; // do nothing

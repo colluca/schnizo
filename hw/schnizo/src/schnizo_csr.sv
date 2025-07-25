@@ -42,12 +42,21 @@
 //     Therefore, the side effect is implemented in the READ part of the CSR module.
 //     Reading this CSR sets the barrier_stall signal. It is reset when the core external
 //     signal "barrier_stall_i" is set.
-// - FREP: Custom register to read current HW configuration for superscalar FREP mode
+// - FREP_STATE (R): Custom register to read current HW configuration for superscalar FREP mode
 //    This register contains information about the number of functional units and slots per FU.
 //    It contains the information for ALUs, LSUs and FPUs. Each FU has (5,4) bits for number of
 //    slots and number of functional units. The 32-bit format is:
 //  |    31:27 |         26:22 |    21:18 |         17:13 |     12:9 |           8:4 |      3:0 |
 //  | Reserved | Nof FPU Slots | Nof FPUs | Nof LSU Slots | Nof LSUs | Nof ALU Slots | Nof ALUs |
+// - FREP_CONFIG (RW): Custom register for fine grained control over the dispatch process.
+//     Bits 2:0: Memory consistency mode.
+//       - 3'b000: No memory consistency. Use all available LSUs in increasing order
+//       - 3'b001: Serialize all memory operations by using only one LSU. This allows to keep
+//                 memory consistency but less performance.
+//       - 3'b010: Separate load and store streams onto separate LSUs. Not yet implemented.
+//                 Probably needs another field to configure which LSU is for what stream.
+//       - Other values are reserved.
+//     Bits 31:3: Reserved
 //
 // Deviations from the Snitch design:
 // - CsrMseg: Is not implemented as it is SSR (stream sematic register) specific.
@@ -134,6 +143,8 @@ module schnizo_csr import schnizo_pkg::*; #(
   input  logic                    barrier_i,
   output logic                    barrier_o,
   output logic                    barrier_stall_o,
+  // FREP configuration
+  output frep_mem_cons_mode_e     frep_mem_cons_mode_o,
   // FPU state update from the retiring FPU instruction
   input  fpnew_pkg::status_t      fpu_status_i,
   input  logic                    fpu_status_valid_i,
@@ -286,7 +297,7 @@ module schnizo_csr import schnizo_pkg::*; #(
     logic [21:0] ppn;
   } satp_t;
 
-  // The format of the FREP CSR
+  // The format of the FREP STATE CSR
   typedef struct packed {
     logic [4:0] FpuSlots;
     logic [3:0] Fpus;
@@ -294,6 +305,11 @@ module schnizo_csr import schnizo_pkg::*; #(
     logic [3:0] Lsus;
     logic [4:0] AluSlots;
     logic [3:0] Alus;
+  } frep_state_t;
+
+  typedef struct packed {
+    logic [31:3]         reserved;
+    frep_mem_cons_mode_e mem_constistency_mode;
   } frep_config_t;
 
   // ---------------------------
@@ -408,9 +424,9 @@ module schnizo_csr import schnizo_pkg::*; #(
   // ---------------------------
   // FREP Config
   // ---------------------------
-  frep_config_t frep_config;
+  frep_state_t frep_state;
 
-  assign frep_config = '{
+  assign frep_state = '{
     FpuSlots: FpuNofRss[4:0],
     Fpus:     NofFpus[3:0],
     LsuSlots: LsuNofRss[4:0],
@@ -418,6 +434,15 @@ module schnizo_csr import schnizo_pkg::*; #(
     AluSlots: AluNofRss[4:0],
     Alus:     NofAlus[3:0]
   };
+
+  // FREP config
+  frep_config_t frep_config_d, frep_config_q;
+  frep_config_t frep_config_default;
+  assign frep_config_default = '{
+    reserved: '0,
+    mem_constistency_mode: FREP_MEM_NO_CONSISTENCY
+  };
+  `FFAR(frep_config_q, frep_config_d, frep_config_default, clk_i, rst_i);
 
   // ---------------------------
   // CSR operand control
@@ -617,8 +642,11 @@ module schnizo_csr import schnizo_pkg::*; #(
           end
         end
         // Custom FREP config register
-        schnizo_pkg::CSR_FREP: begin
-          csr_rdata = {{XLEN - $bits(frep_config_t){1'b0}}, frep_config};
+        schnizo_pkg::CSR_FREP_STATE: begin
+          csr_rdata = {{XLEN - $bits(frep_state_t){1'b0}}, frep_state};
+        end
+        schnizo_pkg::CSR_FREP_CONFIG: begin
+          csr_rdata = {{XLEN - $bits(frep_config_t){1'b0}}, frep_config_q};
         end
         riscv_instr::CSR_MCYCLE: begin
           csr_rdata = cycle_q[31:0];
@@ -658,6 +686,7 @@ module schnizo_csr import schnizo_pkg::*; #(
     sepc_d = sepc_q;
     satp_d = satp_q;
     priv_lvl_d = priv_lvl_q;
+    frep_config_d = frep_config_q;
 
     // If we have a write operation, update the CSR only if the request is valid.
     // Any invalid request (illegal CSR address or insufficient privileges) will cause an
@@ -771,6 +800,14 @@ module schnizo_csr import schnizo_pkg::*; #(
           // TODO: Maybe we should raise an illegal instruction exception? We did not because it is
           // unknown how the snitch runtime interacts with this CSR and in snitch this CSR never
           // causes an exception.
+        end
+        schnizo_pkg::CSR_FREP_CONFIG: begin
+          automatic frep_config_t frep_config = frep_config_t'(csr_wdata);
+          // Only update valid values
+          if (frep_config.mem_constistency_mode inside
+              {FREP_MEM_NO_CONSISTENCY, FREP_MEM_SERIALIZED}) begin
+            frep_config_d.mem_constistency_mode = frep_config.mem_constistency_mode;
+          end
         end
         default: ;
       endcase
@@ -922,6 +959,8 @@ module schnizo_csr import schnizo_pkg::*; #(
   assign priv_lvl_o = priv_lvl_q;
   assign barrier_stall_o = barrier_stall_q;
 
+  // Send FREP memory consistency mode to dispatcher
+  assign frep_mem_cons_mode_o = frep_config_q.mem_constistency_mode;
   // FPU update
   assign fpu_rnd_mode_o = fcsr_q.frm;
   assign fpu_fmt_mode_o = fcsr_q.fmode;

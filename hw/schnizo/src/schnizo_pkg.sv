@@ -155,7 +155,8 @@ package schnizo_pkg;
   // ---------------------------
   // FREP CSR
   // ---------------------------
-  parameter logic [11:0] CSR_FREP = 12'h7c4;
+  parameter logic [11:0] CSR_FREP_STATE = 12'h7c4;
+  parameter logic [11:0] CSR_FREP_CONFIG = 12'h7c5;
 
   // ---------------------------
   // Remains from Snitch for unused inputs
@@ -188,6 +189,12 @@ package schnizo_pkg;
     LoopLep      // loop execution phase
   } loop_state_e;
 
+  // Memory consistency mode during FREP loop. See CSR for more details.
+  typedef enum logic [2:0] {
+    FREP_MEM_NO_CONSISTENCY   = 3'b000,
+    FREP_MEM_SERIALIZED       = 3'b001
+    // FREP_MEM_SEPARATE_STREAMS = 3'b010
+  } frep_mem_cons_mode_e;
 
   // ---------------------------
   // Tracer

@@ -343,6 +343,7 @@ module schnizo import schnizo_pkg::*; #(
   logic [0:0]  lsu_empty;
   fpnew_pkg::status_t fpu_status;
   logic               fpu_status_valid;
+  frep_mem_cons_mode_e frep_mem_cons_mode;
 
   // ---------------------------
   // Core Events
@@ -570,6 +571,7 @@ module schnizo import schnizo_pkg::*; #(
     .restart_i           (lxp_restart),
     .loop_state_i        (loop_state),
     .goto_lcp2_i         (goto_lcp2),
+    .frep_mem_cons_mode_i(frep_mem_cons_mode),
     .rs_full_o           (rs_full)
   );
 
@@ -766,6 +768,7 @@ module schnizo import schnizo_pkg::*; #(
     .barrier_i              (barrier_i),
     .barrier_o              (barrier_o),
     .barrier_stall_o        (barrier_stall),
+    .frep_mem_cons_mode_o   (frep_mem_cons_mode),
     .fpu_status_i           (fpu_status),
     .fpu_status_valid_i     (fpu_status_valid),
     .fpu_rnd_mode_o         (fpu_rnd_mode),
