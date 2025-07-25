@@ -182,11 +182,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
 
-      .restart_i        (restart_i),
+      .restart_i            (restart_i),
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
-      .own_producer_id_i(rss_id),
-      .retired_o        (rss_retiring[rss]),
+      .own_producer_id_i    (rss_id),
+      .retired_o            (rss_retiring[rss]),
 
       .disp_req_i      (disp_req),
       .disp_req_valid_i(disp_reqs_valid[rss]),
