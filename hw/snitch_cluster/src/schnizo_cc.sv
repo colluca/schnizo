@@ -487,7 +487,7 @@ module schnizo_cc #(
                   i_schnizo.i_schnizo_fpu_wrapper.gen_fpu.i_rs_fpu.in_ready_o,
     fpu_out_hs:   (i_schnizo.fpu_result_valid && i_schnizo.fpu_result_ready),
     lsu_q_hs:     (i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready &&
-                  i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg_is_fp),
+                  i_schnizo.i_schnizo_lsu_wrapper.issue_req_i.tag.dest_reg_is_fp),
     op_in:        i_schnizo.instr_fetch_data_i,
     rs1:          i_schnizo.instr_decoded.rs1,
     rs2:          i_schnizo.instr_decoded.rs2,
@@ -514,7 +514,7 @@ module schnizo_cc #(
     is_load:      !i_schnizo.i_schnizo_lsu_wrapper.is_store,
     is_store:     i_schnizo.i_schnizo_lsu_wrapper.is_store,
     lsu_qaddr:    i_schnizo.i_schnizo_lsu_wrapper.lsu_addr,
-    lsu_rd:       i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg,
+    lsu_rd:       i_schnizo.i_schnizo_lsu_wrapper.issue_req_i.tag.dest_reg,
     acc_wb_ready: 1'b0, // This signal is always false in Snitch..
     // Any write to the Acc bus in Snitch must go to the GRP
     fpu_out_acc:  !i_schnizo.fpu_result_tag.dest_reg_is_fp,
@@ -561,10 +561,10 @@ module schnizo_cc #(
         // Only take load and stores to the GPR.
         // FPR transactions must be captured in the FPU trace
         is_load:      (!i_schnizo.i_schnizo_lsu_wrapper.is_store) &&
-                      (!i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg_is_fp) &&
+                      (!i_schnizo.i_schnizo_lsu_wrapper.issue_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
         is_store:     i_schnizo.i_schnizo_lsu_wrapper.is_store &&
-                      (!i_schnizo.i_schnizo_lsu_wrapper.disp_req_i.tag.dest_reg_is_fp) &&
+                      (!i_schnizo.i_schnizo_lsu_wrapper.issue_req_i.tag.dest_reg_is_fp) &&
                       i_schnizo.lsu_disp_req_valid && i_schnizo.lsu_disp_req_ready,
         is_branch:    i_schnizo.instr_decoded.is_branch,
         pc_d:         i_schnizo.i_schnizo_controller.pc_d,

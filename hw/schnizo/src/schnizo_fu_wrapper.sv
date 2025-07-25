@@ -9,8 +9,7 @@
 
 module schnizo_fu_wrapper import schnizo_pkg::*; #(
   parameter int unsigned XLEN         = 32,
-  parameter type         disp_req_t   = logic,
-  parameter type         disp_res_t   = logic,
+  parameter type         issue_req_t  = logic,
   parameter type         result_t     = logic,
   parameter type         result_tag_t = logic,
   parameter type         fu_t         = logic,
@@ -57,9 +56,9 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
-  input  disp_req_t   disp_req_i,
-  input  logic        disp_req_valid_i,
-  output logic        disp_req_ready_o,
+  input  issue_req_t  issue_req_i,
+  input  logic        issue_req_valid_i,
+  output logic        issue_req_ready_o,
 
   // LSU memory interface
   output dreq_t       lsu_data_req_o,
@@ -93,8 +92,8 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
     // For now the ALU always accepts a dispatch request.
     // It simply forwards the valid signal to the write back.
     // Ready also comes from the write back
-    assign result_valid_o = disp_req_valid_i;
-    assign disp_req_ready_o = result_ready_i;
+    assign result_valid_o = issue_req_valid_i;
+    assign issue_req_ready_o = result_ready_i;
 
     schnizo_alu #(
       .XLEN     (XLEN),
@@ -102,14 +101,14 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
     ) i_rs_alu (
       .clk_i,
       .rst_i,
-      .alu_op_i(disp_req_i.fu_data.alu_op),
-      .opa_i(disp_req_i.fu_data.operand_a[XLEN-1:0]),
-      .opb_i(disp_req_i.fu_data.operand_b[XLEN-1:0]),
-      .result_o(result_o.result),
+      .alu_op_i     (issue_req_i.fu_data.alu_op),
+      .opa_i        (issue_req_i.fu_data.operand_a[XLEN-1:0]),
+      .opb_i        (issue_req_i.fu_data.operand_b[XLEN-1:0]),
+      .result_o     (result_o.result),
       .compare_res_o(result_o.compare_res)
     );
     // Feed through the tag directly as it is a combinatorial FU.
-    assign result_tag_o = disp_req_i.tag;
+    assign result_tag_o = issue_req_i.tag;
   end // no signals to tie off for ALU
 
   // ---------------------------
@@ -128,14 +127,14 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
   data_t lsu_result;
   if (Fu == schnizo_pkg::LOAD || Fu == schnizo_pkg::STORE) begin : gen_lsu
     // Request handshake
-    assign lsu_issue_valid = disp_req_valid_i;
-    assign disp_req_ready_o = lsu_issue_ready;
+    assign lsu_issue_valid = issue_req_valid_i;
+    assign issue_req_ready_o = lsu_issue_ready;
 
     // Sign extend the data to be stored to the appropriate length
-    assign lsu_store_data = $unsigned(disp_req_i.fu_data.operand_b);
+    assign lsu_store_data = $unsigned(issue_req_i.fu_data.operand_b);
 
     // Pass the tag to the LSU
-    assign input_tag = disp_req_i.tag;
+    assign input_tag = issue_req_i.tag;
 
     // Compute the address
     // For the superscalar case we cannot use the ALU for this computation.
@@ -143,27 +142,27 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
     // !! We may only take the lower XLEN bits as the operands are NOT sign extended
     // to OpLen (OpLen = FLEN > XLEN ? FLEN : XLEN)
     logic [XLEN-1:0] addr;
-    assign addr = disp_req_i.fu_data.operand_a[XLEN-1:0] + disp_req_i.fu_data.imm[XLEN-1:0];
+    assign addr = issue_req_i.fu_data.operand_a[XLEN-1:0] + issue_req_i.fu_data.imm[XLEN-1:0];
     always_comb begin
       lsu_addr = '0;
       lsu_addr[XLEN-1:0] = addr;
     end
-    // assign lsu_addr = disp_req_i.fu_data.operand_a[XLEN-1:0] + disp_req_i.fu_data.imm[XLEN-1:0];
+    // assign lsu_addr = issue_req_i.fu_data.operand_a[XLEN-1:0] + issue_req_i.fu_data.imm[XLEN-1:0];
 
     // Control signals
-    assign is_store  = disp_req_i.fu_data.lsu_op inside {LsuOpStore, LsuOpFpStore};
+    assign is_store  = issue_req_i.fu_data.lsu_op inside {LsuOpStore, LsuOpFpStore};
     // All FP loads are signed to NaN box narrower values than FLEN
-    assign is_signed = disp_req_i.fu_data.lsu_op inside {LsuOpLoad, LsuOpAmoLr, LsuOpAmoSc,
-                                                         LsuOpAmoSwap, LsuOpAmoAdd, LsuOpAmoXor,
-                                                         LsuOpAmoAnd, LsuOpAmoOr, LsuOpAmoMin,
-                                                         LsuOpAmoMax, LsuOpAmoMinU, LsuOpAmoMaxU,
-                                                         LsuOpFpLoad};
+    assign is_signed = issue_req_i.fu_data.lsu_op inside {LsuOpLoad, LsuOpAmoLr, LsuOpAmoSc,
+                                                          LsuOpAmoSwap, LsuOpAmoAdd, LsuOpAmoXor,
+                                                          LsuOpAmoAnd, LsuOpAmoOr, LsuOpAmoMin,
+                                                          LsuOpAmoMax, LsuOpAmoMinU, LsuOpAmoMaxU,
+                                                          LsuOpFpLoad};
     // Whether to apply NaN boxing or not
-    assign do_nan_boxing = disp_req_i.fu_data.lsu_op inside {LsuOpFpLoad, LsuOpFpStore};
-    assign ls_size       = disp_req_i.fu_data.lsu_size;
+    assign do_nan_boxing = issue_req_i.fu_data.lsu_op inside {LsuOpFpLoad, LsuOpFpStore};
+    assign ls_size       = issue_req_i.fu_data.lsu_size;
 
     always_comb begin
-      unique case (disp_req_i.fu_data.lsu_op)
+      unique case (issue_req_i.fu_data.lsu_op)
         LsuOpAmoLr:   ls_amo = reqrsp_pkg::AMOLR;
         LsuOpAmoSc:   ls_amo = reqrsp_pkg::AMOSC;
         LsuOpAmoSwap: ls_amo = reqrsp_pkg::AMOSwap;
@@ -276,8 +275,8 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
   logic [FLEN-1:0] fpu_result;
   if (Fu == schnizo_pkg::FPU) begin : gen_fpu
 
-    assign fpu_issue_valid = disp_req_valid_i;
-    assign disp_req_ready_o = fpu_issue_ready;
+    assign fpu_issue_valid = issue_req_valid_i;
+    assign issue_req_ready_o = fpu_issue_ready;
     schnizo_fpu #(
       .FPUImplementation(FPUImplementation),
       .RVF              (RVF),
@@ -296,14 +295,14 @@ module schnizo_fu_wrapper import schnizo_pkg::*; #(
       .rst_ni(~rst_i),
 
       .hart_id_i   (hart_id_i),
-      .op_i        (disp_req_i.fu_data.fpu_op),
-      .rs1_i       (disp_req_i.fu_data.operand_a),
-      .rs2_i       (disp_req_i.fu_data.operand_b),
-      .rs3_i       (disp_req_i.fu_data.imm),
-      .round_mode_i(disp_req_i.fu_data.fpu_rnd_mode),
-      .fmt_src_i   (disp_req_i.fu_data.fpu_fmt_src),
-      .fmt_dst_i   (disp_req_i.fu_data.fpu_fmt_dst),
-      .tag_i       (disp_req_i.tag),
+      .op_i        (issue_req_i.fu_data.fpu_op),
+      .rs1_i       (issue_req_i.fu_data.operand_a),
+      .rs2_i       (issue_req_i.fu_data.operand_b),
+      .rs3_i       (issue_req_i.fu_data.imm),
+      .round_mode_i(issue_req_i.fu_data.fpu_rnd_mode),
+      .fmt_src_i   (issue_req_i.fu_data.fpu_fmt_src),
+      .fmt_dst_i   (issue_req_i.fu_data.fpu_fmt_dst),
+      .tag_i       (issue_req_i.tag),
       // Input Handshake
       .in_valid_i  (fpu_issue_valid),
       .in_ready_o  (fpu_issue_ready),

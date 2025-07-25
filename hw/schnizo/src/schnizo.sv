@@ -219,6 +219,11 @@ module schnizo import schnizo_pkg::*; #(
   } disp_req_t;
 
   typedef struct packed {
+    fu_data_t fu_data;
+    instr_tag_t tag;
+  } issue_req_t;
+
+  typedef struct packed {
     logic [ProdAddrSize-1:0] prod_id;
   } disp_res_t;
 
@@ -437,7 +442,7 @@ module schnizo import schnizo_pkg::*; #(
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
     .disp_req_t (disp_req_t),
-    .disp_res_t (disp_res_t),
+    .disp_rsp_t (disp_res_t),
     .fu_data_t  (fu_data_t),
     .acc_req_t  (acc_req_t)
   ) i_schnizo_dispatcher (
@@ -452,20 +457,26 @@ module schnizo import schnizo_pkg::*; #(
     .disp_req_o          (dispatch_req),
     .alu_disp_req_valid_o(alu_disp_req_valid),
     .alu_disp_req_ready_i(alu_disp_req_ready),
-    .alu_disp_res_i      ('0), // RSS not yet implemented
+    .alu_disp_rsp_i      ('0), // RSS not yet implemented
     .lsu_disp_req_valid_o(lsu_disp_req_valid),
     .lsu_disp_req_ready_i(lsu_disp_req_ready),
-    .lsu_disp_res_i      ('0),  // RSS not yet implemented
+    .lsu_disp_rsp_i      ('0),  // RSS not yet implemented
     .csr_disp_req_valid_o(csr_disp_req_valid),
     .csr_disp_req_ready_i(csr_disp_req_ready),
     .fpu_disp_req_valid_o(fpu_disp_req_valid),
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
-    .fpu_disp_res_i      ('0), // RSS not yet implemented
+    .fpu_disp_rsp_i      ('0), // RSS not yet implemented
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
     .acc_disp_req_ready_i(acc_qready_i)
   );
+
+  // Convert dispatch request to issue request
+  issue_req_t issue_req;
+  assign issue_req.fu_data = dispatch_req.fu_data;
+  assign issue_req.tag     = dispatch_req.tag;
+  // valid/ready is fed through so no extra signals
 
   // ---------------------------
   // Functional Units
@@ -475,8 +486,7 @@ module schnizo import schnizo_pkg::*; #(
   schnizo_fu_wrapper #(
     .XLEN        (XLEN),
     .FLEN        (FLEN),
-    .disp_req_t  (disp_req_t),
-    .disp_res_t  (disp_res_t),
+    .issue_req_t (issue_req_t),
     .result_t    (alu_result_t),
     .result_tag_t(instr_tag_t),
     .fu_t        (fu_t),
@@ -488,9 +498,9 @@ module schnizo import schnizo_pkg::*; #(
   ) i_schnizo_alu_wrapper (
     .clk_i,
     .rst_i,
-    .disp_req_i      (dispatch_req),
-    .disp_req_valid_i(alu_disp_req_valid),
-    .disp_req_ready_o(alu_disp_req_ready),
+    .issue_req_i      (issue_req),
+    .issue_req_valid_i(alu_disp_req_valid),
+    .issue_req_ready_o(alu_disp_req_ready),
 
     // LSU specific - not connected
     .lsu_data_req_o       (),
@@ -523,8 +533,7 @@ module schnizo import schnizo_pkg::*; #(
   schnizo_fu_wrapper #(
     .XLEN        (XLEN),
     .FLEN        (FLEN),
-    .disp_req_t  (disp_req_t),
-    .disp_res_t  (disp_res_t),
+    .issue_req_t (issue_req_t),
     .result_t    (data_t),
     .result_tag_t(instr_tag_t),
     .fu_t        (fu_t),
@@ -544,9 +553,9 @@ module schnizo import schnizo_pkg::*; #(
   ) i_schnizo_lsu_wrapper (
     .clk_i,
     .rst_i,
-    .disp_req_i      (dispatch_req),
-    .disp_req_valid_i(lsu_disp_req_valid),
-    .disp_req_ready_o(lsu_disp_req_ready),
+    .issue_req_i      (issue_req),
+    .issue_req_valid_i(lsu_disp_req_valid),
+    .issue_req_ready_o(lsu_disp_req_ready),
 
     /// LSU specific
     // LSU memory interface
@@ -581,21 +590,21 @@ module schnizo import schnizo_pkg::*; #(
   logic [XLEN-1:0] csr_result;
 
   schnizo_csr #(
-    .XLEN(XLEN),
+    .XLEN        (XLEN),
     .DebugSupport(0),
-    .RVF(RVF),
-    .RVD(RVD),
-    .Xdma(Xdma),
-    .VMSupport(0),
-    .disp_req_t(disp_req_t),
+    .RVF         (RVF),
+    .RVD         (RVD),
+    .Xdma        (Xdma),
+    .VMSupport   (0),
+    .issue_req_t (issue_req_t),
     .result_tag_t(instr_tag_t)
   ) i_schnizo_csr (
     .clk_i(clk_i),
     .rst_i(rst_i),
 
-    .disp_req_i         (dispatch_req),
-    .disp_req_valid_i   (csr_disp_req_valid),
-    .disp_req_ready_o   (csr_disp_req_ready),
+    .issue_req_i        (issue_req),
+    .issue_req_valid_i  (csr_disp_req_valid),
+    .issue_req_ready_o  (csr_disp_req_ready),
     .illegal_csr_instr_o(csr_exception_raw),
 
     .result_o      (csr_result),
@@ -633,18 +642,17 @@ module schnizo import schnizo_pkg::*; #(
     .instr_retired_i(instr_retired)
   );
 
-  logic            fpu_result_valid;
-  logic            fpu_result_ready;
-  instr_tag_t      fpu_result_tag;
+  logic       fpu_result_valid;
+  logic       fpu_result_ready;
+  instr_tag_t fpu_result_tag;
   // Create a typedef such that we can safely pass it to the RS
   typedef logic [FLEN-1:0] fpu_result_t;
-  fpu_result_t     fpu_result;
+  fpu_result_t fpu_result;
 
   schnizo_fu_wrapper #(
     .XLEN        (XLEN),
     .FLEN        (FLEN),
-    .disp_req_t  (disp_req_t),
-    .disp_res_t  (disp_res_t),
+    .issue_req_t (issue_req_t),
     .result_t    (fpu_result_t),
     .result_tag_t(instr_tag_t),
     .fu_t        (fu_t),
@@ -665,9 +673,9 @@ module schnizo import schnizo_pkg::*; #(
   ) i_schnizo_fpu_wrapper (
     .clk_i,
     .rst_i,
-    .disp_req_i      (dispatch_req),
-    .disp_req_valid_i(fpu_disp_req_valid),
-    .disp_req_ready_o(fpu_disp_req_ready),
+    .issue_req_i      (issue_req),
+    .issue_req_valid_i(fpu_disp_req_valid),
+    .issue_req_ready_o(fpu_disp_req_ready),
 
     // LSU specific - not connected
     .lsu_data_req_o       (),

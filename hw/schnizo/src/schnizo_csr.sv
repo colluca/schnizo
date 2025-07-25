@@ -71,16 +71,16 @@ module schnizo_csr import schnizo_pkg::*; #(
   parameter bit          Xdma         = 0,
   /// Enable virtual memory support.
   parameter bit          VMSupport    = 0,
-  parameter type         disp_req_t   = logic,
+  parameter type         issue_req_t  = logic,
   parameter type         result_tag_t = logic
 ) (
   input  logic      clk_i,
   input  logic      rst_i,
 
   // Dispatcher handshake
-  input  disp_req_t disp_req_i,
-  input  logic      disp_req_valid_i,
-  output logic      disp_req_ready_o,
+  input  issue_req_t issue_req_i,
+  input  logic       issue_req_valid_i,
+  output logic       issue_req_ready_o,
 
   // Asserted if the CSR instruction causes an exception
   // (i.e., illegal address, insufficient privileges).
@@ -281,7 +281,7 @@ module schnizo_csr import schnizo_pkg::*; #(
   logic illegal_csr_read;
 
   csr_t csr_addr;
-  assign csr_addr = disp_req_i.fu_data.imm[11:0];
+  assign csr_addr = issue_req_i.fu_data.imm[11:0];
 
   // ---------------------------
   // CSR registers
@@ -386,21 +386,21 @@ module schnizo_csr import schnizo_pkg::*; #(
   // ---------------------------
   // This part controls if a CSR is read and/or written and also computes the write data.
   // Feed through the tag (contains rd address).
-  assign result_tag_o = disp_req_i.tag;
+  assign result_tag_o = issue_req_i.tag;
 
   always_comb begin : csr_control
     csr_wdata = csr_rdata; // Per default change nothing
     csr_read_en = 1'b1;
     csr_write_en = 1'b1;
 
-    unique case(disp_req_i.fu_data.csr_op)
-      CsrOpSwap:  csr_wdata = disp_req_i.fu_data.operand_a;
+    unique case(issue_req_i.fu_data.csr_op)
+      CsrOpSwap:  csr_wdata = issue_req_i.fu_data.operand_a;
       CsrOpWrite: begin
         csr_read_en = 1'b0;
-        csr_wdata = disp_req_i.fu_data.operand_a;
+        csr_wdata = issue_req_i.fu_data.operand_a;
       end
-      CsrOpSet:   csr_wdata = csr_rdata | disp_req_i.fu_data.operand_a;
-      CsrOpClear: csr_wdata = csr_rdata & ~disp_req_i.fu_data.operand_a;
+      CsrOpSet:   csr_wdata = csr_rdata | issue_req_i.fu_data.operand_a;
+      CsrOpClear: csr_wdata = csr_rdata & ~issue_req_i.fu_data.operand_a;
       CsrOpRead:  csr_write_en = 1'b0;
       default: begin
         csr_read_en = 1'b0;
@@ -573,7 +573,7 @@ module schnizo_csr import schnizo_pkg::*; #(
           // May only be set once and when the CSR instruction is valid.
           // TODO: Rework the CSR module such that the actual reads / writes are separated from
           //       the illegal CSR check.
-          if (disp_req_valid_i) begin
+          if (issue_req_valid_i) begin
             barrier_stall_d = 1'b1;
             barrier_o = 1'b1; // Signal that we entered the barrier stall.
           end
@@ -619,7 +619,7 @@ module schnizo_csr import schnizo_pkg::*; #(
 
     // If we have a write operation, update the CSR only if the request is valid.
     // Any invalid request (illegal CSR address or insufficient privileges) will cause an
-    // exception which in turn will de-assert the disp_req_valid_i signal.
+    // exception which in turn will de-assert the issue_req_valid_i signal.
     if (csr_write_en_int) begin
       unique case (csr_addr.address)
         riscv_instr::CSR_MSTATUS: begin
@@ -855,20 +855,20 @@ module schnizo_csr import schnizo_pkg::*; #(
   assign illegal_csr_instr_o = illegal_csr_read | illegal_csr_priv | illegal_csr_write;
 
   // Only update the CSRs if the instruction is valid.
-  assign csr_write_en_int = csr_write_en & ~illegal_csr_instr_o & disp_req_valid_i;
+  assign csr_write_en_int = csr_write_en & ~illegal_csr_instr_o & issue_req_valid_i;
 
   // CSR FU is ready to execute instruction depending whether we have to write to the RF.
   // We have to write to the RF (read CSR) only if the csr instruction is valid. In this case,
   // feed through the RF ready signal. If it is only a write, we always accept the request.
   // If there is an exception, always block the dispatch request.
   // In all cases: only accept the request if it is valid.
-  assign disp_req_ready_o = disp_req_valid_i &
-                            (illegal_csr_instr_o ? 1'b0           :
-                             csr_read_en         ? result_ready_i :
-                                                   1'b1);
+  assign issue_req_ready_o = issue_req_valid_i &
+                             (illegal_csr_instr_o ? 1'b0           :
+                              csr_read_en         ? result_ready_i :
+                                                    1'b1);
 
   // Signal the result to the register file if we have to write it and the instruction is valid.
-  assign result_valid_o = disp_req_valid_i & (csr_read_en ? ~illegal_csr_instr_o : 1'b0);
+  assign result_valid_o = issue_req_valid_i & (csr_read_en ? ~illegal_csr_instr_o : 1'b0);
   assign result_o = csr_rdata;
 
   // Output some registers directly to the frontend

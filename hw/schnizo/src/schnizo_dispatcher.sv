@@ -13,7 +13,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
   parameter type         disp_req_t = logic,
-  parameter type         disp_res_t = logic,
+  parameter type         disp_rsp_t = logic,
   parameter type         fu_data_t = logic,
   parameter type         acc_req_t = logic
 ) (
@@ -32,12 +32,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // ALU
   output logic[0:0] alu_disp_req_valid_o,
   input  logic[0:0] alu_disp_req_ready_i,
-  input  disp_res_t alu_disp_res_i,
+  input  disp_rsp_t alu_disp_rsp_i,
 
   // LSU
   output logic[0:0] lsu_disp_req_valid_o,
   input  logic[0:0] lsu_disp_req_ready_i,
-  input  disp_res_t lsu_disp_res_i,
+  input  disp_rsp_t lsu_disp_rsp_i,
 
   // Handshake to the CSR FU. There is no response as it does not have a reservation station.
   output logic csr_disp_req_valid_o,
@@ -46,7 +46,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // FPU
   output logic      fpu_disp_req_valid_o,
   input  logic      fpu_disp_req_ready_i,
-  input  disp_res_t fpu_disp_res_i,
+  input  disp_rsp_t fpu_disp_rsp_i,
 
   // Handshake to the accelerator interface
   output acc_req_t acc_req_o,
@@ -108,7 +108,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // Select the appropriate response channel.
   logic       disp_req_valid;
   logic       fu_ready;
-  disp_res_t  fu_response;
+  disp_rsp_t  fu_response;
   logic       dispatched;
   logic [0:0] alu_disp_req_valid_raw;
   logic [0:0] lsu_disp_req_valid_raw;
@@ -136,13 +136,13 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         // TODO: select the current ALU for arbitration between multiple ALUs (counter?)
         // TODO: select only one specific ALU for CTRL_FLOW
         alu_disp_req_valid_raw = 1'b1; // [i] = 1'b1;
-        fu_response = alu_disp_res_i; // [i];
+        fu_response = alu_disp_rsp_i; // [i];
         fu_ready = alu_disp_req_ready_i; // [i];
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
         lsu_disp_req_valid_raw = 1'b1;
-        fu_response = lsu_disp_res_i;
+        fu_response = lsu_disp_rsp_i;
         fu_ready = lsu_disp_req_ready_i;
       end
       schnizo_pkg::CSR : begin
@@ -152,7 +152,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       end
       schnizo_pkg::FPU: begin
         fpu_disp_req_valid_raw = 1'b1;
-        fu_response = fpu_disp_res_i;
+        fu_response = fpu_disp_rsp_i;
         fu_ready = fpu_disp_req_ready_i;
       end
       schnizo_pkg::MULDIV: begin
