@@ -170,6 +170,39 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic         [NofRss-1:0][NofOperands-1:0] op_rsps_ready;
 
   // ---------------------------
+  // Cut the external dispatch request
+  // ---------------------------
+  disp_req_t disp_req_i_q;
+  logic      disp_req_valid_i_q;
+  logic      disp_req_ready_o_q;
+
+  // The cut will result in delayed exceptions. If an exception occurs it will trigger the
+  // exception at the next instruction.
+  logic disp_req_valid_guarded;
+  logic disp_req_ready_o_raw;
+  // Do not accept a new dispatch request if we are currently handling one.
+  assign disp_req_valid_guarded = disp_req_valid_i && !disp_req_valid_i_q;
+  // Do not signal ready until we are processing the request. This allows to handle branches where
+  // the target address is only valid in the cycle the ALU computes it.
+  // This is in the effective dispatch cycle because the ALU is single cycle.
+  assign disp_req_ready_o = disp_req_ready_o_raw && !disp_req_valid_i_q;
+
+  spill_register_flushable #(
+    .T     (disp_req_t),
+    .Bypass(0)
+  ) i_disp_cut (
+    .clk_i,
+    .rst_ni (~rst_i),
+    .valid_i(disp_req_valid_guarded),
+    .flush_i(restart_i),
+    .ready_o(disp_req_ready_o_raw),
+    .data_i (disp_req_i),
+    .valid_o(disp_req_valid_i_q),
+    .ready_i(disp_req_ready_o_q),
+    .data_o (disp_req_i_q)
+  );
+
+  // ---------------------------
   // Slots
   // ---------------------------
   // Local signals used for result request filtering
@@ -470,7 +503,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // - No dispatch request is pending
   // The FU's busy flag is asserted as long as there is valid data in the path. This includes the
   // output and thus the FU is busy also in the cycle were we retire the instruction.
-  assign lcp_finished = !fu_busy_i && !disp_req_valid_i &&
+  assign lcp_finished = !fu_busy_i && !disp_req_valid_i && !disp_req_valid_i_q &&
                         (loop_state_i inside {LoopLcp1, LoopLcp2});
 
   // In LCP1 and LCP2 we finish in this cycle if:
@@ -482,7 +515,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // But this can never happen as we would revert to regular loop execution if there are not
   // enough slots.
   assign lcp_finish =
-    (lcp_finished || ((lcp_disp_count == lcp_result_count) && retiring)) &&
+    (lcp_finished || ((lcp_disp_count == lcp_result_count) && retiring)) && !disp_req_valid_i &&
     (loop_state_i inside {LoopLcp1, LoopLcp2});
 
   // In LEP the RS has finished if:
@@ -576,14 +609,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Select between external (LCP) and internal dispatch request (LEP). The internal dispatch
   // request has no actual data as the instruction is already captured in the RSS. Thus we can
   // simplify the MUX to only mux the valid/ready handshake.
-  assign disp_req = disp_req_i; // Always use the external dispatch request.
+  assign disp_req = disp_req_i_q; // Always use the external dispatch request.
   stream_mux #(
     .DATA_T(logic),
     .N_INP (2)
   ) i_disp_req_mux (
     .inp_data_i ('0), // dummy data
-    .inp_valid_i({disp_req_internal_valid, disp_req_valid_i}),
-    .inp_ready_o({disp_req_internal_ready, disp_req_ready_o}),
+    .inp_valid_i({disp_req_internal_valid, disp_req_valid_i_q}),
+    .inp_ready_o({disp_req_internal_ready, disp_req_ready_o_q}),
     .inp_sel_i  (sel_disp_req_internal),
     .oup_data_o (), // don't use the MUX output data
     .oup_valid_o(disp_req_valid),

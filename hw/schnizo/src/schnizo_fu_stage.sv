@@ -5,6 +5,8 @@
 // Author: Pascal Etterli <petterli@student.ethz.ch>
 // Description: The module hosting all RS and FUs.
 
+`include "common_cells/registers.svh"
+
 module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter int unsigned NofAlus         = 1,
   parameter int unsigned AluNofRss       = 3,
@@ -462,6 +464,20 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   logic in_lxp;
   assign in_lxp = loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep};
 
+  logic in_lcp;
+  assign in_lcp = loop_state_i inside {LoopLcp1, LoopLcp2};
+
+  // Cut the commit signal during LCP. This is required due to the dispatch cut inside the RS.
+  logic instr_exec_commit_d;
+  logic instr_exec_commit_q;
+  logic instr_exec_commit;
+
+  `FFAR(instr_exec_commit_q, instr_exec_commit_d, '0, clk_i, rst_i);
+  assign instr_exec_commit_d = instr_exec_commit_i;
+
+  // Only select the delayed commit signal in LCP
+  assign instr_exec_commit = in_lcp ? instr_exec_commit_q : instr_exec_commit_i;
+
   // ---------------------------
   // ALUs
   // ---------------------------
@@ -486,6 +502,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     alu_result_t  alu_result;
     alu_res_val_t alu_result_value;
     instr_tag_t   alu_result_tag;
+    logic         alu_result_valid_raw;
     logic         alu_result_valid;
     logic         alu_result_ready;
     logic         alu_busy;
@@ -594,10 +611,18 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .result_o         (alu_result.result),
       .compare_res_o    (alu_result.compare_res),
       .tag_o            (alu_result_tag),
-      .result_valid_o   (alu_result_valid),
+      .result_valid_o   (alu_result_valid_raw),
       .result_ready_i   (alu_result_ready),
       .busy_o           (alu_busy)
     );
+
+    // Guard the result with the commit signal
+    // If we want to dispatch an ALU instruction, in particular a branching instruction, we may only
+    // commit the instruction if there is no instruction address misaligned exception.
+    // Therefore, we must "kill" the writeback if we don't commit. The kill must be after the result
+    // as otherwise we create a loop. For the other FUs the "kill" is before we pass the instruction
+    // downstream.
+    assign alu_result_valid = alu_result_valid_raw & instr_exec_commit;
   end
 
   // ALU branch result forwarding
@@ -760,7 +785,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       .issue_req_i      (lsu_issue_req),
       .issue_req_valid_i(lsu_issue_req_valid),
-      .issue_commit_i   (instr_exec_commit_i),
+      .issue_commit_i   (instr_exec_commit),
       .issue_req_ready_o(lsu_issue_req_ready),
       .result_o         (lsu_result),
       .tag_o            (lsu_result_tag),
@@ -937,7 +962,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .hart_id_i        (hard_id_i),
       .issue_req_i      (fpu_issue_req),
       .issue_req_valid_i(fpu_issue_req_valid),
-      .issue_commit_i   (instr_exec_commit_i),
+      .issue_commit_i   (instr_exec_commit),
       .issue_req_ready_o(fpu_issue_req_ready),
       .result_o         (fpu_result),
       .tag_o            (fpu_result_tag),
