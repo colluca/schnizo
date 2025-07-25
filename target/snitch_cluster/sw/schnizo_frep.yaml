@@ -18,3 +18,4 @@ runs:
   - elf: ./schnizo/tests/build/sz_simple.elf
   - elf: ./schnizo/tests/build/sz_unsupported_instr.elf
   - elf: ./schnizo/tests/build/sz_stores.elf
+  - elf: ./schnizo/tests/build/sz_compiler.elf
