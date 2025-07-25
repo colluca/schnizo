@@ -172,6 +172,8 @@ sources:
       # Level 3
       - hw/schnizo/src/schnizo_fu_block.sv
       # Level 4
+      - hw/schnizo/src/schnizo_fu_stage.sv
+      # Level 5
       - hw/schnizo/src/schnizo.sv
     # We always enable the performance counters
 
