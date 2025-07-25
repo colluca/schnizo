@@ -243,6 +243,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   logic loop_branch_err;
   logic loop_at_end_err;
   assign loop_iteration_err = (loop_iterations_i == '0) & loop_start_req_i;
+  // the last instruction of a loop may not be jump as we otherwise cannot return properly
   assign loop_branch_err    = at_loop_end_instr & jump_or_branch;
   assign loop_at_end_err    = at_loop_end_instr & loop_start_req_i;
 

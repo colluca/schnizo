@@ -537,6 +537,13 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     rf_wb_tag_o                = '0;
     rf_wb_tag_o.dest_reg       = slot_wb.dest_id;
     rf_wb_tag_o.dest_reg_is_fp = slot_wb.dest_is_fp;
+    // HACK:
+    // We directly pass through the branch and jump details to support jumps in LCP1
+    // (where we will fall back into regular HW loop mode). This is possible as the ALU is
+    // single cycle and the dispatch request is valid until we write back.
+    rf_wb_tag_o.is_branch = disp_req_i.tag.is_branch;
+    rf_wb_tag_o.is_jump   = disp_req_i.tag.is_jump;
+
     // Check if we want to write back to the RF. If so, enable the RF path for the dynamic stream
     // fork. A store has no writeback and the last result iteration is "immediately" reached.
     enable_rf_writeback = is_last_result_iter_i && !slot_wb.is_store;
