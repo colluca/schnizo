@@ -27,6 +27,7 @@
 // - m/sepc:     The last 1 or 2 bits are not fixed to zero.
 // - mconfigptr: Is not implemented despite it should be read only zero. Snitch & we raise an
 //               illegal instruction exception.
+// - mcycle:     Is read only instead of RW
 // - satp:       When reading this CSR, the ASID bits are neglected. As of this the mode bit
 //               is not at the specified location. However, when writing, the mode bit is written
 //               at the correct location. TODO: This is actually a bug in the snitch design.
