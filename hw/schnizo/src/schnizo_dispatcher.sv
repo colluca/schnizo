@@ -69,7 +69,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
 
   rmt_entry_t no_mapping;
   assign no_mapping = '{
-    prod_id: '0,
+    producer: '0,
     is_produced: '0
   };
 
@@ -220,7 +220,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     // create / update entry for dispatched instruction
     // TODO: filter out accelerator dispatches?
     if (dispatched) begin
-      rmt_entry.prod_id = fu_response.prod_id;
+      rmt_entry.producer = fu_response.producer;
       rmt_entry.is_produced = 1'b1;
       if (instr_dec_i.rd_is_fp) begin
         rmtf_d[instr_dec_i.rd] = rmt_entry;

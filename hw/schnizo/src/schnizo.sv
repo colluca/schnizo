@@ -139,6 +139,16 @@ module schnizo import schnizo_pkg::*; #(
   // common data type for all FUs.
   localparam int OpLen = (FLEN > XLEN) ? FLEN : XLEN;
 
+  // RS parameters
+  localparam int unsigned NofAlus     = 1;
+  localparam int unsigned NofLsus     = 1;
+  localparam int unsigned NofFpus     = 1;
+  localparam int unsigned NofRs       = NofAlus + NofLsus + NofFpus;
+  localparam int unsigned NofRss      = 4;
+  localparam int unsigned NofRsWidth  = cf_math_pkg::idx_width(NofRs);
+  localparam int unsigned NofRssWidth = cf_math_pkg::idx_width(NofRss);
+  localparam int unsigned NofOperands = 3;
+
   // Decoded instruction for dispatcher
   typedef struct packed {
     fu_t                      fu;
@@ -204,9 +214,22 @@ module schnizo import schnizo_pkg::*; #(
     logic                     is_jump;
   } instr_tag_t;
 
+  typedef logic [NofRsWidth-1:0]  rs_id_t;
+  typedef logic [NofRssWidth-1:0] rss_id_t;
+  typedef logic [NofOperands-1:0] op_id_t; // onehot encoded operands to fuse response requests.
+
   typedef struct packed {
-    logic [ProdAddrSize-1:0] prod_id;
-    logic                    is_produced; // set if prod_id is a valid mapping
+    rs_id_t  rs;
+    rss_id_t rss;
+  } producer_id_t;
+
+  typedef struct packed {
+    producer_id_t producer;
+  } disp_rsp_t;
+
+  typedef struct packed {
+    producer_id_t producer;
+    logic         is_produced; // set if prod_id is a valid mapping
   } rmt_entry_t;
 
   typedef struct packed {
@@ -222,10 +245,6 @@ module schnizo import schnizo_pkg::*; #(
     fu_data_t fu_data;
     instr_tag_t tag;
   } issue_req_t;
-
-  typedef struct packed {
-    logic [ProdAddrSize-1:0] prod_id;
-  } disp_res_t;
 
   typedef struct packed {
     logic [XLEN-1:0] result;
@@ -442,7 +461,7 @@ module schnizo import schnizo_pkg::*; #(
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
     .disp_req_t (disp_req_t),
-    .disp_rsp_t (disp_res_t),
+    .disp_rsp_t (disp_rsp_t),
     .fu_data_t  (fu_data_t),
     .acc_req_t  (acc_req_t)
   ) i_schnizo_dispatcher (
@@ -472,11 +491,11 @@ module schnizo import schnizo_pkg::*; #(
     .acc_disp_req_ready_i(acc_qready_i)
   );
 
-  // Convert dispatch request to issue request
+  // Convert dispatch request to issue request for CSR.
+  // The valid/ready is fed through so no extra signals.
   issue_req_t issue_req;
   assign issue_req.fu_data = dispatch_req.fu_data;
   assign issue_req.tag     = dispatch_req.tag;
-  // valid/ready is fed through so no extra signals
 
   // ---------------------------
   // Functional Units
