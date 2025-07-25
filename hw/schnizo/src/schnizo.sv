@@ -283,6 +283,9 @@ module schnizo import schnizo_pkg::*; #(
     logic            compare_res;
   } alu_result_t;
 
+  // ---------------------------
+  // Local signals
+  // ---------------------------
   logic [NrIntReadPorts-1:0][REG_ADDR_SIZE-1:0]  gpr_raddr;
   logic [NrIntReadPorts-1:0][XLEN-1:0]           gpr_rdata;
   logic [NrIntWritePorts-1:0][REG_ADDR_SIZE-1:0] gpr_waddr;
@@ -453,7 +456,7 @@ module schnizo import schnizo_pkg::*; #(
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .stall_o                (stall),
-    .rs_full_i              ('0),
+    .rs_full_i              (rs_full),
     .all_rs_finish_i        ('0),
     .goto_lcp2_o            (goto_lcp2),
     .lep_iterations_o       (lep_iterations),
@@ -507,6 +510,9 @@ module schnizo import schnizo_pkg::*; #(
   logic       fpu_disp_req_ready;
   schnizo_dispatcher #(
     .RegAddrSize(REG_ADDR_SIZE),
+    .NofAlus    (NofAlus),
+    .NofLsus    (NofLsus),
+    .NofFpus    (NofFpus),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
     .disp_req_t (disp_req_t),
@@ -525,19 +531,27 @@ module schnizo import schnizo_pkg::*; #(
     .disp_req_o          (dispatch_req),
     .alu_disp_req_valid_o(alu_disp_req_valid),
     .alu_disp_req_ready_i(alu_disp_req_ready),
-    .alu_disp_rsp_i      ('0), // RSS not yet implemented
+    .alu_disp_rsp_i      (alu_disp_rsp),
+    .alu_rs_full_i       (alu_rs_full),
     .lsu_disp_req_valid_o(lsu_disp_req_valid),
     .lsu_disp_req_ready_i(lsu_disp_req_ready),
-    .lsu_disp_rsp_i      ('0),  // RSS not yet implemented
+    .lsu_disp_rsp_i      (lsu_disp_rsp_i),
+    .lsu_rs_full_i       (lsu_rs_full_i),
     .csr_disp_req_valid_o(csr_disp_req_valid),
     .csr_disp_req_ready_i(csr_disp_req_ready),
     .fpu_disp_req_valid_o(fpu_disp_req_valid),
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
-    .fpu_disp_rsp_i      ('0), // RSS not yet implemented
+    .fpu_disp_rsp_i      (fpu_disp_rsp),
+    .fpu_rs_full_i       (fpu_rs_full_i),
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
-    .acc_disp_req_ready_i(acc_qready_i)
+    .acc_disp_req_ready_i(acc_qready_i),
+    // RS control signals
+    .restart_i           (lxp_restart),
+    .loop_state_i        (loop_state),
+    .goto_lcp2_i         (goto_lcp2),
+    .rs_full_o           (rs_full)
   );
 
   // Convert dispatch request to issue request for CSR.
