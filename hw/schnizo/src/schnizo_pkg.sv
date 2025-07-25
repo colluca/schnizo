@@ -106,6 +106,8 @@ package schnizo_pkg;
     logic msip;
     /// Machine cluster-local interrupt pending
     logic mcip;
+    /// Machine external accelerator interrupt pending
+    logic mxip;
   } interrupts_t;
 
   // ---------------------------
