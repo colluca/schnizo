@@ -98,7 +98,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
 
   typedef struct packed {
     logic [31:20] max_instr;
-    logic [19:15] max_iters;
+    logic [19:15] max_iters_reg;
     logic [14:12] stagger_max; // only for snitch
     logic [11:8]  stagger_mask; // only for snitch
     logic         is_outer;
@@ -226,7 +226,6 @@ module schnizo_decoder import schnizo_pkg::*; #(
     instr_dec_o.is_wfi     = 1'b0;
     instr_dec_o.is_frep       = 1'b0;
     instr_dec_o.frep_bodysize = '0;
-    instr_dec_o.frep_iters    = '0;
 
     check_fpround_mode = 1'b0;
 
@@ -847,9 +846,12 @@ module schnizo_decoder import schnizo_pkg::*; #(
       OpcodeCustom0: begin
         if (instr.freptype.is_outer) begin
           instr_dec_o.is_frep = 1'b1;
+          // The parsed max_instr is actually -1 of the instructions we loop. This is to match the Snitch behaviour.
+          // When executing the loop we actually execute max_instr+1 instructions.
           instr_dec_o.frep_bodysize = instr.freptype.max_instr;
-          // We add +1 because FREP with iters=a means a+1 iterations. Schnizo uses a=a iteration
-          instr_dec_o.frep_iters = instr.freptype.max_iters + 1;
+          // The iterations are from a register specified by the max_iters field
+          instr_dec_o.rs1_is_fp = 1'b0;
+          instr_dec_o.rs1       = instr.freptype.max_iters_reg;
         end else begin
           illegal_instr = 1'b1;
         end

@@ -189,7 +189,6 @@ module schnizo import schnizo_pkg::*; #(
     // FREP extension
     logic                           is_frep;
     logic [FREP_BODYSIZE_WIDTH-1:0] frep_bodysize;
-    logic [FREP_MAXITERS_WIDTH-1:0] frep_iters;
   } instr_dec_t;
 
   // !! The OpLen parameters are not always sign extended by the read_operands module !!
@@ -266,6 +265,8 @@ module schnizo import schnizo_pkg::*; #(
   logic [NrFpWritePorts-1:0][REG_ADDR_SIZE-1:0] fpr_waddr;
   logic [NrFpWritePorts-1:0][FLEN-1:0]          fpr_wdata;
   logic [NrFpWritePorts-1:0]                    fpr_we;
+
+  fu_data_t fu_data;
 
   logic            instr_fetch_valid;
   logic            flush_i_valid;
@@ -367,6 +368,26 @@ module schnizo import schnizo_pkg::*; #(
     .instr_dec_o             (instr_decoded)
   );
 
+  // Read the operands - do always read (even if invalid instr) because controller depends on
+  // values from registers. See for example the FREP instruction and its number of iterations.
+  schnizo_read_operands #(
+    .XLEN          (XLEN),
+    .FLEN          (FLEN),
+    .RegAddrSize   (REG_ADDR_SIZE),
+    .NrIntReadPorts(NrIntReadPorts),
+    .NrFpReadPorts (NrFpReadPorts),
+    .instr_dec_t    (instr_dec_t),
+    .fu_data_t     (fu_data_t)
+  ) i_schnizo_read_operands (
+    .pc_i       (pc),
+    .instr_dec_i(instr_decoded),
+    .gpr_raddr_o(gpr_raddr),
+    .gpr_rdata_i(gpr_rdata),
+    .fpr_raddr_o(fpr_raddr),
+    .fpr_rdata_i(fpr_rdata),
+    .fu_data_o  (fu_data)
+  );
+
   // ---------------------------
   // Controller
   // ---------------------------
@@ -397,6 +418,8 @@ module schnizo import schnizo_pkg::*; #(
     .instr_decoded_i        (instr_decoded),
     .instr_valid_i          (instr_valid),
     .instr_decoded_illegal_i(instr_decoded_illegal),
+    // FREP data from registers
+    .frep_iterations_i      (fu_data.operand_a[FREP_MAXITERS_WIDTH-1:0]),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
@@ -443,26 +466,6 @@ module schnizo import schnizo_pkg::*; #(
   // ---------------------------
   // Dispatch
   // ---------------------------
-  // Read the operands
-  fu_data_t fu_data;
-  schnizo_read_operands #(
-    .XLEN          (XLEN),
-    .FLEN          (FLEN),
-    .RegAddrSize   (REG_ADDR_SIZE),
-    .NrIntReadPorts(NrIntReadPorts),
-    .NrFpReadPorts (NrFpReadPorts),
-    .instr_dec_t    (instr_dec_t),
-    .fu_data_t     (fu_data_t)
-  ) i_schnizo_read_operands (
-    .pc_i       (pc),
-    .instr_dec_i(instr_decoded),
-    .gpr_raddr_o(gpr_raddr),
-    .gpr_rdata_i(gpr_rdata),
-    .fpr_raddr_o(fpr_raddr),
-    .fpr_rdata_i(fpr_rdata),
-    .fu_data_o  (fu_data)
-  );
-
   // Create the dispatch request
   disp_req_t dispatch_req;
   logic [0:0] alu_disp_req_valid;

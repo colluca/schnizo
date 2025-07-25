@@ -13,7 +13,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
   parameter int unsigned RegAddrSize     = 5,
-  parameter int unsigned MaxIterationsW = 6,
+  parameter int unsigned MaxIterationsW  = 6,
   parameter type         instr_dec_t     = logic,
   parameter type         priv_lvl_t      = logic
 ) (
@@ -30,6 +30,9 @@ module schnizo_controller import schnizo_pkg::*; #(
   input  instr_dec_t instr_decoded_i,
   input  logic       instr_valid_i,
   input  logic       instr_decoded_illegal_i,
+
+  // Special FREP data
+  input  logic [MaxIterationsW-1:0] frep_iterations_i,
 
   // Interface to dispatcher & RS
   output logic                      dispatch_instr_valid_o,
@@ -133,6 +136,18 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic [31:0] loop_jump_addr;
   logic        loop_stall;
   logic        frep_sw_error;
+
+  // Convert the decoded loop iterations to the actual number of iterations.
+  // In Snitch we specify one less in the encoding. The same correction is applied to the
+  // max_instr but in the decoder.
+  logic [MaxIterationsW-1:0] loop_iterations;
+  assign loop_iterations = frep_iterations_i + 1;
+
+  // Convert the loop body size to the actual number of iterations. In Snitch there are
+  // frep_bodysize+1 instructions looped. This loop controller uses the actual loop number.
+  logic [FREP_BODYSIZE_WIDTH-1:0] loop_bodysize;
+  assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
+
   schnizo_loop_controller #(
     .AddrWidth     (32),
     .MaxBodysizeW  (FREP_BODYSIZE_WIDTH),
@@ -153,8 +168,8 @@ module schnizo_controller import schnizo_pkg::*; #(
     .loop_start_commit_i(instr_decoded_i.is_frep & dispatch_instr_valid_o),
     // A ready response for the commit to adhere to the ready/valid flow.
     .loop_start_ready_o (loop_start_ready),
-    .loop_bodysize_i    (instr_decoded_i.frep_bodysize),
-    .loop_iterations_i  (instr_decoded_i.frep_iters),
+    .loop_bodysize_i    (loop_bodysize),
+    .loop_iterations_i  (loop_iterations),
 
     .loop_jump_o     (loop_jump),
     .loop_jump_addr_o(loop_jump_addr),
