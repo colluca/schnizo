@@ -35,7 +35,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter type         result_tag_t   = logic,
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
-  parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
@@ -47,9 +46,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The producer id of the RS and thus the first RSS. Must be static.
   input  producer_id_t              producer_id_i,
-  // Operand ID of the first operand of the first RSS. Other operands and RSS IDs are
-  // generated consecutive.
-  input  operand_id_t               op_start_id_i,
   // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
   // handling logic. THERE MAY NOT BE ANY instruction in flight!
   input  logic                      restart_i,

@@ -66,7 +66,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
   parameter type         rs_id_t        = logic,
-  parameter type         operand_id_t   = logic,
+  parameter type         operand_id_t   = logic, // used for tracer function
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
@@ -508,12 +508,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     logic         alu_busy;
 
     producer_id_t producer_start_id;
-    operand_id_t  op_start_id;
     assign producer_start_id = producer_id_t'{
       slot_id: '0, // does not matter
       rs_id:   rs_id_t'(AluRsIdOffset + alu)
     };
-    assign op_start_id = operand_id_t'(AluOpIdOffset + alu * AluNofOperands * AluNofOpPorts);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -531,7 +529,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
-      .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -542,7 +539,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       /// RS control signals
       .producer_id_i   (producer_start_id),
-      .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
       .in_lxp_i        (in_lxp),
@@ -685,12 +681,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     logic        lsu_busy;
 
     producer_id_t producer_start_id;
-    operand_id_t  op_start_id;
     assign producer_start_id = producer_id_t'{
       slot_id: '0, // does not matter
       rs_id:   rs_id_t'(LsuRsIdOffset + lsu)
     };
-    assign op_start_id = operand_id_t'(LsuOpIdOffset + lsu * LsuNofOperands * LsuNofOpPorts);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -708,7 +702,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
-      .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -719,7 +712,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       /// RS control signals
       .producer_id_i   (producer_start_id),
-      .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
       .in_lxp_i        (in_lxp),
@@ -862,12 +854,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     logic        fpu_busy;
 
     producer_id_t producer_start_id;
-    operand_id_t  op_start_id;
     assign producer_start_id = producer_id_t'{
       slot_id: '0, // does not matter
       rs_id:   rs_id_t'(FpuRsIdOffset + fpu)
     };
-    assign op_start_id = operand_id_t'(FpuOpIdOffset + fpu * FpuNofOperands * FpuNofOpPorts);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -885,7 +875,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
-      .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -896,7 +885,6 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .rst_i,
       /// RS control signals
       .producer_id_i   (producer_start_id),
-      .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
       .in_lxp_i        (in_lxp),
