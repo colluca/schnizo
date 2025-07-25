@@ -21,6 +21,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   parameter int unsigned RegAddrWidth  = 5,
   parameter type         disp_req_t     = logic,
   parameter type         producer_id_t  = logic,
+  parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
@@ -32,8 +33,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic clk_i,
   input  logic rst_i,
 
-  // If restart is asserted, we initialize the slot. This will also kill all inflight instructions
-  // and their potential writeback.
+  // If restart is asserted, we initialize the slot. THERE MAY NOT BE ANY instruction in flight!
   input  logic         restart_i,
   // Asserted for last LEP dispatch iteration to end the operand fetching.
   input  logic         is_last_disp_iter_i,
@@ -41,6 +41,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic         is_last_result_iter_i,
   // ID of RSS to place operand requests. This ID must be static.
   input  producer_id_t own_producer_id_i,
+  // ID of operand 0. Operand 1,.. are consecutive.
+  input  operand_id_t  op_start_id_i,
   // Asserted in the cycle the instruction retires.
   output logic         retired_o,
 
@@ -381,10 +383,13 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     for (int op = 0; op < NofOperands; op++) begin : gen_operand_req_op
       // Operand request generation
       op_reqs_o[op] = '{
-        producer:       slot_op.operands[op].producer,
-        // Invert the iteration flag if we desire the result from the previous loop iteration
-        requested_iter: slot_op.operands[op].is_from_current_iter ?  slot_op.instruction_iter :
-                                                                    ~slot_op.instruction_iter
+        producer: slot_op.operands[op].producer,
+        request: res_req_t'{
+          // Invert the iteration flag if we desire the result from the previous loop iteration
+          requested_iter: slot_op.operands[op].is_from_current_iter ?  slot_op.instruction_iter :
+                                                                      ~slot_op.instruction_iter,
+          consumer:       operand_id_t'(op_start_id_i + op)
+        }
       };
 
       op_reqs_valid_o[op] = slot_op.operands[op].is_produced && !slot_op.operands[op].is_valid &&

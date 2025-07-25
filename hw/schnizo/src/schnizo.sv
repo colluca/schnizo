@@ -139,16 +139,6 @@ module schnizo import schnizo_pkg::*; #(
   // common data type for all FUs.
   localparam int OpLen = (FLEN > XLEN) ? FLEN : XLEN;
 
-  // RS parameters
-  localparam int unsigned NofAlus     = 1;
-  localparam int unsigned NofLsus     = 1;
-  localparam int unsigned NofFpus     = 1;
-  localparam int unsigned NofRs       = NofAlus + NofLsus + NofFpus;
-  localparam int unsigned NofRss      = 4;
-  localparam int unsigned NofRsWidth  = cf_math_pkg::idx_width(NofRs);
-  localparam int unsigned NofRssWidth = cf_math_pkg::idx_width(NofRss);
-  localparam int unsigned NofOperands = 3;
-
   // Decoded instruction for dispatcher
   typedef struct packed {
     fu_t                      fu;
@@ -217,15 +207,54 @@ module schnizo import schnizo_pkg::*; #(
     logic                     is_jump;
   } instr_tag_t;
 
-  typedef logic [NofRsWidth-1:0]  rs_id_t;
-  typedef logic [NofRssWidth-1:0] rss_id_t;
-  typedef logic [NofOperands-1:0] op_id_t; // onehot encoded operands to fuse response requests.
+  // ---------------------------
+  // RSS definitions / parameters
+  // ---------------------------
+  localparam int unsigned NofAlus = 1;
+  localparam int unsigned NofLsus = 1;
+  localparam int unsigned NofFpus = 1;
 
-  typedef struct packed {
-    rs_id_t  rs;
-    rss_id_t rss;
-  } producer_id_t;
+  localparam integer unsigned AluNofRss      = 3;
+  localparam integer unsigned AluNofOperands = 2;
+  localparam integer unsigned LsuNofRss      = 4;
+  localparam integer unsigned LsuNofOperands = 2;
+  localparam integer unsigned FpuNofRss      = 2;
+  localparam integer unsigned FpuNofOperands = 3;
 
+  // ---------------------------
+  // Operand distribution network definitions
+  // ---------------------------
+  // Operand Interface: This is a Xbar master placing operand requests. It also has a corresponding
+  //                    operand response interface / slave.
+  // Result Interface:  This is a Xbar slave receiving result requests and has a corresponding
+  //                    result response master.
+  //
+  // To start we go with a full blown Xbar where:
+  // - each operand of each RSS has an operand master
+  // - each RSS has an own result master
+  localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofRss;
+  localparam integer unsigned AluNofResultIfs  = AluNofRss;
+  localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofRss;
+  localparam integer unsigned LsuNofResultIfs  = LsuNofRss;
+  localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofRss;
+  localparam integer unsigned FpuNofResultIfs  = FpuNofRss;
+
+  localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
+                                              NofLsus * LsuNofOperandIfs +
+                                              NofFpus * FpuNofOperandIfs;
+  localparam integer unsigned NofResultIfs  = NofAlus * AluNofResultIfs +
+                                              NofLsus * LsuNofResultIfs +
+                                              NofFpus * FpuNofResultIfs;
+
+  localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
+  localparam integer unsigned NofResultIfsW  = cf_math_pkg::idx_width(NofResultIfs);
+
+  typedef logic [NofOperandIfsW-1:0] operand_id_t;
+  typedef logic [NofResultIfsW-1:0]  producer_id_t;
+
+  // ---------------------------
+  // Dispatch/issue/result data types
+  // ---------------------------
   typedef struct packed {
     producer_id_t producer;
   } disp_rsp_t;

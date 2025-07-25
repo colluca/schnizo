@@ -24,14 +24,13 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
-  parameter type         rs_id_t        = logic,
-  parameter type         rss_id_t       = logic,
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
   parameter type         result_t       = logic,
   parameter type         result_tag_t   = logic,
   parameter type         producer_id_t  = logic,
+  parameter type         operand_id_t  = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
@@ -40,9 +39,13 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic clk_i,
   input  logic rst_i,
 
-  input  rs_id_t                    rs_id_i,
+  // The producer id of the RS and thus the first RSS. Must be static.
+  input  producer_id_t              producer_id_i,
+  // Operand ID of the first operand of the first RSS. Other operands and RSS IDs are
+  // generated consecutive.
+  input  operand_id_t               op_start_id_i,
   // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
-  // handling logic.
+  // handling logic. THERE MAY NOT BE ANY instruction in flight!
   input  logic                      restart_i,
   input  loop_state_e               loop_state_i,
   input  logic [MaxIterationsW-1:0] lep_iterations_i,
@@ -161,8 +164,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   for (genvar rss = 0; rss < NofRss; rss = rss + 1) begin : gen_rss
     producer_id_t rss_id;
-    assign rss_id.rs = rs_id_i;
-    assign rss_id.rss = rss_id_t'(rss);
+    assign rss_id = producer_id_t'(producer_id_i + rss);
+    operand_id_t op_start_id;
+    assign op_start_id = operand_id_t'(op_start_id_i + rss * NofOperands);
 
     schnizo_res_stat_slot #(
       .NofOperands  (NofOperands),
@@ -171,6 +175,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .RegAddrWidth (RegAddrWidth),
       .disp_req_t   (disp_req_t),
       .producer_id_t(producer_id_t),
+      .operand_id_t (operand_id_t),
       .operand_req_t(operand_req_t),
       .operand_t    (operand_t),
       .res_req_t    (res_req_t),
@@ -186,6 +191,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
       .own_producer_id_i    (rss_id),
+      .op_start_id_i        (op_start_id),
       .retired_o            (rss_retiring[rss]),
 
       .disp_req_i      (disp_req),
@@ -526,10 +532,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .oup_ready_i(disp_reqs_ready)
   );
 
-  producer_id_t current_rss_id;
-  assign current_rss_id.rs  = rs_id_i;
-  assign current_rss_id.rss = rss_id_t'(disp_idx);
-  assign disp_rsp_o         = current_rss_id;
+  assign disp_rsp_o = producer_id_i + disp_idx;
 
   // Issue request MUX
   // As the disp_idx can overflow the MUX input, we tie down the handshake signals in this case.

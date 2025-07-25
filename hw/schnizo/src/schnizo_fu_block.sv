@@ -21,9 +21,10 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
-  parameter type         rs_id_t        = logic,
-  parameter type         rss_id_t       = logic,
+  // parameter type         rs_id_t        = logic,
+  // parameter type         rss_id_t       = logic,
   parameter type         producer_id_t  = logic,
+  parameter type         operand_id_t   = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
@@ -33,8 +34,12 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic rst_i,
 
   /// RS control signals
-  input  rs_id_t      rs_id_i,
-    // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
+  // The producer id of the RS and thus the first RSS. Must be static.
+  input  producer_id_t              producer_id_i,
+  // Operand ID of the first operand of the first RSS. Other operands and RSS IDs are
+  // generated consecutive.
+  input  operand_id_t               op_start_id_i,
+  // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
   // handling logic.
   input  logic                      restart_i,
   input  loop_state_e               loop_state_i,
@@ -232,14 +237,13 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .ConsumerCount (ConsumerCount),
     .RegAddrWidth  (RegAddrWidth),
     .MaxIterationsW(MaxIterationsW),
-    .rs_id_t       (rs_id_t),
-    .rss_id_t      (rss_id_t),
     .disp_req_t    (disp_req_t),
     .disp_rsp_t    (disp_rsp_t),
     .issue_req_t   (issue_req_t),
     .result_t      (result_t),
     .result_tag_t  (instr_tag_t),
     .producer_id_t (producer_id_t),
+    .operand_id_t  (operand_id_t),
     .operand_req_t (operand_req_t),
     .operand_t     (operand_t),
     .res_req_t     (res_req_t),
@@ -248,7 +252,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     .clk_i,
     .rst_i,
     // Control signals
-    .rs_id_i          (rs_id_i),
+    .producer_id_i    (producer_id_i),
+    .op_start_id_i    (op_start_id_i),
     .restart_i        (restart_i),
     .loop_state_i     (loop_state_i),
     .lep_iterations_i (lep_iterations_i),

@@ -7,8 +7,16 @@
 
 module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter int unsigned NofAlus        = 1,
+  parameter int unsigned AluNofRss      = 3,
+  parameter int unsigned AluNofOperands = 2,
   parameter int unsigned NofLsus        = 1,
+  parameter int unsigned LsuNofRss      = 3,
+  parameter int unsigned LsuNofOperands = 4,
   parameter int unsigned NofFpus        = 1,
+  parameter int unsigned FpuNofRss      = 2,
+  parameter int unsigned FpuNofOperands = 3,
+  parameter int unsigned NofOperandIfs  = 12,
+  parameter int unsigned NofResultIfs   = 6,
   parameter int unsigned XLEN           = 32,
   parameter int unsigned FLEN           = 64,
   parameter int unsigned OpLen          = 64,
@@ -41,9 +49,7 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter bit          RegisterFPUOut = 0,
   /// Others
   parameter type         producer_id_t  = logic,
-  parameter type         rs_id_t        = logic,
-  parameter type         rss_id_t       = logic,
-  parameter type         op_id_t        = logic,
+  parameter type         operand_id_t   = logic,
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
@@ -116,68 +122,293 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   output logic            fpu_wb_result_valid_o,
   input  logic            fpu_wb_result_ready_i
 );
-  typedef struct packed {
-    rs_id_t  rs;
-    rss_id_t rss;
-    op_id_t  operand;
-  } consumer_id_t;
-
-  typedef struct packed {
-    producer_id_t producer;
-    logic         requested_iter;
-  } operand_req_t;
-
-  typedef logic [OpLen-1:0] operand_t;
-
-  typedef struct packed {
-    logic         requested_iter;
-    consumer_id_t consumer;
-  } res_req_t;
-
-  typedef struct packed {
-    consumer_id_t consumer;
-    operand_t     operand;
-  } res_rsp_t;
-
   // ---------------------------
   // RSS definitions / parameters
   // ---------------------------
   // In theory each other RSS in the system and the RSS itself could be a consumer. Thus use full width.
   // TODO: optimize to a useful number
-  localparam integer unsigned ConsumerCount = 2**$bits(consumer_id_t);
-
-  localparam integer unsigned AluNofRss      = 3;
-  localparam integer unsigned AluNofOperands = 2;
-  localparam integer unsigned LsuNofRss      = 4;
-  localparam integer unsigned LsuNofOperands = 2;
-  localparam integer unsigned FpuNofRss      = 2;
-  localparam integer unsigned FpuNofOperands = 3;
+  localparam integer unsigned ConsumerCount = 2**$bits(operand_id_t);
 
   // ---------------------------
   // Operand distribution network definitions
   // ---------------------------
-  // Operand Interface: This is a Xbar master placing operand requests. It also has a corresponding
-  //                    operand response interface / slave.
-  // Result Interface:  This is a Xbar slave receiving result requests and has a corresponding
-  //                    result response master.
-  //
-  // To start we go with a full blown Xbar where:
-  // - each operand of each RSS has an operand master
-  // - each RSS has an own result master
-  localparam integer unsigned NofAluRsOperandInterfaces = AluNofOperands * AluNofRss;
-  localparam integer unsigned NofAluRsResultInterfaces  = AluNofRss;
-  localparam integer unsigned NofLsuRsOperandInterfaces = LsuNofOperands * LsuNofRss;
-  localparam integer unsigned NofLsuRsResultInterfaces  = LsuNofRss;
-  localparam integer unsigned NofFpuRsOperandInterfaces = FpuNofOperands * FpuNofRss;
-  localparam integer unsigned NofFpuRsResultInterfaces  = FpuNofRss;
+  typedef struct packed {
+    logic        requested_iter;
+    operand_id_t consumer; // where to send the response to
+  } res_req_t;
+
+  typedef struct packed {
+    producer_id_t producer; // where to place the request
+    res_req_t     request;
+  } operand_req_t;
+
+  typedef logic [OpLen-1:0] operand_t;
+
+  typedef struct packed {
+    operand_id_t consumer; // where to send the response to
+    operand_t    operand;
+  } res_rsp_t;
+
+  operand_req_t [NofOperandIfs-1:0] op_reqs;
+  logic         [NofOperandIfs-1:0] op_reqs_valid;
+  logic         [NofOperandIfs-1:0] op_reqs_ready;
+
+  res_req_t     [NofResultIfs-1:0]  res_reqs;
+  logic         [NofResultIfs-1:0]  res_reqs_valid;
+  logic         [NofResultIfs-1:0]  res_reqs_ready;
+
+  res_rsp_t     [NofResultIfs-1:0]  res_rsps;
+  logic         [NofResultIfs-1:0]  res_rsps_valid;
+  logic         [NofResultIfs-1:0]  res_rsps_ready;
+
+  operand_t     [NofOperandIfs-1:0] op_rsps;
+  logic         [NofOperandIfs-1:0] op_rsps_valid;
+  logic         [NofOperandIfs-1:0] op_rsps_ready;
 
   // ---------------------------
   // RS ID generation
   // ---------------------------
   // Each RS needs a globally unique ID. We simply count all RS.
   localparam integer unsigned AluRsIdOffset = 0;
-  localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus;
-  localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus;
+  localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus * AluNofRss;
+  localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus * LsuNofRss;
+
+  // Each operands needs a globally unique ID. We simply count all operands.
+  localparam integer unsigned AluOpIdOffset = 0;
+  localparam integer unsigned LsuOpIdOffset = AluOpIdOffset + NofAlus * AluNofRss * AluNofOperands;
+  localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset + NofLsus * LsuNofRss * LsuNofOperands;
+
+  operand_req_t [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_reqs;
+  logic         [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_reqs_valid;
+  logic         [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_reqs_ready;
+  res_req_t     [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs;
+  logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs_valid;
+  logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_reqs_ready;
+  res_rsp_t     [NofAlus-1:0][AluNofRss-1:0]                     alu_res_rsps;
+  logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_rsps_valid;
+  logic         [NofAlus-1:0][AluNofRss-1:0]                     alu_res_rsps_ready;
+  operand_t     [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_rsps;
+  logic         [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_rsps_valid;
+  logic         [NofAlus-1:0][AluNofRss-1:0][AluNofOperands-1:0] alu_op_rsps_ready;
+
+  operand_req_t [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_reqs;
+  logic         [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_reqs_valid;
+  logic         [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_reqs_ready;
+  res_req_t     [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs;
+  logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs_valid;
+  logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_reqs_ready;
+  res_rsp_t     [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_rsps;
+  logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_rsps_valid;
+  logic         [NofLsus-1:0][LsuNofRss-1:0]                     lsu_res_rsps_ready;
+  operand_t     [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_rsps;
+  logic         [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_rsps_valid;
+  logic         [NofLsus-1:0][LsuNofRss-1:0][LsuNofOperands-1:0] lsu_op_rsps_ready;
+
+  operand_req_t [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_reqs;
+  logic         [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_reqs_valid;
+  logic         [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_reqs_ready;
+  res_req_t     [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs;
+  logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs_valid;
+  logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_reqs_ready;
+  res_rsp_t     [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_rsps;
+  logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_rsps_valid;
+  logic         [NofFpus-1:0][FpuNofRss-1:0]                     fpu_res_rsps_ready;
+  operand_t     [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_rsps;
+  logic         [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_rsps_valid;
+  logic         [NofFpus-1:0][FpuNofRss-1:0][FpuNofOperands-1:0] fpu_op_rsps_ready;
+
+  // Map the operand requests and responses to a linear array to connect to the xbar.
+  // The array index must match the operand / consumer id.
+  always_comb begin : fu_op_reqs_rsps
+    automatic integer ope_if = 0;
+
+    op_reqs           = '0;
+    op_reqs_valid     = '0;
+    alu_op_reqs_ready = '0;
+    lsu_op_reqs_ready = '0;
+    fpu_op_reqs_ready = '0;
+
+    op_rsps_ready     = '0;
+    alu_op_rsps       = '0;
+    alu_op_rsps_valid = '0;
+    lsu_op_rsps       = '0;
+    lsu_op_rsps_valid = '0;
+    fpu_op_rsps       = '0;
+    fpu_op_rsps_valid = '0;
+
+    for (int alu = 0; alu < NofAlus; alu++) begin
+      for (int rss = 0; rss < AluNofRss; rss++) begin
+        for (int op = 0; op < AluNofOperands; op++) begin
+          // operand requests
+          op_reqs[ope_if]                 = alu_op_reqs[alu][rss][op];
+          op_reqs_valid[ope_if]           = alu_op_reqs_valid[alu][rss][op];
+          alu_op_reqs_ready[alu][rss][op] = op_reqs_ready[ope_if];
+          // operand responses
+          alu_op_rsps[alu][rss][op]       = op_rsps[ope_if];
+          alu_op_rsps_valid[alu][rss][op] = op_rsps_valid[ope_if];
+          op_rsps_ready[ope_if]           = alu_op_rsps_ready[alu][rss][op];
+          ope_if = ope_if + 1;
+        end
+      end
+    end
+    for (int lsu = 0; lsu < NofLsus; lsu++) begin
+      for (int rss = 0; rss < LsuNofRss; rss++) begin
+        for (int op = 0; op < LsuNofOperands; op++) begin
+          // operand requests
+          op_reqs[ope_if]                 = lsu_op_reqs[lsu][rss][op];
+          op_reqs_valid[ope_if]           = lsu_op_reqs_valid[lsu][rss][op];
+          lsu_op_reqs_ready[lsu][rss][op] = op_reqs_ready[ope_if];
+          // operand responses
+          lsu_op_rsps[lsu][rss][op]       = op_rsps[ope_if];
+          lsu_op_rsps_valid[lsu][rss][op] = op_rsps_valid[ope_if];
+          op_rsps_ready[ope_if]           = lsu_op_rsps_ready[lsu][rss][op];
+          ope_if = ope_if + 1;
+        end
+      end
+    end
+    for (int fpu = 0; fpu < NofFpus; fpu++) begin
+      for (int rss = 0; rss < FpuNofRss; rss++) begin
+        for (int op = 0; op < FpuNofOperands; op++) begin
+          // operand requests
+          op_reqs[ope_if]                 = fpu_op_reqs[fpu][rss][op];
+          op_reqs_valid[ope_if]           = fpu_op_reqs_valid[fpu][rss][op];
+          fpu_op_reqs_ready[fpu][rss][op] = op_reqs_ready[ope_if];
+          // operand responses
+          fpu_op_rsps[fpu][rss][op]       = op_rsps[ope_if];
+          fpu_op_rsps_valid[fpu][rss][op] = op_rsps_valid[ope_if];
+          op_rsps_ready[ope_if]           = fpu_op_rsps_ready[fpu][rss][op];
+          ope_if = ope_if + 1;
+        end
+      end
+    end
+  end
+
+  // Map the res reqs and rsps to a linear array to connect to the xbar.
+  // The array index must match the result / producer id.
+  always_comb begin : fu_res_reqs_rsps
+    automatic integer res_if = 0;
+
+    res_reqs_ready     = '0;
+    alu_res_reqs       = '0;
+    alu_res_reqs_valid = '0;
+    lsu_res_reqs       = '0;
+    fpu_res_reqs       = '0;
+
+    res_rsps           = '0;
+    res_rsps_valid     = '0;
+    alu_res_rsps_ready = '0;
+    lsu_res_rsps_ready = '0;
+    fpu_res_rsps_ready = '0;
+
+    for (int alu = 0; alu < NofAlus; alu++) begin
+      for (int rss = 0; rss < AluNofRss; rss++) begin
+        // requests
+        alu_res_reqs[alu][rss]       = res_reqs[res_if];
+        alu_res_reqs_valid[alu][rss] = res_reqs_valid[res_if];
+        res_reqs_ready[res_if]       = alu_res_reqs_ready[alu][rss];
+        // responses
+        res_rsps[res_if]             = alu_res_rsps[alu][rss];
+        res_rsps_valid[res_if]       = alu_res_rsps_valid[alu][rss];
+        alu_res_rsps_ready[alu][rss] = res_rsps_ready[res_if];
+
+        res_if = res_if + 1;
+      end
+    end
+    for (int lsu = 0; lsu < NofLsus; lsu++) begin
+      for (int rss = 0; rss < LsuNofRss; rss++) begin
+        // requests
+        lsu_res_reqs[lsu][rss]       = res_reqs[res_if];
+        lsu_res_reqs_valid[lsu][rss] = res_reqs_valid[res_if];
+        res_reqs_ready[res_if]       = lsu_res_reqs_ready[lsu][rss];
+        // responses
+        res_rsps[res_if]             = lsu_res_rsps[lsu][rss];
+        res_rsps_valid[res_if]       = lsu_res_rsps_valid[lsu][rss];
+        lsu_res_rsps_ready[lsu][rss] = res_rsps_ready[res_if];
+
+        res_if = res_if + 1;
+      end
+    end
+    for (int fpu = 0; fpu < NofFpus; fpu++) begin
+      for (int rss = 0; rss < FpuNofRss; rss++) begin
+        // requests
+        fpu_res_reqs[fpu][rss]       = res_reqs[res_if];
+        fpu_res_reqs_valid[fpu][rss] = res_reqs_valid[res_if];
+        res_reqs_ready[res_if]       = fpu_res_reqs_ready[fpu][rss];
+        // responses
+        res_rsps[res_if]             = fpu_res_rsps[fpu][rss];
+        res_rsps_valid[res_if]       = fpu_res_rsps_valid[fpu][rss];
+        fpu_res_rsps_ready[fpu][rss] = res_rsps_ready[res_if];
+
+        res_if = res_if + 1;
+      end
+    end
+  end
+
+  // ---------------------------
+  // Operand distribution network - request xbar
+  // ---------------------------
+  res_req_t     [NofOperandIfs-1:0] op_reqs_requests;
+  producer_id_t [NofOperandIfs-1:0] op_reqs_producers;
+  for (genvar i = 0; i < NofOperandIfs; i++) begin : gen_flatten_op_reqs
+    assign op_reqs_requests[i]  = op_reqs[i].request;
+    assign op_reqs_producers[i] = op_reqs[i].producer;
+  end
+  stream_xbar #(
+    .NumInp     (NofOperandIfs),
+    .NumOut     (NofResultIfs),
+    .payload_t  (res_req_t),
+    .OutSpillReg(0),
+    .ExtPrio    (0),
+    .AxiVldRdy  (0),
+    .LockIn     (0),
+    .AxiVldMask ('0)
+  ) i_request_xbar (
+    .clk_i,
+    .rst_ni (~rst_i),
+    .flush_i('0),
+    .rr_i   ('0),
+    .data_i (op_reqs_requests),
+    .sel_i  (op_reqs_producers),
+    .valid_i(op_reqs_valid),
+    .ready_o(op_reqs_ready),
+    .data_o (res_reqs),
+    .idx_o  (),
+    .valid_o(res_reqs_valid),
+    .ready_i(res_reqs_ready)
+  );
+
+  // ---------------------------
+  // Operand distribution network - response xbar
+  // ---------------------------
+  operand_t    [NofResultIfs-1:0] res_rsps_operands;
+  operand_id_t [NofResultIfs-1:0] res_rsps_consumers;
+  for (genvar i = 0; i < NofResultIfs; i++) begin : gen_flatten_res_rsps
+    assign res_rsps_operands[i]  = res_rsps[i].operand;
+    assign res_rsps_consumers[i] = res_rsps[i].consumer;
+  end
+  stream_xbar #(
+    .NumInp     (NofResultIfs),
+    .NumOut     (NofOperandIfs),
+    .payload_t  (operand_t),
+    .OutSpillReg(0),
+    .ExtPrio    (0),
+    .AxiVldRdy  (0),
+    .LockIn     (0),
+    .AxiVldMask ('0)
+  ) i_response_xbar (
+    .clk_i,
+    .rst_ni (~rst_i),
+    .flush_i('0),
+    .rr_i   ('0),
+    .data_i (res_rsps_operands),
+    .sel_i  (res_rsps_consumers),
+    .valid_i(res_rsps_valid),
+    .ready_o(res_rsps_ready),
+    .data_o (op_rsps),
+    .idx_o  (),
+    .valid_o(op_rsps_valid),
+    .ready_i(op_rsps_ready)
+  );
 
   // ---------------------------
   // ALUs
@@ -206,8 +437,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     logic        alu_result_ready;
     logic        alu_busy;
 
-    rs_id_t rs_id;
-    assign rs_id = AluRsIdOffset + alu;
+    producer_id_t producer_start_id;
+    operand_id_t  op_start_id;
+    assign producer_start_id = producer_id_t'(AluRsIdOffset + alu * AluNofRss);
+    assign op_start_id       = operand_id_t'(AluOpIdOffset + alu * AluNofRss * AluNofOperands);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -220,9 +453,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
-      .rs_id_t       (rs_id_t),
-      .rss_id_t      (rss_id_t),
       .producer_id_t (producer_id_t),
+      .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -231,7 +463,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
       /// RS control signals
-      .rs_id_i         (rs_id),
+      .producer_id_i   (producer_start_id),
+      .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
       .lep_iterations_i(lep_iterations_i),
@@ -260,18 +493,18 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .wb_result_valid_o(alu_wbs_result_valid[alu]),
       .wb_result_ready_i(alu_wbs_result_ready[alu]),
       /// Operand distribution network
-      .op_reqs_o       (),
-      .op_reqs_valid_o (),
-      .op_reqs_ready_i (),
-      .res_reqs_i      (),
-      .res_reqs_valid_i(),
-      .res_reqs_ready_o(),
-      .res_rsps_o      (),
-      .res_rsps_valid_o(),
-      .res_rsps_ready_i(),
-      .op_rsps_i       (),
-      .op_rsps_valid_i (),
-      .op_rsps_ready_o ()
+      .op_reqs_o       (alu_op_reqs[alu]),
+      .op_reqs_valid_o (alu_op_reqs_valid[alu]),
+      .op_reqs_ready_i (alu_op_reqs_ready[alu]),
+      .res_reqs_i      (alu_res_reqs[alu]),
+      .res_reqs_valid_i(alu_res_reqs_valid[alu]),
+      .res_reqs_ready_o(alu_res_reqs_ready[alu]),
+      .res_rsps_o      (alu_res_rsps[alu]),
+      .res_rsps_valid_o(alu_res_rsps_valid[alu]),
+      .res_rsps_ready_i(alu_res_rsps_ready[alu]),
+      .op_rsps_i       (alu_op_rsps[alu]),
+      .op_rsps_valid_i (alu_op_rsps_valid[alu]),
+      .op_rsps_ready_o (alu_op_rsps_ready[alu])
     );
     assign alu_wbs_result_and_tag[alu].result = alu_wb_result;
     assign alu_wbs_result_and_tag[alu].tag    = alu_wb_result_tag;
@@ -347,8 +580,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     logic        lsu_result_ready;
     logic        lsu_busy;
 
-    rs_id_t rs_id;
-    assign rs_id = LsuRsIdOffset + lsu;
+    producer_id_t producer_start_id;
+    operand_id_t  op_start_id;
+    assign producer_start_id = producer_id_t'(LsuRsIdOffset + lsu * LsuNofRss);
+    assign op_start_id       = operand_id_t'(LsuOpIdOffset + lsu * LsuNofRss * LsuNofOperands);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -361,9 +596,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
-      .rs_id_t       (rs_id_t),
-      .rss_id_t      (rss_id_t),
       .producer_id_t (producer_id_t),
+      .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -372,7 +606,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
       /// RS control signals
-      .rs_id_i         (rs_id),
+      .producer_id_i   (producer_start_id),
+      .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
       .lep_iterations_i(lep_iterations_i),
@@ -401,18 +636,18 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .wb_result_valid_o(lsu_wbs_result_valid[lsu]),
       .wb_result_ready_i(lsu_wbs_result_ready[lsu]),
       /// Operand distribution network
-      .op_reqs_o       (),
-      .op_reqs_valid_o (),
-      .op_reqs_ready_i (),
-      .res_reqs_i      (),
-      .res_reqs_valid_i(),
-      .res_reqs_ready_o(),
-      .res_rsps_o      (),
-      .res_rsps_valid_o(),
-      .res_rsps_ready_i(),
-      .op_rsps_i       (),
-      .op_rsps_valid_i (),
-      .op_rsps_ready_o ()
+      .op_reqs_o       (lsu_op_reqs[lsu]),
+      .op_reqs_valid_o (lsu_op_reqs_valid[lsu]),
+      .op_reqs_ready_i (lsu_op_reqs_ready[lsu]),
+      .res_reqs_i      (lsu_res_reqs[lsu]),
+      .res_reqs_valid_i(lsu_res_reqs_valid[lsu]),
+      .res_reqs_ready_o(lsu_res_reqs_ready[lsu]),
+      .res_rsps_o      (lsu_res_rsps[lsu]),
+      .res_rsps_valid_o(lsu_res_rsps_valid[lsu]),
+      .res_rsps_ready_i(lsu_res_rsps_ready[lsu]),
+      .op_rsps_i       (lsu_op_rsps[lsu]),
+      .op_rsps_valid_i (lsu_op_rsps_valid[lsu]),
+      .op_rsps_ready_o (lsu_op_rsps_ready[lsu])
     );
     assign lsu_wbs_result_and_tag[lsu].result = lsu_wb_result;
     assign lsu_wbs_result_and_tag[lsu].tag    = lsu_wb_result_tag;
@@ -514,8 +749,10 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
     instr_tag_t  fpu_result_tag;
     logic        fpu_busy;
 
-    rs_id_t rs_id;
-    assign rs_id = FpuRsIdOffset + fpu;
+    producer_id_t producer_start_id;
+    operand_id_t  op_start_id;
+    assign producer_start_id = producer_id_t'(FpuRsIdOffset + fpu * FpuNofRss);
+    assign op_start_id       = operand_id_t'(FpuOpIdOffset + fpu * FpuNofRss * FpuNofOperands);
 
     schnizo_fu_block #(
       .disp_req_t    (disp_req_t),
@@ -528,9 +765,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
-      .rs_id_t       (rs_id_t),
-      .rss_id_t      (rss_id_t),
       .producer_id_t (producer_id_t),
+      .operand_id_t  (operand_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -539,7 +775,8 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
       /// RS control signals
-      .rs_id_i         (rs_id),
+      .producer_id_i   (producer_start_id),
+      .op_start_id_i   (op_start_id),
       .restart_i       (restart_i),
       .loop_state_i    (loop_state_i),
       .lep_iterations_i(lep_iterations_i),
@@ -568,18 +805,18 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
       .wb_result_valid_o(fpu_wbs_result_valid[fpu]),
       .wb_result_ready_i(fpu_wbs_result_ready[fpu]),
       /// Operand distribution network
-      .op_reqs_o       (),
-      .op_reqs_valid_o (),
-      .op_reqs_ready_i (),
-      .res_reqs_i      (),
-      .res_reqs_valid_i(),
-      .res_reqs_ready_o(),
-      .res_rsps_o      (),
-      .res_rsps_valid_o(),
-      .res_rsps_ready_i(),
-      .op_rsps_i       (),
-      .op_rsps_valid_i (),
-      .op_rsps_ready_o ()
+      .op_reqs_o       (fpu_op_reqs[fpu]),
+      .op_reqs_valid_o (fpu_op_reqs_valid[fpu]),
+      .op_reqs_ready_i (fpu_op_reqs_ready[fpu]),
+      .res_reqs_i      (fpu_res_reqs[fpu]),
+      .res_reqs_valid_i(fpu_res_reqs_valid[fpu]),
+      .res_reqs_ready_o(fpu_res_reqs_ready[fpu]),
+      .res_rsps_o      (fpu_res_rsps[fpu]),
+      .res_rsps_valid_o(fpu_res_rsps_valid[fpu]),
+      .res_rsps_ready_i(fpu_res_rsps_ready[fpu]),
+      .op_rsps_i       (fpu_op_rsps[fpu]),
+      .op_rsps_valid_i (fpu_op_rsps_valid[fpu]),
+      .op_rsps_ready_o (fpu_op_rsps_ready[fpu])
     );
     assign fpu_wbs_result_and_tag[fpu].result = fpu_wb_result;
     assign fpu_wbs_result_and_tag[fpu].tag    = fpu_wb_result_tag;
