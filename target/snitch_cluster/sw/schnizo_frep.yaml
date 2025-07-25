@@ -9,6 +9,7 @@ runs:
   - elf: ./schnizo/tests/build/sz_intraloop_a_multicycle.elf
   - elf: ./schnizo/tests/build/sz_intraloop_chain.elf
   - elf: ./schnizo/tests/build/sz_intraloop_chain_multicycle.elf
+  - elf: ./schnizo/tests/build/sz_lep_twice.elf
   - elf: ./schnizo/tests/build/sz_loopcarried_a.elf
   - elf: ./schnizo/tests/build/sz_loopcarried_b.elf
   - elf: ./schnizo/tests/build/sz_loopcarried_c.elf
