@@ -11,6 +11,10 @@
 // This test assumes that we have 3 ALUs, 3 LSUs and 1 FPU with at least 2 slots each.
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 20;
     const uint32_t start = 10;
     register volatile uint32_t res asm("t1") = start;

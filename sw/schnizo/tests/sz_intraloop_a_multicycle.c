@@ -12,6 +12,10 @@
 // Same program as sz_intraloop_a but with multicycle instructions.
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 5;
 
     // ---------------------------

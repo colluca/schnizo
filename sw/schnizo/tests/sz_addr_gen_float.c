@@ -28,21 +28,21 @@ int main() {
   double *z_addr = &z[0];
 
   asm volatile (
-      // Code
-      "frep.o  %[n_frep], 7, 0, 0\n"
-      "fld     ft0,   0(%[xa])       \n"
-      "fld     ft1,   0(%[ya])       \n"
-      "fadd.d  ft2,   ft0,     ft1   \n"
-      "fsd     ft2,   0(%[za])       \n"
-      "addi    %[xa], %[xa],   %[inc]\n"
-      "addi    %[ya], %[ya],   %[inc]\n"
-      "addi    %[za], %[za],   %[inc]"
-      // Outputs
-      : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
-      // Inputs
-      : [n_frep]"r"(summedElements-1), [inc]"i"(inc)
-      // Clobbers
-      : "ft0", "ft1", "ft2", "memory"
+    // Code
+    "frep.o  %[n_frep], 7, 0, 0\n"
+    "fld     ft0,   0(%[xa])       \n"
+    "fld     ft1,   0(%[ya])       \n"
+    "fadd.d  ft2,   ft0,     ft1   \n"
+    "fsd     ft2,   0(%[za])       \n"
+    "addi    %[xa], %[xa],   %[inc]\n"
+    "addi    %[ya], %[ya],   %[inc]\n"
+    "addi    %[za], %[za],   %[inc]"
+    // Outputs
+    : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
+    // Inputs
+    : [n_frep]"r"(summedElements-1), [inc]"i"(inc)
+    // Clobbers
+    : "ft0", "ft1", "ft2", "memory"
   );
 
   // check the sum

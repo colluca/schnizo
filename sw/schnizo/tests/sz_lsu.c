@@ -15,6 +15,10 @@ double x[NofElements] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 double sum_exp = 136; // the sum of all integers from 1 to 16
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = NofElements;
     register volatile double res asm("ft1") = 0;
     // switch addi and fld and add constant fld offset -> subtract two elements

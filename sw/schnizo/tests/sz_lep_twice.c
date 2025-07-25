@@ -9,6 +9,10 @@
 // Test that two successive FREP loops work properly.
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 20;
     const uint32_t start = 10;
     register volatile uint32_t res asm("t1") = start;

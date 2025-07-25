@@ -9,6 +9,10 @@
 // Test wether we properly fall back into HW loop mode if we encounter a branch instruction.
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 20;
     const uint32_t start = 10;
     register volatile uint32_t res asm("t1") = start;

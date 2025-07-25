@@ -10,6 +10,9 @@
 // Test if we can read and set the FREP config CSR.
 
 int main() {
+  if (!snrt_is_compute_core()) {
+    return 0;
+  }
 
   frep_mem_consistency_e mode;
   mode = szrt_frep_mem_consistency();

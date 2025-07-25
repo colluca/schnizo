@@ -31,6 +31,10 @@
 #define LEN 10
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = LEN;
     const uint32_t initial = 2;
 

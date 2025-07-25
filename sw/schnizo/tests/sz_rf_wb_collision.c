@@ -11,6 +11,10 @@
 // This test requires at least two ALUs to be meaningful.
 
 int main() {
+  if (!snrt_is_compute_core()) {
+    return 0;
+}
+
   int n_reps = 5;
 
   uint32_t x_start = 22;

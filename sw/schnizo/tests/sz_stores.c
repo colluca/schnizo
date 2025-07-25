@@ -29,6 +29,10 @@
 uint32_t storage_location = 32;
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 10;
     const uint32_t new_value = 42;
     uint32_t old_value;

@@ -9,6 +9,10 @@
 // Test that if we run out of reservation station slots we fall back on a regular hw loop mechanism.
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 10;
     const uint32_t start = 10;
     register volatile uint32_t res asm("t1") = start;

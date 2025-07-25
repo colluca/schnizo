@@ -16,6 +16,10 @@
 uint32_t x = 314159;
 
 int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
     const uint32_t n_reps = 5;
     uint32_t* ptr = &x - 1; // offset ptr for addi instruction
 
