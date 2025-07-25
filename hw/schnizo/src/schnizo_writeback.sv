@@ -68,12 +68,12 @@ module schnizo_writeback import schnizo_pkg::*; #(
   output logic            acc_result_ready_o,
 
   // Register file interface
-  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_o,
-  logic [NrIntWritePorts-1:0][XLEN-1:0]        gpr_wdata_o,
-  logic [NrIntWritePorts-1:0]                  gpr_we_o,
-  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_o,
-  logic [NrFpWritePorts-1:0][FLEN-1:0]         fpr_wdata_o,
-  logic [NrFpWritePorts-1:0]                   fpr_we_o,
+  output logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_o,
+  output logic [NrIntWritePorts-1:0][XLEN-1:0]        gpr_wdata_o,
+  output logic [NrIntWritePorts-1:0]                  gpr_we_o,
+  output logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_o,
+  output logic [NrFpWritePorts-1:0][FLEN-1:0]         fpr_wdata_o,
+  output logic [NrFpWritePorts-1:0]                   fpr_we_o,
 
   // Core Events
   output logic retired_single_cycle_o,
