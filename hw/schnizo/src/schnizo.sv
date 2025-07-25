@@ -723,7 +723,13 @@ module schnizo import schnizo_pkg::*; #(
     .Xdma        (Xdma),
     .VMSupport   (0),
     .issue_req_t (issue_req_t),
-    .result_tag_t(instr_tag_t)
+    .result_tag_t(instr_tag_t),
+    .NofAlus     (NofAlus),
+    .AluNofRss   (AluNofRss),
+    .NofLsus     (NofLsus),
+    .LsuNofRss   (LsuNofRss),
+    .NofFpus     (NofFpus),
+    .FpuNofRss   (FpuNofRss)
   ) i_csr (
     .clk_i(clk_i),
     .rst_i(rst_i),

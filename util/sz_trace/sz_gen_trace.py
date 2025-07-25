@@ -211,6 +211,7 @@ CSR_NAMES = {
     0x7b1: 'dpc',
     0x7b2: 'dscratch',
     0x7c2: 'cluster_barrier',
+    0x7c4: 'frep_config',
     0xb00: CSR_MCYCLE,
     0xb02: 'minstret',
     0xb03: 'mhpmcounter3',

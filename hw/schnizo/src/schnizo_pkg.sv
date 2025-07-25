@@ -153,6 +153,11 @@ package schnizo_pkg;
   } priv_lvl_t;
 
   // ---------------------------
+  // FREP CSR
+  // ---------------------------
+  parameter logic [11:0] CSR_FREP = 12'h7c4;
+
+  // ---------------------------
   // Remains from Snitch for unused inputs
   // ---------------------------
   // Virtual Memory

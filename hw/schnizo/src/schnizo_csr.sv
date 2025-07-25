@@ -42,6 +42,12 @@
 //     Therefore, the side effect is implemented in the READ part of the CSR module.
 //     Reading this CSR sets the barrier_stall signal. It is reset when the core external
 //     signal "barrier_stall_i" is set.
+// - FREP: Custom register to read current HW configuration for superscalar FREP mode
+//    This register contains information about the number of functional units and slots per FU.
+//    It contains the information for ALUs, LSUs and FPUs. Each FU has (5,4) bits for number of
+//    slots and number of functional units. The 32-bit format is:
+//  |    31:27 |         26:22 |    21:18 |         17:13 |     12:9 |           8:4 |      3:0 |
+//  | Reserved | Nof FPU Slots | Nof FPUs | Nof LSU Slots | Nof LSUs | Nof ALU Slots | Nof ALUs |
 //
 // Deviations from the Snitch design:
 // - CsrMseg: Is not implemented as it is SSR (stream sematic register) specific.
@@ -73,7 +79,14 @@ module schnizo_csr import schnizo_pkg::*; #(
   /// Enable virtual memory support.
   parameter bit          VMSupport    = 0,
   parameter type         issue_req_t  = logic,
-  parameter type         result_tag_t = logic
+  parameter type         result_tag_t = logic,
+  // Parameter for custom FREP CSR
+  parameter int unsigned NofAlus      = 3,
+  parameter int unsigned AluNofRss    = 2,
+  parameter int unsigned NofLsus      = 3,
+  parameter int unsigned LsuNofRss    = 3,
+  parameter int unsigned NofFpus      = 3,
+  parameter int unsigned FpuNofRss    = 3
 ) (
   input  logic      clk_i,
   input  logic      rst_i,
@@ -273,6 +286,16 @@ module schnizo_csr import schnizo_pkg::*; #(
     logic [21:0] ppn;
   } satp_t;
 
+  // The format of the FREP CSR
+  typedef struct packed {
+    logic [4:0] FpuSlots;
+    logic [3:0] Fpus;
+    logic [4:0] LsuSlots;
+    logic [3:0] Lsus;
+    logic [4:0] AluSlots;
+    logic [3:0] Alus;
+  } frep_config_t;
+
   // ---------------------------
   // CSR control signals
   // ---------------------------
@@ -381,6 +404,20 @@ module schnizo_csr import schnizo_pkg::*; #(
   logic [63:0] instret_q;
   `FFAR(cycle_q, cycle_q + 1, '0, clk_i, rst_i)
   `FFLAR(instret_q, instret_q + 1, instr_retired_i, '0, clk_i, rst_i)
+
+  // ---------------------------
+  // FREP Config
+  // ---------------------------
+  frep_config_t frep_config;
+
+  assign frep_config = '{
+    FpuSlots: FpuNofRss[4:0],
+    Fpus:     NofFpus[3:0],
+    LsuSlots: LsuNofRss[4:0],
+    Lsus:     NofLsus[3:0],
+    AluSlots: AluNofRss[4:0],
+    Alus:     NofAlus[3:0]
+  };
 
   // ---------------------------
   // CSR operand control
@@ -578,6 +615,10 @@ module schnizo_csr import schnizo_pkg::*; #(
             barrier_stall_d = 1'b1;
             barrier_o = 1'b1; // Signal that we entered the barrier stall.
           end
+        end
+        // Custom FREP config register
+        schnizo_pkg::CSR_FREP: begin
+          csr_rdata = {{XLEN - $bits(frep_config_t){1'b0}}, frep_config};
         end
         riscv_instr::CSR_MCYCLE: begin
           csr_rdata = cycle_q[31:0];
