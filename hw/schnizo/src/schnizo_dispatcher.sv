@@ -126,7 +126,6 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // ---------------------------
   // Signal valid to the FU we want the instruction to dispatch into.
   // Select the appropriate response channel.
-  logic       disp_req_valid;
   logic       fu_ready;
   logic       fu_rs_full;
   disp_rsp_t  fu_response;
@@ -136,7 +135,6 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   logic               csr_disp_req_valid_raw;
   logic [NofFpus-1:0] fpu_disp_req_valid_raw;
   logic               acc_disp_req_valid_raw;
-  logic               none_disp_req_valid_raw;
 
   // FU selection counters
   logic [NofAlusW-1:0] alu_idx;
@@ -149,16 +147,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // This FU selection must occur always independently of the validity of the instruction and it
   // may never combine any signals with the valid signal. This is required because this block can
   // generate errors which will kill the instruction and therefore a loop would be created.
-  always_comb begin : fu_selection
+  always_comb begin : fu_selection_disp
     alu_disp_req_valid_raw  = '0;
     lsu_disp_req_valid_raw  = '0;
     csr_disp_req_valid_raw  = 1'b0;
     fpu_disp_req_valid_raw  = '0;
     acc_disp_req_valid_raw  = 1'b0;
-    none_disp_req_valid_raw = 1'b0;
-    fu_response = '0;
-    fu_ready    = 1'b0;
-    fu_rs_full  = 1'b0;
 
     acc_req_o           = '0;
     acc_req_o.id        = instr_dec_i.rd; // TODO: currently only GPR address supported
@@ -168,33 +162,19 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch instructions
         alu_disp_req_valid_raw[0] = 1'b1;
-        fu_response               = alu_disp_rsp_i[0];
-        fu_ready                  = alu_disp_req_ready_i[0];
-        fu_rs_full                = alu_rs_full_i[0];
       end
       schnizo_pkg::ALU: begin
         alu_disp_req_valid_raw[alu_idx] = 1'b1;
-        fu_response                     = alu_disp_rsp_i[alu_idx];
-        fu_ready                        = alu_disp_req_ready_i[alu_idx];
-        fu_rs_full                      = alu_rs_full_i[alu_idx];
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
         lsu_disp_req_valid_raw[lsu_idx] = 1'b1;
-        fu_response                     = lsu_disp_rsp_i[lsu_idx];
-        fu_ready                        = lsu_disp_req_ready_i[lsu_idx];
-        fu_rs_full                      = lsu_rs_full_i[lsu_idx];
       end
       schnizo_pkg::CSR : begin
         csr_disp_req_valid_raw = 1'b1;
-        // There is no response because there is no reservation station.
-        fu_ready               = csr_disp_req_ready_i;
       end
       schnizo_pkg::FPU: begin
         fpu_disp_req_valid_raw[fpu_idx] = 1'b1;
-        fu_response                     = fpu_disp_rsp_i[fpu_idx];
-        fu_ready                        = fpu_disp_req_ready_i[fpu_idx];
-        fu_rs_full                      = fpu_rs_full_i[fpu_idx];
       end
       schnizo_pkg::MULDIV: begin
         acc_disp_req_valid_raw = 1'b1;
@@ -202,8 +182,6 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         acc_req_o.data_arga    = instr_fu_data_i.operand_a;
         acc_req_o.data_argb    = instr_fu_data_i.operand_b;
         acc_req_o.data_argc    = '0; // unused for shared muldiv
-        // no dispatch response
-        fu_ready               = acc_disp_req_ready_i;
       end
       schnizo_pkg::DMA: begin
         acc_disp_req_valid_raw = 1'b1;
@@ -211,12 +189,59 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         acc_req_o.data_arga    = instr_fu_data_i.operand_a;
         acc_req_o.data_argb    = instr_fu_data_i.operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
+      end
+      schnizo_pkg::NONE: begin
+        // No FU selected, do nothing.
+      end
+      default: begin
+        // CRASH - should never happen as long as decoder returns valid decoding.
+        // TODO: handle crash
+      end
+    endcase
+  end
+
+  always_comb begin : fu_selection_ready
+    fu_response = '0;
+    fu_ready    = 1'b0;
+    fu_rs_full  = 1'b0;
+
+    unique case(instr_dec_i.fu)
+      schnizo_pkg::CTRL_FLOW: begin
+        // always select ALU0 for branch instructions
+        fu_response               = alu_disp_rsp_i[0];
+        fu_ready                  = alu_disp_req_ready_i[0];
+        fu_rs_full                = alu_rs_full_i[0];
+      end
+      schnizo_pkg::ALU: begin
+        fu_response                     = alu_disp_rsp_i[alu_idx];
+        fu_ready                        = alu_disp_req_ready_i[alu_idx];
+        fu_rs_full                      = alu_rs_full_i[alu_idx];
+      end
+      schnizo_pkg::LOAD,
+      schnizo_pkg::STORE: begin
+        fu_response                     = lsu_disp_rsp_i[lsu_idx];
+        fu_ready                        = lsu_disp_req_ready_i[lsu_idx];
+        fu_rs_full                      = lsu_rs_full_i[lsu_idx];
+      end
+      schnizo_pkg::CSR : begin
+        // There is no response because there is no reservation station.
+        fu_ready               = csr_disp_req_ready_i;
+      end
+      schnizo_pkg::FPU: begin
+        fu_response                     = fpu_disp_rsp_i[fpu_idx];
+        fu_ready                        = fpu_disp_req_ready_i[fpu_idx];
+        fu_rs_full                      = fpu_rs_full_i[fpu_idx];
+      end
+      schnizo_pkg::MULDIV: begin
+        // no dispatch response
+        fu_ready               = acc_disp_req_ready_i;
+      end
+      schnizo_pkg::DMA: begin
         // no dispatch response
         fu_ready               = acc_disp_req_ready_i;
       end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
-        none_disp_req_valid_raw = 1'b1;
         fu_ready                = 1'b1;
       end
       default: begin
@@ -240,7 +265,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   assign dispatched = instr_exec_commit_i & fu_ready;
 
   // Signal back the dispatch
-  assign dispatch_ready_o = dispatched; // valid signal is factored in via disp_req_valid
+  assign dispatch_ready_o = dispatched;
 
   // Asserted if the currently selected FU has no empty RSS.
   assign rs_full_o = fu_rs_full;
