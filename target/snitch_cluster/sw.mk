@@ -109,6 +109,7 @@ SNRT_APPS += sw/apps/j3d27pt
 SNRT_APPS += sw/schnizo/sz_sum
 SNRT_APPS += sw/schnizo/sz_axpy
 SNRT_APPS += sw/schnizo/sz_dot
+SNRT_APPS += sw/schnizo/sz_gemm
 
 # Include Makefile from each app subdirectory
 $(foreach app,$(SNRT_APPS), \
