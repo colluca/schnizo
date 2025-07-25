@@ -34,6 +34,7 @@ static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
 
     asm volatile (
         // Code
+        "csrr    t0,    mcycle\n"
         "frep.o  %[n_frep], 7, 0, 0\n"
         "fld     ft0,   0(%[xa])          \n"
         "fld     ft1,   0(%[ya])          \n"
@@ -43,12 +44,13 @@ static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
         // Swap x and y such that z is on its own ALU (ALU1) (if 2 ALUs)
         "addi    %[za], %[za],   %[inc]   \n" // ALU 1.0
         "addi    %[ya], %[ya],   %[inc]   \n" // ALU 0.1
+        "csrr    t0,    mcycle\n"
         // Outputs
         : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
         // Inputs
         : [n_frep]"r"(frac-1), [a]"f"(a), [inc]"i"(inc)
         // Clobbers
-        : "ft0", "ft1", "memory"
+        : "t0", "ft0", "ft1", "memory"
     );
 
     snrt_fpu_fence();
