@@ -20,6 +20,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
+  // How many slots in parallel can request / capture operands.
+  parameter int unsigned NofOpPorts     = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
@@ -83,9 +85,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   /// Operand distribution network
   // Operand request interface - outgoing - request a result as operand
-  output operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs_o,
-  output logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid_o,
-  input  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready_i,
+  output operand_req_t [NofOpPorts-1:0][NofOperands-1:0] op_reqs_o,
+  output logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_valid_o,
+  input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
   input  dest_mask_t [NofRss-1:0] res_reqs_i,
@@ -101,9 +103,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic     [NofRss-1:0] res_rsps_ready_i,
 
   // Operand response interface - incoming - returning result as operand
-  input  operand_t [NofRss-1:0][NofOperands-1:0] op_rsps_i,
-  input  logic     [NofRss-1:0][NofOperands-1:0] op_rsps_valid_i,
-  output logic     [NofRss-1:0][NofOperands-1:0] op_rsps_ready_o
+  input  operand_t [NofOpPorts-1:0][NofOperands-1:0] op_rsps_i,
+  input  logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_valid_i,
+  output logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_ready_o
 );
   // ---------------------------
   // Reservation Station definitions
@@ -135,6 +137,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic [NofRssWidth-1:0] result_idx;
 
   // Operand distribution network
+  // These internal signals are for each slot and are MUXed below to the number of operand ports.
   operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs;
   logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid;
   logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready;
@@ -169,8 +172,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   for (genvar rss = 0; rss < NofRss; rss = rss + 1) begin : gen_rss
     producer_id_t rss_id;
     assign rss_id = producer_id_t'(producer_id_i + rss);
-    operand_id_t op_start_id;
-    assign op_start_id = operand_id_t'(op_start_id_i + rss * NofOperands);
 
     schnizo_res_stat_slot #(
       .NofOperands  (NofOperands),
@@ -196,7 +197,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
       .own_producer_id_i    (rss_id),
-      .op_start_id_i        (op_start_id),
       .res_iter_o           (res_iters_o[rss]),
       .retired_o            (rss_retiring[rss]),
 
@@ -239,13 +239,53 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // ---------------------------
   // Operand Distribution Network
   // ---------------------------
-  // Here we connect the RSSs to the crossbar networks. For now we use a full crossbar,
-  // i.e., each RSS operand has a dedicated crossbar port. This is probably too expensive
-  // and arbiters can be added here.
-  assign op_reqs_o       = op_reqs;
-  assign op_reqs_valid_o = op_reqs_valid;
-  assign op_reqs_ready   = op_reqs_ready_i;
+  // Here we connect the RSSs to the crossbar networks. A full crossbar where each slot has
+  // dedicated connections for each operand is infeasible. We thus only provide a certain
+  // amount of ports. One port features a connection for all operands, i.e., can serve one slot
+  // at a time. We always connect the currently active slot on port 0. Any other port can be used
+  // to "prerequest" operands but this not implemented yet.
 
+  // Select which RSS currently can place requests based on which RSS is scheduled to dispatch.
+  // In case the dispatch index overflows (we are full), tie down any signals to a default value.
+  logic sel_rss_valid;
+  assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
+  logic [NofRssWidth-1:0] sel_rss;
+  assign sel_rss = sel_rss_valid ? disp_idx : '0;
+
+  always_comb begin : op_req_gen
+    op_reqs_o        = '0;
+    op_reqs_valid_o  = '0;
+    op_reqs_ready    = '0;
+    op_rsps          = '0;
+    op_rsps_valid    = '0;
+    op_rsps_ready_o  = '0;
+
+    for (int port = 0; port < NofOpPorts; port++) begin
+      if (port == 0) begin
+        for (int op = 0; op < NofOperands; op++) begin
+          // Request
+          op_reqs_o[port][op] = op_reqs[sel_rss][op];
+          // Update consumer id to match it to the port
+          op_reqs_o[port][op].request.consumer = operand_id_t'(op_start_id_i +
+                                                               (port * NofOperands) + op);
+          // Tie down if RSS selection is not valid
+          op_reqs_valid_o[port][op]  = op_reqs_valid[sel_rss][op] & sel_rss_valid;
+          op_reqs_ready[sel_rss][op] = op_reqs_ready_i[sel_rss][op] & sel_rss_valid;
+          // Response
+          op_rsps[sel_rss][op]       = op_rsps_i[port][op];
+          op_rsps_valid[sel_rss][op] = op_rsps_valid_i[port][op] & sel_rss_valid;
+          op_rsps_ready_o[port][op]  = op_rsps_ready[sel_rss][op] & sel_rss_valid;
+        end
+      end else begin
+        // We only support one port currently
+        op_reqs_o[port]       = '0;
+        op_reqs_valid_o[port] = '0;
+        op_rsps_ready_o[port] = '0;
+      end
+    end
+  end
+
+  // For now we keep that each slot has a dedicated connection.
   assign res_reqs         = res_reqs_i;
   assign res_reqs_valid   = res_reqs_valid_i;
   assign res_reqs_ready_o = res_reqs_ready;
@@ -253,10 +293,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   assign res_rsps_o       = res_rsps;
   assign res_rsps_valid_o = res_rsps_valid;
   assign res_rsps_ready   = res_rsps_ready_i;
-
-  assign op_rsps         = op_rsps_i;
-  assign op_rsps_valid   = op_rsps_valid_i;
-  assign op_rsps_ready_o = op_rsps_ready;
 
   // ---------------------------
   // LxP Controller

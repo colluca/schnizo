@@ -17,6 +17,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
+  // The number of operand request / response ports to the operand distribution network.
+  // 1 port has a connection for each operand.
+  parameter int unsigned NofOpPorts     = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
@@ -77,9 +80,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
 
   /// Operand distribution network
   // Operand request interface - outgoing - request a result as operand
-  output operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs_o,
-  output logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid_o,
-  input  logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready_i,
+  output operand_req_t [NofOpPorts-1:0][NofOperands-1:0] op_reqs_o,
+  output logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_valid_o,
+  input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
   input  dest_mask_t [NofRss-1:0] res_reqs_i,
@@ -95,9 +98,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic     [NofRss-1:0] res_rsps_ready_i,
 
   // Operand response interface - incoming - returning result as operand
-  input  operand_t [NofRss-1:0][NofOperands-1:0] op_rsps_i,
-  input  logic     [NofRss-1:0][NofOperands-1:0] op_rsps_valid_i,
-  output logic     [NofRss-1:0][NofOperands-1:0] op_rsps_ready_o
+  input  operand_t [NofOpPorts-1:0][NofOperands-1:0] op_rsps_i,
+  input  logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_valid_i,
+  output logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_ready_o
 );
   // Module global switch between regular execution and superscalar path
   logic sel_lxp_path;
@@ -239,6 +242,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   schnizo_res_stat #(
     .NofRss        (NofRss),
     .NofOperands   (NofOperands),
+    .NofOpPorts    (NofOpPorts),
     .ConsumerCount (ConsumerCount),
     .RegAddrWidth  (RegAddrWidth),
     .MaxIterationsW(MaxIterationsW),

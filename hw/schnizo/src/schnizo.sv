@@ -211,15 +211,16 @@ module schnizo import schnizo_pkg::*; #(
   // RSS definitions / parameters
   // ---------------------------
   localparam int unsigned NofAlus = 3;
-  // localparam int unsigned NofLsus = 1;
+  // localparam int unsigned NofLsus = 1; // defined via cluster config / SSR config
   localparam int unsigned NofFpus = 1;
 
-  localparam integer unsigned AluNofRss      = 3;
   localparam integer unsigned AluNofOperands = 2;
-  localparam integer unsigned LsuNofRss      = 4;
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
-  localparam integer unsigned FpuNofRss      = 2;
   localparam integer unsigned FpuNofOperands = 3;
+
+  localparam integer unsigned AluNofRss      = 3;
+  localparam integer unsigned LsuNofRss      = 4;
+  localparam integer unsigned FpuNofRss      = 2;
 
   // ---------------------------
   // Operand distribution network definitions
@@ -229,14 +230,24 @@ module schnizo import schnizo_pkg::*; #(
   // Result Interface:  This is a Xbar slave receiving result requests and has a corresponding
   //                    result response master.
   //
-  // To start we go with a full blown Xbar where:
-  // - each operand of each RSS has an operand master
+  // A full blown crossbar is infeasible for more than 14 total slots.
+  // Therefore we reduce the number of operand interfaces to one per operand per reservation station.
+  // We thus have:
+  // - each operand of each Reservation station has an operand master (1 port)
   // - each RSS has an own result master
-  localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofRss;
+
+  // Define how many operand request / response ports each RS has.
+  // A port includes a set of xbar in/outputs for each operand.
+  // I.e. if the ALU has 2 operands, 1 port generates 2 operand interfaces
+  localparam integer unsigned AluNofOpPorts = 1;
+  localparam integer unsigned LsuNofOpPorts = 1;
+  localparam integer unsigned FpuNofOpPorts = 1;
+
+  localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
   localparam integer unsigned AluNofResultIfs  = AluNofRss;
-  localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofRss;
+  localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
   localparam integer unsigned LsuNofResultIfs  = LsuNofRss;
-  localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofRss;
+  localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
   localparam integer unsigned FpuNofResultIfs  = FpuNofRss;
 
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
@@ -246,6 +257,7 @@ module schnizo import schnizo_pkg::*; #(
                                               NofLsus * LsuNofResultIfs +
                                               NofFpus * FpuNofResultIfs;
 
+  // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
   localparam integer unsigned NofResultIfsW  = cf_math_pkg::idx_width(NofResultIfs);
 
@@ -600,12 +612,15 @@ module schnizo import schnizo_pkg::*; #(
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
+    .AluNofOpPorts      (AluNofOpPorts),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
     .LsuNofOperands     (LsuNofOperands),
+    .LsuNofOpPorts      (LsuNofOpPorts),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
     .FpuNofOperands     (FpuNofOperands),
+    .FpuNofOpPorts      (FpuNofOpPorts),
     .NofOperandIfs      (NofOperandIfs),
     .NofResultIfs       (NofResultIfs),
     .XLEN               (XLEN),

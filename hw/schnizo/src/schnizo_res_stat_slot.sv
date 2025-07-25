@@ -42,8 +42,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic         is_last_result_iter_i,
   // ID of RSS to place operand requests. This ID must be static.
   input  producer_id_t own_producer_id_i,
-  // ID of operand 0. Operand 1,.. are consecutive.
-  input  operand_id_t  op_start_id_i,
   // The current result iteration state
   output logic         res_iter_o,
   // Asserted in the cycle the instruction retires.
@@ -391,7 +389,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
           // Invert the iteration flag if we desire the result from the previous loop iteration
           requested_iter: slot_op.operands[op].is_from_current_iter ?  slot_op.instruction_iter :
                                                                       ~slot_op.instruction_iter,
-          consumer:       operand_id_t'(op_start_id_i + op)
+          consumer:       '0 // no need to set consumer ID. It will be set by the RS operand port.
         }
       };
 
