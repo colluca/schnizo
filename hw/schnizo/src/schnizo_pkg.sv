@@ -167,4 +167,19 @@ package schnizo_pkg;
     /// Virtual Page Number 0
     logic [PageShift+VpnSize-1:PageShift] vpn0;
   } va_t;
+
+  // ---------------------------
+  // FREP control
+  // ---------------------------
+  // The Bodysize and max iterations depend on the instruction encoding.
+  parameter int unsigned FREP_BODYSIZE_WIDTH = 12;
+  parameter int unsigned FREP_MAXITERS_WIDTH = 5+1; // +1 bit to convert Snitch FREP iters
+
+  typedef enum logic [2:0] {
+    LoopRegular, // regular execution
+    LoopHwLoop,  // regular hw loop execution
+    LoopLcp1,    // loop construction phase 1
+    LoopLcp2,    // loop construction phase 2
+    LoopLep      // loop execution phase
+  } loop_state_e;
 endpackage

@@ -96,6 +96,15 @@ module schnizo_decoder import schnizo_pkg::*; #(
     logic [6:0]   opcode;
   } atype_t;  // atomic
 
+  typedef struct packed {
+    logic [31:20] max_instr;
+    logic [19:15] max_iters;
+    logic [14:12] stagger_max; // only for snitch
+    logic [11:8]  stagger_mask; // only for snitch
+    logic         is_outer;
+    logic [6:0]   opcode;
+  } freptype_t;  // FREP
+
   typedef union packed {
     logic [31:0] instr;
     rtype_t      rtype;
@@ -105,6 +114,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
     stype_t      stype;
     utype_t      utype;
     atype_t      atype;
+    freptype_t   freptype;
   } instruction_t;
 
   // --------------------
@@ -214,6 +224,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
     instr_dec_o.is_mret    = 1'b0;
     instr_dec_o.is_sret    = 1'b0;
     instr_dec_o.is_wfi     = 1'b0;
+    instr_dec_o.is_frep       = 1'b0;
+    instr_dec_o.frep_bodysize = '0;
+    instr_dec_o.frep_iters    = '0;
 
     check_fpround_mode = 1'b0;
 
@@ -832,7 +845,14 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // Frep extension instructions
       // --------------------------------
       OpcodeCustom0: begin
-        illegal_instr = 1'b1;
+        if (instr.freptype.is_outer) begin
+          instr_dec_o.is_frep = 1'b1;
+          instr_dec_o.frep_bodysize = instr.freptype.max_instr;
+          // We add +1 because FREP with iters=a means a+1 iterations. Schnizo uses a=a iteration
+          instr_dec_o.frep_iters = instr.freptype.max_iters + 1;
+        end else begin
+          illegal_instr = 1'b1;
+        end
       end
       // --------------------------------
       // Atomic instructions

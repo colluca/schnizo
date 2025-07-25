@@ -186,6 +186,10 @@ module schnizo import schnizo_pkg::*; #(
     logic                     is_mret;
     logic                     is_sret;
     logic                     is_wfi;
+    // FREP extension
+    logic                           is_frep;
+    logic [FREP_BODYSIZE_WIDTH-1:0] frep_bodysize;
+    logic [FREP_MAXITERS_WIDTH-1:0] frep_iters;
   } instr_dec_t;
 
   // !! The OpLen parameters are not always sign extended by the read_operands module !!
