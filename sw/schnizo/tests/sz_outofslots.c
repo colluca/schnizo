@@ -25,17 +25,19 @@ int main() {
         // loop
         "frep.o %[n_frep], 12,     0,     0\n"
         "add    %[res],    %[res], %[inc]  \n"
-        "nop\n" // translated to addi x0, x0, 0
-        "nop\n"
-        "nop\n"
-        "add %[res], %[res], %[inc]\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "add %[res], %[res], %[inc]\n"
-        "nop\n"
-        "nop\n"
-        "nop"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
+        "add    %[res],    %[res], %[inc]  \n"
         // outputs
         : [res]"+r"(res)
         // inputs - FREP repeats n_frep+1 times
@@ -44,7 +46,7 @@ int main() {
         : "t0", "memory"
     );
 
-    if (res != (start + (3 * increment * n_reps))) {
+    if (res != (start + (14 * increment * n_reps))) {
         return 1;
     }
     return 0;
