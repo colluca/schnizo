@@ -283,6 +283,12 @@ module schnizo_controller import schnizo_pkg::*; #(
   // write back into the integer register file.
   assign fcsr_stall = fpr_busy & gpr_busy & is_fcsr_instr & instr_valid_i;
 
+  // Before starting a FREP loop all writebacks must be completed. Reason is that during FREP the
+  // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
+  logic frep_start_stall;
+  assign frep_start_stall = (instr_decoded_i.is_frep & instr_valid_i) ? (fpr_busy | gpr_busy) :
+                                                                        1'b0;
+
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
   // ---------------------------
@@ -308,7 +314,8 @@ module schnizo_controller import schnizo_pkg::*; #(
                                   ~fence_stall    &
                                   ~fence_i_stall  &
                                   ~fcsr_stall     &
-                                  ~loop_stall;
+                                  ~loop_stall     &
+                                  ~frep_start_stall;
 
   // The instruction may only execute if there are no errors/exceptions.
   // This signal controls all stateful updates like RF writes or multi-cycle issues.
