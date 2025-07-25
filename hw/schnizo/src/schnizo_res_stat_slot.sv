@@ -35,8 +35,10 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // If restart is asserted, we initialize the slot. This will also kill all inflight instructions
   // and their potential writeback.
   input  logic         restart_i,
-  // Asserted for last LEP iteration to perform the possible writeback (based on result iteration).
-  input  logic         is_last_lep_i,
+  // Asserted for last LEP dispatch iteration to end the operand fetching.
+  input  logic         is_last_disp_iter_i,
+  // Asserted for last LEP result iteration to perform the possible writeback (based on result iteration).
+  input  logic         is_last_result_iter_i,
   // ID of RSS to place operand requests. This ID must be static.
   input  producer_id_t own_producer_id_i,
   // Asserted in the cycle the instruction retires.
@@ -114,7 +116,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   } rss_result_t;
 
   typedef struct packed  {
-    // Whether the RSS contains an active instruction. Used to detect if we are in LCP1 or LCP2.
+    // Whether the RSS contains an active instruction.
     logic                           is_occupied;
     // How many consumer use the result of this instruction.
     logic [ConsumerCountWidth-1:0]  consumer_count;
@@ -158,10 +160,12 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   typedef enum logic[2:0] {
     Lcp1Init,
     Lcp1Fetch,
+    WaitForLcp1Result,
     Lcp2Init,
     Lcp2Fetch,
     WaitForLcp2Result,
-    Lep
+    Lep,
+    LepFinished
   } rss_state_e;
 
   rs_slot_t slot_lcp1;
@@ -180,6 +184,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   logic                   enable_op_request;
   logic                   enforce_valid_reset;
   logic                   enforce_rf_writeback;
+  logic                   enable_capture_consumers;
   logic                   all_ops_valid;
   logic                   result_consumed;
   logic                   issued;
@@ -192,17 +197,24 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   always_comb begin : rss_state
     state_d = state_q;
 
-    enable_op_request    = 1'b0;
-    enforce_rf_writeback = 1'b0;
+    enable_op_request        = 1'b0;
+    enforce_rf_writeback     = 1'b0;
+    // Set the capture consumer flag when we captured the result of LCP1.
+    // Reset it when we captured the result of LCP2.
+    enable_capture_consumers = 1'b0;
 
     unique case(state_q)
       Lcp1Init: begin
         if (disp_req_valid_i) begin
           enable_op_request    = 1'b1;
           enforce_rf_writeback = 1'b1;
-          state_d           = Lcp1Fetch;
+          state_d              = Lcp1Fetch;
           if (issued) begin
+            state_d = WaitForLcp1Result;
+          end
+          if (retired) begin
             state_d = Lcp2Init;
+            enable_capture_consumers = 1'b1;
           end
         end
       end
@@ -210,39 +222,72 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
         enable_op_request    = 1'b1;
         enforce_rf_writeback = 1'b1;
         if (issued) begin
+          state_d = WaitForLcp1Result;
+        end
+        if (retired) begin
           state_d = Lcp2Init;
+          enable_capture_consumers = 1'b1;
+        end
+      end
+      WaitForLcp1Result: begin
+        enforce_rf_writeback = 1'b1;
+        if (retired) begin
+          state_d = Lcp2Init;
+          enable_capture_consumers = 1'b1;
         end
       end
       Lcp2Init: begin
         // Enforce the writeback for the multicycle LCP1 result. Otherwise the result is lost.
         enforce_rf_writeback = 1'b1;
         // Disable fetching because there could be a new producer for LCP2
+        // Still capture consumers until we receive the LCP2 result
+        enable_capture_consumers = 1'b1;
         if (disp_req_valid_i) begin
           state_d              = Lcp2Fetch;
           enable_op_request    = 1'b1;
           if (issued) begin
-            state_d = retired ? Lep : WaitForLcp2Result;
+            state_d = WaitForLcp2Result;
+          end
+          if (retired) begin
+            enable_capture_consumers = 1'b0;
+            state_d = Lep;
           end
         end
       end
       Lcp2Fetch: begin
         enable_op_request    = 1'b1;
         enforce_rf_writeback = 1'b1; // enabled for LCP1 and LCP2 result
+        // Still capture consumers until we receive the LCP2 result
+        enable_capture_consumers = 1'b1;
         if (issued) begin
-          state_d = retired ? Lep : WaitForLcp2Result;
+          state_d = WaitForLcp2Result;
+        end
+        if (retired) begin
+          enable_capture_consumers = 1'b0;
+          state_d = Lep;
         end
       end
       WaitForLcp2Result: begin
         // we must keep the enforce rf writeback enabled until the result of LCP2 returns.
         enable_op_request    = 1'b1;
         enforce_rf_writeback = 1'b1; // enabled for LCP1 and LCP2 result
+        // Still capture consumers until we receive the LCP2 result
+        enable_capture_consumers = 1'b1;
         if (retired) begin
           state_d = Lep;
+          enable_capture_consumers = 1'b0;
         end
       end
       Lep: begin
         // Wait here. We can fetch everything.
         enable_op_request = 1'b1;
+        if (is_last_disp_iter_i && issued) begin
+          state_d = LepFinished;
+        end
+      end
+      LepFinished: begin
+        // Do not request operands which will never be produced. This leads to deadlocks.
+        enable_op_request = 1'b0;
         // We will only exit LEP when restarting.
       end
       default: ; // use default of above
@@ -316,7 +361,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       Lcp1Fetch,
       Lcp2Fetch,
       WaitForLcp2Result,
-      Lep: ; // Regular update
+      Lep,
+      LepFinished: ; // Regular update
       default: ; // TODO: Crash?
     endcase
 
@@ -425,7 +471,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
                                                 slot_issue.operands[op].is_valid;
       end
 
-      // When we issue the dispatch request is complete
+      // When we issue the instruction, the dispatch request is complete
       disp_req_ready_o = 1'b1;
     end
   end
@@ -434,6 +480,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Capture Result and result request / response handling
   // ---------------------------
   rs_slot_t slot_wb;
+  logic     enable_rf_writeback;
   always_comb begin : result_wb_request_response
     slot_wb = slot_issue;
     // ---------------------------
@@ -481,8 +528,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     rf_wb_tag_o.dest_reg       = slot_wb.dest_id;
     rf_wb_tag_o.dest_reg_is_fp = slot_wb.dest_is_fp;
     // Check if we want to write back to the RF. If so, enable the RF path for the dynamic stream
-    // fork.
-    do_rf_writeback = (slot_wb.do_writeback && is_last_lep_i) || enforce_rf_writeback;
+    // fork. A store has no writeback and the last result iteration is "immediately" reached.
+    enable_rf_writeback = is_last_result_iter_i && !slot_wb.is_store;
+    do_rf_writeback = (slot_wb.do_writeback && enable_rf_writeback) || enforce_rf_writeback;
     wb_sel          = {do_rf_writeback, 1'b1}; // always write back to RSS
 
     // The result is consumed when all consumers read the result once
@@ -508,17 +556,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       //        logic?
       slot_wb.result.value     = slot_wb.is_store ? '0 : result_i;
       slot_wb.consumed_by      = '0;
-
-      // Set the capture consumer flag after LCP1, reset it after LCP2
-      unique case(state_q)
-        Lcp1Init:  if (disp_req_valid_i) slot_wb.do_capture_consumers = 1'b1;
-        Lcp1Fetch: slot_wb.do_capture_consumers = 1'b1;
-        Lcp2Init:  if (disp_req_valid_i) slot_wb.do_capture_consumers = 1'b0;
-        Lcp2Fetch,
-        WaitForLcp2Result: slot_wb.do_capture_consumers = 1'b0;
-        default: ;
-      endcase
     end
+    // This signal is generated in the main FSM.
+    slot_wb.do_capture_consumers = enable_capture_consumers;
   end
 
   // The slot FF update after all manipulations
