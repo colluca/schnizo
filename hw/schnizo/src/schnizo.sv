@@ -884,4 +884,777 @@ module schnizo import schnizo_pkg::*; #(
     .we_i   (fpr_we)
   );
 
+  // --------------------------
+  // Schnizo Tracer
+  // --------------------------
+  // The tracer first extracts all signals of interest and groups them by functional unit.
+  // It also distinguishs between signal groups for regular and FREP exection.
+  // The second part then emits a trace entry if the current signal group is valid (active).
+  // The signal group validity depends on the handshake as well as the core state.
+
+  // pragma translate_off
+
+  typedef struct {
+    priv_lvl_t   priv_level;
+    loop_state_e state;
+    logic        stall;
+    logic        exception;
+  } schnizo_core_trace_t;
+
+  // Returns the header of a trace event. This includes common trace data as well as the first
+  // basic extras. The ending } of the extras is missing.
+  function automatic string format_trace_header(time t, logic[63:0] cycle, priv_lvl_t priv_lvl,
+                                                loop_state_e loop_state, logic stall,
+                                                logic exception);
+    return $sformatf("%t %d %s %s #; {'stall': 0x%0x, 'exception': 0x%0x, ",
+                     t, cycle, schnizo_pkg::priv_lvl_tostring(priv_lvl),
+                     schnizo_pkg::loop_state_tostring(loop_state), stall, exception);
+  endfunction
+
+  typedef struct {
+    logic   valid; // high if handshake happens
+    longint pc_q;
+    longint pc_d;
+    longint instr_data;
+    longint rs1;
+    longint rs2;
+    longint rs3; // for fused FPU instructions
+    longint rd;
+    longint rd_is_fp;
+    longint is_branch; // jal & jalr are handled via pc_d (add goto if pc_d != pc_q + 4)
+    longint branch_taken;
+    // FU selection - with known number of FUs and RSS we can reconstruct which FU it was.
+    // However, not all FUs (CSR, ACC) have a producer id. We provide both informations and the tracer
+    // can select depending on the CPU state.
+    string fu_type;
+    string disp_resp;
+  } schnizo_dispatch_trace_t;
+
+  // Format all dispatch extras as a key value pair list.
+  function automatic string format_dispatch_extras(schnizo_dispatch_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "fu_type", trace.fu_type);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "disp_resp", trace.disp_resp);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "pc_q", trace.pc_q);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "pc_d", trace.pc_d);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "instr_data", trace.instr_data);
+    extras = $sformatf("%s'%s':0x%02x, ", extras, "rs1", trace.rs1);
+    extras = $sformatf("%s'%s':0x%02x, ", extras, "rs2", trace.rs2);
+    extras = $sformatf("%s'%s':0x%02x, ", extras, "rs3", trace.rs3);
+    extras = $sformatf("%s'%s':0x%02x, ", extras, "rd", trace.rd);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.rd_is_fp);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "is_branch", trace.is_branch);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "branch_taken", trace.branch_taken);
+    return extras;
+  endfunction
+
+  // Issues - used to track issues from RSS
+  typedef struct {
+    logic   valid; // high if handshake happens
+    longint instr_iter;
+    string  producer;
+    longint alu_opa;
+    longint alu_opb;
+  } issue_alu_trace_t;
+  function automatic string format_alu_trace(issue_alu_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "instr_iter", trace.instr_iter);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "alu_opa", trace.alu_opa);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "alu_opb", trace.alu_opb);
+    return extras;
+  endfunction
+
+  typedef struct {
+    logic   valid; // high if handshake happens
+    longint instr_iter;
+    string  producer;
+    longint lsu_store_data;
+    longint lsu_is_float;
+    longint lsu_is_load;
+    longint lsu_is_store;
+    longint lsu_addr; // the computed memory address
+    longint lsu_size;
+    longint lsu_amo;
+    // we don't track the stored data
+  } issue_lsu_trace_t;
+  function automatic string format_lsu_trace(issue_lsu_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "instr_iter", trace.instr_iter);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "lsu_store_data", trace.lsu_store_data);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "lsu_is_float", trace.lsu_is_float);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "lsu_is_load", trace.lsu_is_load);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "lsu_is_store", trace.lsu_is_store);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "lsu_addr", trace.lsu_addr);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "lsu_size", trace.lsu_size);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "lsu_amo", trace.lsu_amo);
+    return extras;
+  endfunction
+
+  typedef struct {
+    logic   valid; // high if handshake happens
+    longint instr_iter;
+    string  producer;
+    longint fpu_opa;
+    longint fpu_opb;
+    longint fpu_opc;
+    longint fpu_src_fmt;
+    longint fpu_dst_fmt;
+    longint fpu_int_fmt;
+  } issue_fpu_trace_t;
+  function automatic string format_fpu_trace(issue_fpu_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "instr_iter", trace.instr_iter);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%016x, ", extras, "fpu_opa", trace.fpu_opa);
+    extras = $sformatf("%s'%s':0x%016x, ", extras, "fpu_opb", trace.fpu_opb);
+    extras = $sformatf("%s'%s':0x%016x, ", extras, "fpu_opc", trace.fpu_opc);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "fpu_src_fmt", trace.fpu_src_fmt);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "fpu_dst_fmt", trace.fpu_dst_fmt);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "fpu_int_fmt", trace.fpu_int_fmt);
+    return extras;
+  endfunction
+
+  typedef struct {
+    logic   valid; // high if handshake happens
+    string  producer;
+    longint csr_addr;
+    longint csr_read_data;
+    longint csr_write_data;
+  } issue_csr_trace_t;
+  function automatic string format_csr_trace(issue_csr_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "csr_addr", trace.csr_addr);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "csr_read_data", trace.csr_read_data);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "csr_write_data", trace.csr_write_data);
+    return extras;
+  endfunction
+
+  typedef struct {
+    logic   valid; // high if handshake happens
+    string  producer;
+    longint acc_addr;
+    longint acc_arga;
+    longint acc_argb;
+    longint acc_argc;
+  } issue_acc_trace_t;
+  function automatic string format_acc_trace(issue_acc_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_addr", trace.acc_addr);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_arga", trace.acc_arga);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_argb", trace.acc_argb);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_argc", trace.acc_argc);
+    return extras;
+  endfunction
+
+  // retirements - only for LSU to measure the latency
+  typedef struct {
+    logic   valid; // high if handshake happens
+    string  producer;
+  } retire_fu_trace_t;
+  function automatic string format_fu_retire_trace(retire_fu_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    return extras;
+  endfunction
+
+  // writebacks
+  typedef struct {
+    logic   valid; // high if handshake happens
+    longint fu_result;
+    longint fu_rd;
+    longint fu_rd_is_fp;
+  } wb_fu_trace_t;
+  function automatic string format_wb_fu_trace(wb_fu_trace_t trace, string fu);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "origin", fu);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "result", trace.fu_result);
+    extras = $sformatf("%s'%s':0x%02x, ", extras, "rd", trace.fu_rd);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.fu_rd_is_fp);
+    return extras;
+  endfunction
+
+  // Result requests
+  typedef struct {
+    logic   valid; // high if handshake happens
+    string  producer; // to here this request comes
+    string  consumer; // from here this requests originated
+    longint requested_iter;
+  } resreq_trace_t;
+  function automatic string format_resreq_trace(resreq_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "consumer", trace.consumer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "requested_iter", trace.requested_iter);
+    return extras;
+  endfunction
+
+  // Result captures
+  typedef struct {
+    logic   valid; // high if handshake happens
+    string  producer;
+    longint result_iter;
+    longint enable_rf_wb;
+    longint rd;
+    longint rd_is_fp;
+    longint result;
+  } rescap_trace_t;
+  function automatic string format_rescap_trace(rescap_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "result_iter", trace.result_iter);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "enable_rf_wb", trace.enable_rf_wb);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "rd", trace.rd);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.rd_is_fp);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "result", trace.result);
+    return extras;
+  endfunction
+
+  // General traces and for regular execution
+  schnizo_core_trace_t     core_trace;
+  schnizo_dispatch_trace_t dispatch_trace;
+  // Traces for regular execution
+  issue_alu_trace_t alu_trace [NofAlus];
+  issue_lsu_trace_t lsu_trace [NofLsus];
+  issue_fpu_trace_t fpu_trace [NofFpus];
+  issue_csr_trace_t csr_trace;
+  issue_acc_trace_t acc_trace;
+  // Traces for RSS issues
+  issue_alu_trace_t rss_alu_traces [NofAlus][AluNofRss];
+  issue_lsu_trace_t rss_lsu_traces [NofLsus][LsuNofRss];
+  issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
+  // Traces for retirements
+  retire_fu_trace_t alu_retirements [NofAlus];
+  retire_fu_trace_t lsu_retirements [NofLsus];
+  retire_fu_trace_t fpu_retirements [NofFpus];
+  retire_fu_trace_t csr_retirement;
+  retire_fu_trace_t acc_retirement;
+  // Traces for writeback (regular and RSS)
+  wb_fu_trace_t alu_wb_trace;
+  wb_fu_trace_t lsu_wb_trace;
+  wb_fu_trace_t fpu_wb_trace;
+  wb_fu_trace_t csr_wb_trace;
+  wb_fu_trace_t acc_wb_trace;
+  // Traces for result requests (each RSS has one signal)
+  resreq_trace_t alu_reqreq_traces [NofAlus][AluNofRss];
+  resreq_trace_t lsu_reqreq_traces [NofLsus][LsuNofRss];
+  resreq_trace_t fpu_reqreq_traces [NofFpus][FpuNofRss];
+  // Traces for result captures (each RSS has one signal)
+  rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
+  rescap_trace_t lsu_rescap_traces [NofLsus][LsuNofRss];
+  rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
+
+  assign core_trace = '{
+    priv_level: priv_lvl,
+    state:      loop_state,
+    stall:      stall,
+    exception:  exception
+  };
+
+  assign dispatch_trace = '{
+    valid:        i_schnizo_controller.instr_dispatched,
+    pc_q:         i_schnizo_controller.pc_q,
+    pc_d:         i_schnizo_controller.pc_d,
+    instr_data:   instr_fetch_data_i,
+    rs1:          instr_decoded.rs1,
+    rs2:          instr_decoded.rs2,
+    rs3:          instr_decoded.imm, // fused FPU instructions use imm as operand
+    rd:           instr_decoded.rd,
+    rd_is_fp:     instr_decoded.rd_is_fp,
+    is_branch:    instr_decoded.is_branch,
+    branch_taken: alu_result.compare_res,
+    fu_type:      schnizo_pkg::fu_to_string(instr_decoded.fu),
+    disp_resp:    i_fu_stage.producer_to_string(i_schnizo_dispatcher.fu_response.producer)
+  };
+
+  for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
+    assign alu_trace[alu] = '{
+      valid:          i_fu_stage.gen_alus[alu].alu_issue_req_valid &&
+                      i_fu_stage.gen_alus[alu].alu_issue_req_ready,
+      instr_iter:     '0, // does not apply in regular execution
+      producer:       $sformatf("ALU%0d", alu), // does not apply in regular execution
+      alu_opa:        i_fu_stage.gen_alus[alu].alu_issue_req.fu_data.operand_a[XLEN-1:0],
+      alu_opb:        i_fu_stage.gen_alus[alu].alu_issue_req.fu_data.operand_b[XLEN-1:0]
+    };
+
+    assign alu_retirements[alu] = '{
+      valid:    i_fu_stage.gen_alus[alu].alu_result_valid &&
+                i_fu_stage.gen_alus[alu].alu_result_ready,
+      producer: i_fu_stage.fu_to_string(i_fu_stage.gen_alus[alu].producer_start_id)
+    };
+
+    for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
+      // verilog_lint: waive-start line-length
+      assign rss_alu_traces[alu][rss] = '{
+        valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs_valid[rss] &&
+                        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs_ready[rss],
+        instr_iter:     i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        alu_opa:        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs[rss].fu_data.operand_a[XLEN-1:0],
+        alu_opb:        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.issue_reqs[rss].fu_data.operand_b[XLEN-1:0]
+      };
+      assign alu_reqreq_traces[alu][rss] = '{
+        valid:          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_valid[rss] &&
+                        i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs_ready[rss],
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        consumer:       i_fu_stage.consumer_to_string(
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs[rss].consumer),
+        requested_iter: i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.res_reqs[rss].requested_iter
+      };
+      assign alu_rescap_traces[alu][rss] = '{
+        valid:          (i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                         i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                        !i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        result_iter:    i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+        enable_rf_wb:   i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+        rd:             i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+        rd_is_fp:       i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+        result:         i_fu_stage.gen_alus[alu].i_alu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+      };
+      // verilog_lint: waive-stop line-length
+    end
+  end
+
+  for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsu_traces
+    assign lsu_trace[lsu] = '{
+      valid:          i_fu_stage.gen_lsus[lsu].lsu_issue_req_valid &&
+                      i_fu_stage.gen_lsus[lsu].lsu_issue_req_ready,
+      instr_iter:     '0, // does not apply in regular execution
+      producer:       $sformatf("LSU%0d", lsu), // does not apply in regular execution
+      lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
+      lsu_is_float:   i_fu_stage.gen_lsus[lsu].i_lsu.do_nan_boxing, // misuse this signal
+      lsu_is_load:    !i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+      lsu_is_store:   i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+      lsu_addr:       i_fu_stage.gen_lsus[lsu].i_lsu.address_sys,
+      lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
+      lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
+    };
+
+    assign lsu_retirements[lsu] = '{
+      valid:    i_fu_stage.gen_lsus[lsu].lsu_result_valid &&
+                i_fu_stage.gen_lsus[lsu].lsu_result_ready,
+      producer: i_fu_stage.fu_to_string(i_fu_stage.gen_lsus[lsu].producer_start_id)
+    };
+
+    for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
+      // verilog_lint: waive-start line-length
+      assign rss_lsu_traces[lsu][rss] = '{
+        valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.issue_reqs_valid[rss] &&
+                        i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.issue_reqs_ready[rss],
+        instr_iter:     i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        // Directly access the LSU because theses signals are decoded in the LSU. This requires
+        // that there is no cut between the RSS and the LSU.
+        lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
+        lsu_is_float:   i_fu_stage.gen_lsus[lsu].i_lsu.do_nan_boxing, // misuse this signal
+        lsu_is_load:    !i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+        lsu_is_store:   i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+        lsu_addr:       i_fu_stage.gen_lsus[lsu].i_lsu.address_sys,
+        lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
+        lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
+      };
+      assign lsu_reqreq_traces[lsu][rss] = '{
+        valid:          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_valid[rss] &&
+                        i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs_ready[rss],
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        consumer:       i_fu_stage.consumer_to_string(
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs[rss].consumer),
+        requested_iter: i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.res_reqs[rss].requested_iter
+      };
+      assign lsu_rescap_traces[lsu][rss] = '{
+        valid:          (i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                         i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                        !i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        result_iter:    i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+        enable_rf_wb:   i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+        rd:             i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+        rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+        result:         i_fu_stage.gen_lsus[lsu].i_lsu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+      };
+      // verilog_lint: waive-stop line-length
+    end
+  end
+
+  for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpu_traces
+    assign fpu_trace[fpu] = '{
+      valid:       i_fu_stage.gen_fpus[fpu].fpu_issue_req_valid &&
+                   i_fu_stage.gen_fpus[fpu].fpu_issue_req_ready,
+      instr_iter:  '0, // does not apply in regular execution
+      producer:    $sformatf("FPU%0d", fpu), // does not apply in regular execution
+      fpu_opa:     i_fu_stage.gen_fpus[fpu].fpu_issue_req.fu_data.operand_a,
+      fpu_opb:     i_fu_stage.gen_fpus[fpu].fpu_issue_req.fu_data.operand_b,
+      fpu_opc:     i_fu_stage.gen_fpus[fpu].fpu_issue_req.fu_data.imm,
+      fpu_src_fmt: i_fu_stage.gen_fpus[fpu].fpu_issue_req.fu_data.fpu_fmt_src,
+      fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].fpu_issue_req.fu_data.fpu_fmt_dst,
+      fpu_int_fmt: i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
+    };
+
+    assign fpu_retirements[fpu] = '{
+      valid:    i_fu_stage.fpu_result_valid[fpu] &&
+                i_fu_stage.fpu_result_ready[fpu],
+      producer: i_fu_stage.fu_to_string(i_fu_stage.gen_fpus[fpu].producer_start_id)
+    };
+
+    for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
+      // verilog_lint: waive-start line-length
+      assign rss_fpu_traces[fpu][rss] = '{
+        valid:       i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs_valid[rss] &&
+                     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs_ready[rss],
+        instr_iter:  i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+        producer:    i_fu_stage.producer_to_string(
+                       i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.operand_a,
+        fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.operand_b,
+        fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.imm,
+        fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_src,
+        fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_dst,
+        // Directly access the FPU because theses signals are decoded in the FPU. This requires
+        // that there is no cut between the RSS and the FPU.
+        fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
+      };
+      assign fpu_reqreq_traces[fpu][rss] = '{
+        valid:          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_valid[rss] &&
+                        i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs_ready[rss],
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        consumer:       i_fu_stage.consumer_to_string(
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs[rss].consumer),
+        requested_iter: i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.res_reqs[rss].requested_iter
+      };
+      assign fpu_rescap_traces[fpu][rss] = '{
+        valid:          (i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                         i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                        !i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+        producer:       i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        result_iter:    i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+        enable_rf_wb:   i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+        rd:             i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+        rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+        result:         i_fu_stage.gen_fpus[fpu].i_fpu_block.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+      };
+      // verilog_lint: waive-stop line-length
+    end
+  end
+
+  assign csr_trace = '{
+    valid:          csr_disp_req_valid && csr_disp_req_ready,
+    producer:       "CSR",
+    csr_addr:       i_csr.csr_addr.address,
+    csr_read_data:  i_csr.csr_rdata,
+    csr_write_data: i_csr.csr_wdata
+  };
+
+  // The CSR is fixed to the ALU0
+  assign csr_retirement = '{
+    // The CSR does not always write back to the register file. But all instructions are single
+    // cycle. Thus we can use the CSR dispatch request to determine the retirement.
+    valid: csr_disp_req_valid && csr_disp_req_ready,
+    producer: "CSR"
+  };
+
+  assign acc_trace = '{
+    valid:    acc_qvalid_o && acc_qready_i,
+    producer: "ACC", // There is no address on the response.
+    acc_addr: acc_qreq_o.addr,
+    acc_arga: acc_qreq_o.data_arga,
+    acc_argb: acc_qreq_o.data_argb,
+    acc_argc: acc_qreq_o.data_argc
+  };
+
+  assign acc_retirement = '{
+    valid:    acc_pvalid_i && acc_pready_o,
+    producer: "ACC" // There is no address on the response.
+  };
+
+  // Writebacks
+  assign alu_wb_trace = '{
+    valid:       alu_result_valid && alu_result_ready,
+    fu_result:   alu_result.result,
+    fu_rd:       alu_result_tag.dest_reg,
+    fu_rd_is_fp: alu_result_tag.dest_reg_is_fp
+  };
+
+  assign lsu_wb_trace = '{
+    valid:       lsu_result_valid && lsu_result_ready,
+    fu_result:   lsu_result,
+    fu_rd:       lsu_result_tag.dest_reg,
+    fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp
+  };
+
+  assign fpu_wb_trace = '{
+    valid:       fpu_result_valid && fpu_result_ready,
+    fu_result:   fpu_result,
+    fu_rd:       fpu_result_tag.dest_reg,
+    fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp
+  };
+
+  assign csr_wb_trace = '{
+    valid:       csr_result_valid && csr_result_ready,
+    fu_result:   csr_result,
+    fu_rd:       csr_result_tag.dest_reg,
+    fu_rd_is_fp: csr_result_tag.dest_reg_is_fp
+  };
+
+  assign acc_wb_trace  = '{
+    valid:       acc_pvalid_i && acc_pready_o,
+    fu_result:   acc_result,
+    fu_rd:       acc_result_tag.dest_reg,
+    fu_rd_is_fp: acc_result_tag.dest_reg_is_fp
+  };
+
+  // 2nd part: Emitting events when they are ready. We start with result requests then issuing
+  // events and end with the writeback events. This helps to order the events for postprocessing.
+  function automatic void write_trace_event(int file_id, string trace_header, string event_type,
+                                            string trace_extras, logic trace_valid);
+    string trace_event;
+    trace_event = $sformatf("%s'event':\"%s\", %s", trace_header, event_type, trace_extras);
+    if (trace_valid) begin
+      // close the extra key value list
+      $fwrite(file_id,  $sformatf("%s}\n", trace_event));
+    end
+  endfunction
+
+  int file_id;
+  string file_name;
+  logic [63:0] cycle;
+  initial begin
+    // We need to schedule the assignment into a safe region, otherwise
+    // `hart_id_i` won't have a value assigned at the beginning of the first
+    // delta cycle.
+`ifndef VERILATOR
+    #0;
+`endif
+    $system("mkdir logs -p");
+    $sformat(file_name, "logs/sz_trace_hart_%05x.dasm", hart_id_i);
+    file_id = $fopen(file_name, "w");
+    $display("[Tracer] Logging Hart %d to %s", hart_id_i, file_name);
+  end
+
+  // verilog_lint: waive-start always-ff-non-blocking
+  always_ff @(posedge clk_i) begin
+    string trace_header;
+    string dispatch_event;
+    if (~rst_i) begin
+      cycle++;
+
+      // Always generate the core trace. This trace serves as the basis of the trace event.
+      // This trace is extended with the details of the active FU.
+      trace_header = format_trace_header($time, cycle, core_trace.priv_level, core_trace.state,
+                                         core_trace.stall, core_trace.exception);
+
+      // TODO: We should create a class to capture all the common functions...
+
+      // Result request events - these should only be active during LCP and LEP.
+      // We can capture them "always".
+        for (int alu = 0; alu < NofAlus; alu++) begin
+        for (int rss = 0; rss < AluNofRss; rss++) begin
+          write_trace_event(file_id, trace_header, "resreq",
+                            format_resreq_trace(alu_reqreq_traces[alu][rss]),
+                            alu_reqreq_traces[alu][rss].valid);
+        end
+      end
+      for (int lsu = 0; lsu < NofLsus; lsu++) begin
+        for (int rss = 0; rss < FpuNofRss; rss++) begin
+          write_trace_event(file_id, trace_header, "resreq",
+                            format_resreq_trace(lsu_reqreq_traces[lsu][rss]),
+                            lsu_reqreq_traces[lsu][rss].valid);
+        end
+      end
+      for (int fpu = 0; fpu < NofFpus; fpu++) begin
+        for (int rss = 0; rss < FpuNofRss; rss++) begin
+          write_trace_event(file_id, trace_header, "resreq",
+                            format_resreq_trace(fpu_reqreq_traces[fpu][rss]),
+                            fpu_reqreq_traces[fpu][rss].valid);
+        end
+      end
+
+      // Trace events are active depending on CPU states.
+      if (loop_state inside {LoopRegular, LoopHwLoop}) begin
+        // Format the single dispatch event and append all single issue requests. There should
+        // only be one active single issue request. The format functions return "" if the trace is
+        // not valid. Therefore, we can combine the formatting functions into one chain.
+        // The naked dispatch_event contains the None FU dispatches (currently only for FREP).
+        dispatch_event = format_dispatch_extras(dispatch_trace);
+
+        for (int alu = 0; alu < NofAlus; alu++) begin
+          dispatch_event = $sformatf("%s%s", dispatch_event, format_alu_trace(alu_trace[alu]));
+        end
+        for (int lsu = 0; lsu < NofLsus; lsu++) begin
+          dispatch_event = $sformatf("%s%s", dispatch_event, format_lsu_trace(lsu_trace[lsu]));
+        end
+        for (int fpu = 0; fpu < NofFpus; fpu++) begin
+          dispatch_event = $sformatf("%s%s", dispatch_event, format_fpu_trace(fpu_trace[fpu]));
+        end
+        dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
+        dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
+
+        write_trace_event(file_id, trace_header, "dispatch", dispatch_event, dispatch_trace.valid);
+        end else if (loop_state inside {LoopLcp1, LoopLcp2}) begin
+        // Format the single dispatch event but capture the producer by taking RSS issue trace.
+        // There should also be one FU issue request active. Invalid traces are formated as "".
+        dispatch_event = format_dispatch_extras(dispatch_trace);
+
+        for (int alu = 0; alu < NofAlus; alu++) begin
+          for (int rss = 0; rss < AluNofRss; rss++) begin
+            dispatch_event = $sformatf("%s%s", dispatch_event,
+                                       format_alu_trace(rss_alu_traces[alu][rss]));
+          end
+        end
+        for (int lsu = 0; lsu < NofLsus; lsu++) begin
+          for (int rss = 0; rss < LsuNofRss; rss++) begin
+            dispatch_event = $sformatf("%s%s", dispatch_event,
+                                       format_lsu_trace(rss_lsu_traces[lsu][rss]));
+          end
+        end
+        for (int fpu = 0; fpu < NofFpus; fpu++) begin
+          for (int rss = 0; rss < FpuNofRss; rss++) begin
+            dispatch_event = $sformatf("%s%s", dispatch_event,
+                                      format_fpu_trace(rss_fpu_traces[fpu][rss]));
+          end
+        end
+        // CSR and ACC instructions are not supported in FREP. These should never be valid.
+        dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
+        dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
+
+        write_trace_event(file_id, trace_header, "dispatch", dispatch_event, dispatch_trace.valid);
+      end else if (loop_state inside {LoopLep}) begin
+        // There is no dispatch request and we can have multiple events per cycle.
+        // We must check each RSS issue request on its own.
+        for (int alu = 0; alu < NofAlus; alu++) begin
+          for (int rss = 0; rss < AluNofRss; rss++) begin
+            write_trace_event(file_id, trace_header, "dispatch",
+                             format_alu_trace(rss_alu_traces[alu][rss]),
+                             rss_alu_traces[alu][rss].valid);
+          end
+        end
+        for (int lsu = 0; lsu < NofLsus; lsu++) begin
+          for (int rss = 0; rss < FpuNofRss; rss++) begin
+            write_trace_event(file_id, trace_header, "dispatch",
+                             format_lsu_trace(rss_lsu_traces[lsu][rss]),
+                             rss_lsu_traces[lsu][rss].valid);
+          end
+        end
+        for (int fpu = 0; fpu < NofFpus; fpu++) begin
+          for (int rss = 0; rss < FpuNofRss; rss++) begin
+            write_trace_event(file_id, trace_header, "dispatch",
+                             format_fpu_trace(rss_fpu_traces[fpu][rss]),
+                             rss_fpu_traces[fpu][rss].valid);
+          end
+        end
+        // No CSR and ACC events possible
+      end else begin
+        $warning("Current CPU state (%s) not supported by tracer!",
+                 schnizo_pkg::loop_state_tostring(loop_state));
+      end
+
+      // Writeback events - We must consider all writebacks at all times.
+      write_trace_event(file_id, trace_header, "writeback",
+                        format_wb_fu_trace(alu_wb_trace, "ALU"),
+                        alu_wb_trace.valid);
+      write_trace_event(file_id, trace_header, "writeback",
+                        format_wb_fu_trace(lsu_wb_trace, "LSU"),
+                        lsu_wb_trace.valid);
+      write_trace_event(file_id, trace_header, "writeback",
+                        format_wb_fu_trace(fpu_wb_trace, "FPU"),
+                        fpu_wb_trace.valid);
+      write_trace_event(file_id, trace_header, "writeback",
+                        format_wb_fu_trace(csr_wb_trace, "CSR"),
+                        csr_wb_trace.valid);
+      write_trace_event(file_id, trace_header, "writeback",
+                        format_wb_fu_trace(acc_wb_trace, "ACC"),
+                        acc_wb_trace.valid);
+
+      // Result capture events - We can always capture them
+      // Retirement events - Always active to complete any issue.
+      for (int alu = 0; alu < NofAlus; alu++) begin
+        write_trace_event(file_id, trace_header, "retirement",
+                          format_fu_retire_trace(alu_retirements[alu]),
+                          alu_retirements[alu].valid);
+        for (int rss = 0; rss < AluNofRss; rss++) begin
+          write_trace_event(file_id, trace_header, "rescap",
+                            format_rescap_trace(alu_rescap_traces[alu][rss]),
+                            alu_rescap_traces[alu][rss].valid);
+        end
+      end
+      for (int lsu = 0; lsu < NofLsus; lsu++) begin
+        write_trace_event(file_id, trace_header, "retirement",
+                          format_fu_retire_trace(lsu_retirements[lsu]),
+                          lsu_retirements[lsu].valid);
+        for (int rss = 0; rss < FpuNofRss; rss++) begin
+          write_trace_event(file_id, trace_header, "rescap",
+                            format_rescap_trace(lsu_rescap_traces[lsu][rss]),
+                            lsu_rescap_traces[lsu][rss].valid);
+        end
+      end
+      for (int fpu = 0; fpu < NofFpus; fpu++) begin
+        write_trace_event(file_id, trace_header, "retirement",
+                          format_fu_retire_trace(fpu_retirements[fpu]),
+                          fpu_retirements[fpu].valid);
+        for (int rss = 0; rss < FpuNofRss; rss++) begin
+          write_trace_event(file_id, trace_header, "rescap",
+                            format_rescap_trace(fpu_rescap_traces[fpu][rss]),
+                            fpu_rescap_traces[fpu][rss].valid);
+        end
+      end
+      write_trace_event(file_id, trace_header, "retirement",
+                        format_fu_retire_trace(csr_retirement),
+                        csr_retirement.valid);
+      write_trace_event(file_id, trace_header, "retirement",
+                        format_fu_retire_trace(acc_retirement),
+                        acc_retirement.valid);
+    end else begin
+      cycle = '0;
+    end
+  end
+
+  final begin
+    $fclose(file_id);
+  end
+
+  // use "decrement_loop_iterations" to detect a jump during looping -> or check pc_q and pc_d
+
+  // pragma translate_on
+
 endmodule

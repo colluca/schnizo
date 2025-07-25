@@ -182,4 +182,51 @@ package schnizo_pkg;
     LoopLcp2,    // loop construction phase 2
     LoopLep      // loop execution phase
   } loop_state_e;
+
+
+  // ---------------------------
+  // Tracer
+  // ---------------------------
+  // pragma translate_off
+  function automatic string priv_lvl_tostring(priv_lvl_t priv_lvl);
+    string level;
+    unique case(priv_lvl)
+      PrivLvlM: level = "M"; // ensure all strings have the same length
+      PrivLvlS: level = "S";
+      PrivLvlU: level = "U";
+      default:  level = "?";
+    endcase
+    return level;
+  endfunction
+
+  function automatic string loop_state_tostring(loop_state_e loop_state);
+    string state;
+    unique case(loop_state)
+      LoopRegular: state = "REG "; // ensure all strings have the same length
+      LoopHwLoop:  state = "HWL ";
+      LoopLcp1:    state = "LCP1";
+      LoopLcp2:    state = "LCP2";
+      LoopLep:     state = "LEP ";
+      default:     state = "????";
+    endcase
+    return state;
+  endfunction
+
+  function automatic string fu_to_string(fu_t fu);
+    string name;
+    unique case(fu)
+      schnizo_pkg::NONE:      name = "NONE";
+      schnizo_pkg::LOAD,
+      schnizo_pkg::STORE:     name = "LSU";
+      schnizo_pkg::ALU,
+      schnizo_pkg::CTRL_FLOW: name = "ALU";
+      schnizo_pkg::CSR:       name = "CSR";
+      schnizo_pkg::FPU:       name = "FPU";
+      schnizo_pkg::MULDIV:    name = "MULDIV"; // shared muldiv unit from hive
+      schnizo_pkg::DMA:       name = "DMA";
+      default:                name = "Inconsistent FU types!";
+    endcase
+    return name;
+  endfunction
+  // pragma translate_on
 endpackage

@@ -925,11 +925,95 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   assign all_rs_finish_o = &{&alu_loop_finish_o, &lsu_loop_finish_o, &fpu_loop_finish_o};
 
   // ---------------------------
-  // Tracer
+  // Tracer support
   // ---------------------------
-  typedef struct packed {
-    disp_req_t disp_req;
-    longint    disp_req_valid;
-    longint    disp_req_ready;
-  } schnizo_fu_trace;
+  // pragma translate_off
+
+  function automatic int unsigned rs_id_from_producer_id(int unsigned producer,
+                                                         output int unsigned rss_id,
+                                                         output string fu_name);
+    int unsigned NofRss;
+    if (producer < LsuRsIdOffset) begin
+      NofRss = AluNofRss;
+      producer = producer - AluRsIdOffset;
+      fu_name = "ALU";
+    end else if (producer < FpuRsIdOffset) begin
+      NofRss = LsuNofRss;
+      producer = producer - LsuRsIdOffset;
+      fu_name = "LSU";
+    end else begin
+      NofRss = FpuNofRss;
+      producer = producer - FpuRsIdOffset;
+      fu_name = "FPU";
+    end
+    rss_id = producer % NofRss;
+    return producer / NofRss;
+  endfunction
+
+
+  function automatic string fu_to_string(producer_id_t fu_id);
+    int unsigned fu = unsigned'(fu_id);
+    int unsigned rs_id;
+    int unsigned rss_id;
+    string fu_name;
+
+    rs_id = rs_id_from_producer_id(fu, rss_id, fu_name);
+
+    return $sformatf("%s%0d", fu_name, rs_id);
+  endfunction
+
+  // This function converts a producer id to a string depending on the number of FUs and RSSs.
+  // This string converts e.g. producer id 2 to "0.1" (ALU 0, RSS 1)
+  // This function must be inside this module to have access to the producer_id_t type and
+  // the id computations.
+  function automatic string producer_to_string(producer_id_t producer_id);
+    int unsigned producer = unsigned'(producer_id);
+    int unsigned NofRss;
+    int unsigned rs_id;
+    int unsigned rss_id;
+    string fu_name;
+
+    rs_id = rs_id_from_producer_id(producer, rss_id, fu_name);
+
+    return $sformatf("%s%0d.%0d", fu_name, rs_id, rss_id);
+  endfunction
+
+  // This function converts a consumer id to a string depending on the number of FUs and RSSs.
+  // Example: With at least 1 ALU with 1 slot the consumer id 2 is converted to ALU0.0.1.
+  // Where ALU0.0.1 means ALU 0 Slot 0 Operand 1
+  function automatic string consumer_to_string(operand_id_t consumer_id);
+    int unsigned consumer = unsigned'(consumer_id);
+    int unsigned NofRss;
+    int unsigned NofOps;
+    int unsigned rs_id;
+    int unsigned rss_id;
+    int unsigned op_id;
+    string fu_name;
+
+    if (consumer < LsuOpIdOffset) begin
+      NofRss = AluNofRss;
+      NofOps = AluNofOperands;
+      consumer = consumer - AluOpIdOffset;
+      fu_name = "ALU";
+    end else if (consumer < FpuOpIdOffset) begin
+      NofRss = LsuNofRss;
+      NofOps = LsuNofOperands;
+      consumer = consumer - LsuOpIdOffset;
+      fu_name = "LSU";
+    end else begin
+      NofRss = FpuNofRss;
+      NofOps = FpuNofOperands;
+      consumer = consumer - FpuOpIdOffset;
+      fu_name = "FPU";
+    end
+
+    rs_id = consumer / (NofRss * NofOps);
+    // Reduce into range of 0..((NofRss * NofOps) - 1)
+    consumer = consumer - (rs_id * (NofRss * NofOps));
+    rss_id = consumer / NofOps;
+    op_id = consumer % NofOps;
+
+    return $sformatf("%s%0d.%0d.%0d", fu_name, rs_id, rss_id, op_id);
+  endfunction
+  // pragma translate_on
 endmodule
