@@ -106,6 +106,7 @@ SNRT_APPS += sw/apps/j3d27pt
 # sw-schnizo targets. For this they need to be added to the sw-schnizo target inside their app.mk file.
 .PHONY: sw-schnizo clean-sw-schnizo
 SNRT_APPS += sw/schnizo/sz_sum
+SNRT_APPS += sw/schnizo/sz_axpy
 
 # Include Makefile from each app subdirectory
 $(foreach app,$(SNRT_APPS), \
