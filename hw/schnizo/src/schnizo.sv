@@ -217,7 +217,7 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned AluNofRss      = 3;
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofRss      = 4;
-  localparam integer unsigned LsuNofOperands = 2;
+  localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofRss      = 2;
   localparam integer unsigned FpuNofOperands = 3;
 
