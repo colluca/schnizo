@@ -1,0 +1,1 @@
+The HW config file must be a real file and cannot be a symlink.

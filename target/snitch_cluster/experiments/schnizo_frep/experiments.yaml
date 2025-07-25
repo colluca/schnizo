@@ -1,0 +1,50 @@
+# Copyright 2025 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Pascal Etterli <petterli@student.ethz.ch>
+
+# This file does not work because we cannot set the cmd option of the experiments!
+
+experiments:
+# AXPY
+  # some default axpy kernels
+  - app: sz_axpy
+    hw: schnizo
+    n: 2560
+    n_tiles: 2
+  - app: sz_axpy
+    hw: schnizo
+    n: 2560
+    n_tiles: 5
+  # Sweep the number of tiles
+  - app: sz_axpy
+    hw: schnizo
+    n: 4096
+    n_tiles: 2
+  - app: sz_axpy
+    hw: schnizo
+    n: 4096
+    n_tiles: 4
+  - app: sz_axpy
+    hw: schnizo
+    n: 4096
+    n_tiles: 8
+  # Sweep the size of the vectors
+  - app: sz_axpy
+    hw: schnizo
+    n: 1024
+    n_tiles: 2
+  - app: sz_axpy
+    hw: schnizo
+    n: 2048
+    n_tiles: 2
+  - app: sz_axpy
+    hw: schnizo
+    n: 3072
+    n_tiles: 2
+  # This experiment is already defined above
+  # - app: sz_axpy
+  #   hw: schnizo
+  #   n: 4096
+  #   n_tiles: 2
