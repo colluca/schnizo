@@ -149,10 +149,11 @@ VISUAL_TRACE      = $(LOGS_DIR)/trace.json
 
 VISUALIZE_PY_FLAGS += --tracevis "$(BINARY) $(SNITCH_TXT_TRACES) --addr2line $(ADDR2LINE) -f snitch"
 
-.PHONY: traces annotate visual-trace clean-traces clean-annotate clean-perf clean-visual-trace
+.PHONY: traces annotate roi visual-trace clean-traces clean-annotate clean-perf clean-visual-trace
 traces: $(TXT_TRACES)
 annotate: $(ANNOTATED_TRACES)
 perf: $(JOINT_PERF_DUMP)
+roi: $(ROI_DUMP)
 visual-trace: $(VISUAL_TRACE)
 clean-traces:
 	rm -f $(TXT_TRACES) $(SNITCH_PERF_DUMPS) $(DMA_PERF_DUMPS)

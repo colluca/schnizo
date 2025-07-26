@@ -110,6 +110,19 @@ def annotate_traces(run_dir):
     common.make('annotate', vars, flags=flags)
 
 
+def build_roi(run_dir, roi_spec, hw_cfg=None):
+    print(colored('Build ROI', 'black', attrs=['bold']),
+          colored(run_dir / 'logs/roi.json', 'cyan', attrs=['bold']))
+    vars = {
+        'SIM_DIR': run_dir,
+        'ROI_SPEC': roi_spec
+    }
+    if hw_cfg is not None:
+        vars['SN_CFG'] = hw_cfg
+    flags = ['-j']
+    common.make('roi', vars, flags=flags)
+
+
 def build_visual_trace(run_dir, roi_spec, hw_cfg=None):
     print(colored('Build visual trace', 'black', attrs=['bold']),
           colored(run_dir / 'logs/trace.json', 'cyan', attrs=['bold']))

@@ -33,7 +33,7 @@ except ImportError as e:
     print(f'{e}. Area results will not be available.')
 
 
-ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'visual-trace', 'power', 'all', 'none']
+ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all', 'none']
 SNITCH_ROOT = Path(__file__).parent.parent.parent.parent
 
 
@@ -123,6 +123,9 @@ class ExperimentManager:
     def derive_vsim_builddir(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'work-vsim'
 
+    def derive_roi_template(self, experiment):
+        return self.dir / 'roi.json.tpl'
+
     def run(self):
 
         dry_run = self.args.dry_run
@@ -201,14 +204,13 @@ class ExperimentManager:
                 if return_code != 0:
                     raise Exception(f'Failed to generate performance dump for experiment {i}')
 
-        # Build visual traces
-        if 'visual-trace' in self.actions or 'all' in self.actions:
+        # Build roi
+        if 'roi' in self.actions or 'all' in self.actions:
+            for experiment in experiments:
+                # Check for existence of a ROI specification
+                roi = self.derive_roi_template(experiment)
 
-            # Check for existence of a ROI specification
-            roi = self.dir / 'roi.json.tpl'
-            if roi.exists():
-                for experiment in experiments:
-
+                if roi.exists():
                     # Render ROI specification template
                     with open(roi, 'r') as f:
                         spec = f.read()
@@ -226,9 +228,20 @@ class ExperimentManager:
                         with open(rendered_spec, 'w') as f:
                             json5.dump(spec_data, f, indent=4)
 
-                    # Build visual trace
+                    # Generate roi json
                     hw_cfg = self.derive_hw_cfg(experiment)
-                    build.build_visual_trace(experiment['run_dir'], rendered_spec,
+                    build.build_roi(experiment['run_dir'], rendered_spec,
+                                    hw_cfg=hw_cfg)
+
+        # Build visual trace
+        if 'visual-trace' in self.actions or 'all' in self.actions:
+            for experiment in experiments:
+                # Check for existence of a ROI specification
+                rendered_spec = experiment['run_dir'] / 'roi_spec.json'
+                if rendered_spec.exists():
+                    hw_cfg = self.derive_hw_cfg(experiment)
+                    build.build_visual_trace(experiment['run_dir'],
+                                             rendered_spec,
                                              hw_cfg=hw_cfg)
 
         # Generate joint performance dump
