@@ -112,6 +112,7 @@ static inline void axpy_opt(uint32_t n, double a, double *x, double *y,
 }
 
 static inline void axpy_job(axpy_args_t *args) {
+    snrt_mcycle();
     uint32_t frac, offset, size;
     uint64_t local_x0_addr, local_y0_addr, local_z0_addr, local_x1_addr,
         local_y1_addr, local_z1_addr;
@@ -236,6 +237,7 @@ static inline void axpy_job(axpy_args_t *args) {
         // Synchronize cores after every iteration
         snrt_cluster_hw_barrier();
     }
+    snrt_mcycle();
 }
 
 
@@ -243,6 +245,7 @@ static inline void axpy_job(axpy_args_t *args) {
 // is on a separate bank. This requires 48 banks for double buffering but we only
 // have 32 -> double buffering is disabled.
 static inline void axpy_job_distributed(axpy_args_t *args) {
+    snrt_mcycle();
     uint32_t frac, offset, size;
     uint64_t local_x0_addr, local_y0_addr, local_z0_addr, local_x1_addr,
         local_y1_addr, local_z1_addr;
@@ -366,4 +369,5 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
         // Synchronize cores after every iteration
         snrt_cluster_hw_barrier();
     }
+    snrt_mcycle();
 }

@@ -8,9 +8,7 @@
 #include "data.h"
 
 int main() {
-    snrt_mcycle();
     axpy_job(&args);
-    snrt_mcycle();
 
 // TODO: currently only works for single cluster otherwise need to
 //       synchronize all cores here
