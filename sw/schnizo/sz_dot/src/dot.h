@@ -12,14 +12,12 @@ static inline void dot_frep(uint32_t n, double *x, double *y, double *output) {
 
     asm volatile (
         // Code
-        "csrr    t0,    mcycle\n"
         "frep.o  %[n_frep], 5, 0, 0\n"
         "fld     ft0, 0(%[xa])\n"
         "fld     ft1, 0(%[ya])\n"
         "fmadd.d %[sum], ft0, ft1, %[sum]\n"
         "addi    %[xa], %[xa],   %[inc]\n"
         "addi    %[ya], %[ya],   %[inc]\n"
-        "csrr    t0,    mcycle\n"
         // Outputs
         : [sum]"+f"(sum), [xa]"+r"(x_addr), [ya]"+r"(y_addr)
         // Inputs
@@ -29,7 +27,6 @@ static inline void dot_frep(uint32_t n, double *x, double *y, double *output) {
     );
 
     output[0] = sum;
-    snrt_fpu_fence();
 }
 
 static inline void dot_frep_4unrolled(uint32_t n, double *x, double *y, double *output) {
@@ -43,8 +40,6 @@ static inline void dot_frep_4unrolled(uint32_t n, double *x, double *y, double *
     double *y_addr = &y[0];
 
     asm volatile (
-        // Start performance region
-        "csrr    t0,        mcycle                 \n"
         // Loop
         "frep.o  %[n_frep], 14,      0,     0      \n"
         "fld     fa0,       0(%[xa])               \n"
@@ -65,8 +60,6 @@ static inline void dot_frep_4unrolled(uint32_t n, double *x, double *y, double *
         "fadd.d  %[sum1],  %[sum1],  %[sum2]       \n"
         "fadd.d  %[sum3],  %[sum3],  %[sum4]       \n"
         "fadd.d  %[sum1],  %[sum1],  %[sum3]       \n"
-        // End performance region
-        "csrr    t0,       mcycle                  \n"
         // Outputs
         : [sum1]"+f"(sum1), [sum2]"+f"(sum2), [sum3]"+f"(sum3), [sum4]"+f"(sum4),
           [xa]"+r"(x_addr), [ya]"+r"(y_addr)
@@ -77,7 +70,6 @@ static inline void dot_frep_4unrolled(uint32_t n, double *x, double *y, double *
     );
 
     output[0] = sum1;
-    snrt_fpu_fence();
 }
 
 // requires 2 (or maybe 1) ALU, 2 LSU with 6 slot each and 1 FPU with 6 slots.
@@ -94,8 +86,6 @@ static inline void dot_frep_6unrolled(uint32_t n, double *x, double *y, double *
     double *y_addr = &y[0];
 
     asm volatile (
-        // Start performance region
-        "csrr    t0,        mcycle                  \n"
         // Loop
         "frep.o  %[n_frep], 20,      0,     0       \n"
         "fld     fa0,       0(%[xa])                \n"
@@ -124,8 +114,6 @@ static inline void dot_frep_6unrolled(uint32_t n, double *x, double *y, double *
         "fadd.d  %[sum5],  %[sum5],  %[sum6]        \n"
         "fadd.d  %[sum1],  %[sum1],  %[sum3]        \n"
         "fadd.d  %[sum1],  %[sum1],  %[sum5]        \n"
-        // End performance region
-        "csrr    t0,       mcycle                   \n"
         // Outputs
         : [sum1]"+f"(sum1), [sum2]"+f"(sum2), [sum3]"+f"(sum3), [sum4]"+f"(sum4),
           [sum5]"+f"(sum5), [sum6]"+f"(sum6),
@@ -137,7 +125,6 @@ static inline void dot_frep_6unrolled(uint32_t n, double *x, double *y, double *
     );
 
     output[0] = sum1;
-    snrt_fpu_fence();
 }
 
 static inline void dot_frep_4unrolled_address(uint32_t n, double *x, double *y, double *output) {
@@ -157,8 +144,6 @@ static inline void dot_frep_4unrolled_address(uint32_t n, double *x, double *y, 
     double *y_addr4 = &y[3];
 
     asm volatile (
-        // Start performance region
-        "csrr    t0,        mcycle                 \n"
         // Loop
         "frep.o  %[n_frep], 20,      0,     0      \n"
         "fld     fa0,       0(%[xa1])               \n"
@@ -185,8 +170,6 @@ static inline void dot_frep_4unrolled_address(uint32_t n, double *x, double *y, 
         "fadd.d  %[sum1],  %[sum1],   %[sum2]       \n"
         "fadd.d  %[sum3],  %[sum3],   %[sum4]       \n"
         "fadd.d  %[sum1],  %[sum1],   %[sum3]       \n"
-        // End performance region
-        "csrr    t0,       mcycle                  \n"
         // Outputs
         : [sum1]"+f"(sum1), [sum2]"+f"(sum2), [sum3]"+f"(sum3), [sum4]"+f"(sum4),
           [xa1]"+r"(x_addr1), [ya1]"+r"(y_addr1),
@@ -200,7 +183,6 @@ static inline void dot_frep_4unrolled_address(uint32_t n, double *x, double *y, 
     );
 
     output[0] = sum1;
-    snrt_fpu_fence();
 }
 
 inline void dot_seq(uint32_t n, double *x, double *y, double *output) {
@@ -334,6 +316,7 @@ static inline void dot(uint32_t n, double *x, double *y, double *result) {
     end_cycle = snrt_mcycle();
 
     snrt_cluster_hw_barrier();
+    snrt_mcycle(); // common end tile
 
     // Copy data out of TCDM
     if (snrt_is_dm_core()) {
