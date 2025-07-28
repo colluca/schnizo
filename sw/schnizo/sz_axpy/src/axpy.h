@@ -49,8 +49,6 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
         // Clobbers
         : "t0", "ft0", "ft1", "memory"
     );
-
-    snrt_fpu_fence();
 }
 
 // The matrixes are placed contiguously in memory.
