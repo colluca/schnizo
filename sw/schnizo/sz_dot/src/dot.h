@@ -302,6 +302,7 @@ static inline void dot(uint32_t n, double *x, double *y, double *result) {
     }
 
     snrt_cluster_hw_barrier();
+    snrt_mcycle();
 
     // Reduce partial sums on core 0
 #ifndef _DOTP_EXCLUDE_FINAL_SYNC_
@@ -313,10 +314,9 @@ static inline void dot(uint32_t n, double *x, double *y, double *result) {
     }
 #endif
 
-    end_cycle = snrt_mcycle();
 
     snrt_cluster_hw_barrier();
-    snrt_mcycle(); // common end tile
+    end_cycle = snrt_mcycle(); // common end tile
 
     // Copy data out of TCDM
     if (snrt_is_dm_core()) {

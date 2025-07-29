@@ -8,11 +8,15 @@
     {
         "thread": "${f'hart_{j}'}",
         // specify which perf.json region we are interested in.
+        // There is a preheating run
         "roi": [
-            {"idx": 0, "label": "start"},
-            {"idx": 1, "label": "compute"},
-            {"idx": 2, "label": "reduction"},
-            {"idx": 3, "label": "end"},
+            {"idx": 0, "label": "start_preheat"},
+            {"idx": 1, "label": "compute_preheat"},
+            {"idx": 2, "label": "reduction_preheat"},
+            {"idx": 3, "label": "end_preheat"},
+            {"idx": 4, "label": "compute"},
+            {"idx": 5, "label": "reduction"},
+            {"idx": 6, "label": "end"},
         ]
     },
     % endfor

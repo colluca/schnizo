@@ -7,8 +7,13 @@
 #include "data.h"
 #include "dot.h"
 
+#define NUM_RUNS 2
+
 int main() {
-    dot(n, x, y, &result);
+    // Preheat the instruction cache
+    for (volatile int run = 0; run < NUM_RUNS; run++) {
+        dot(n, x, y, &result);
+    }
 
 // TODO: currently only works for single cluster otherwise need to
 //       synchronize all cores here

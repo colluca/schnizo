@@ -223,7 +223,7 @@ def extract_sz_axpy_results(df):
 def extract_sz_dot_results(df):
     for _, exp_res in df.iterrows():
         for core in range(NUM_CORES):
-            start = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'start'), METRIC_START)
+            start = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'compute'), METRIC_START)
             end = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'end'), METRIC_START)
             df.at[exp_res.name, f'hart_{core}_total_cycles'] = end - start
             compute_ipc = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'compute'), METRIC_IPC[exp_res['hw']])
