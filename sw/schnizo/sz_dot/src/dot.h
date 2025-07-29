@@ -63,8 +63,8 @@ static inline void dot_frep_4unrolled(uint32_t n, double *x, double *y, double *
         // Outputs
         : [sum1]"+f"(sum1), [sum2]"+f"(sum2), [sum3]"+f"(sum3), [sum4]"+f"(sum4),
           [xa]"+r"(x_addr), [ya]"+r"(y_addr)
-        // Inputs - frep loops once more than the actual value
-        : [n_frep]"r"(n-1), [inc]"i"(inc)
+        // Inputs - frep loops once more than the actual value - reduce by 4 due to unrolling
+        : [n_frep]"r"((n >> 2) - 1), [inc]"i"(inc)
         // Clobbers
         : "t0", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7"
     );
@@ -119,7 +119,7 @@ static inline void dot_frep_6unrolled(uint32_t n, double *x, double *y, double *
           [sum5]"+f"(sum5), [sum6]"+f"(sum6),
           [xa]"+r"(x_addr), [ya]"+r"(y_addr)
         // Inputs - frep loops once more than the actual value
-        : [n_frep]"r"(n-1), [inc]"i"(inc)
+        : [n_frep]"r"(n/6-1), [inc]"i"(inc)
         // Clobbers
         : "t0", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "fs0", "fs1", "fs2", "fs3"
     );
@@ -177,7 +177,7 @@ static inline void dot_frep_4unrolled_address(uint32_t n, double *x, double *y, 
           [xa3]"+r"(x_addr3), [ya3]"+r"(y_addr3),
           [xa4]"+r"(x_addr4), [ya4]"+r"(y_addr4)
         // Inputs - frep loops once more than the actual value
-        : [n_frep]"r"(n-1), [inc]"i"(inc)
+        : [n_frep]"r"((n >> 2) - 1), [inc]"i"(inc)
         // Clobbers
         : "t0", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7"
     );
