@@ -31,6 +31,7 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
     double *y_addr = &y[offset];
     double *z_addr = &z[offset];
 
+    snrt_mcycle();
     asm volatile (
         // Code
         "frep.o  %[n_frep], 7, 0, 0\n"
@@ -49,6 +50,7 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
         // Clobbers
         : "t0", "ft0", "ft1", "memory"
     );
+    snrt_mcycle();
 }
 
 // The matrixes are placed contiguously in memory.
@@ -214,7 +216,7 @@ static inline void axpy_job(axpy_args_t *args) {
             if (!DOUBLE_BUFFER) snrt_cluster_hw_barrier();
 
             if (!DOUBLE_BUFFER || (i > 0 && i < (args->n_tiles + 1))) {
-                snrt_mcycle();
+                // moved mcycle call directly to loop
 
                 // Compute tile and buffer indices
                 i_compute = DOUBLE_BUFFER ? i - 1 : i;
@@ -225,7 +227,7 @@ static inline void axpy_job(axpy_args_t *args) {
                 fp(frac, args->a, local_x[buff_idx], local_y[buff_idx],
                    local_z[buff_idx]);
 
-                snrt_mcycle();
+                // moved mcycle call directly to loop
             }
 
             // Additional barrier required when not double buffering
