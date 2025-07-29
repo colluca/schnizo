@@ -142,7 +142,7 @@ def extract_sz_axpy_results(df):
                 df.at[exp_res.name, col] = value
             # extract the total cycles
             start = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'start'), 'start')
-            end = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'end'), 'end')
+            end = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'end'), 'start')
             df.at[exp_res.name, f'hart_{core}_total_cycles'] = end - start
         # compute the mean and stddev over all clusters
         # for each tile

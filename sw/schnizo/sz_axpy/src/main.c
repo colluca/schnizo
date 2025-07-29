@@ -7,8 +7,12 @@
 #include "axpy.h"
 #include "data.h"
 
+#define NUM_RUNS 2
+
 int main() {
-    axpy_job(&args);
+    for (volatile int run = 0; run < NUM_RUNS; run++) {
+        axpy_job(&args);
+    }
 
 // TODO: currently only works for single cluster otherwise need to
 //       synchronize all cores here
