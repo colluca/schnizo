@@ -55,6 +55,14 @@ class FrepExperimentManager(ExperimentManager):
                 'app': experiment['app'],
                 'n': experiment['n'],
             }
+        elif (experiment['app'] == "sz_gemm" or experiment['app'] == "gemm"):
+            return {
+                'hw': experiment['hw'],
+                'app': experiment['app'],
+                'm': experiment['m'],
+                'n': experiment['n'],
+                'k': experiment['k'],
+            }
 
     def derive_data_cfg(self, experiment):
         # Create parent directory for configuration file
@@ -78,6 +86,7 @@ class FrepExperimentManager(ExperimentManager):
 def gen_experiments(hardware):
     axpy_app_name = 'sz_axpy' if hardware == 'schnizo' else 'axpy'
     dot_app_name = 'sz_dot' if hardware == 'schnizo' else 'dot'
+    gemm_app_name = 'sz_gemm' if hardware == 'schnizo' else 'gemm'
     experiments = [
         {'app': axpy_app_name, 'n': 2560, 'n_tiles': 2},
         {'app': axpy_app_name, 'n': 2560, 'n_tiles': 5},
@@ -94,9 +103,23 @@ def gen_experiments(hardware):
         {'app': dot_app_name, 'n': 1024},
         {'app': dot_app_name, 'n': 2048},
         {'app': dot_app_name, 'n': 4096},
+
+        # GEMM experiments
+        # sweep k but keep total size constant
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 16},
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k': 32},
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k': 64},
+        # sweep k by trading with m, keep n constant
+        # {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 16},  # already included above
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k': 32},
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k': 64},
+        # extreme case with large k
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k': 128},
+
     ]
 
     for experiment in experiments:
+        # Check parameters - no check for GEMM
         if experiment['app'] == "sz_dot" or experiment['app'] == "dot":
             assert (experiment['n'] % (NUM_CORES * 4)) == 0, "n must be an integer " \
                    f"multiple of the number of cores times the unrolling factor (cores = {NUM_CORES}, unrolling factor = 4)"
@@ -220,6 +243,47 @@ def extract_sz_axpy_results(df):
     return df
 
 
+def compute_means_and_stddev(df, exp_res):
+    # compute the mean over all cores
+    compute_cycles_mean = 0
+    compute_ipc_mean = 0
+    compute_fpu_util_mean = 0
+    total_cycles_mean = 0
+    for core in range(NUM_CORES):
+        compute_cycles_mean += df.at[exp_res.name, f'hart_{core}_compute_cycles']
+        compute_ipc_mean += df.at[exp_res.name, f'hart_{core}_compute_ipc']
+        compute_fpu_util_mean += df.at[exp_res.name, f'hart_{core}_compute_fpu_util']
+        total_cycles_mean += df.at[exp_res.name, f'hart_{core}_total_cycles']
+    compute_cycles_mean /= NUM_CORES
+    compute_ipc_mean /= NUM_CORES
+    compute_fpu_util_mean /= NUM_CORES
+    total_cycles_mean /= NUM_CORES
+    # standard deviation
+    compute_cycles_stddev = 0
+    compute_ipc_stddev = 0
+    compute_fpu_util_stddev = 0
+    total_cycles_stddev = 0
+    for core in range(NUM_CORES):
+        compute_cycles_stddev += (compute_cycles_mean - df.at[exp_res.name, f'hart_{core}_compute_cycles']) ** 2
+        compute_ipc_stddev += (compute_ipc_mean - df.at[exp_res.name, f'hart_{core}_compute_ipc']) ** 2
+        compute_fpu_util_stddev += (compute_fpu_util_mean - df.at[exp_res.name, f'hart_{core}_compute_fpu_util']) ** 2
+        total_cycles_stddev += (total_cycles_mean - df.at[exp_res.name, f'hart_{core}_total_cycles']) ** 2
+    compute_cycles_stddev = (compute_cycles_stddev / NUM_CORES) ** 0.5
+    compute_ipc_stddev = (compute_ipc_stddev / NUM_CORES) ** 0.5
+    compute_fpu_util_stddev = (compute_fpu_util_stddev / NUM_CORES) ** 0.5
+    total_cycles_stddev = (total_cycles_stddev / NUM_CORES) ** 0.5
+    # add to the dataframe
+    df.at[exp_res.name, 'compute_cycles_avg'] = compute_cycles_mean
+    df.at[exp_res.name, 'compute_cycles_stddev'] = compute_cycles_stddev
+    df.at[exp_res.name, 'compute_ipc_avg'] = compute_ipc_mean
+    df.at[exp_res.name, 'compute_ipc_stddev'] = compute_ipc_stddev
+    df.at[exp_res.name, 'compute_fpu_util_avg'] = compute_fpu_util_mean
+    df.at[exp_res.name, 'compute_fpu_util_stddev'] = compute_fpu_util_stddev
+    df.at[exp_res.name, 'total_cycles_avg'] = total_cycles_mean
+    df.at[exp_res.name, 'total_cycles_stddev'] = total_cycles_stddev
+    return df
+
+
 def extract_sz_dot_results(df):
     for _, exp_res in df.iterrows():
         for core in range(NUM_CORES):
@@ -232,43 +296,23 @@ def extract_sz_dot_results(df):
             df.at[exp_res.name, f'hart_{core}_compute_cycles'] = compute_cycles
             compute_fpu_util = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'compute'), METRIC_FPU_UTIL[exp_res['hw']])
             df.at[exp_res.name, f'hart_{core}_compute_fpu_util'] = compute_fpu_util
-        # compute the mean and stddev over all cores
-        compute_cycles_mean = 0
-        compute_ipc_mean = 0
-        compute_fpu_util_mean = 0
-        total_cycles_mean = 0
+        df = compute_means_and_stddev(df, exp_res)
+    return df
+
+
+def extract_sz_gemm_results(df):
+    for _, exp_res in df.iterrows():
         for core in range(NUM_CORES):
-            compute_cycles_mean += df.at[exp_res.name, f'hart_{core}_compute_cycles']
-            compute_ipc_mean += df.at[exp_res.name, f'hart_{core}_compute_ipc']
-            compute_fpu_util_mean += df.at[exp_res.name, f'hart_{core}_compute_fpu_util']
-            total_cycles_mean += df.at[exp_res.name, f'hart_{core}_total_cycles']
-        compute_cycles_mean /= NUM_CORES
-        compute_ipc_mean /= NUM_CORES
-        compute_fpu_util_mean /= NUM_CORES
-        total_cycles_mean /= NUM_CORES
-        # standard deviation
-        compute_cycles_stddev = 0
-        compute_ipc_stddev = 0
-        compute_fpu_util_stddev = 0
-        total_cycles_stddev = 0
-        for core in range(NUM_CORES):
-            compute_cycles_stddev += (compute_cycles_mean - df.at[exp_res.name, f'hart_{core}_compute_cycles']) ** 2
-            compute_ipc_stddev += (compute_ipc_mean - df.at[exp_res.name, f'hart_{core}_compute_ipc']) ** 2
-            compute_fpu_util_stddev += (compute_fpu_util_mean - df.at[exp_res.name, f'hart_{core}_compute_fpu_util']) ** 2
-            total_cycles_stddev += (total_cycles_mean - df.at[exp_res.name, f'hart_{core}_total_cycles']) ** 2
-        compute_cycles_stddev = (compute_cycles_stddev / NUM_CORES) ** 0.5
-        compute_ipc_stddev = (compute_ipc_stddev / NUM_CORES) ** 0.5
-        compute_fpu_util_stddev = (compute_fpu_util_stddev / NUM_CORES) ** 0.5
-        total_cycles_stddev = (total_cycles_stddev / NUM_CORES) ** 0.5
-        # add to the dataframe
-        df.at[exp_res.name, 'compute_cycles_avg'] = compute_cycles_mean
-        df.at[exp_res.name, 'compute_cycles_stddev'] = compute_cycles_stddev
-        df.at[exp_res.name, 'compute_ipc_avg'] = compute_ipc_mean
-        df.at[exp_res.name, 'compute_ipc_stddev'] = compute_ipc_stddev
-        df.at[exp_res.name, 'compute_fpu_util_avg'] = compute_fpu_util_mean
-        df.at[exp_res.name, 'compute_fpu_util_stddev'] = compute_fpu_util_stddev
-        df.at[exp_res.name, 'total_cycles_avg'] = total_cycles_mean
-        df.at[exp_res.name, 'total_cycles_stddev'] = total_cycles_stddev
+            start = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'iter_setup1'), METRIC_START)
+            end = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'reduction'), METRIC_END)
+            df.at[exp_res.name, f'hart_{core}_total_cycles'] = end - start
+            compute_ipc = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'compute'), METRIC_IPC[exp_res['hw']])
+            df.at[exp_res.name, f'hart_{core}_compute_ipc'] = compute_ipc
+            compute_cycles = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'compute'), METRIC_CYCLES[exp_res['hw']])
+            df.at[exp_res.name, f'hart_{core}_compute_cycles'] = compute_cycles
+            compute_fpu_util = exp_res['results'].get_metric(SimRegion(f'hart_{core}', 'compute'), METRIC_FPU_UTIL[exp_res['hw']])
+            df.at[exp_res.name, f'hart_{core}_compute_fpu_util'] = compute_fpu_util
+        df = compute_means_and_stddev(df, exp_res)
     return df
 
 
@@ -310,6 +354,8 @@ def main():
                 app_df = extract_sz_axpy_results(app_df)
             elif app == "sz_dot" or app == "dot":
                 app_df = extract_sz_dot_results(app_df)
+            elif app == "sz_gemm" or app == "gemm":
+                app_df = extract_sz_gemm_results(app_df)
             app_results.append(app_df)
 
     # create the folder results if it does not exist
