@@ -219,6 +219,7 @@ static inline int gemm(const gemm_args_t *args) {
         DUMP(lc[1]);
     }
     snrt_cluster_hw_barrier();
+    snrt_mcycle(); // start of preparation
 
     // Distribute m and k tiles to clusters
     uint32_t cluster_m_tiles = largs->m_tiles;
@@ -443,9 +444,8 @@ static inline int gemm(const gemm_args_t *args) {
                 sc_st_args.m = tile_m;
                 sc_st_args.n = tile_n;
                 sc_st_args.k = tile_k;
-                sc_st_gemm(largs->gemm_fp, &sc_st_args);
 
-                // uint32_t end_cycle = snrt_mcycle();
+                sc_st_gemm(largs->gemm_fp, &sc_st_args);
             }
 
             // Add the partial result tiles from the various clusters together
@@ -459,6 +459,7 @@ static inline int gemm(const gemm_args_t *args) {
 
         // Synchronize cores after every iteration
         snrt_cluster_hw_barrier();
+        snrt_mcycle(); // end of iteration / preparation for next iteration
     }
 
     return 0;

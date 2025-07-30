@@ -102,11 +102,11 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
 }
 
 // Requires that A and B is regular and not transposed!
-void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
-                   uint32_t transa, uint32_t transb, uint32_t M,
-                   uint32_t N, uint32_t K, void* A_p,
-                   uint32_t lda, void* B_p, uint32_t ldb,
-                   uint32_t beta, void* C_p, uint32_t ldc) {
+static inline void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
+                                 uint32_t transa, uint32_t transb, uint32_t M,
+                                 uint32_t N, uint32_t K, void* A_p,
+                                 uint32_t lda, void* B_p, uint32_t ldb,
+                                 uint32_t beta, void* C_p, uint32_t ldc) {
     double* A = (double*)A_p;
     double* B = (double*)B_p;
     double* C = (double*)C_p;
@@ -114,12 +114,14 @@ void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
     // Unrolling factor of most inner loop.
     // Should be at least as high as the FMA delay
     // for maximum utilization
-    const uint32_t unroll = 4;
+    const uint32_t unroll = 4; // limitted by the number of slots
 
     // Schnizo frep is non nested so we have to compute the address offsets manually.
     double* ptr_a;
     double* ptr_b;
     uint32_t inc_a, inc_b;
+
+    snrt_mcycle();
 
     for (uint32_t m = 0; m < M; m++) {
         uint32_t n = 0;
@@ -138,18 +140,11 @@ void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
             inc_b = sizeof(double) * ldb;
 
 
-            // Load intermediate result
-            if (beta != 0) {
-                c[0] = C[m * ldc + n + 0];
-                c[1] = C[m * ldc + n + 1];
-                c[2] = C[m * ldc + n + 2];
-                c[3] = C[m * ldc + n + 3];
-            } else {
-                c[0] = 0.0;
-                c[1] = 0.0;
-                c[2] = 0.0;
-                c[3] = 0.0;
-            }
+            // Load intermediate result - beta is always zero
+            c[0] = 0.0;
+            c[1] = 0.0;
+            c[2] = 0.0;
+            c[3] = 0.0;
 
             asm volatile(
             "frep.o %[n_frep], 11, 0, 0 \n"
@@ -178,20 +173,7 @@ void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
             C[m * ldc + n + 3] = c[3];
             n += unroll;
         }
-
-        // Clean up of leftover columns
-        for (; n < N; n++) {
-            double c;
-            if (beta != 0) {
-                c = C[m * ldc + n];
-            } else {
-                c = 0.0;
-            }
-            for (uint32_t k = 0; k < K; k++) {
-                // c += A[k + m * lda] * B[k + n * ldb]; // if transposed
-                c += A[k + m * lda] * B[n + k * ldb];
-            }
-            C[m * ldc + n] = c;
-        }
     }
+
+    snrt_mcycle();
 }
