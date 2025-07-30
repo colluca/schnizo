@@ -5,7 +5,7 @@
 #include "args.h"
 #include "snrt.h"
 
-#define DOUBLE_BUFFER 1
+#define DOUBLE_BUFFER 0
 
 #define BANK_ALIGNMENT 8
 #define TCDM_ALIGNMENT (32 * BANK_ALIGNMENT)
