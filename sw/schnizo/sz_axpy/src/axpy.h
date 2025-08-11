@@ -37,12 +37,11 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
         "frep.o  %[n_frep], 7, 0, 0\n"
         "fld     ft0,   0(%[xa])          \n"
         "fld     ft1,   0(%[ya])          \n"
+        "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
+        "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
         "fmadd.d ft0,   %[a],    ft0,   ft1\n"
         "fsd     ft0,   0(%[za])          \n"
-        "add     %[xa], %[xa],   %[inc]   \n" // ALU 0.0
-        // Swap x and y such that z is on its own ALU (ALU1) (if 2 ALUs)
-        "add     %[za], %[za],   %[inc]   \n" // ALU 1.0
-        "add     %[ya], %[ya],   %[inc]   \n" // ALU 0.1
+        "add     %[za], %[za],   %[inc]   \n"
         // Outputs
         : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
         // Inputs
