@@ -70,6 +70,46 @@ static inline void axpy_naive(uint32_t n, double a, double *x, double *y,
     snrt_fpu_fence();
 }
 
+static inline void axpy_naive_unrolled(uint32_t n, double a, double *x, double *y,
+    double *z) {
+    int core_idx = snrt_cluster_core_idx();
+    int num_cores = snrt_cluster_compute_core_num();
+    int frac = n / num_cores;
+    int offset = core_idx;
+
+    snrt_mcycle();
+    for (int i = offset; i < n; i += 4 * num_cores) {
+        // The unrolling must be explicit as otherwise the compiler cannot resolve the "fake"
+        // address dependencies.
+        // This wont work:
+        // z[i] = a * x[i] + y[i];
+        // z[i + 1*num_cores] = a * x[i + 1*num_cores] + y[i + 1*num_cores];
+
+        double x0, x1, x2, x3;
+        double y0, y1, y2, y3;
+        double z0, z1, z2, z3;
+        x0 = x[i];
+        y0 = y[i];
+        x1 = x[i + num_cores];
+        y1 = y[i + num_cores];
+        x2 = x[i + 2 * num_cores];
+        y2 = y[i + 2 * num_cores];
+        x3 = x[i + 3 * num_cores];
+        y3 = y[i + 3 * num_cores];
+
+        z0 = a * x0 + y0;
+        z1 = a * x1 + y1;
+        z2 = a * x2 + y2;
+        z3 = a * x3 + y3;
+        z[i] = z0;
+        z[i + num_cores] = z1;
+        z[i + 2 * num_cores] = z2;
+        z[i + 3 * num_cores] = z3;
+    }
+    snrt_fpu_fence();
+    snrt_mcycle();
+}
+
 static inline void axpy_fma(uint32_t n, double a, double *x, double *y,
                             double *z) {
     int core_idx = snrt_cluster_core_idx();

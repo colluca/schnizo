@@ -15,24 +15,27 @@ from collections import defaultdict
 # How to run this experiment:
 # ./experiments.py --actions sw run traces roi perf --hw schnizo -j
 
+HW_SCHNIZO = 'schnizo'
+HW_SNITCH = 'snitch'
+
 VSIM_BINS = {
-    'schnizo':   str(Path.cwd() / 'hw/schnizo/bin/snitch_cluster.vsim'),
-    'snitch':   str(Path.cwd() / 'hw/snitch/bin/snitch_cluster.vsim'),
+    HW_SCHNIZO:   str(Path.cwd() / 'hw/schnizo/bin/snitch_cluster.vsim'),
+    HW_SNITCH:   str(Path.cwd() / 'hw/snitch/bin/snitch_cluster.vsim'),
 }
 DATA_DIR = Path('data').absolute()
 
 # Naming of perf.json metrics
 METRIC_CYCLES = {
-    'schnizo': 'cycles',
-    'snitch': 'cycles',
+    HW_SCHNIZO: 'cycles',
+    HW_SNITCH: 'cycles',
 }
 METRIC_IPC = {
-    'schnizo': 'total_ipc',
-    'snitch': 'total_ipc',
+    HW_SCHNIZO: 'total_ipc',
+    HW_SNITCH: 'total_ipc',
 }
 METRIC_FPU_UTIL = {
-    'schnizo': 'schnizo_fpu_occupancy',
-    'snitch': 'fpss_fpu_occupancy',
+    HW_SCHNIZO: 'schnizo_fpu_occupancy',
+    HW_SNITCH: 'fpss_fpu_occupancy',
 }
 METRIC_START = 'start'
 METRIC_END = 'end'
@@ -42,7 +45,8 @@ NUM_CORES = 8
 class FrepExperimentManager(ExperimentManager):
 
     def derive_axes(self, experiment):
-        if (experiment['app'] == "sz_axpy" or experiment['app'] == "axpy"):
+        if (experiment['app'] == "sz_axpy" or experiment['app'] == "axpy" or
+            experiment['app'] == "sz_axpy_naive" or experiment['app'] == "axpy_naive"):
             return {
                 'hw': experiment['hw'],
                 'app': experiment['app'],
@@ -85,20 +89,22 @@ class FrepExperimentManager(ExperimentManager):
 
 def gen_experiments(hardware):
     axpy_app_name = 'sz_axpy' if hardware == 'schnizo' else 'axpy'
+    axpy_naive_app_name = 'sz_axpy_naive' if hardware == 'schnizo' else 'axpy_naive'
     dot_app_name = 'sz_dot' if hardware == 'schnizo' else 'dot'
     gemm_app_name = 'sz_gemm' if hardware == 'schnizo' else 'gemm'
+
     experiments = [
-        {'app': axpy_app_name, 'n': 2560, 'n_tiles': 2},
-        {'app': axpy_app_name, 'n': 2560, 'n_tiles': 5},
-        # Sweep tiles
-        {'app': axpy_app_name, 'n': 4096, 'n_tiles': 2},
-        {'app': axpy_app_name, 'n': 4096, 'n_tiles': 4},
-        {'app': axpy_app_name, 'n': 4096, 'n_tiles': 8},
         # Sweep number of elements
-        {'app': axpy_app_name, 'n': 1024, 'n_tiles': 2},
-        {'app': axpy_app_name, 'n': 2048, 'n_tiles': 2},
-        {'app': axpy_app_name, 'n': 3072, 'n_tiles': 2},
-        # {'app': axpy_app_name, 'n': 4096, 'n_tiles': 2},  # already included above
+        # No double buffering for full TCDM occupation
+        {'app': axpy_app_name, 'n': 1024, 'n_tiles': 1},
+        {'app': axpy_app_name, 'n': 2048, 'n_tiles': 1},
+        {'app': axpy_app_name, 'n': 3072, 'n_tiles': 1},
+        {'app': axpy_app_name, 'n': 4096, 'n_tiles': 1},
+
+        {'app': axpy_naive_app_name, 'n': 1024, 'n_tiles': 1},
+        {'app': axpy_naive_app_name, 'n': 2048, 'n_tiles': 1},
+        {'app': axpy_naive_app_name, 'n': 3072, 'n_tiles': 1},
+        {'app': axpy_naive_app_name, 'n': 4096, 'n_tiles': 1},
 
         {'app': dot_app_name, 'n': 1024},
         {'app': dot_app_name, 'n': 2048},
@@ -123,7 +129,7 @@ def gen_experiments(hardware):
         if experiment['app'] == "sz_dot" or experiment['app'] == "dot":
             assert (experiment['n'] % (NUM_CORES * 4)) == 0, "n must be an integer " \
                    f"multiple of the number of cores times the unrolling factor (cores = {NUM_CORES}, unrolling factor = 4)"
-        if experiment['app'] == "sz_axpy" or experiment['app'] == "axpy":
+        if experiment['app'] == "sz_axpy" or experiment['app'] == "axpy" or experiment['app'] == "sz_axpy_naive" or experiment['app'] == "axpy_naive":
             assert experiment['n'] % experiment['n_tiles'] == 0, "n must be " \
                    "an integer multiple of n_tiles"
             n_per_tile = experiment['n'] // experiment['n_tiles']
@@ -351,6 +357,8 @@ def main():
         for app in df['app'].unique():
             app_df = df[df['app'] == app].copy(deep=True)
             if app == "sz_axpy" or app == "axpy":
+                app_df = extract_sz_axpy_results(app_df)
+            elif app == "sz_axpy_naive" or app == "axpy_naive":
                 app_df = extract_sz_axpy_results(app_df)
             elif app == "sz_dot" or app == "dot":
                 app_df = extract_sz_dot_results(app_df)
