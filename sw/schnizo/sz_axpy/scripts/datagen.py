@@ -16,7 +16,7 @@ class AxpyDataGen(du.DataGen):
     # the occurrence of these splits the data should be aligned to 4KB
     BURST_ALIGNMENT = 4096
     # Function pointers to alternative implementations
-    FUNCPTRS = ["axpy_naive", "axpy_fma", "axpy_opt", "axpy_frep"]
+    FUNCPTRS = ["axpy_naive", "axpy_fma", "axpy_opt", "axpy_frep", "axpy_naive_unrolled"]
 
     def golden_model(self, a, x, y):
         return a*x + y
@@ -30,7 +30,7 @@ class AxpyDataGen(du.DataGen):
         # Calculate total TCDM occupation
         # Note: doesn't account for gaps created by data alignment
         vec_size = n_per_tile * 8
-        total_size = 2 * 3 * vec_size
+        total_size = 3 * vec_size  # Assuming NO DOUBLE BUFFERING!
         du.validate_tcdm_footprint(total_size)
 
     def emit_header(self, **kwargs):
