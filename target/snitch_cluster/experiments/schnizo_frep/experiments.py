@@ -53,7 +53,8 @@ class FrepExperimentManager(ExperimentManager):
                 'n': experiment['n'],
                 'n_tiles': experiment['n_tiles'],
             }
-        elif (experiment['app'] == "sz_dot" or experiment['app'] == "dot"):
+        elif (experiment['app'] == "sz_dot" or experiment['app'] == "dot" or
+              experiment['app'] == "sz_dot_naive" or experiment['app'] == "dot_naive"):
             return {
                 'hw': experiment['hw'],
                 'app': experiment['app'],
@@ -91,6 +92,7 @@ def gen_experiments(hardware):
     axpy_app_name = 'sz_axpy' if hardware == 'schnizo' else 'axpy'
     axpy_naive_app_name = 'sz_axpy_naive' if hardware == 'schnizo' else 'axpy_naive'
     dot_app_name = 'sz_dot' if hardware == 'schnizo' else 'dot'
+    dot_naive_app_name = 'sz_dot_naive' if hardware == 'schnizo' else 'dot_naive'
     gemm_app_name = 'sz_gemm' if hardware == 'schnizo' else 'gemm'
 
     experiments = [
@@ -110,6 +112,10 @@ def gen_experiments(hardware):
         {'app': dot_app_name, 'n': 2048},
         {'app': dot_app_name, 'n': 4096},
 
+        {'app': dot_naive_app_name, 'n': 1024},
+        {'app': dot_naive_app_name, 'n': 2048},
+        {'app': dot_naive_app_name, 'n': 4096},
+
         # GEMM experiments
         # sweep k but keep total size constant
         {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 16},
@@ -126,7 +132,7 @@ def gen_experiments(hardware):
 
     for experiment in experiments:
         # Check parameters - no check for GEMM
-        if experiment['app'] == "sz_dot" or experiment['app'] == "dot":
+        if experiment['app'] == "sz_dot" or experiment['app'] == "dot" or experiment['app'] == "sz_dot_naive" or experiment['app'] == "dot_naive":
             assert (experiment['n'] % (NUM_CORES * 4)) == 0, "n must be an integer " \
                    f"multiple of the number of cores times the unrolling factor (cores = {NUM_CORES}, unrolling factor = 4)"
         if experiment['app'] == "sz_axpy" or experiment['app'] == "axpy" or experiment['app'] == "sz_axpy_naive" or experiment['app'] == "axpy_naive":
@@ -361,6 +367,8 @@ def main():
             elif app == "sz_axpy_naive" or app == "axpy_naive":
                 app_df = extract_sz_axpy_results(app_df)
             elif app == "sz_dot" or app == "dot":
+                app_df = extract_sz_dot_results(app_df)
+            elif app == "sz_dot_naive" or app == "dot_naive":
                 app_df = extract_sz_dot_results(app_df)
             elif app == "sz_gemm" or app == "gemm":
                 app_df = extract_sz_gemm_results(app_df)
