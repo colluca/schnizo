@@ -4,5 +4,7 @@
 
 // original 4096
 {
-    n: 1024
+    "n": 1024,
+    // "funcptr": "dot_naive_4unrolled"
+    "funcptr": "dot_frep_4unrolled"
 }

@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
+#include "args.h"
 #include "snrt.h"
 
 static inline void dot_frep(uint32_t n, double *x, double *y, double *output) {
@@ -72,117 +73,31 @@ static inline void dot_frep_4unrolled(uint32_t n, double *x, double *y, double *
     output[0] = sum1;
 }
 
-// requires 2 (or maybe 1) ALU, 2 LSU with 6 slot each and 1 FPU with 6 slots.
-static inline void dot_frep_6unrolled(uint32_t n, double *x, double *y, double *output) {
-    register volatile double sum1 asm("ft0") = 0;
-    register volatile double sum2 asm("ft1") = 0;
-    register volatile double sum3 asm("ft2") = 0;
-    register volatile double sum4 asm("ft3") = 0;
-    register volatile double sum5 asm("ft4") = 0;
-    register volatile double sum6 asm("ft5") = 0;
+inline void dot_naive_4unrolled(uint32_t n, double *x, double *y, double *output) {
+    double res0, res1, res2, res3;
 
-    int inc = sizeof(double) * 6;
-    double *x_addr = &x[0];
-    double *y_addr = &y[0];
+    int i = 0;
 
-    asm volatile (
-        // Loop
-        "frep.o  %[n_frep], 20,      0,     0       \n"
-        "fld     fa0,       0(%[xa])                \n"
-        "fld     fa1,       0(%[ya])                \n"
-        "fld     fa2,       8(%[xa])                \n"
-        "fld     fa3,       8(%[ya])                \n"
-        "fld     fa4,      16(%[xa])                \n"
-        "fld     fa5,      16(%[ya])                \n"
-        "fld     fa6,      24(%[xa])                \n"
-        "fld     fa7,      24(%[ya])                \n"
-        "fld     fs0,      32(%[xa])                \n"
-        "fld     fs1,      32(%[ya])                \n"
-        "fld     fs2,      40(%[xa])                \n"
-        "fld     fs3,      40(%[ya])                \n"
-        "fmadd.d %[sum1],  fa0,      fa1,    %[sum1]\n"
-        "fmadd.d %[sum2],  fa2,      fa3,    %[sum2]\n"
-        "fmadd.d %[sum3],  fa4,      fa5,    %[sum3]\n"
-        "fmadd.d %[sum4],  fa6,      fa7,    %[sum4]\n"
-        "fmadd.d %[sum5],  fs0,      fs1,    %[sum5]\n"
-        "fmadd.d %[sum6],  fs2,      fs3,    %[sum6]\n"
-        "addi    %[xa],    %[xa],    %[inc]         \n"
-        "addi    %[ya],    %[ya],    %[inc]         \n"
-        // Reduction
-        "fadd.d  %[sum1],  %[sum1],  %[sum2]        \n"
-        "fadd.d  %[sum3],  %[sum3],  %[sum4]        \n"
-        "fadd.d  %[sum5],  %[sum5],  %[sum6]        \n"
-        "fadd.d  %[sum1],  %[sum1],  %[sum3]        \n"
-        "fadd.d  %[sum1],  %[sum1],  %[sum5]        \n"
-        // Outputs
-        : [sum1]"+f"(sum1), [sum2]"+f"(sum2), [sum3]"+f"(sum3), [sum4]"+f"(sum4),
-          [sum5]"+f"(sum5), [sum6]"+f"(sum6),
-          [xa]"+r"(x_addr), [ya]"+r"(y_addr)
-        // Inputs - frep loops once more than the actual value
-        : [n_frep]"r"(n/6-1), [inc]"i"(inc)
-        // Clobbers
-        : "t0", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "fs0", "fs1", "fs2", "fs3"
-    );
+    for (; i + 3 < n; i += 4) {
+        res0 += x[i+0] * y[i+0];
+        res1 += x[i+1] * y[i+1];
+        res2 += x[i+2] * y[i+2];
+        res3 += x[i+3] * y[i+3];
+    }
 
-    output[0] = sum1;
-}
+    // Reduce the 4 streams
+    res0 += res1;
+    res2 += res3;
+    res0 += res2;
 
-static inline void dot_frep_4unrolled_address(uint32_t n, double *x, double *y, double *output) {
-    register volatile double sum1 asm("ft0") = 0;
-    register volatile double sum2 asm("ft1") = 0;
-    register volatile double sum3 asm("ft2") = 0;
-    register volatile double sum4 asm("ft3") = 0;
+    // clean up in case n % 4 != 0
+    for (; i < n; i++) {
+        res0 += x[i] * y[i];
+    }
 
-    int inc = sizeof(double);
-    double *x_addr1 = &x[0];
-    double *x_addr2 = &x[1];
-    double *x_addr3 = &x[2];
-    double *x_addr4 = &x[3];
-    double *y_addr1 = &y[0];
-    double *y_addr2 = &y[1];
-    double *y_addr3 = &y[2];
-    double *y_addr4 = &y[3];
+    snrt_fpu_fence();
 
-    asm volatile (
-        // Loop
-        "frep.o  %[n_frep], 20,      0,     0      \n"
-        "fld     fa0,       0(%[xa1])               \n"
-        "fld     fa1,       0(%[ya1])               \n"
-        "fld     fa2,       8(%[xa2])               \n"
-        "fld     fa3,       8(%[ya2])               \n"
-        "fld     fa4,      16(%[xa3])               \n"
-        "fld     fa5,      16(%[ya3])               \n"
-        "fld     fa6,      24(%[xa4])               \n"
-        "fld     fa7,      24(%[ya4])               \n"
-        "fmadd.d %[sum1],  fa0,       fa1,   %[sum1]\n"
-        "fmadd.d %[sum2],  fa2,       fa3,   %[sum2]\n"
-        "fmadd.d %[sum3],  fa4,       fa5,   %[sum3]\n"
-        "fmadd.d %[sum4],  fa6,       fa7,   %[sum4]\n"
-        "addi    %[xa1],   %[xa1],    %[inc]        \n"
-        "addi    %[ya1],   %[ya1],    %[inc]        \n"
-        "addi    %[xa2],   %[xa2],    %[inc]        \n"
-        "addi    %[ya2],   %[ya2],    %[inc]        \n"
-        "addi    %[xa3],   %[xa3],    %[inc]        \n"
-        "addi    %[ya3],   %[ya3],    %[inc]        \n"
-        "addi    %[xa4],   %[xa4],    %[inc]        \n"
-        "addi    %[ya4],   %[ya4],    %[inc]        \n"
-        // Reduction
-        "fadd.d  %[sum1],  %[sum1],   %[sum2]       \n"
-        "fadd.d  %[sum3],  %[sum3],   %[sum4]       \n"
-        "fadd.d  %[sum1],  %[sum1],   %[sum3]       \n"
-        // Outputs
-        : [sum1]"+f"(sum1), [sum2]"+f"(sum2), [sum3]"+f"(sum3), [sum4]"+f"(sum4),
-          [xa1]"+r"(x_addr1), [ya1]"+r"(y_addr1),
-          [xa2]"+r"(x_addr2), [ya2]"+r"(y_addr2),
-          [xa3]"+r"(x_addr3), [ya3]"+r"(y_addr3),
-          [xa4]"+r"(x_addr4), [ya4]"+r"(y_addr4)
-        // Inputs - frep loops once more than the actual value
-        : [n_frep]"r"((n >> 2) - 1), [inc]"i"(inc)
-        // Clobbers
-        : "t0", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7"
-    );
-
-    output[0] = sum1;
+    *output = res0;
 }
 
 inline void dot_seq(uint32_t n, double *x, double *y, double *output) {
@@ -267,7 +182,7 @@ inline void dot_seq_4_acc(uint32_t n, double *x, double *y, double *output) {
     output[0] = res_ssr_0;
 }
 
-static inline void dot(uint32_t n, double *x, double *y, double *result) {
+static inline void dot(uint32_t n, double *x, double *y, double *result, dot_fp_t funcptr) {
     double *local_x, *local_y, *partial_sums;
 
     uint32_t start_cycle, end_cycle;
@@ -298,7 +213,7 @@ static inline void dot(uint32_t n, double *x, double *y, double *result) {
 
     // Compute partial sums
     if (snrt_is_compute_core()) {
-        dot_frep_4unrolled(frac_core, local_x, local_y, &partial_sums[core_idx]);
+        funcptr(frac_core, local_x, local_y, &partial_sums[core_idx]);
     }
 
     snrt_cluster_hw_barrier();

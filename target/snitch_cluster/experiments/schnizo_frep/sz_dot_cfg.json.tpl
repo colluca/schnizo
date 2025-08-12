@@ -4,4 +4,5 @@
 
 {
     "n": ${experiment['n']},
+    "funcptr": "dot_frep_4unrolled"
 }

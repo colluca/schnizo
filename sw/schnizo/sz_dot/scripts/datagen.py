@@ -29,6 +29,10 @@ class DotDataGen(du.DataGen):
         assert (n % (8 * 4)) == 0, "n must be an integer multiple of the number of cores times " \
                                    "the unrolling factor"
 
+        cfg = {
+            'funcptr': kwargs['funcptr']
+        }
+
         header += [du.format_scalar_definition('const uint32_t', 'n', n)]
         header += [du.format_array_definition('double', 'x', x, alignment=self.BURST_ALIGNMENT,
                                               section=kwargs['section'])]
@@ -36,6 +40,7 @@ class DotDataGen(du.DataGen):
                                               section=kwargs['section'])]
         header += [du.format_scalar_declaration('double', 'result', alignment=self.BURST_ALIGNMENT,
                                                 section=kwargs['section'])]
+        header += [du.format_struct_definition('dot_args_t', 'args', cfg)]
         result_def = du.format_scalar_definition('double', 'g', g)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
         header = '\n\n'.join(header)

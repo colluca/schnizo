@@ -4,15 +4,15 @@
 
 #include "snrt.h"
 
-#include "data.h"
 #include "dot.h"
+#include "data.h"
 
 #define NUM_RUNS 2
 
 int main() {
     // Preheat the instruction cache
     for (volatile int run = 0; run < NUM_RUNS; run++) {
-        dot(n, x, y, &result);
+        dot(n, x, y, &result, args.funcptr);
     }
 
 // TODO: currently only works for single cluster otherwise need to

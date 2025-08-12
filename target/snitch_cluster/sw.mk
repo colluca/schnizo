@@ -110,6 +110,7 @@ SNRT_APPS += sw/schnizo/sz_sum
 SNRT_APPS += sw/schnizo/sz_axpy
 SNRT_APPS += sw/schnizo/sz_axpy_naive
 SNRT_APPS += sw/schnizo/sz_dot
+SNRT_APPS += sw/schnizo/sz_dot_naive
 SNRT_APPS += sw/schnizo/sz_gemm
 SNRT_APPS += sw/schnizo/sz_exp
 
