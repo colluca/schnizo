@@ -60,7 +60,8 @@ class FrepExperimentManager(ExperimentManager):
                 'app': experiment['app'],
                 'n': experiment['n'],
             }
-        elif (experiment['app'] == "sz_gemm" or experiment['app'] == "gemm"):
+        elif (experiment['app'] == "sz_gemm" or experiment['app'] == "gemm" or
+              experiment['app'] == "sz_gemm_naive" or experiment['app'] == "gemm_naive"):
             return {
                 'hw': experiment['hw'],
                 'app': experiment['app'],
@@ -94,6 +95,7 @@ def gen_experiments(hardware):
     dot_app_name = 'sz_dot' if hardware == 'schnizo' else 'dot'
     dot_naive_app_name = 'sz_dot_naive' if hardware == 'schnizo' else 'dot_naive'
     gemm_app_name = 'sz_gemm' if hardware == 'schnizo' else 'gemm'
+    gemm_naive_app_name = 'sz_gemm_naive' if hardware == 'schnizo' else 'gemm_naive'
 
     experiments = [
         # Sweep number of elements
@@ -117,16 +119,80 @@ def gen_experiments(hardware):
         {'app': dot_naive_app_name, 'n': 4096},
 
         # GEMM experiments
-        # sweep k but keep total size constant
-        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 16},
-        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k': 32},
-        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k': 64},
-        # sweep k by trading with m, keep n constant
-        # {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 16},  # already included above
-        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k': 32},
-        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k': 64},
-        # extreme case with large k
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  16},
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  32},
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  64},
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k': 128},
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  16},
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  32},
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  64},
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 128},
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  16},
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  32},
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  64},
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k': 128},
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  16},
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  32},
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  64},
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k': 128},
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  16},
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  32},
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  64},
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k': 128},
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  16},
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  32},
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  64},
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k': 128},
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  16},
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  32},
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  64},
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k': 128},
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  16},
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  32},
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  64},
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k': 128},
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  16},
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  32},
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  64},
         {'app': gemm_app_name, 'm': 8,  'n': 8,  'k': 128},
+
+        # GEMM naive experiments
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  16},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  32},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  64},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k': 128},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  16},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  32},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  64},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k': 128},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  16},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  32},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  64},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k': 128},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  16},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  32},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  64},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k': 128},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  16},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  32},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  64},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k': 128},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  16},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  32},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  64},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k': 128},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  16},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  32},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  64},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k': 128},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  16},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  32},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  64},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k': 128},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  16},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  32},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  64},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k': 128},
 
     ]
 
@@ -371,6 +437,8 @@ def main():
             elif app == "sz_dot_naive" or app == "dot_naive":
                 app_df = extract_sz_dot_results(app_df)
             elif app == "sz_gemm" or app == "gemm":
+                app_df = extract_sz_gemm_results(app_df)
+            elif app == "sz_gemm_naive" or app == "gemm_naive":
                 app_df = extract_sz_gemm_results(app_df)
             app_results.append(app_df)
 

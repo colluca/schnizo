@@ -112,6 +112,7 @@ SNRT_APPS += sw/schnizo/sz_axpy_naive
 SNRT_APPS += sw/schnizo/sz_dot
 SNRT_APPS += sw/schnizo/sz_dot_naive
 SNRT_APPS += sw/schnizo/sz_gemm
+SNRT_APPS += sw/schnizo/sz_gemm_naive
 SNRT_APPS += sw/schnizo/sz_exp
 
 # Include Makefile from each app subdirectory

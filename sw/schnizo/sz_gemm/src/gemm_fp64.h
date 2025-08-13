@@ -37,6 +37,7 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
         sizeof(double);
 
     if (!transa && !transb) {
+        snrt_mcycle();
         for (uint32_t m = 0; m < M; m++) {
             for (uint32_t n = 0; n < N; n++) {
                 uint32_t c_idx;
@@ -68,7 +69,9 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
                 C[c_idx] = c0;
             }
         }
+        snrt_mcycle();
     } else if (transa && !transb) {
+        snrt_mcycle();
         for (uint32_t m = 0; m < M; m++) {
             for (uint32_t n = 0; n < N; n++) {
                 double c0 = multiply_opt(C[m * ldc + n], beta);
@@ -78,7 +81,9 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
                 C[m * ldc + n] = c0;
             }
         }
+        snrt_mcycle();
     } else if (!transa && transb) {
+        snrt_mcycle();
         for (uint32_t m = 0; m < M; m++) {
             for (uint32_t n = 0; n < N; n++) {
                 double c0 = multiply_opt(C[m * ldc + n], beta);
@@ -88,7 +93,9 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
                 C[m * ldc + n] = c0;
             }
         }
+        snrt_mcycle();
     } else {
+        snrt_mcycle();
         for (uint32_t m = 0; m < M; m++) {
             for (uint32_t n = 0; n < N; n++) {
                 double c0 = multiply_opt(C[m * ldc + n], beta);
@@ -98,6 +105,7 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
                 C[m * ldc + n] = c0;
             }
         }
+        snrt_mcycle();
     }
 }
 
