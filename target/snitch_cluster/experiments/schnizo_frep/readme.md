@@ -8,3 +8,25 @@ make clean-vsim
 cd ./experiments/schnizo_frep/
 ./experiments.py --actions hw sw run traces roi perf --hw schnizo -j
 ```
+
+## Power
+1. Run the experiments in a regular fashion
+1. Place the Netlist, sdc and upf files from stage 15 at the place the bender.yml file expects it
+1. Adapt the clock in the sdc to the desired clock.
+1. Clean and regenerate the hw with the `--pls` option enabled.
+1. Manually set the VCD range where the experiments are generated.
+1. Then invoke the experiment script with the actions run and power as well as the `--pls` flag.
+
+```
+make clean-vsim
+cd ./experiments/schnizo_frep/
+rm -rf hw/
+./experiments.py --actions hw run power --hw schnizo --pls -j
+```
+
+The power action invokes the following from the nonfree repo.
+```
+make SIM_DIR=../target/snitch_cluster power
+```
+
+A manual process is explained in the Snitch tutorial.

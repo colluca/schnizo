@@ -123,6 +123,9 @@ class ExperimentManager:
     def derive_vsim_builddir(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'work-vsim'
 
+    def derive_vcs_builddir(self, experiment):
+        return self.dir / 'hw' / experiment['hw'] / 'work-vcs'
+
     def derive_roi_template(self, experiment):
         return self.dir / 'roi.json.tpl'
 
@@ -142,8 +145,14 @@ class ExperimentManager:
                     'SN_BIN_DIR': bin.parent,
                     'VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
                     'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
-                    'DEBUG': 'ON'
+                    'DEBUG': 'ON',
                 }
+                # Set extra variables if post layout simulation is desired
+                if hasattr(self.args, 'pls') and self.args.pls:
+                    vars['VCS_BUILDDIR'] = self.derive_vcs_builddir(experiment)
+                    vars['PL_SIM'] = 1
+                    vars['VCD_DUMP'] = 1
+
                 flags = ['-j']
                 common.make(bin, vars, flags=flags, dry_run=dry_run)
 
@@ -244,7 +253,7 @@ class ExperimentManager:
                                              rendered_spec,
                                              hw_cfg=hw_cfg)
 
-        # Generate joint performance dump
+        # Extract power results
         if 'power' in self.actions or 'all' in self.actions:
             def run_power(experiment):
                 print(
@@ -253,8 +262,9 @@ class ExperimentManager:
                 )
                 vars = {
                     'SIM_DIR': experiment['run_dir'],
-                    'POWER_REPDIR': experiment['power_dir']
+                    'POWER_REPDIR': experiment['power_dir'],
                 }
+
                 dir = SNITCH_ROOT / 'nonfree'
                 return common.make('power', vars, dir=dir, dry_run=dry_run)
 

@@ -98,101 +98,103 @@ def gen_experiments(hardware):
     gemm_naive_app_name = 'sz_gemm_naive' if hardware == 'schnizo' else 'gemm_naive'
 
     experiments = [
+        # VCD ranges must be extracted manually
+
         # Sweep number of elements
         # No double buffering for full TCDM occupation
-        {'app': axpy_app_name, 'n': 1024, 'n_tiles': 1},
-        {'app': axpy_app_name, 'n': 2048, 'n_tiles': 1},
-        {'app': axpy_app_name, 'n': 3072, 'n_tiles': 1},
-        {'app': axpy_app_name, 'n': 4096, 'n_tiles': 1},
+        {'app': axpy_app_name, 'n': 1024, 'n_tiles': 1, 'vcd_start': 22374, 'vcd_end': 22577},  # Schnizo specific vcd range
+        {'app': axpy_app_name, 'n': 2048, 'n_tiles': 1, 'vcd_start': 35334, 'vcd_end': 35687},  # Schnizo specific vcd range
+        {'app': axpy_app_name, 'n': 3072, 'n_tiles': 1, 'vcd_start': 48281, 'vcd_end': 48784},  # Schnizo specific vcd range
+        {'app': axpy_app_name, 'n': 4096, 'n_tiles': 1, 'vcd_start': 61246, 'vcd_end': 61900},  # Schnizo specific vcd range
 
-        {'app': axpy_naive_app_name, 'n': 1024, 'n_tiles': 1},
-        {'app': axpy_naive_app_name, 'n': 2048, 'n_tiles': 1},
-        {'app': axpy_naive_app_name, 'n': 3072, 'n_tiles': 1},
-        {'app': axpy_naive_app_name, 'n': 4096, 'n_tiles': 1},
+        {'app': axpy_naive_app_name, 'n': 1024, 'n_tiles': 1, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': axpy_naive_app_name, 'n': 2048, 'n_tiles': 1, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': axpy_naive_app_name, 'n': 3072, 'n_tiles': 1, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': axpy_naive_app_name, 'n': 4096, 'n_tiles': 1, 'vcd_start': 0, 'vcd_end': -1},
 
-        {'app': dot_app_name, 'n': 1024},
-        {'app': dot_app_name, 'n': 2048},
-        {'app': dot_app_name, 'n': 4096},
+        {'app': dot_app_name, 'n': 1024, 'vcd_start': 4068, 'vcd_end': 4363},  # Schnizo specific vcd range
+        {'app': dot_app_name, 'n': 2048, 'vcd_start': 4829, 'vcd_end': 5274},  # Schnizo specific vcd range
+        {'app': dot_app_name, 'n': 4096, 'vcd_start': 6350, 'vcd_end': 7096},  # Schnizo specific vcd range
 
-        {'app': dot_naive_app_name, 'n': 1024},
-        {'app': dot_naive_app_name, 'n': 2048},
-        {'app': dot_naive_app_name, 'n': 4096},
+        {'app': dot_naive_app_name, 'n': 1024, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': dot_naive_app_name, 'n': 2048, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': dot_naive_app_name, 'n': 4096, 'vcd_start': 0, 'vcd_end': -1},
 
         # GEMM experiments
-        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  16},
-        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  32},
-        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  64},
-        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k': 128},
-        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  16},
-        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  32},
-        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  64},
-        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 128},
-        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  16},
-        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  32},
-        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  64},
-        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k': 128},
-        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  16},
-        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  32},
-        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  64},
-        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k': 128},
-        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  16},
-        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  32},
-        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  64},
-        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k': 128},
-        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  16},
-        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  32},
-        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  64},
-        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k': 128},
-        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  16},
-        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  32},
-        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  64},
-        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k': 128},
-        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  16},
-        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  32},
-        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  64},
-        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k': 128},
-        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  16},
-        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  32},
-        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  64},
-        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k': 128},
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  16, 'vcd_start': 2977, 'vcd_end': 7001},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  32, 'vcd_start': 3170, 'vcd_end': 10373},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k':  64, 'vcd_start': 3492, 'vcd_end': 15630},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 32, 'k': 128, 'vcd_start': 4138, 'vcd_end': 26079},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  16, 'vcd_start': 2872, 'vcd_end': 4810},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  32, 'vcd_start': 3008, 'vcd_end': 6075},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k':  64, 'vcd_start': 3259, 'vcd_end': 8440},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 16, 'k': 128, 'vcd_start': 3787, 'vcd_end': 13359},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  16, 'vcd_start': 2855, 'vcd_end': 3811},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  32, 'vcd_start': 2958, 'vcd_end': 4436},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k':  64, 'vcd_start': 3170, 'vcd_end': 5661},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 32, 'n': 8,  'k': 128, 'vcd_start': 3622, 'vcd_end': 8167},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  16, 'vcd_start': 2851, 'vcd_end': 5086},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  32, 'vcd_start': 2975, 'vcd_end': 7276},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k':  64, 'vcd_start': 3232, 'vcd_end': 10380},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 32, 'k': 128, 'vcd_start': 3748, 'vcd_end': 16550},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  16, 'vcd_start': 2763, 'vcd_end': 3724},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  32, 'vcd_start': 2870, 'vcd_end': 4410},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k':  64, 'vcd_start': 3065, 'vcd_end': 5699},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 16, 'k': 128, 'vcd_start': 3440, 'vcd_end': 8313},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  16, 'vcd_start': 2650, 'vcd_end': 3127},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  32, 'vcd_start': 2750, 'vcd_end': 3497},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k':  64, 'vcd_start': 2896, 'vcd_end': 4152},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 16, 'n': 8,  'k': 128, 'vcd_start': 3231, 'vcd_end': 5511},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  16, 'vcd_start': 2755, 'vcd_end': 4106},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  32, 'vcd_start': 2841, 'vcd_end': 5087},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k':  64, 'vcd_start': 3095, 'vcd_end': 7535},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 32, 'k': 128, 'vcd_start': 3549, 'vcd_end': 12197},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  16, 'vcd_start': 2639, 'vcd_end': 3140},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  32, 'vcd_start': 2692, 'vcd_end': 3498},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k':  64, 'vcd_start': 2854, 'vcd_end': 4220},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 16, 'k': 128, 'vcd_start': 3189, 'vcd_end': 5664},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  16, 'vcd_start': 2596, 'vcd_end': 2838},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  32, 'vcd_start': 2678, 'vcd_end': 3050},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k':  64, 'vcd_start': 2811, 'vcd_end': 3445},  # Schnizo specific vcd range
+        {'app': gemm_app_name, 'm': 8,  'n': 8,  'k': 128, 'vcd_start': 3063, 'vcd_end': 4203},  # Schnizo specific vcd range
 
         # GEMM naive experiments
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  16},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  32},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  64},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k': 128},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  16},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  32},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  64},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k': 128},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  16},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  32},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  64},
-        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k': 128},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  16},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  32},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  64},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k': 128},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  16},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  32},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  64},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k': 128},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  16},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  32},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  64},
-        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k': 128},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  16},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  32},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  64},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k': 128},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  16},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  32},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  64},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k': 128},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  16},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  32},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  64},
-        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k': 128},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 32, 'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 16, 'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 32, 'n': 8,  'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 32, 'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 16, 'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 16, 'n': 8,  'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 32, 'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 16, 'k': 128, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  16, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  32, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k':  64, 'vcd_start': 0, 'vcd_end': -1},
+        {'app': gemm_naive_app_name, 'm': 8,  'n': 8,  'k': 128, 'vcd_start': 0, 'vcd_end': -1},
 
     ]
 
@@ -394,6 +396,10 @@ def extract_sz_gemm_results(df):
     return df
 
 
+def get_power_component(breakdown, pattern):
+    return breakdown[breakdown['name'] == pattern]['total_power'].item()
+
+
 def main():
     seed = 22
     random.seed(seed)
@@ -403,6 +409,9 @@ def main():
                         type=str,
                         help='Specify the hardware configuration to use.',
                         default='schnizo')
+    parser.add_argument('--pls',
+                        action='store_true',
+                        help='Enable post-layout simulation (PLS).')
     args = parser.parse_args()
 
     # Fall back to some default experiments in case no yaml file is provided.
@@ -441,6 +450,29 @@ def main():
             elif app == "sz_gemm_naive" or app == "gemm_naive":
                 app_df = extract_sz_gemm_results(app_df)
             app_results.append(app_df)
+
+    POWER_GROUPS = {
+    # 'muldiv': '*i_snitch_shared_muldiv',
+    'cc': '*i_snitch_cc',
+    # 'fpu': '*i_snitch_fp_ss_i_fpu',
+    # 'fpu_8': 'i_cluster_gen_core_8__i_snitch_cc/gen_fpu_i_snitch_fp_ss_i_fpu',
+    # 'dma': '*i_idma_inst64*',
+    # 'icache': '*i_snitch_icache*',
+    # 'tcdm': '*i_data_mem*',
+    # 'dma_xbar': '*i_axi_dma_xbar',
+    # 'zero_mem': '*i_axi_zeromem',
+    }
+
+    if manager.power_results_available:
+        manager.export_power_experiments(SimRegion('hart_0', 'compute'))
+
+        df['total_power'] = df.apply(lambda row: row['power_results'].total_power, axis=1)
+        df['clock_power'] = df.apply(lambda row: row['power_results'].clock_power, axis=1)
+        breakdowns = df['power_results'].apply(
+            lambda results: results.group_power_breakdown(POWER_GROUPS.values()))
+        for key, val in POWER_GROUPS.items():
+            df[key] = breakdowns.apply(lambda breakdown: get_power_component(breakdown, val))
+        df.drop(labels=['power_results'], inplace=True, axis=1)
 
     # create the folder results if it does not exist
     results_dir = Path('results')
