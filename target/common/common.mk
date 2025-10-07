@@ -56,7 +56,7 @@ FESVR         ?= ${MKFILE_DIR}work
 FESVR_VERSION ?= 35d50bc40e59ea1d5566fbd3d9226023821b1bb6
 
 # Flags
-COMMON_BENDER_FLAGS     += -t rtl -t snitch_cluster
+COMMON_BENDER_FLAGS     += -t rtl -t snitch_cluster 
 COMMON_BENDER_SIM_FLAGS += -t simulation -t test
 RISCV_MC_FLAGS          ?= -disassemble -mcpu=snitch
 ANNOTATE_FLAGS          ?= -q --keep-time --addr2line=$(ADDR2LINE)

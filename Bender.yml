@@ -28,6 +28,7 @@ dependencies:
   riscv-dbg:          { git: https://github.com/pulp-platform/riscv-dbg,          version:  0.8.0       }
   cluster_icache:     { git: https://github.com/pulp-platform/cluster_icache.git, rev: 64e21ae455bbdde850c4df13bef86ea55ac42537 }
   idma:               { git: https://github.com/pulp-platform/iDMA.git,           rev: __deploy__bebefa3__master }
+  spatz:              { git: https://github.com/pulp-platform/spatz,              rev: b4d80947b5412d387ab5a9b220351e08d2115b67} 
 
 export_include_dirs:
   - hw/reqrsp_interface/include
@@ -104,11 +105,11 @@ sources:
     defines:
       SNITCH_ENABLE_PERF:
     files:
-      - hw/snitch/src/snitch.sv
+      # - hw/snitch/src/snitch.sv
   # Disable the performance monitoring counters to save area.
   - target: disable_pmcs
     files:
-      - hw/snitch/src/snitch.sv
+      # - hw/snitch/src/snitch.sv
   - target: test
     files:
       - hw/snitch/test/snitch_l0_tlb_tb.sv
@@ -161,6 +162,7 @@ sources:
       - hw/schnizo/src/schnizo_read_operands.sv
       - hw/schnizo/src/schnizo_scoreboard.sv
       - hw/schnizo/src/schnizo_csr.sv
+      - hw/schnizo/src/schnizo_spatz_fu.sv
       - hw/schnizo/src/schnizo_fpu.sv
       - hw/schnizo/src/schnizo_lsu.sv
       - hw/schnizo/src/schnizo_writeback.sv
@@ -189,12 +191,12 @@ sources:
       - hw/snitch_cluster/src/snitch_cluster_peripheral/snitch_cluster_peripheral_reg.sv
       - hw/snitch_cluster/src/snitch_cluster_peripheral/snitch_cluster_peripheral.sv
       - hw/snitch_cluster/src/snitch_fpu.sv
-      - hw/snitch_cluster/src/snitch_sequencer.sv
+      # - hw/snitch_cluster/src/snitch_sequencer.sv
       - hw/snitch_cluster/src/snitch_tcdm_fc_interconnect.sv
       - target/snitch_cluster/test/snitch_bootrom.sv
       # Level 1
       - hw/snitch_cluster/src/snitch_barrier.sv
-      - hw/snitch_cluster/src/snitch_fp_ss.sv
+      # - hw/snitch_cluster/src/snitch_fp_ss.sv
       - hw/snitch_cluster/src/snitch_shared_muldiv.sv
       - hw/snitch_cluster/src/snitch_tcdm_interconnect.sv
       # Level 2

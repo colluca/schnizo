@@ -43,6 +43,8 @@ module schnizo import schnizo_pkg::*; #(
   parameter bit          RVF       = 0,
   /// Enable D Extension.
   parameter bit          RVD       = 0,
+  /// Enable RVV Extension (vector).
+  parameter bit          RVV          = 1,
   parameter bit          XF16      = 0,
   parameter bit          XF16ALT   = 0,
   parameter bit          XF8       = 0,
@@ -63,6 +65,7 @@ module schnizo import schnizo_pkg::*; #(
   parameter int unsigned AluNofRss  = 3,
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
+  parameter int unsigned SpatzNofRss = 2,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -220,6 +223,7 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofOperands = 3;
+  // localparam integer unsigned SpatzNumOperands = 2;
 
   // ---------------------------
   // Operand distribution network definitions
@@ -241,14 +245,17 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned AluNofOpPorts = 1;
   localparam integer unsigned LsuNofOpPorts = 1;
   localparam integer unsigned FpuNofOpPorts = 1;
+  // localparam integer unsigned SpatzNofOpPorts = 1;
 
   localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
   localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
   localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
+  // localparam integer unsigned SpatzNofOperandIfs = SpatzNumOperands * SpatzNofOpPorts;
 
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
                                               NofLsus * LsuNofOperandIfs +
                                               NofFpus * FpuNofOperandIfs;
+                                              // SpatzNofOperandIfs;
 
   // We differentiate between result requests and result responses.
   // Each reservation station has a result request crossbar output which is shared among the slots.
@@ -256,19 +263,23 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned AluNofResReqIfs = 1;
   localparam integer unsigned LsuNofResReqIfs = 1;
   localparam integer unsigned FpuNofResReqIfs = 1;
+  localparam integer unsigned SpatzNofResReqIfs = 1;
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
                                              NofFpus * FpuNofResReqIfs;
+                                            //  SpatzNofResReqIfs;
 
   // Each slot has its dedicated response crossbar input.
   localparam integer unsigned AluNofResRspIfs = AluNofRss;
   localparam integer unsigned LsuNofResRspIfs = LsuNofRss;
   localparam integer unsigned FpuNofResRspIfs = FpuNofRss;
+  // localparam integer unsigned SpatzNofResRspIfs = 1;
 
   localparam integer unsigned NofResRspIfs = NofAlus * AluNofResRspIfs +
                                              NofLsus * LsuNofResRspIfs +
                                              NofFpus * FpuNofResRspIfs;
+                                            //  SpatzNofResRspIfs;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
@@ -431,6 +442,7 @@ module schnizo import schnizo_pkg::*; #(
     .Xfrep  (Xfrep),
     .RVF    (RVF),
     .RVD    (RVD),
+    .RVV    (RVV),
     .XF16   (XF16),
     .XF16ALT(XF16ALT),
     .XF8    (XF8),

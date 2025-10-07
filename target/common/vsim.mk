@@ -36,6 +36,8 @@ VSIM_FLAGS += -t 1ps
 ifeq ($(DEBUG), ON)
 VSIM_FLAGS += -do "log -r /*"
 VOPT_FLAGS  = +acc
+
+VSIM_FLAGS += -do "source $(SN_TARGET_DIR)/useful_waves.tcl"
 endif
 
 # PL_SIM flag selects between RTL or post-layout simulation

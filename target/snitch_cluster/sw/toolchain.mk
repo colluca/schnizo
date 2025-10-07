@@ -26,7 +26,8 @@ RISCV_OBJCOPY   ?= $(LLVM_BINROOT)/llvm-objcopy
 RISCV_OBJDUMP   ?= $(LLVM_BINROOT)/llvm-objdump
 
 # Compiler flags
-RISCV_CFLAGS := -mcpu=snitch
+RISCV_CFLAGS := -march=rv32imafdv_zfh_xfrep_xssr_xdma_xcopift_xfalthalf_xfquarter_xfaltquarter_xfvecsingle_xfvechalf_xfvecalthalf_xfvecquarter_xfvecaltquarter_xfauxhalf_xfauxalthalf_xfauxquarter_xfauxaltquarter_xfauxvecsingle_xfauxvechalf_xfauxvecalthalf_xfauxvecquarter_xfauxvecaltquarter_xfexpauxvechalf_xfexpauxvecalthalf_xfexpauxvecquarter_xfexpauxvecaltquarter
+# RISCV_CFLAGS := -mcpu=snitch -mattr=+v
 RISCV_CFLAGS += -menable-experimental-extensions
 RISCV_CFLAGS += -mabi=ilp32d
 RISCV_CFLAGS += -mcmodel=medany
@@ -38,6 +39,7 @@ RISCV_CFLAGS += -fopenmp
 RISCV_CFLAGS += -ftls-model=local-exec
 RISCV_CFLAGS += -O3
 RISCV_CFLAGS += -Werror
+
 ifeq ($(DEBUG), ON)
 RISCV_CFLAGS += -g
 endif
@@ -55,5 +57,5 @@ RISCV_LDFLAGS += -lm
 RISCV_ARFLAGS := rcs
 
 # Objdump flags
-RISCV_OBJDUMP_FLAGS := --mcpu=snitch
+RISCV_OBJDUMP_FLAGS := --mcpu=snitch --mattr=+v
 RISCV_OBJDUMP_FLAGS += -D

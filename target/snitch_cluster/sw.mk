@@ -10,8 +10,8 @@
 
 .PHONY: sn-sw sn-clean-sw
 
-sn-sw: sn-runtime sn-tests
-sn-clean-sw: sn-clean-runtime sn-clean-tests
+sn-sw: sn-runtime
+sn-clean-sw: sn-clean-runtime
 
 ####################
 # Platform headers #
@@ -65,7 +65,7 @@ sn-clean-headers:
 
 include $(SN_ROOT)/target/snitch_cluster/sw/toolchain.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/runtime/runtime.mk
-include $(SN_ROOT)/target/snitch_cluster/sw/tests/tests.mk
+# include $(SN_ROOT)/target/snitch_cluster/sw/tests/tests.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/riscv-tests/riscv-tests.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/szrt/szrt.mk
 include $(SN_ROOT)/target/snitch_cluster/sw/schnizo/schnizo-tests.mk

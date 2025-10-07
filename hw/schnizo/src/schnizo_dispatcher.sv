@@ -210,7 +210,7 @@ end
         acc_req_o.data_argb    = instr_fu_data_i.operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
       end
-      schnizo_pkg::NONE: begin
+      schnizo_pkg::NONE, schnizo_pkg::SPATZ: begin //TODO: add spatz handling
         // No FU selected, do nothing.
       end
       default: begin

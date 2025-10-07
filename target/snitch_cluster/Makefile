@@ -48,7 +48,7 @@ SN_CFG         = cfg/lru.json
 # Misc #
 ########
 
-COMMON_BENDER_FLAGS += -t snitch_cluster_wrapper
+COMMON_BENDER_FLAGS += -t snitch_cluster_wrapper -t spatz
 
 ###############
 # C testbench #
