@@ -35,7 +35,8 @@ module schnizo_writeback import schnizo_pkg::*; #(
   parameter int unsigned RegAddrSize     = 5,
   parameter type         instr_tag_t     = logic,
   parameter type         alu_result_t    = logic,
-  parameter type         data_t          = logic
+  parameter type         data_t          = logic,
+  parameter type         spatz_result_t  = logic [31:0]
 ) (
   // ALU interface
   input  alu_result_t     alu_result_i,
@@ -61,6 +62,12 @@ module schnizo_writeback import schnizo_pkg::*; #(
   input  logic            fpu_result_valid_i,
   output logic            fpu_result_ready_o,
 
+  // SPATZ interface
+  input  spatz_result_t spatz_result_i,
+  input  instr_tag_t    spatz_result_tag_i,
+  input  logic          spatz_result_valid_i,
+  output logic          spatz_result_ready_o,
+
   // Accelerator interface
   input  logic [XLEN-1:0] acc_result_i,
   input  instr_tag_t      acc_result_tag_i,
@@ -78,7 +85,8 @@ module schnizo_writeback import schnizo_pkg::*; #(
   // Core Events
   output logic retired_single_cycle_o,
   output logic retired_load_o,
-  output logic retired_acc_o
+  output logic retired_acc_o,
+  output logic retired_spatz_o
 );
   logic alu_gpr_valid; // The ALU only writes to the GPR
   logic alu_gpr_ready;
@@ -88,6 +96,8 @@ module schnizo_writeback import schnizo_pkg::*; #(
   logic lsu_gpr_ready, lsu_fpr_ready;
   logic fpu_gpr_valid, fpu_fpr_valid;
   logic fpu_gpr_ready, fpu_fpr_ready;
+  logic spatz_gpr_valid, spatz_fpr_valid;
+  logic spatz_gpr_ready, spatz_fpr_ready;
   logic acc_gpr_valid; // The accelerator only writes to the GPR
   logic acc_gpr_ready;
 
@@ -110,6 +120,10 @@ module schnizo_writeback import schnizo_pkg::*; #(
   assign fpu_fpr_valid = fpu_result_tag_i.dest_reg_is_fp ? fpu_result_valid_i : 1'b0;
   assign fpu_result_ready_o = fpu_result_tag_i.dest_reg_is_fp ? fpu_fpr_ready : fpu_gpr_ready;
 
+  assign spatz_gpr_valid = spatz_result_tag_i.dest_reg_is_fp ? 1'b0               : spatz_result_valid_i;
+  assign spatz_fpr_valid = spatz_result_tag_i.dest_reg_is_fp ? spatz_result_valid_i : 1'b0;
+  assign spatz_result_ready_o = spatz_result_tag_i.dest_reg_is_fp ? spatz_fpr_ready : spatz_gpr_ready;
+
   // TODO: The Accelerator should never write to the FPR. -> Assertion?
   assign acc_gpr_valid = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_result_valid_i;
   assign acc_result_ready_o = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_gpr_ready;
@@ -127,6 +141,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
     lsu_gpr_ready = '0;
     fpu_gpr_ready = '0;
     acc_gpr_ready = '0;
+    spatz_gpr_ready = '0;
 
     // If we have a valid request from the ALU, we have to check whether we actually want to write
     // to a register. Any instruction which is retiring without a register write has the
@@ -180,6 +195,11 @@ module schnizo_writeback import schnizo_pkg::*; #(
           gpr_waddr_o = acc_result_tag_i.dest_reg;
           gpr_wdata_o = acc_result_i[XLEN-1:0];
           acc_gpr_ready = 1'b1;
+        end else if (spatz_gpr_valid) begin
+          gpr_we_o = 1'b1;
+          gpr_waddr_o = spatz_result_tag_i.dest_reg;
+          gpr_wdata_o = spatz_result_i[XLEN-1:0]; //TODO: Check size, why this clamping to 32 bits? Maybe it is just to avoid overflows but it should be enforced by the architecture
+          spatz_gpr_ready = 1'b1;
         end
       end
     end
@@ -193,6 +213,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
     // interfaces to FU writing back to the integer RF
     lsu_fpr_ready = '0;
     fpu_fpr_ready = '0;
+    spatz_fpr_ready = '0;
 
     if (lsu_fpr_valid) begin
       fpr_we_o = 1'b1;
@@ -204,6 +225,11 @@ module schnizo_writeback import schnizo_pkg::*; #(
       fpr_waddr_o = fpu_result_tag_i.dest_reg;
       fpr_wdata_o = fpu_result_i[FLEN-1:0];
       fpu_fpr_ready = 1'b1;
+    end else if (spatz_fpr_valid) begin
+      fpr_we_o = 1'b1;
+      fpr_waddr_o = spatz_result_tag_i.dest_reg;
+      fpr_wdata_o = spatz_result_i[FLEN-1:0]; //TODO: Check size, why this clamping to 32 bits? Maybe it is just to avoid overflows but it should be enforced by the architecture
+      spatz_fpr_ready = 1'b1;
     end
   end
 

@@ -10,16 +10,23 @@
 // We copy the array x to the array z.
 
 int main() {
-  if (!snrt_is_compute_core()) {
-    return 0;
-  }
+  // if (!snrt_is_compute_core()) {
+  //   return 0;
+  // }
 
-  unsigned int avl = 100;
-  unsigned int vl;
 
-  asm volatile("vsetvli %0, %1, e64, m8, ta, ma" : "=r"(vl) : "r"(avl));
+  if (snrt_global_core_idx() == 0) {
 
-  printf("Vector length: %d\n", avl);
+    unsigned int avl = 100;
+    unsigned int vl;
 
+    asm volatile("vsetvli %0, %1, e64, m8, ta, ma" : "=r"(vl) : "r"(avl));
+    printf("Vector length: %d\n", vl);
+
+}
+
+  snrt_cluster_hw_barrier();
+
+  return 0;
 
 }

@@ -8,6 +8,8 @@
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
 
+// There is always only one spatz so no other parameters are required.
+
 module schnizo_dispatcher import schnizo_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          FREP_EN     = 1,
@@ -57,6 +59,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   input  logic      [NofFpus-1:0] fpu_disp_req_ready_i,
   input  disp_rsp_t [NofFpus-1:0] fpu_disp_rsp_i,
   input  logic      [NofFpus-1:0] fpu_rs_full_i,
+
+  // Spatz
+  output logic      spatz_disp_req_valid_o,
+  input  logic      spatz_disp_req_ready_i,
+  input  disp_rsp_t spatz_disp_rsp_i,
+  input  logic      spatz_rs_full_i,
 
   // Handshake to the accelerator interface
   output acc_req_t acc_req_o,
@@ -155,6 +163,7 @@ end
   logic               csr_disp_req_valid_raw;
   logic [NofFpus-1:0] fpu_disp_req_valid_raw;
   logic               acc_disp_req_valid_raw;
+  logic               spatz_disp_req_valid_raw;
 
   // FU selection counters
   logic [NofAlusW-1:0] alu_idx;
@@ -173,6 +182,7 @@ end
     csr_disp_req_valid_raw = 1'b0;
     fpu_disp_req_valid_raw = '0;
     acc_disp_req_valid_raw = 1'b0;
+    spatz_disp_req_valid_raw = 1'b0;
 
     acc_req_o         = '0;
     acc_req_o.id      = instr_dec_i.rd; // TODO: currently only GPR address supported
@@ -210,7 +220,8 @@ end
         acc_req_o.data_argb    = instr_fu_data_i.operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
       end
-      schnizo_pkg::NONE, schnizo_pkg::SPATZ: begin //TODO: add spatz handling
+      schnizo_pkg::SPATZ: spatz_disp_req_valid_raw = 1'b1;
+      schnizo_pkg::NONE: begin //TODO: add spatz handling
         // No FU selected, do nothing.
       end
       default: begin
@@ -265,6 +276,11 @@ end
         // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
+      schnizo_pkg::SPATZ: begin
+        fu_response = spatz_disp_rsp_i;
+        fu_ready    = spatz_disp_req_ready_i;
+        fu_rs_full  = spatz_rs_full_i;
+      end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         // But we must stall if there is an ongoing FREP loop.
@@ -286,6 +302,7 @@ end
   assign csr_disp_req_valid_o =          dispatch_valid_i   & csr_disp_req_valid_raw;
   assign fpu_disp_req_valid_o = {NofFpus{dispatch_valid_i}} & fpu_disp_req_valid_raw;
   assign acc_disp_req_valid_o =          dispatch_valid_i   & acc_disp_req_valid_raw;
+  assign spatz_disp_req_valid_o =         dispatch_valid_i  & spatz_disp_req_valid_raw;
   // The NONE FU always dispatches
 
   assign dispatched = instr_exec_commit_i & fu_ready;

@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #define JOB_ARGS_PRELOADED
+
 // Instead of including blas.h include gemm.h directly
 #include "gemm.h"
 
@@ -32,9 +33,9 @@ int main() {
     void *remote_a, *remote_b, *remote_c;
 
     // Aliases
-    uint32_t M = args.M;
-    uint32_t N = args.N;
-    uint32_t K = args.K;
+    uint32_t M = args.m;
+    uint32_t N = args.n;
+    uint32_t K = args.k;
     uint32_t dtype_size = args.prec;
 
     // Calculate size and pointers for each cluster
@@ -52,30 +53,35 @@ int main() {
 
     // Allocate space in TCDM
     local_a = (void *)snrt_l1_next();
-    local_b = local_a + size_frac_a;
-    local_c = local_b + size_b;
+    // local_b = (uint8_t *)local_a + args.prec * size_frac_a;
+    // local_c = (uint8_t *)local_b + args.prec * size_b;
+    local_b = (double *)local_a + size_frac_a;
+    local_c = (double *)local_b + size_b;
 
-    uint32_t errors = M * N;
+    uint32_t errors = 0;
 
     if (snrt_cluster_core_idx() == 0) {
+
+        printf("Cluster %d checking results for %dx%d matrix multiplication...\n",
+               snrt_cluster_idx(), M, N);
         for (uint32_t m = 0; m < M; m++) {
             for (uint32_t n = 0; n < N; n++) {
                 uint32_t idx = m * N + n;
                 switch (dtype_size) {
                     case FP64:
-                        if (fabs(result[idx] - ((double *)local_c)[idx]) <
+                        if (fabs(result[idx] - ((double *)local_c)[idx]) >
                             fabs(result[idx] * 0.00001))
-                            errors--;
+                            errors++;
                         break;
                     case FP32:
-                        if (fabs(result[idx] - ((float *)local_c)[idx]) <
+                        if (fabs(result[idx] - ((float *)local_c)[idx]) >
                             fabs(result[idx] * 0.0001))
-                            errors--;
+                            errors++;
                         break;
                     case FP16:
-                        if (fabs(result[idx] - ((__fp16 *)local_c)[idx]) <
+                        if (fabs(result[idx] - ((__fp16 *)local_c)[idx]) >
                             fabs(result[idx] * 0.005))
-                            errors--;
+                            errors++;
                     case FP8:
                         printf("No golden model yet for fp8!\n");
                         return -1;

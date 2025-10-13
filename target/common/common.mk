@@ -152,6 +152,8 @@ VISUALIZE_PY_FLAGS += --tracevis "$(BINARY) $(SNITCH_TXT_TRACES) --addr2line $(A
 .PHONY: traces annotate roi visual-trace clean-traces clean-annotate clean-perf clean-visual-trace
 traces: $(TXT_TRACES)
 annotate: $(ANNOTATED_TRACES)
+# annotate:
+# 	@echo $(ANNOTATED_TRACES)
 perf: $(JOINT_PERF_DUMP)
 roi: $(ROI_DUMP)
 visual-trace: $(VISUAL_TRACE)
@@ -170,9 +172,9 @@ $(addprefix $(LOGS_DIR)/,sz_trace_hart_%.txt sz_hart_%_perf.json dma_%_perf.json
 # Generate source-code interleaved traces for all harts. Reads the binary from
 # the logs/.rtlbinary file that is written at start of simulation in the vsim script
 BINARY ?= $(shell cat $(SIM_DIR)/.rtlbinary)
-$(LOGS_DIR)/trace_hart_%.s: $(LOGS_DIR)/trace_hart_%.txt ${ANNOTATE_PY} $(SN_ANNOTATE_SRC)
+$(ANNOTATED_TRACES): $(SNITCH_TXT_TRACES) ${ANNOTATE_PY} $(SN_ANNOTATE_SRC)
 	${ANNOTATE_PY} ${ANNOTATE_FLAGS} -o $@ $(BINARY) $<
-$(LOGS_DIR)/trace_hart_%.diff: $(LOGS_DIR)/trace_hart_%.txt ${ANNOTATE_PY} $(SN_ANNOTATE_SRC)
+$(LOGS_DIR)/sz_trace_hart_%.diff: $(LOGS_DIR)/sz_trace_hart_%.txt ${ANNOTATE_PY} $(SN_ANNOTATE_SRC)
 	${ANNOTATE_PY} ${ANNOTATE_FLAGS} -o $@ $(BINARY) $< -d
 
 $(JOINT_PERF_DUMP): $(PERF_DUMPS) $(JOIN_PY)

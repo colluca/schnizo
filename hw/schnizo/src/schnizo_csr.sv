@@ -95,7 +95,8 @@ module schnizo_csr import schnizo_pkg::*; #(
   parameter int unsigned NofLsus      = 3,
   parameter int unsigned LsuNofRss    = 3,
   parameter int unsigned NofFpus      = 3,
-  parameter int unsigned FpuNofRss    = 3
+  parameter int unsigned FpuNofRss    = 3,
+  parameter int unsigned SpatzNofRss = 2
 ) (
   input  logic      clk_i,
   input  logic      rst_i,

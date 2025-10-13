@@ -104,6 +104,18 @@ $(SN_BIN_DIR)/$(TARGET).vsim: $(VSIM_BUILDDIR)/compile.vsim.tcl $(TB_CC_SOURCES)
 
 vsim: $(SN_BIN_DIR)/$(TARGET).vsim
 
+# Launch verification of a selected ELF with the built vsim wrapper
+.PHONY: verify
+
+KERNEL := gemm
+
+VERIFY_SCRIPT ?= $(SN_ROOT)/sw/schnizo/sz_$(KERNEL)/scripts/verify.py
+VERIFY_ELF    ?= $(SN_TARGET_DIR)/sw/schnizo/sz_$(KERNEL)/build/sz_$(KERNEL).elf
+VERIFY_FLAGS  ?= --dump-results
+
+verify: $(SN_BIN_DIR)/$(TARGET).vsim
+	$(VERIFY_SCRIPT) $< $(VERIFY_ELF) $(VERIFY_FLAGS)
+
 # Clean all build directories and temporary files for Questasim simulation
 clean-vsim: clean-work
 	rm -rf $(SN_BIN_DIR)/$(TARGET).vsim $(SN_BIN_DIR)/$(TARGET).vsim.gui $(VSIM_BUILDDIR) vsim.wlf

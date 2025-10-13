@@ -208,6 +208,7 @@ module schnizo import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
     fpnew_pkg::roundmode_e fpu_rnd_mode;
+    
   } fu_data_t;
 
   typedef struct packed {
@@ -223,7 +224,7 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofOperands = 3;
-  // localparam integer unsigned SpatzNumOperands = 2;
+  localparam integer unsigned SpatzNofOperands = 2;
 
   // ---------------------------
   // Operand distribution network definitions
@@ -245,17 +246,17 @@ module schnizo import schnizo_pkg::*; #(
   localparam integer unsigned AluNofOpPorts = 1;
   localparam integer unsigned LsuNofOpPorts = 1;
   localparam integer unsigned FpuNofOpPorts = 1;
-  // localparam integer unsigned SpatzNofOpPorts = 1;
+  localparam integer unsigned SpatzNofOpPorts = 1;
 
   localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
   localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
   localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
-  // localparam integer unsigned SpatzNofOperandIfs = SpatzNumOperands * SpatzNofOpPorts;
+  localparam integer unsigned SpatzNofOperandIfs = SpatzNofOperands * SpatzNofOpPorts;
 
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
                                               NofLsus * LsuNofOperandIfs +
-                                              NofFpus * FpuNofOperandIfs;
-                                              // SpatzNofOperandIfs;
+                                              NofFpus * FpuNofOperandIfs +
+                                              SpatzNofOperandIfs;
 
   // We differentiate between result requests and result responses.
   // Each reservation station has a result request crossbar output which is shared among the slots.
@@ -267,19 +268,19 @@ module schnizo import schnizo_pkg::*; #(
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
-                                             NofFpus * FpuNofResReqIfs;
-                                            //  SpatzNofResReqIfs;
+                                             NofFpus * FpuNofResReqIfs +
+                                             SpatzNofResReqIfs;
 
   // Each slot has its dedicated response crossbar input.
   localparam integer unsigned AluNofResRspIfs = AluNofRss;
   localparam integer unsigned LsuNofResRspIfs = LsuNofRss;
   localparam integer unsigned FpuNofResRspIfs = FpuNofRss;
-  // localparam integer unsigned SpatzNofResRspIfs = 1;
+  localparam integer unsigned SpatzNofResRspIfs = 1;
 
   localparam integer unsigned NofResRspIfs = NofAlus * AluNofResRspIfs +
                                              NofLsus * LsuNofResRspIfs +
-                                             NofFpus * FpuNofResRspIfs;
-                                            //  SpatzNofResRspIfs;
+                                             NofFpus * FpuNofResRspIfs +
+                                             SpatzNofResRspIfs;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
@@ -288,11 +289,25 @@ module schnizo import schnizo_pkg::*; #(
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
 
   // Each RS has an unique number. The slots have unique numbers within the RS.
-  localparam integer unsigned MaxNofRss = (AluNofRss > LsuNofRss) ?
-                                          // AluNofRss > LsuNofRss
-                                          ((AluNofRss > FpuNofRss) ? AluNofRss : FpuNofRss)
-                                          : // AluNofRss < LsuNofRss
-                                          ((LsuNofRss > FpuNofRss) ? LsuNofRss : FpuNofRss);
+  // localparam integer unsigned MaxNofRss = (AluNofRss > LsuNofRss) ?
+  //                                         // AluNofRss > LsuNofRss
+  //                                         ((AluNofRss > FpuNofRss) ? AluNofRss : FpuNofRss)
+  //                                         : // AluNofRss < LsuNofRss
+  //                                         ((LsuNofRss > FpuNofRss) ? LsuNofRss : FpuNofRss);
+
+
+  // Helper function to determine the maximum of 4 integers. Only works with constant arguments.
+
+  function automatic int max4 (int array[4]);
+    max4 = array[0];
+    foreach (array[i]) begin
+      if (array[i] > max4) begin
+        max4 = array[i];
+      end
+    end
+  endfunction
+
+  localparam integer unsigned MaxNofRss = max4('{AluNofRss, LsuNofRss, FpuNofRss, SpatzNofRss});
 
   localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
 
@@ -405,6 +420,7 @@ module schnizo import schnizo_pkg::*; #(
   logic instr_retired_single_cycle, instr_retired_single_cycle_q;
   logic instr_retired_load,         instr_retired_load_q;
   logic instr_retired_acc,          instr_retired_acc_q;
+  logic instr_retired_spatz,       instr_retired_spatz_q;
 
   // 1to1 from Snitch FP SS
   logic issue_fpu,         issue_fpu_q;
@@ -415,6 +431,7 @@ module schnizo import schnizo_pkg::*; #(
   `FFAR(instr_retired_single_cycle_q, instr_retired_single_cycle, '0, clk_i, rst_i)
   `FFAR(instr_retired_load_q,         instr_retired_load,         '0, clk_i, rst_i)
   `FFAR(instr_retired_acc_q,          instr_retired_acc,          '0, clk_i, rst_i)
+  `FFAR(instr_retired_spatz_q,        instr_retired_spatz,        '0, clk_i, rst_i)
   `FFAR(issue_fpu_q,                  issue_fpu,                  '0, clk_i, rst_i)
   `FFAR(issue_core_to_fpu_q,          issue_core_to_fpu,          '0, clk_i, rst_i)
 
@@ -577,6 +594,11 @@ module schnizo import schnizo_pkg::*; #(
   logic      [NofFpus-1:0] fpu_disp_req_ready;
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
   logic      [NofFpus-1:0] fpu_rs_full;
+  // SPATZ
+  logic                   spatz_disp_req_valid;
+  logic                   spatz_disp_req_ready;
+  disp_rsp_t              spatz_disp_rsp;
+  logic                   spatz_rs_full;
 
   schnizo_dispatcher #(
     .RegAddrSize(REG_ADDR_SIZE),
@@ -618,6 +640,11 @@ module schnizo import schnizo_pkg::*; #(
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
     .fpu_rs_full_i       (fpu_rs_full),
+    // SPATZ
+    .spatz_disp_req_valid_o(spatz_disp_req_valid),
+    .spatz_disp_req_ready_i(spatz_disp_req_ready),
+    .spatz_disp_rsp_i      (spatz_disp_rsp),
+    .spatz_rs_full_i       (spatz_rs_full),
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
@@ -649,6 +676,11 @@ module schnizo import schnizo_pkg::*; #(
   logic            fpu_result_valid;
   logic            fpu_result_ready;
   instr_tag_t      fpu_result_tag;
+  // SPATZ
+  logic            spatz_result_valid;
+  logic            spatz_result_ready;
+  instr_tag_t      spatz_result_tag;
+  logic [XLEN-1:0] spatz_result;
 
   schnizo_fu_stage #(
     .Xfrep              (Xfrep),
@@ -670,6 +702,11 @@ module schnizo import schnizo_pkg::*; #(
     .FpuNofOpPorts      (FpuNofOpPorts),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
     .FpuNofResRspIfs    (FpuNofResRspIfs),
+    .SpatzNofRss        (SpatzNofRss),
+    .SpatzNofOperands   (SpatzNofOperands),
+    .SpatzNofOpPorts    (SpatzNofOpPorts),
+    .SpatzNofResReqIfs  (SpatzNofResReqIfs),
+    .SpatzNofResRspIfs  (SpatzNofResRspIfs),
     .NofOperandIfs      (NofOperandIfs),
     .NofResReqIfs       (NofResReqIfs),
     .NofResRspIfs       (NofResRspIfs),
@@ -748,6 +785,14 @@ module schnizo import schnizo_pkg::*; #(
     .fpu_rs_full_o        (fpu_rs_full),
     .fpu_status_o         (fpu_status),
     .fpu_status_valid_o   (fpu_status_valid),
+
+    // SPATZ
+    .spatz_disp_reqs_valid_i(spatz_disp_req_valid),
+    .spatz_disp_reqs_ready_o(spatz_disp_req_ready),
+    .spatz_disp_rsp_o      (spatz_disp_rsp),
+    .spatz_loop_finish_o   (), // unused because of all_rs_finish_i TODO: Capire meglio
+    .spatz_rs_full_o       (spatz_rs_full),
+
     // ALU WB
     .alu_wb_result_o      (alu_result),
     .alu_wb_result_tag_o  (alu_result_tag),
@@ -763,7 +808,13 @@ module schnizo import schnizo_pkg::*; #(
     .fpu_wb_result_o      (fpu_result),
     .fpu_wb_result_tag_o  (fpu_result_tag),
     .fpu_wb_result_valid_o(fpu_result_valid),
-    .fpu_wb_result_ready_i(fpu_result_ready)
+    .fpu_wb_result_ready_i(fpu_result_ready),
+
+    // SPATZ WB
+    .spatz_wb_result_o      (spatz_result),
+    .spatz_wb_result_tag_o  (spatz_result_tag),
+    .spatz_wb_result_valid_o(spatz_result_valid),
+    .spatz_wb_result_ready_i(spatz_result_ready)
   );
 
   // CSR FU & register file
@@ -882,6 +933,11 @@ module schnizo import schnizo_pkg::*; #(
     .fpu_result_tag_i  (fpu_result_tag),
     .fpu_result_valid_i(fpu_result_valid),
     .fpu_result_ready_o(fpu_result_ready),
+    // SPATZ interface
+    .spatz_result_i      (spatz_result),
+    .spatz_result_tag_i  (spatz_result_tag),
+    .spatz_result_valid_i(spatz_result_valid),
+    .spatz_result_ready_o(spatz_result_ready),
     // Accelerator interface
     .acc_result_i      (acc_result),
     .acc_result_tag_i  (acc_result_tag),
@@ -897,7 +953,8 @@ module schnizo import schnizo_pkg::*; #(
     // Core events signals
     .retired_single_cycle_o(instr_retired_single_cycle),
     .retired_load_o        (instr_retired_load),
-    .retired_acc_o         (instr_retired_acc)
+    .retired_acc_o         (instr_retired_acc),
+    .retired_spatz_o       (instr_retired_spatz)
   );
 
   // ---------------------------
@@ -931,6 +988,7 @@ module schnizo import schnizo_pkg::*; #(
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
   assign core_events_o.retired_load  = instr_retired_load_q;
   assign core_events_o.retired_acc   = instr_retired_acc_q;
+  assign core_events_o.retired_spatz  = instr_retired_spatz_q;
 
   assign core_events_o.issue_fpu         = issue_fpu_q;
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
@@ -1898,3 +1956,5 @@ module schnizo import schnizo_pkg::*; #(
   // pragma translate_on
 
 endmodule
+
+

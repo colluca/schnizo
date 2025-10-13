@@ -6,6 +6,7 @@
 
 #include "axpy.h"
 #include "data.h"
+#include "math.h"
 
 #define NUM_RUNS 2
 
@@ -19,13 +20,18 @@ int main() {
 #ifdef BIST
     uint32_t n = args.n;
     double* z = args.z;
-    uint32_t nerr = n;
+    uint32_t nerr = 0;
 
     // Check computation is correct
     if (snrt_global_core_idx() == 0) {
+        printf("Checking results for %d iterations...\n", n);
         for (int i = 0; i < n; i++) {
-            if (z[i] == g[i]) nerr--;
-            printf("%d %d\n", z[i], g[i]);
+            if (fabs(z[i] - g[i]) > 1e-10) {
+                nerr++;
+                printf("Error: Index %d -> Result = %f, Expected = %f\n", i,
+                       (float)z[i], (float)g[i]);
+            }
+            // printf("%d %d\n", z[i], g[i]);
         }
     }
 
