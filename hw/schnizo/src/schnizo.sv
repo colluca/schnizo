@@ -44,7 +44,6 @@ module schnizo import schnizo_pkg::*; #(
   /// Enable D Extension.
   parameter bit          RVD       = 0,
   /// Enable RVV Extension (vector).
-  parameter bit          RVV          = 1,
   parameter bit          XF16      = 0,
   parameter bit          XF16ALT   = 0,
   parameter bit          XF8       = 0,
@@ -55,6 +54,15 @@ module schnizo import schnizo_pkg::*; #(
   parameter type         dreq_t = logic,
   /// Data port response type.
   parameter type         drsp_t = logic,
+  /// TCDM request channel type.
+  parameter type         tcdm_req_chan_t  = logic,
+  /// TCDM response channel type.
+  parameter type         tcdm_rsp_chan_t  = logic,
+
+  parameter type         tcdm_req_t         = logic,
+  /// Data port response type.
+  parameter type         tcdm_rsp_t         = logic,
+
   /// Accelerator interface types
   parameter type         acc_req_t  = logic,
   parameter type         acc_resp_t = logic,
@@ -85,7 +93,18 @@ module schnizo import schnizo_pkg::*; #(
   parameter bit RegisterFPUIn  = 0,
   /// Register the signals directly after the FPnew instance
   parameter bit RegisterFPUOut = 0,
+
+  // SPATZ Parameters
+
+  parameter bit                                          RVV                      = 1,
+  parameter int                          unsigned        NumSpatzFPUs             = 4,
+  parameter int                          unsigned        NumSpatzIPUs             = 1,
+
+
   /// Derived parameter *Do not override*
+  parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int                          unsigned        NumMemPortsPerSpatz      = NumSpatzFUs,
+  parameter int unsigned TCDMPorts = RVV ? NumMemPortsPerSpatz + NofLsus : NofLsus,
   parameter type addr_t = logic [AddrWidth-1:0],
   parameter type data_t = logic [DataWidth-1:0]
 ) (
@@ -119,11 +138,16 @@ module schnizo import schnizo_pkg::*; #(
   /// Transactions need to be handled strictly in-order.
   output dreq_t [NofLsus-1:0] data_req_o,
   input  drsp_t [NofLsus-1:0] data_rsp_i,
+  
   /// Core events for performance counters
   output snitch_pkg::core_events_t core_events_o,
   /// Cluster HW barrier
   output logic barrier_o,
-  input  logic barrier_i
+  input  logic barrier_i,
+
+  // SPATZ TCDM Ports
+  output tcdm_req_t    [NumMemPortsPerSpatz-1:0] tcdm_req_o,
+  input  tcdm_rsp_t    [NumMemPortsPerSpatz-1:0] tcdm_rsp_i
 );
   // Clarify signal names of the instruction fetch interface without changing the interface.
   // This way we can simply replace the snitch core with the schnizo core.
@@ -208,7 +232,7 @@ module schnizo import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
     fpnew_pkg::roundmode_e fpu_rnd_mode;
-    
+    logic [XLEN-1:0]       raw_instr; //Needed for spatz
   } fu_data_t;
 
   typedef struct packed {
@@ -490,6 +514,7 @@ module schnizo import schnizo_pkg::*; #(
   ) i_schnizo_read_operands (
     .pc_i       (pc),
     .instr_dec_i(instr_decoded),
+    .instr_fetch_data_i, // Needed for spatz
     .gpr_raddr_o(gpr_raddr),
     .gpr_rdata_i(gpr_rdata),
     .fpr_raddr_o(fpr_raddr),
@@ -680,7 +705,7 @@ module schnizo import schnizo_pkg::*; #(
   logic            spatz_result_valid;
   logic            spatz_result_ready;
   instr_tag_t      spatz_result_tag;
-  logic [XLEN-1:0] spatz_result;
+  logic [FLEN-1:0] spatz_result;
 
   schnizo_fu_stage #(
     .Xfrep              (Xfrep),
@@ -737,16 +762,23 @@ module schnizo import schnizo_pkg::*; #(
     .operand_id_t       (operand_id_t),
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
+    .tcdm_req_chan_t    (tcdm_req_chan_t),
+    .tcdm_rsp_chan_t    (tcdm_rsp_chan_t),
+    .tcdm_req_t         (tcdm_req_t),
+    .tcdm_rsp_t         (tcdm_rsp_t),
     .issue_req_t        (issue_req_t),
     .instr_tag_t        (instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
-    .drsp_t             (drsp_t)
+    .drsp_t             (drsp_t),
+    .RVV                (RVV),
+    .NumSpatzFPUs       (NumSpatzFPUs),
+    .NumSpatzIPUs       (NumSpatzIPUs)
   ) i_fu_stage (
     .clk_i,
     .rst_i,
-    .hard_id_i            (hart_id_i),
+    .hart_id_i            (hart_id_i),
     .restart_i            (lxp_restart),
     .loop_state_i         (loop_state),
     .lep_iterations_i     (lep_iterations),
@@ -814,7 +846,11 @@ module schnizo import schnizo_pkg::*; #(
     .spatz_wb_result_o      (spatz_result),
     .spatz_wb_result_tag_o  (spatz_result_tag),
     .spatz_wb_result_valid_o(spatz_result_valid),
-    .spatz_wb_result_ready_i(spatz_result_ready)
+    .spatz_wb_result_ready_i(spatz_result_ready),
+
+    // SPATZ TCDM interface
+    .spatz_tcdm_req_o       (tcdm_req_o),
+    .spatz_tcdm_rsp_i       (tcdm_rsp_i)
   );
 
   // CSR FU & register file

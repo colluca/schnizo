@@ -213,7 +213,19 @@ module snitch_cluster
   parameter bit          AliasRegionEnable  = 1'b0,
   parameter logic [PhysicalAddrWidth-1:0] AliasRegionBase    = '0,
   /// Instantiate internal bootrom.
-  parameter bit          IntBootromEnable   = 1'b1
+  parameter bit          IntBootromEnable   = 1'b1,
+
+  // SPATZ
+
+  parameter bit                                          RVV                      = 1,
+  // Spatz parameters
+  parameter int                          unsigned        NumSpatzFPUs             = 4,
+  parameter int                          unsigned        NumSpatzIPUs             = 1,
+
+  /// Derived parameter *Do not override*
+  parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int                          unsigned        NumMemPortsPerSpatz      = NumSpatzFUs
+
 ) (
   /// System clock. If `IsoCrossing` is enabled this port is the _fast_ clock.
   /// The slower, half-frequency clock, is derived internally.
@@ -288,7 +300,7 @@ module snitch_cluster
   localparam int unsigned NrSuperBanks = NrBanks / BanksPerSuperBank;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return NumLsus[core];
+    return RVV ? NumMemPortsPerSpatz + NumLsus[core] : NumLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1013,6 +1025,8 @@ module snitch_cluster
         .DMANumChannels (DMANumChannels),
         .dreq_t (reqrsp_req_t),
         .drsp_t (reqrsp_rsp_t),
+        .tcdm_rsp_chan_t (tcdm_rsp_chan_t),
+        .tcdm_req_chan_t (tcdm_req_chan_t),
         .tcdm_req_t (tcdm_req_t),
         .tcdm_rsp_t (tcdm_rsp_t),
         .tcdm_user_t (tcdm_user_t),

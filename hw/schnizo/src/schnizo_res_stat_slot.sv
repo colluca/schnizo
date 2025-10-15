@@ -118,6 +118,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   } rss_result_t;
 
   typedef struct packed  {
+    logic [31:0]                   spatz_raw_instr;
     // Whether the RSS contains an active instruction.
     logic                           is_occupied;
     // How many consumer use the result of this instruction.
@@ -429,6 +430,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // by all consumers yet.
     issue_req_o                      = '0;
     issue_req_o.fu_data.fu           = NONE; // Not required by FU
+    issue_req_o.fu_data.raw_instr    = slot_issue.spatz_raw_instr; // Spatz needs the raw instruction
     issue_req_o.fu_data.alu_op       = slot_issue.alu_op;
     issue_req_o.fu_data.lsu_op       = slot_issue.lsu_op;
     issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
@@ -703,6 +705,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   always_comb begin
     slot_lcp1 = '{
+      spatz_raw_instr:     disp_req_i.fu_data.raw_instr, //Needed by Spatz
       is_occupied:          1'b1,
       consumer_count:       '0,
       consumed_by:          '0,
@@ -768,7 +771,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     end
   end
 
+  //TODO: Check if this reset state is really optimal.
   assign slot_reset_state = '{
+    spatz_raw_instr:     '0, // addi x0, x0, 0
     is_occupied:          1'b0, // suppresses operand requests
     consumer_count:       '0,
     consumed_by:          '0,

@@ -30,6 +30,9 @@ module schnizo_cc #(
   parameter type         drsp_t             = logic,
   /// TCDM Address Width
   parameter int unsigned TCDMAddrWidth      = 0,
+  // TCDM Types for Spatz
+  parameter type          tcdm_req_chan_t  =  logic,
+  parameter type          tcdm_rsp_chan_t  =  logic,
   /// Data port request type.
   parameter type         tcdm_req_t         = logic,
   /// Data port response type.
@@ -93,13 +96,26 @@ module schnizo_cc #(
   parameter int unsigned CaqTagWidth  = 0,
   /// Enable debug support.
   parameter bit          DebugSupport = 1,
+
+  // SPATZ specific parameters
+
+  parameter bit                                          RVV                      = 1,
+  // Spatz parameters
+  parameter int                          unsigned        NumSpatzFPUs             = 4,
+  parameter int                          unsigned        NumSpatzIPUs             = 1,
+
+  /// Derived parameter *Do not override*
+  parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int                          unsigned        NumMemPortsPerSpatz      = NumSpatzFUs,
+
   /// Optional fixed TCDM alias.
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
   /// Derived parameter *Do not override*
-  parameter int unsigned TCDMPorts = NumLsus,
+  parameter int unsigned TCDMPorts = RVV ? NumMemPortsPerSpatz + NumLsus : NumLsus,
   parameter type addr_t = logic [AddrWidth-1:0],
   parameter type data_t = logic [DataWidth-1:0]
+
 ) (
   input  logic                             clk_i,
   input  logic                             clk_d2_i,
@@ -167,7 +183,13 @@ module schnizo_cc #(
   // same performance with only one LSU. The difference is that Snitch can "buffer" more memory
   // requests in the LSU queue (more outstanding transactions).
   // TODO: create parameter for number of FUs.
-  localparam int unsigned NofLsus               = TCDMPorts;
+
+
+  // localparam int unsigned NofLsus               = TCDMPorts; //TODO: Why???
+  localparam int unsigned NofLsus               = NumLsus; //TODO: Why???
+
+
+
   // Request buffering & cuts
   // For a first implementation we use a buffer depth of 4.
   // This is as similar to the Snitch as possible.
@@ -202,6 +224,10 @@ module schnizo_cc #(
     .FLEN                  (FLEN),
     .dreq_t                (dreq_t),
     .drsp_t                (drsp_t),
+    .tcdm_req_chan_t      (tcdm_req_chan_t),
+    .tcdm_rsp_chan_t      (tcdm_rsp_chan_t),
+    .tcdm_req_t           (tcdm_req_t),
+    .tcdm_rsp_t           (tcdm_rsp_t),
     .acc_req_t             (acc_req_t),
     .acc_resp_t            (acc_resp_t),
     // FU configuration
@@ -219,7 +245,11 @@ module schnizo_cc #(
     .DebugSupport          (DebugSupport),
     .FPUImplementation     (FPUImplementation),
     .RegisterFPUIn         (RegisterFPUIn),
-    .RegisterFPUOut        (RegisterFPUOut)
+    .RegisterFPUOut        (RegisterFPUOut),
+    .RVV                   (RVV),
+    .NumSpatzFPUs          (NumSpatzFPUs),
+    .NumSpatzIPUs          (NumSpatzIPUs)
+
   ) i_schnizo (
     .clk_i           (clk_d2_i), // if necessary operate on half the frequency
     .rst_i           (~rst_ni),
@@ -242,7 +272,9 @@ module schnizo_cc #(
     .data_rsp_i      (schnizo_drsp),
     .core_events_o   (schnizo_events),
     .barrier_o       (barrier_o),
-    .barrier_i       (barrier_i)
+    .barrier_i       (barrier_i),
+    .tcdm_req_o      (tcdm_req_o[TCDMPorts-1 : NumLsus]), // The last ports are for the SPATZ
+    .tcdm_rsp_i      (tcdm_rsp_i[TCDMPorts-1 : NumLsus])
   );
 
   // ---------------------------

@@ -357,8 +357,6 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
               instr_dec_o.fu        = schnizo_pkg::SPATZ;
               instr_dec_o.rs1       = instr.stype.rs1; // base integer register
-              instr_dec_o.rs2       = instr.stype.rs2; // vector source
-              instr_dec_o.rs2_is_fp = 1'b1;
               // rd left at x0 (no writeback)
               vector_store_handled  = 1'b1;
             end
@@ -414,8 +412,6 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               // Indexed ordered (segment) loads
               VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
                 instr_dec_o.fu        = schnizo_pkg::SPATZ;
-                instr_dec_o.rd        = instr.itype.rd;  // destination vector register
-                instr_dec_o.rd_is_fp  = 1'b1;
                 instr_dec_o.rs1       = instr.itype.rs1; // base integer register
                 vector_load_handled   = 1'b1;
               end
@@ -1009,7 +1005,6 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             // --- Configuration / setup (integer destination) ---
             VSETIVLI: begin
               instr_dec_o.rd        = instr.rtype.rd;
-              // rd_is_fp stays 0 (integer)
             end
             VSETVLI: begin
               instr_dec_o.rd        = instr.rtype.rd;
@@ -1023,24 +1018,22 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             // Move scalar from vector element to integer
             VMV_X_S: begin
               instr_dec_o.rd        = instr.rtype.rd;          // integer rd
-              instr_dec_o.rs2       = instr.rtype.rs2;         // source vector register
-              instr_dec_o.rs2_is_fp = 1'b1;
+            end
+
+            //TODO: All the float vector instructions are missing
+
+            VMACC_VX: begin
+              instr_dec_o.rs1       = instr.rtype.rs1;          // vector rd
             end
 
             // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are vector ---
-            VADD_VV, VSUB_VV, VMIN_VV, VMINU_VV, VMAX_VV, VMAXU_VV,
+            VFADD_VV, VADD_VV, VSUB_VV, VMIN_VV, VMINU_VV, VMAX_VV, VMAXU_VV,
             VAND_VV, VOR_VV, VXOR_VV,
             VADC_VVM, VMADC_VV, VSLL_VV, VSRL_VV, VSRA_VV, //Attenzione a VADC_VVM e VMADC_VV TODO
             VMSEQ_VV, VMSNE_VV, VMSLTU_VV, VMSLT_VV, VMSLEU_VV, VMSLE_VV,
             VDIV_VV, VDIVU_VV, VREM_VV, VREMU_VV,
             VWMUL_VV, VWMULU_VV, VWMULSU_VV,
             VWMACC_VV, VWMACCU_VV, VWMACCSU_VV: begin
-              instr_dec_o.rd        = instr.rtype.rd;
-              instr_dec_o.rs1       = instr.rtype.rs1;
-              instr_dec_o.rs2       = instr.rtype.rs2;
-              instr_dec_o.rd_is_fp  = 1'b1;
-              instr_dec_o.rs1_is_fp = 1'b1;
-              instr_dec_o.rs2_is_fp = 1'b1;
             end
 
             // --- Vector-Scalar integer (VX): rs1 integer, rs2 vector ---
@@ -1053,11 +1046,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VMUL_VX, VMULH_VX, VMULHU_VX, VMULHSU_VX,
             VWMUL_VX, VWMULU_VX, VWMULSU_VX,
             VWMACC_VX, VWMACCU_VX, VWMACCSU_VX, VWMACCUS_VX: begin
-              instr_dec_o.rd        = instr.rtype.rd;   // vector dest
               instr_dec_o.rs1       = instr.rtype.rs1;  // integer scalar
-              instr_dec_o.rs2       = instr.rtype.rs2;  // vector source
-              instr_dec_o.rd_is_fp  = 1'b1;
-              instr_dec_o.rs2_is_fp = 1'b1;
             end
 
             // --- Vector-Immediate (VI): rs1 field is immediate => no rs1 reg ---
@@ -1066,19 +1055,13 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VSLL_VI, VSRL_VI, VSRA_VI,
             VMSEQ_VI, VMSNE_VI, VMSLE_VI, VMSLEU_VI,
             VMSGT_VI, VMSGTU_VI: begin
-              instr_dec_o.rd        = instr.rtype.rd;
-              instr_dec_o.rs2       = instr.rtype.rs2;
-              instr_dec_o.rd_is_fp  = 1'b1;
-              instr_dec_o.rs2_is_fp = 1'b1;
             end
 
             // --- Vector loads: base rs1 (integer), rd vector ---
             VLE8_V, VLE16_V, VLE32_V, VLE64_V,
             VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V,
             VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
-              instr_dec_o.rd        = instr.rtype.rd;
               instr_dec_o.rs1       = instr.rtype.rs1; // base integer
-              instr_dec_o.rd_is_fp  = 1'b1;
             end
 
             // --- Vector stores: base rs1 (integer), rs2 vector (data) ---
@@ -1086,9 +1069,6 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V,
             VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
               instr_dec_o.rs1       = instr.rtype.rs1; // base integer
-              instr_dec_o.rs2       = instr.rtype.rs2; // vector source
-              instr_dec_o.rs2_is_fp = 1'b1;
-              // no rd
             end
 
             default: illegal_instr = 1'b1;

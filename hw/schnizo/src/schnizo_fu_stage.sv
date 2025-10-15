@@ -7,7 +7,7 @@
 
 `include "common_cells/registers.svh"
 
-module schnizo_fu_stage import schnizo_pkg::*; #(
+module schnizo_fu_stage import schnizo_pkg::*; import fpnew_pkg::*; #(
   // Globally enable the superscalar feature
   parameter bit          Xfrep           = 1,
   parameter int unsigned NofAlus         = 1,
@@ -80,16 +80,32 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
-  parameter type         spatz_result_t = logic [31:0], // TODO: Understand what width is needed here
+  parameter type         spatz_result_t = logic [63:0], // Result can be floating point or integer
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
+
+  // SPATZ Parameters
+
+  parameter bit                                          RVV                      = 1,
+  parameter int                          unsigned        NumSpatzFPUs             = 4,
+  parameter int                          unsigned        NumSpatzIPUs             = 1,
+  
+  // TCDM Types for Spatz
+  parameter type         tcdm_req_chan_t  = logic,
+  parameter type         tcdm_rsp_chan_t  = logic,
+  parameter type         tcdm_req_t         = logic,
+  parameter type         tcdm_rsp_t         = logic,
+
   /// Derived parameter *Do not override*
+  parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int                          unsigned        NumMemPortsPerSpatz      = NumSpatzFUs,
+  parameter int unsigned TCDMPorts = RVV ? NumMemPortsPerSpatz + NofLsus : NofLsus,
   parameter type addr_t = logic [AddrWidth-1:0],
   parameter type data_t = logic [DataWidth-1:0]
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
-  input  logic [31:0] hard_id_i,
+  input  logic [31:0] hart_id_i,
 
   /// RS control signals
   input  logic                      restart_i,
@@ -166,8 +182,11 @@ module schnizo_fu_stage import schnizo_pkg::*; #(
   output spatz_result_t   spatz_wb_result_o, // TODO: Understand what width is needed here
   output instr_tag_t      spatz_wb_result_tag_o,
   output logic            spatz_wb_result_valid_o,
-  input  logic            spatz_wb_result_ready_i
+  input  logic            spatz_wb_result_ready_i,
 
+  // SPATZ TCDM Ports
+  output tcdm_req_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_req_o,
+  input  tcdm_rsp_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_rsp_i
 );
   // ---------------------------
   // RSS definitions / parameters
@@ -1077,7 +1096,7 @@ end
     ) i_fpu (
       .clk_i,
       .rst_ni           (~rst_i),
-      .hart_id_i        (hard_id_i),
+      .hart_id_i        (hart_id_i),
       .issue_req_i      (fpu_issue_req),
       .issue_req_valid_i(fpu_issue_req_valid),
       .issue_commit_i   (fpu_exec_commit),
@@ -1136,12 +1155,10 @@ end
 
 
   // ---------------------------
-  // SPATZ TODO: Generated via Copilot
+  // SPATZ
   // ---------------------------
 
-  // Dummy SPATZ FU: always returns zero, forwards tag from issue request, single in-flight op.
-
-  // Signals connecting the FU block and the dummy FU
+  // Signals connecting the FU block and the actual FU
   issue_req_t   spatz_issue_req;
   logic         spatz_issue_req_valid;
   logic         spatz_issue_req_ready;
@@ -1155,7 +1172,7 @@ end
   // Producer ID for the SPATZ RS
   producer_id_t spatz_producer_start_id;
   assign spatz_producer_start_id = producer_id_t'{
-    slot_id: '0, // single-slot
+    slot_id: '0, // single-slot //TODO: Is not single slot, fix this
     rs_id:   rs_id_t'(SpatzRsIdOffset + 0)
   };
 
@@ -1233,75 +1250,112 @@ end
   );
 
 
-  // TODO: Build the accelerator request based on the decoded instruction
+  //TODO: Build the accelerator request based on the decoded instruction
 
-  // typedef struct packed {
-  //   acc_addr_e addr;
-  //   logic [5:0] id;
-  //   logic [31:0] data_op;
-  //   data_t data_arga;
-  //   data_t data_argb;
-  //   addr_t data_argc;
-  // } spatz_issue_req_t;
+  typedef struct packed {
+    logic [5:0] id;
+    logic [31:0] data_op;
+    data_t data_arga;
+    data_t data_argb;
+    data_t data_argc;
+  } spatz_issue_req_t;
 
-  // typedef struct packed {
-  //   logic accept;
-  //   logic writeback;
-  //   logic loadstore;
-  //   logic exception;
-  //   logic isfloat;
-  // } spatz_issue_rsp_t;
+  typedef struct packed {
+    logic accept;
+    logic writeback;
+    logic loadstore;
+    logic exception;
+    logic isfloat;
+  } spatz_issue_rsp_t;
 
-  // typedef struct packed {
-  //   logic [5:0] id;
-  //   logic error;
-  //   data_t data;
-  // } spatz_rsp_t;
+  typedef struct packed {
+    logic [5:0] id;
+    logic error;
+    data_t data;
+  } spatz_rsp_t;
 
-  // spatz #(
-  //   .NrMemPorts         (4     ),
-  //   .NumOutstandingLoads(8),
-  //   .FPUImplementation  ('0      ),
-  //   .RegisterRsp        ('0     ),
-  //   .dreq_t             (dreq_t                  ),
-  //   .drsp_t             (drsp_t                  ),
-  //   .spatz_mem_req_t    (tcdm_req_chan_t         ),
-  //   .spatz_mem_rsp_t    (tcdm_rsp_chan_t         ),
-  //   .spatz_issue_req_t  (spatz_issue_req_t         ),
-  //   .spatz_issue_rsp_t  (spatz_issue_rsp_t         ),
-  //   .spatz_rsp_t        (spatz_rsp_t               )
-  // ) i_spatz (
-  //   .clk_i                   (clk_i                 ),
-  //   .rst_ni                  (rst_ni                ),
-  //   .testmode_i              (testmode_i            ),
-  //   .hart_id_i               (hart_id_i             ),
-  //   .issue_valid_i           (acc_qvalid            ),
-  //   .issue_ready_o           (acc_qready            ),
-  //   .issue_req_i             (acc_snitch_req        ),
-  //   .issue_rsp_o             (acc_snitch_resp       ),
-  //   .rsp_valid_o             (acc_pvalid            ),
-  //   .rsp_ready_i             (acc_pready            ),
-  //   .rsp_o                   (acc_resp              ),
-  //   .spatz_mem_req_o         (spatz_mem_req         ),
-  //   .spatz_mem_req_valid_o   (spatz_mem_req_valid   ),
-  //   .spatz_mem_req_ready_i   (spatz_mem_req_ready   ),
-  //   .spatz_mem_rsp_i         (spatz_mem_rsp         ),
-  //   .spatz_mem_rsp_valid_i   (spatz_mem_rsp_valid   ),
-  //   .spatz_mem_finished_o    (spatz_mem_finished    ),
-  //   .spatz_mem_str_finished_o(spatz_mem_str_finished),
-  //   .fp_lsu_mem_req_o        (        ),
-  //   .fp_lsu_mem_rsp_i        ('0        ),
-  //   .fpu_rnd_mode_i          ('0          ),
-  //   .fpu_fmt_mode_i          ('0          ),
-  //   .fpu_status_o            (/* ignored */)
-  // );
 
   // Dummy SPATZ FU implementation
-  assign spatz_issue_req_ready = '1; // always ready
-  assign spatz_busy = '0; // never busy
-  assign spatz_result = '0; // always returns 0
+  // assign spatz_issue_req_ready = '1; // always ready
+  // assign spatz_busy = '0; // never busy
+  // assign spatz_result = '0; // always returns 0
+  // assign spatz_result_tag = spatz_issue_req.tag; // forwards tag
+  // assign spatz_result_valid = spatz_issue_req_valid; // valid when issued and committed
+
+  spatz_issue_req_t acc_spatz_req;
+  spatz_issue_rsp_t acc_spatz_resp;
+  spatz_rsp_t       acc_resp;
+
+
+  assign acc_spatz_req = '{
+    id:        spatz_issue_req.tag,
+    data_op:   spatz_issue_req.fu_data.raw_instr,
+    data_arga: spatz_issue_req.fu_data.operand_a,
+    data_argb: spatz_issue_req.fu_data.operand_b,
+    data_argc: '0 // ignored
+  };
+
+  assign spatz_result = acc_resp.data;
   assign spatz_result_tag = spatz_issue_req.tag; // forwards tag
-  assign spatz_result_valid = spatz_issue_req_valid; // valid when issued and committed
+  assign spatz_busy = !spatz_issue_req_ready; // if we cannot dispatch, we are busy
+
+  tcdm_req_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_req;
+  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_req_valid;
+  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_req_ready;
+  tcdm_rsp_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_rsp;
+  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_rsp_valid;
+
+  spatz #(
+    .NrMemPorts         (4     ),
+    .NumOutstandingLoads(8),
+    .FPUImplementation  ('0      ),
+    .RegisterRsp        ('0     ),
+    .dreq_t             (dreq_t                  ),
+    .drsp_t             (drsp_t                  ),
+    .spatz_mem_req_t    (tcdm_req_chan_t       ),
+    .spatz_mem_rsp_t    (tcdm_rsp_chan_t       ),
+    .spatz_issue_req_t  (spatz_issue_req_t         ),
+    .spatz_issue_rsp_t  (spatz_issue_rsp_t         ),
+    .spatz_rsp_t        (spatz_rsp_t               )
+  ) i_spatz (
+    .clk_i                   (clk_i                 ),
+    .rst_ni                  (~rst_i                ),
+    .testmode_i              ('0                    ),
+    .hart_id_i               (hart_id_i             ),
+    .issue_valid_i           (spatz_issue_req_valid  ),
+    .issue_ready_o           (spatz_issue_req_ready  ),
+    .issue_req_i             (acc_spatz_req        ), //Special care
+    .issue_rsp_o             (acc_spatz_resp       ),//Special care
+    .rsp_valid_o             (spatz_result_valid   ),
+    .rsp_ready_i             (spatz_result_ready   ),      
+    .rsp_o                   (acc_resp              ), //Special care
+    .spatz_mem_req_o         (spatz_mem_req         ),
+    .spatz_mem_req_valid_o   (spatz_mem_req_valid   ),
+    .spatz_mem_req_ready_i   (spatz_mem_req_ready   ),
+    .spatz_mem_rsp_i         (spatz_mem_rsp         ),
+    .spatz_mem_rsp_valid_i   (spatz_mem_rsp_valid   ),
+    .spatz_mem_finished_o    (    ),
+    .spatz_mem_str_finished_o(),
+    .fp_lsu_mem_req_o        (        ),
+    .fp_lsu_mem_rsp_i        ('0        ),
+    .fpu_rnd_mode_i          (fpnew_pkg::RNE          ),
+    .fpu_fmt_mode_i          (         ),
+    .fpu_status_o            (/* ignored */)
+  );
+
+  // The first indices are assigned to the LSUs, the next to the SPATZ.
+   for (genvar p = 0; p < NumMemPortsPerSpatz; p++) begin: gen_tcdm_assignment
+    assign spatz_tcdm_req_o[p] = '{
+         q      : spatz_mem_req[p],
+         q_valid: spatz_mem_req_valid[p]
+       };
+    assign spatz_mem_req_ready[p] = spatz_tcdm_rsp_i[p].q_ready;
+
+    assign spatz_mem_rsp[p]       = spatz_tcdm_rsp_i[p].p;
+    assign spatz_mem_rsp_valid[p] = spatz_tcdm_rsp_i[p].p_valid;
+  end
+
+
 
   // ---------------------------
   // Finish signals

@@ -117,6 +117,7 @@ end
     disp_req_o = '0;
     disp_req_o.fu_data = instr_fu_data_i;
 
+
     // Producer fields are only used if FREP_EN
     if (FREP_EN) begin
       // Operand A
