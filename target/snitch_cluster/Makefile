@@ -42,7 +42,7 @@ TB_DIR = $(SN_ROOT)/target/common/test
 # to be rebuilt. This file is used to express this condition as a
 # prerequisite for other rules.
 DEFAULT_SN_CFG = cfg/default.json
-SN_CFG         = cfg/lru.json
+SN_CFG         = cfg/schnizo.json
 
 ########
 # Misc #

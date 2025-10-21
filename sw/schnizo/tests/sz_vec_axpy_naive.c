@@ -17,19 +17,19 @@ void axpy_v(const int a, const int *x, const int *y,
   // Stripmine and accumulate a partial vector
   do {
     // Set the vl
-    asm volatile("vsetvli %0, %1, e64, m8, ta, ma" : "=r"(vl) : "r"(avl));
-
-    printf("Vector length: %d\n", vl);
+    asm volatile("vsetvli %0, %1, e32, m8, ta, ma" : "=r"(vl) : "r"(avl));
 
     // Load vectors
-    asm volatile("vle64.v v0, (%0)" ::"r"(x));
-    asm volatile("vle64.v v8, (%0)" ::"r"(y));
+    asm volatile("vle32.v v0, (%0)" ::"r"(x));
+    asm volatile("vle32.v v8, (%0)" ::"r"(y));
 
-    // Multiply-accumulate
     asm volatile("vmacc.vx v8, %0, v0" ::"r"(a));
 
-    // Store results
-    asm volatile("vse64.v v8, (%0)" ::"r"(y));
+// Store results
+    asm volatile("vse32.v v8, (%0)" ::"r"(y));
+
+    // Multiply-accumulate
+
 
     // Bump pointers
     x += vl;
@@ -44,7 +44,7 @@ int main() {
 
   if (snrt_global_core_idx() == 0) {
     
-    unsigned int avl = 100;
+    unsigned int avl = 200;
 
     int x[avl], y[avl], z[avl];
     int i;

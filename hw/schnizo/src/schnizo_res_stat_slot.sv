@@ -715,8 +715,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       fpu_op:               disp_req_i.fu_data.fpu_op,
       // Duplicate logic for is_store. Once in LSU and once here.
       // TODO: Optimize by passing this to the LSU instead of regenerating it inside the LSU?
+      
       is_store:             (disp_req_i.fu_data.fu == STORE) &&
-                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
+                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}) || (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp), // Handle the casse of other kind of instructions (SPATZ) that do not write back.
       lsu_size:             disp_req_i.fu_data.lsu_size,
       fpu_fmt_src:          disp_req_i.fu_data.fpu_fmt_src,
       fpu_fmt_dst:          disp_req_i.fu_data.fpu_fmt_dst,
@@ -773,7 +774,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   //TODO: Check if this reset state is really optimal.
   assign slot_reset_state = '{
-    spatz_raw_instr:     '0, // addi x0, x0, 0
+    spatz_raw_instr:     '0, 
     is_occupied:          1'b0, // suppresses operand requests
     consumer_count:       '0,
     consumed_by:          '0,

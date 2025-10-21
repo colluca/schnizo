@@ -127,9 +127,9 @@
         num_alus: 3,
         num_alu_slots: 1,
         num_lsus: 3,
-        num_lsu_slots: 3,
-        num_fpus: 1,
-        num_fpu_slots: 4,
+        num_lsu_slots: 1,
+        num_fpus: 3,
+        num_fpu_slots: 1,
     },
     dma_core_template: {
         isa: "rv32imafd",

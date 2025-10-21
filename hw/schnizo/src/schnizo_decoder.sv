@@ -1023,7 +1023,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             //TODO: All the float vector instructions are missing
 
             VMACC_VX: begin
-              instr_dec_o.rs1       = instr.rtype.rs1;          // vector rd
+              instr_dec_o.rs1       = instr.rtype.rs1;
             end
 
             // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are vector ---

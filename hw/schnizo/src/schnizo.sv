@@ -73,7 +73,7 @@ module schnizo import schnizo_pkg::*; #(
   parameter int unsigned AluNofRss  = 3,
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
-  parameter int unsigned SpatzNofRss = 2,
+  parameter int unsigned SpatzNofRss = 6,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -1249,6 +1249,27 @@ module schnizo import schnizo_pkg::*; #(
     return extras;
   endfunction
 
+  typedef struct {
+    logic   valid; // high if handshake happens
+    string  producer;
+    longint acc_addr;
+    longint acc_arga;
+    longint acc_argb;
+    longint acc_argc;
+  } issue_spatz_trace_t;
+  function automatic string format_spatz_trace(issue_spatz_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_addr", trace.acc_addr);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_arga", trace.acc_arga);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_argb", trace.acc_argb);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "acc_argc", trace.acc_argc);
+    return extras;
+  endfunction
+
   // retirements - only for LSU to measure the latency
   typedef struct {
     logic   valid; // high if handshake happens
@@ -1758,7 +1779,7 @@ module schnizo import schnizo_pkg::*; #(
     schnizo_dispatch_trace_t dispatch_trace;
   } lcp_dispatch_detail_t;
 
-  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
+  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus + 1; // +1 for Spatz
 
   lcp_dispatch_detail_t lcp_dispatch_queue[NofFus][$];
 

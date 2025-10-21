@@ -1288,7 +1288,7 @@ end
 
 
   assign acc_spatz_req = '{
-    id:        spatz_issue_req.tag,
+    id:        spatz_issue_req.tag.dest_reg,
     data_op:   spatz_issue_req.fu_data.raw_instr,
     data_arga: spatz_issue_req.fu_data.operand_a,
     data_argb: spatz_issue_req.fu_data.operand_b,
@@ -1296,7 +1296,12 @@ end
   };
 
   assign spatz_result = acc_resp.data;
-  assign spatz_result_tag = spatz_issue_req.tag; // forwards tag
+  assign spatz_result_tag = {
+    dest_reg: acc_resp.id,
+    dest_reg_is_fp: '0,
+    is_branch: '0,
+    is_jump: '0
+    };
   assign spatz_busy = !spatz_issue_req_ready; // if we cannot dispatch, we are busy
 
   tcdm_req_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_req;
