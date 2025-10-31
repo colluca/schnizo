@@ -183,6 +183,8 @@ module schnizo_fu_stage import schnizo_pkg::*; import fpnew_pkg::*; #(
   output instr_tag_t      spatz_wb_result_tag_o,
   output logic            spatz_wb_result_valid_o,
   input  logic            spatz_wb_result_ready_i,
+  
+  output logic            spatz_running_instrs_o,
 
   // SPATZ TCDM Ports
   output tcdm_req_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_req_o,
@@ -1275,13 +1277,6 @@ end
   } spatz_rsp_t;
 
 
-  // Dummy SPATZ FU implementation
-  // assign spatz_issue_req_ready = '1; // always ready
-  // assign spatz_busy = '0; // never busy
-  // assign spatz_result = '0; // always returns 0
-  // assign spatz_result_tag = spatz_issue_req.tag; // forwards tag
-  // assign spatz_result_valid = spatz_issue_req_valid; // valid when issued and committed
-
   spatz_issue_req_t acc_spatz_req;
   spatz_issue_rsp_t acc_spatz_resp;
   spatz_rsp_t       acc_resp;
@@ -1301,7 +1296,10 @@ end
     dest_reg_is_fp: '0,
     is_branch: '0,
     is_jump: '0
-    };
+  };
+
+
+  
   assign spatz_busy = !spatz_issue_req_ready; // if we cannot dispatch, we are busy
 
   tcdm_req_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_req;
@@ -1310,10 +1308,18 @@ end
   tcdm_rsp_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_rsp;
   logic           [NumMemPortsPerSpatz-1:0] spatz_mem_rsp_valid;
 
+  fpnew_pkg::status_t spatz_fpu_status;
+
+  fpnew_pkg::fmt_mode_t spatz_fmt_mode;
+  assign spatz_fmt_mode = '{
+    src: spatz_issue_req.fu_data.fpu_fmt_src,
+    dst: spatz_issue_req.fu_data.fpu_fmt_dst
+  };
+
   spatz #(
     .NrMemPorts         (4     ),
     .NumOutstandingLoads(8),
-    .FPUImplementation  ('0      ),
+    .FPUImplementation  (FPUImplementation),
     .RegisterRsp        ('0     ),
     .dreq_t             (dreq_t                  ),
     .drsp_t             (drsp_t                  ),
@@ -1334,6 +1340,7 @@ end
     .rsp_valid_o             (spatz_result_valid   ),
     .rsp_ready_i             (spatz_result_ready   ),      
     .rsp_o                   (acc_resp              ), //Special care
+    .running_instrs_o        (spatz_running_instrs_o),
     .spatz_mem_req_o         (spatz_mem_req         ),
     .spatz_mem_req_valid_o   (spatz_mem_req_valid   ),
     .spatz_mem_req_ready_i   (spatz_mem_req_ready   ),
@@ -1343,9 +1350,9 @@ end
     .spatz_mem_str_finished_o(),
     .fp_lsu_mem_req_o        (        ),
     .fp_lsu_mem_rsp_i        ('0        ),
-    .fpu_rnd_mode_i          (fpnew_pkg::RNE          ),
-    .fpu_fmt_mode_i          (         ),
-    .fpu_status_o            (/* ignored */)
+    .fpu_rnd_mode_i          (spatz_issue_req.fu_data.fpu_rnd_mode),
+    .fpu_fmt_mode_i          (spatz_fmt_mode),
+    .fpu_status_o            (spatz_fpu_status)
   );
 
   // The first indices are assigned to the LSUs, the next to the SPATZ.
@@ -1388,10 +1395,14 @@ end
       NofRss = LsuNofRss;
       producer = producer - LsuRsIdOffset;
       fu_name = "LSU";
-    end else begin
+    end else if (producer < SpatzRsIdOffset) begin
       NofRss = FpuNofRss;
       producer = producer - FpuRsIdOffset;
       fu_name = "FPU";
+    end else begin
+      NofRss = SpatzNofRss;
+      producer = producer - SpatzRsIdOffset;
+      fu_name = "SPATZ";
     end
     rss_id = producer % NofRss;
     return producer / NofRss;
@@ -1408,9 +1419,12 @@ end
     end else if (rs_id < NofAlus + NofLsus) begin
       fu_name = "LSU";
       fu_id = rs_id - NofAlus;
-    end else begin
+    end else if (rs_id < NofAlus + NofLsus + NofFpus) begin
       fu_name = "FPU";
       fu_id = rs_id - NofAlus - NofLsus;
+    end else begin
+      fu_name = "SPATZ";
+      fu_id = rs_id - NofAlus - NofLsus - NofFpus;
     end
 
     return $sformatf("%s%0d", fu_name, fu_id);

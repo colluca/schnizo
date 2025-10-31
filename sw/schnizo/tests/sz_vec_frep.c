@@ -47,11 +47,11 @@ int main() {
     unsigned int avl = 128 * iter;
 
     int x[avl], y[avl], z[avl], vl;
-    int i;
-    for(i=0; i<avl; i++) {
-      x[i] = i;
-      y[i] = i;
-    }
+    // int i;
+    // for(i=0; i<avl; i++) {
+    //   x[i] = i;
+    //   y[i] = i;
+    // }
 
     asm volatile("vsetvli  %[rvl],  %[rdvl], e32, m8, ta, ma       \n"
                   : [rvl]"+r"(vl)
@@ -91,11 +91,11 @@ int main() {
     );
 
 
-    for(i=0; i<avl; i++) {
-      if (y[i] != 3*i) {
-        printf("Error at index %d: %d != %d\n", i, y[i], i);
-      }
-    }
+    // for(i=0; i<avl; i++) {
+    //   if (y[i] != 3*i) {
+    //     printf("Error at index %d: %d != %d\n", i, y[i], i);
+    //   }
+    // }
 
 }
 

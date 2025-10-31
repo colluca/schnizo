@@ -53,7 +53,7 @@ MAX_SIGNED_INT_LIT = 0xFFFF
 PERF_EVAL_KEYS_OMIT = ('start', 'end', 'end_fpss', 'snitch_issues',
                        'snitch_load_latency', 'snitch_fseq_offloads',
                        'fseq_issues', 'fpss_issues', 'fpss_fpu_issues',
-                       'fpss_load_latency', 'fpss_fpu_latency')
+                       'fpss_load_latency', 'fpss_fpu_latency', 'spatz_issues',)
 PERF_EVAL_KEYS_DECIMAL = ('tstart', 'tend', 'cycles')
 
 # -------------------- Architectural constants and enums  --------------------
@@ -78,6 +78,8 @@ LSU_SIZE_TO_FLOAT = (3, 2, 0, 1)
 EVENT_DISPATCH = "dispatch"
 EVENT_WRITEBACK = "writeback"
 EVENT_RETIREMENT = "retirement"
+EVENT_INTERNAL_SPATZ_ISSUE = "internal_spatz_issue"
+EVENT_INTERNAL_SPATZ_RETIREMENT = "internal_spatz_retirement"
 EVENT_RESREQ = "resreq"
 EVENT_RESCAP = "rescap"
 
@@ -94,6 +96,7 @@ FU_CSR = "CSR"
 FU_ACC = "ACC"
 FU_MULDIV = "MULDIV"
 FU_DMA = "DMA"
+FU_SPATZ = "SPATZ"
 FU_NONE = "NONE"
 
 DASM_LINE_REGEX = r"^\s*(?P<sim_time>\d+)\s+(?P<cycle>\d+)\s+(?P<priv_lvl>[A-Z])\s+(?P<loop_state>[^\s]+)\s+#;\s+(?P<extra_str>.*?)(?=\s*$)"
@@ -661,8 +664,20 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
             else:
                 perf_metrics[-1]['schnizo_gpr_stores'] += 1
 
+
+    is_spatz = False
+    if ('fu_type' in extras):
+        is_spatz = extras['fu_type'] in {FU_SPATZ}
+    elif ('producer' in extras):
+        is_spatz = extras['producer'].startswith(FU_SPATZ)
+    
+    if (is_spatz):
+        perf_metrics[-1]['spatz_issues'] += 1
+
     return 0
 
+
+# TODO: Track the latency of spatz operations as well.
 
 def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
                             lsu_pipelines, fpu_pipelines, perf_metrics, permissive):
@@ -741,17 +756,22 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
         perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
                                           all_tracks, inflight_tracks))
     # Immediately end store instructions as there is no retirement event.
-    if (fu_str.startswith(FU_LSU)):
+    elif (fu_str.startswith(FU_LSU)):
         if (extras['lsu_is_store']):
             # The instruction ends in this cycle. Thus the event is at the end of this cycle.
             perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
                                               all_tracks, inflight_tracks))
+    elif (fu_str.startswith(FU_SPATZ)):
+            perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
+                                              all_tracks, inflight_tracks))
+            
 
 
 def gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
                             all_tracks, inflight_tracks, perf_events):
     # Only capture the retirement in regular modes.
     # During FREP modes we capture with the rescap event because we need the producer id.
+
     if (loop_state in {LOOP_REGULAR, LOOP_HWLOOP}):
         fu_str = extras['producer']
         # We map all instructions to the first FU of its type. Except for CSR,
@@ -766,10 +786,26 @@ def gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
 def gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
                         all_tracks, inflight_tracks, perf_events):
     fu_str = extras['producer']
-    # The instruction ends in this cycle. Thus the event is at the end of this cycle.
-    perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
+    if not fu_str.startswith('SPATZ'):
+        # The instruction ends in this cycle. Thus the event is at the end of this cycle.
+        perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
                                       all_tracks, inflight_tracks))
 
+# TODO: Maybe trying to be more consistent with the naming
+def gen_int_spatz_issue_perfetto(cycle, extras,
+                                 all_tracks, inflight_tracks, perf_events):
+    fu_str = f"INSPATZ0.{extras['id']}"
+    instr_str = f"{extras['op']}"
+    perf_events.append(perf.start_instr(fu_str, instr_str,
+                                        cycle * CLOCK_PERIOD_NS, all_tracks, inflight_tracks))
+
+def gen_int_spatz_retirement_perfetto(cycle, extras,
+                                     all_tracks, inflight_tracks, perf_events):
+    fu_str = f"INSPATZ0.{extras['id']}"
+    # The instruction ends in this cycle. Thus the event is at the end of this cycle.
+    print(extras)
+    perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
+                                      all_tracks, inflight_tracks))
 
 def gen_trace_line(line, mc_exec,
                    lsu_pipelines, fpu_pipelines,
@@ -820,6 +856,12 @@ def gen_trace_line(line, mc_exec,
                                 lsu_pipelines, fpu_pipelines, perf_metrics, permissive)
         gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
                                 all_tracks, inflight_tracks, perf_events)
+    elif (extras['event'] == EVENT_INTERNAL_SPATZ_ISSUE):
+        gen_int_spatz_issue_perfetto(cycle, extras,
+                                     all_tracks, inflight_tracks, perf_events)
+    elif (extras['event'] == EVENT_INTERNAL_SPATZ_RETIREMENT):
+        gen_int_spatz_retirement_perfetto(cycle, extras,
+                                         all_tracks, inflight_tracks, perf_events)
     else:
         raise ValueError(f"Not a valid event type: {extras['event']}\n")
 
@@ -1030,6 +1072,8 @@ def main():
     for fpu, pipeline in fpu_pipelines.items():
         if len(pipeline) != 0:
             print_warning(f"{len(pipeline)} unfinished operations detected for {fpu}.")
+
+
     return 0
 
 

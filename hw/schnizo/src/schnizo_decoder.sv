@@ -1071,6 +1071,52 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.rs1       = instr.rtype.rs1; // base integer
             end
 
+
+          /// VECTOR FLOATING POINT INSTRUCTIONS: TODO: Double check, they were made with GPT
+            // --- Vector-Float vector-scalar (VF): rs1 is FP scalar ---
+            VFADD_VF, VFSUB_VF, VFMIN_VF, VFMAX_VF,
+            VFSGNJ_VF, VFSGNJN_VF, VFSGNJX_VF,
+            VFSLIDE1UP_VF, VFSLIDE1DOWN_VF,
+            VFMERGE_VFM, VFMV_V_F, VFMV_S_F,
+            VMFEQ_VF, VMFLE_VF, VMFLT_VF, VMFNE_VF, VMFGT_VF, VMFGE_VF,
+            VFDIV_VF, VFRDIV_VF, VFMUL_VF, VFRSUB_VF,
+            VFMADD_VF, VFNMADD_VF, VFMSUB_VF, VFNMSUB_VF,
+            VFMACC_VF, VFNMACC_VF, VFMSAC_VF, VFNMSAC_VF,
+            VFWADD_VF, VFWSUB_VF, VFWADD_WF, VFWSUB_WF,
+            VFWMUL_VF, VFWDOTP_VF, VFWMACC_VF, VFWNMACC_VF, VFWMSAC_VF, VFWNMSAC_VF: begin
+              instr_dec_o.rs1       = instr.rtype.rs1;  // FP scalar
+              instr_dec_o.rs1_is_fp = 1'b1;
+            end
+
+            // --- Vector-Float move from vector element to FP scalar ---
+            VFMV_F_S: begin
+              instr_dec_o.rd        = instr.rtype.rd;   // FP scalar destination
+              instr_dec_o.rd_is_fp  = 1'b1;
+            end
+
+            // --- Vector-Float vector-vector (VV) ops and reductions (no scalar deps) ---
+            VFADD_VV, VFSUB_VV, VFMIN_VV, VFMAX_VV,
+            VFSGNJ_VV, VFSGNJN_VV, VFSGNJX_VV,
+            VFDIV_VV, VFMUL_VV,
+            VFMADD_VV, VFNMADD_VV, VFMSUB_VV, VFNMSUB_VV,
+            VFMACC_VV, VFNMACC_VV, VFMSAC_VV, VFNMSAC_VV,
+            VFWADD_VV, VFWSUB_VV, VFWADD_WV, VFWSUB_WV,
+            VFWMUL_VV, VFWDOTP_VV,
+            VFWMACC_VV, VFWNMACC_VV, VFWMSAC_VV, VFWNMSAC_VV,
+            VFREDUSUM_VS, VFREDOSUM_VS, VFREDMIN_VS, VFREDMAX_VS,
+            VFWREDUSUM_VS, VFWREDOSUM_VS: begin
+            end
+
+            // --- Vector-Float conversions and misc (no scalar deps) ---
+            VFSQRT_V, VFRSQRT7_V, VFREC7_V, VFCLASS_V,
+            VFCVT_XU_F_V, VFCVT_X_F_V, VFCVT_F_XU_V, VFCVT_F_X_V,
+            VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V,
+            VFWCVT_XU_F_V, VFWCVT_X_F_V, VFWCVT_F_XU_V, VFWCVT_F_X_V,
+            VFWCVT_F_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V,
+            VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W,
+            VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W: begin
+            end
+
             default: illegal_instr = 1'b1;
           endcase
         end else begin

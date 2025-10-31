@@ -41,6 +41,8 @@ FU_LSU = "LSU"
 FU_FPU = "FPU"
 FU_CSR = "CSR"
 FU_ACC = "ACC"
+FU_SPATZ = "SPATZ"
+INSPATZ = "INSPATZ"
 FU_NONE = "NONE"
 
 # DANGER: The tracks uuid can collide after
@@ -56,9 +58,11 @@ FU_TYPE_OFFSET = {
     FU_ALU:     1000000,
     FU_LSU:     2000000,
     FU_FPU:     3000000,
-    FU_CSR:     4000000,
-    FU_ACC:     5000000,
-    FU_NONE:    6000000,
+    FU_SPATZ:   4000000,
+    FU_CSR:     5000000,
+    FU_ACC:     6000000,
+    INSPATZ:    7000000,
+    FU_NONE:    8000000,
 }
 FU_ID_OFFSET =    10000  # noqa: E222
 SLOT_OFFSET =       100  # noqa: E222
