@@ -58,6 +58,34 @@ static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
     axpy_frep_increment(n, a, x, y, z, sizeof(double));
 }
 
+void axpy_vec_naive(uint32_t n, const double a, const double *x, const double *y,
+                const double *z) {
+  unsigned int vl;
+  unsigned int avl = n;
+
+  // Stripmine and accumulate a partial vector
+  do {
+    // Set the vl
+    asm volatile("vsetvli %0, %1, e64, m8, ta, ma" : "=r"(vl) : "r"(avl));
+
+    // Load vectors
+    asm volatile("vle64.v v0, (%0)" ::"r"(x));
+    asm volatile("vle64.v v8, (%0)" ::"r"(y));
+
+    // Multiply-accumulate
+    asm volatile("vfmacc.vf v8, %0, v0" ::"f"(a));
+
+    // Store results
+    asm volatile("vse64.v v8, (%0)" ::"r"(z));
+
+    // Bump pointers
+    x += vl;
+    y += vl;
+    avl -= vl;
+  } while (avl > 0);
+}
+
+
 
 // The matrixes are placed contiguously in memory.
 static inline void axpy_frep_vec(uint32_t n, double a, double *x, double *y,
@@ -67,10 +95,7 @@ static inline void axpy_frep_vec(uint32_t n, double a, double *x, double *y,
     int frac = n / num_cores;
     int offset = core_idx * frac;
     int increment = sizeof(double);
-    // Loop but in assembly
-    // for (int i = offset; i < offset + frac ; i ++) {
-    //     z[i] = a * x[i] + y[i];
-    // }
+    int start, end;
 
 
     double *x_addr = &x[offset];
@@ -84,33 +109,34 @@ static inline void axpy_frep_vec(uint32_t n, double a, double *x, double *y,
                   : [rdvl]"r"(-1)
     );
 
-    if (frac > max_vl) {
-        unsigned int n_vec_whole_iter = frac / max_vl;
-        unsigned int n_remaining_elems = frac % max_vl;
-        
-        snrt_mcycle();
+    unsigned int n_vec_whole_iter = frac / max_vl;
+    unsigned int n_remaining_elems = frac % max_vl;
 
-        asm volatile (
-        // Code
-        "frep.o  %[n_frep], 7, 0, 0\n"
-        "vle64.v  v0,    (%[xa])          \n"
-        "vle64.v  v8,    (%[ya])          \n"
-        "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
-        "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
-        "vfmacc.vf v8,    %[a],    v0     \n"
-        "vse64.v  v8,    (%[za])          \n"
-        "add     %[za], %[za],   %[inc]   \n"
-        // Outputs
-        : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
-        // Inputs
-        : [n_frep]"r"(n_vec_whole_iter - 1), [a]"f"(a), [inc]"r"(increment)
-        // Clobbers
-        : "memory"
-        );
+    snrt_mcycle();
+
+    asm volatile (
+    // Code
+    "frep.o  %[n_frep], 7, 0, 0\n"
+    "vle64.v  v0,    (%[xa])          \n"
+    "vle64.v  v8,    (%[ya])          \n"
+    "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
+    "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
+    "vfmacc.vf v8,    %[a],    v0     \n"
+    "vse64.v  v8,    (%[za])          \n"
+    "add     %[za], %[za],   %[inc]   \n"
+    // Outputs
+    : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
+    // Inputs
+    : [n_frep]"r"(n_vec_whole_iter - 1), [a]"f"(a), [inc]"r"(increment)
+    // Clobbers
+    : "memory"
+    );
+
+    if (n_remaining_elems != 0) {
 
         asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m8, ta, ma       \n"
-                  : [rvl]"+r"(max_vl)
-                  : [rdvl]"r"(n_remaining_elems)
+                    : [rvl]"+r"(max_vl)
+                    : [rdvl]"r"(n_remaining_elems)
         );
 
         asm volatile (
@@ -127,34 +153,12 @@ static inline void axpy_frep_vec(uint32_t n, double a, double *x, double *y,
         : "memory"
         );
 
-        snrt_mcycle();
-
-    } else {
-        snrt_mcycle();
-
-        asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m8, ta, ma       \n"
-                  : [rvl]"+r"(max_vl)
-                  : [rdvl]"r"(frac)
-        );
-
-        asm volatile (
-            // Code
-            "vle64.v  v0,    (%[xa])          \n"
-            "vle64.v  v8,    (%[ya])          \n"
-            "vfmacc.vf v8,    %[a],    v0     \n"
-            "vse64.v  v8,    (%[za])          \n"
-            // Outputs
-            : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
-            // Inputs
-            : [a]"f"(a)
-            // Clobbers
-            : "memory"
-        );
-
-        snrt_mcycle();
-
+        
     }
+    
+    asm volatile("fence");
 
+    snrt_mcycle();
 }
 
 

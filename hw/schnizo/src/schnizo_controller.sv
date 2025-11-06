@@ -280,7 +280,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
   logic all_lsus_empty, fence_stall;
   assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
-  assign fence_stall = (instr_decoded_i.is_fence & ~all_lsus_empty & spatz_running_instrs_i) & instr_valid_i;
+  assign fence_stall = (instr_decoded_i.is_fence & (~all_lsus_empty || spatz_running_instrs_i)) & instr_valid_i;
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
   // We can continue as soon as the cache responds

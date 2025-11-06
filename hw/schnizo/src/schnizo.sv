@@ -1282,15 +1282,14 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
 
   typedef struct {
     logic valid; // high if handshake happens
-    string op;
-  } internal_issue_spatz_trace_t;
-  function automatic string format_internal_spatz_trace(internal_issue_spatz_trace_t trace, int id);
+  } internal_issue_spatz_trace_t;//It is actually just a one bit flag. Kept it as a struct for consistency with the other tracing structures
+  function automatic string format_internal_spatz_trace(internal_issue_spatz_trace_t trace, int id, string op);
     string extras = "";
     if (!trace.valid) begin
       return "prova";
     end
     extras = $sformatf("%s'%s':0x%0x, ", extras, "id", id);
-    extras = $sformatf("%s'%s':\"%s\", ", extras, "op", trace.op);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "op", op);
     return extras;
   endfunction
 
@@ -1840,13 +1839,11 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     always_comb begin
       for(int i = 0; i < NrParallelInstructions; i++) begin
       internal_spatz_traces[i] = '{
-        valid: '0,
-        op:    "test"
+        valid: '0
       };
       end
       if (i_fu_stage.i_spatz.i_controller.spatz_req_valid) begin
           internal_spatz_traces[i_fu_stage.i_spatz.i_controller.spatz_req.id].valid = '1;
-          internal_spatz_traces[i_fu_stage.i_spatz.i_controller.spatz_req.id].op = i_fu_stage.i_spatz.i_controller.spatz_req.op.name();
       end
     end
 
@@ -1980,7 +1977,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
 
       for (int i = 0; i < NrParallelInstructions; i++) begin
           write_trace_event(file_id, trace_header, "internal_spatz_issue",
-                    format_internal_spatz_trace(internal_spatz_traces[i], i),
+                    format_internal_spatz_trace(internal_spatz_traces[i], i, i_fu_stage.i_spatz.i_controller.spatz_req.op.name()),
                     internal_spatz_traces[i].valid);
       end
 
