@@ -17,9 +17,9 @@
     transa: false,
     transb: false, // must be true for SIMD
     m: 32,
-    n: 16,
-    k: 16,
+    n: 32,
+    k: 32,
     alpha: 1,
     beta: 0,
-    gemm_fp: "gemm_fp64_frep_vec"
+    gemm_fp: "gemm_fp64_vec_naive_16sregs"
 }

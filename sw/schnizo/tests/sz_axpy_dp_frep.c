@@ -28,7 +28,7 @@ int main() {
     double * y_addr = y;
     double * z_addr = z;
     double a = 10.0;
-    int increment = sizeof(double);
+    int increment = sizeof(double)*max_vl;
 
     unsigned int n_vec_whole_iter = PROBLEM_SIZE / max_vl;
     unsigned int n_remaining_elems = PROBLEM_SIZE % max_vl;

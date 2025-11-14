@@ -10,10 +10,18 @@
 
 #define NUM_RUNS 2
 
+#define PROBLEM_SIZE 1000
+
+
+
+
 int main() {
+    
+    #ifndef BENCHMARK
     for (volatile int run = 0; run < NUM_RUNS; run++) {
         axpy_job(&args);
     }
+    #endif
 
     return 0;
 }

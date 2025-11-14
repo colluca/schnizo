@@ -58,43 +58,59 @@ static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
     axpy_frep_increment(n, a, x, y, z, sizeof(double));
 }
 
-void axpy_vec_naive(uint32_t n, const double a, const double *x, const double *y,
-                const double *z) {
-  unsigned int vl;
-  unsigned int avl = n;
+static inline void axpy_vec_naive(uint32_t n, double a, double *x, double *y,
+                double *z) {
+    
+    int core_idx = snrt_cluster_core_idx();
+    int num_cores = snrt_cluster_compute_core_num();
+    unsigned int vl;
+    unsigned int avl = n / num_cores;
+    int offset = core_idx * avl;
+    int start, end;
 
-  // Stripmine and accumulate a partial vector
-  do {
+
+    double *x_addr = &x[offset];
+    double *y_addr = &y[offset];
+    double *z_addr = &z[offset];
+
+    snrt_mcycle();
+
+    // Stripmine and accumulate a partial vector
+    do {
     // Set the vl
-    asm volatile("vsetvli %0, %1, e64, m8, ta, ma" : "=r"(vl) : "r"(avl));
+        asm volatile("vsetvli %0, %1, e64, m1, ta, ma" : "=r"(vl) : "r"(avl));
 
-    // Load vectors
-    asm volatile("vle64.v v0, (%0)" ::"r"(x));
-    asm volatile("vle64.v v8, (%0)" ::"r"(y));
+        // Load vectors
+        asm volatile("vle64.v v0, (%0)" ::"r"(x_addr));
+        asm volatile("vle64.v v8, (%0)" ::"r"(y_addr));
 
-    // Multiply-accumulate
-    asm volatile("vfmacc.vf v8, %0, v0" ::"f"(a));
+        // Multiply-accumulate
+        asm volatile("vfmacc.vf v8, %0, v0" ::"f"(a));
 
-    // Store results
-    asm volatile("vse64.v v8, (%0)" ::"r"(z));
+        // Store results
+        asm volatile("vse64.v v8, (%0)" ::"r"(z_addr));
 
-    // Bump pointers
-    x += vl;
-    y += vl;
-    avl -= vl;
-  } while (avl > 0);
+        // Bump pointers
+        x_addr += vl;
+        y_addr += vl;
+        z_addr += vl;
+        avl -= vl;
+
+    } while (avl > 0);
+
+    asm volatile("fence");
+    snrt_mcycle();
 }
 
 
 
 // The matrixes are placed contiguously in memory.
-static inline void axpy_frep_vec(uint32_t n, double a, double *x, double *y,
+static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
                              double *z) {
     int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
     int frac = n / num_cores;
     int offset = core_idx * frac;
-    int increment = sizeof(double);
     int start, end;
 
 
@@ -104,37 +120,41 @@ static inline void axpy_frep_vec(uint32_t n, double a, double *x, double *y,
 
 
     unsigned int max_vl;
-    asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m8, ta, ma       \n"
+    asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m1, ta, ma       \n"
                   : [rvl]"+r"(max_vl)
                   : [rdvl]"r"(-1)
     );
+
+    int increment = sizeof(double)*max_vl;
 
     unsigned int n_vec_whole_iter = frac / max_vl;
     unsigned int n_remaining_elems = frac % max_vl;
 
     snrt_mcycle();
 
-    asm volatile (
-    // Code
-    "frep.o  %[n_frep], 7, 0, 0\n"
-    "vle64.v  v0,    (%[xa])          \n"
-    "vle64.v  v8,    (%[ya])          \n"
-    "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
-    "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
-    "vfmacc.vf v8,    %[a],    v0     \n"
-    "vse64.v  v8,    (%[za])          \n"
-    "add     %[za], %[za],   %[inc]   \n"
-    // Outputs
-    : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
-    // Inputs
-    : [n_frep]"r"(n_vec_whole_iter - 1), [a]"f"(a), [inc]"r"(increment)
-    // Clobbers
-    : "memory"
-    );
+    if (n_vec_whole_iter) {
+        asm volatile (
+        // Code
+        "frep.o  %[n_frep], 7, 0, 0\n"
+        "vle64.v  v0,    (%[xa])          \n"
+        "vle64.v  v8,    (%[ya])          \n"
+        "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
+        "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
+        "vfmacc.vf v8,    %[a],    v0     \n"
+        "vse64.v  v8,    (%[za])          \n"
+        "add     %[za], %[za],   %[inc]   \n"
+        // Outputs
+        : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
+        // Inputs
+        : [n_frep]"r"(n_vec_whole_iter - 1), [a]"f"(a), [inc]"r"(increment)
+        // Clobbers
+        : "memory"
+        );
+    } 
 
-    if (n_remaining_elems != 0) {
+    if (n_remaining_elems) {
 
-        asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m8, ta, ma       \n"
+        asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m1, ta, ma       \n"
                     : [rvl]"+r"(max_vl)
                     : [rdvl]"r"(n_remaining_elems)
         );

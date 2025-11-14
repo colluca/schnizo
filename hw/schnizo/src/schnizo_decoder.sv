@@ -1053,7 +1053,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VADD_VI, VRSUB_VI,
             VAND_VI, VOR_VI, VXOR_VI,
             VSLL_VI, VSRL_VI, VSRA_VI,
-            VMSEQ_VI, VMSNE_VI, VMSLE_VI, VMSLEU_VI,
+            VMSEQ_VI, VMSNE_VI, VMSLE_VI, VMSLEU_VI, VMV_V_I,
             VMSGT_VI, VMSGTU_VI: begin
             end
 

@@ -519,8 +519,9 @@ module schnizo_cc #(
     assign tcdm_rsp        = tcdm_rsp_i[lsu];
   end
 
-  `ASSERT_INIT(TcdmAndLsuInterfacesMatch, NofLsus==TCDMPorts,
-               "The number of LSU does not match the number of TCDM ports.");
+  // With Spatz we have other tcdm ports on top of the scalar core LSUs
+  // `ASSERT_INIT(TcdmAndLsuInterfacesMatch, NofLsus==TCDMPorts,
+  //              "The number of LSU does not match the number of TCDM ports.");
 
   // Merge all requests going to the SoC into one
   reqrsp_mux #(

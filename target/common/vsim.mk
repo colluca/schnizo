@@ -107,7 +107,7 @@ vsim: $(SN_BIN_DIR)/$(TARGET).vsim
 # Launch verification of a selected ELF with the built vsim wrapper
 .PHONY: verify
 
-KERNEL := sz_axpy
+KERNEL := sz_gemm
 
 VERIFY_SCRIPT ?= $(SN_ROOT)/sw/schnizo/$(KERNEL)/scripts/verify.py
 VERIFY_ELF    ?= $(SN_TARGET_DIR)/sw/schnizo/$(KERNEL)/build/$(KERNEL).elf

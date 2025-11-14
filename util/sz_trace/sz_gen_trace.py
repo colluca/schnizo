@@ -803,7 +803,6 @@ def gen_int_spatz_retirement_perfetto(cycle, extras,
                                      all_tracks, inflight_tracks, perf_events):
     fu_str = f"INSPATZ0.{extras['id']}"
     # The instruction ends in this cycle. Thus the event is at the end of this cycle.
-    print(extras)
     perf_events.append(perf.end_instr(fu_str, (cycle+1) * CLOCK_PERIOD_NS,
                                       all_tracks, inflight_tracks))
 
