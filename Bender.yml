@@ -162,7 +162,6 @@ sources:
       - hw/schnizo/src/schnizo_read_operands.sv
       - hw/schnizo/src/schnizo_scoreboard.sv
       - hw/schnizo/src/schnizo_csr.sv
-      - hw/schnizo/src/schnizo_spatz_fu.sv
       - hw/schnizo/src/schnizo_fpu.sv
       - hw/schnizo/src/schnizo_lsu.sv
       - hw/schnizo/src/schnizo_writeback.sv

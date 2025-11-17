@@ -125,8 +125,8 @@
         num_fp_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 1,
-        num_lsus: 3,
+        num_alu_slots: 2,
+        num_lsus: 4,
         num_lsu_slots: 1,
         num_fpus: 3,
         num_fpu_slots: 1,

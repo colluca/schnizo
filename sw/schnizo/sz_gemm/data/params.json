@@ -16,10 +16,10 @@
     partition_banks: 0,
     transa: false,
     transb: false, // must be true for SIMD
-    m: 32,
-    n: 32,
-    k: 32,
+    m: 11,
+    n: 15,
+    k: 13,
     alpha: 1,
     beta: 0,
-    gemm_fp: "gemm_fp64_vec_naive_16sregs"
+    gemm_fp: "gemm_fp64_vec_frep"
 }
