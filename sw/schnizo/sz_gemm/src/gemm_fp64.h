@@ -296,7 +296,7 @@ static inline void gemm_fp64_vec_naive_2sregs_unrolled(uint32_t setup_ssr, uint3
             double t1 = *A_l3_2;
 
             #pragma clang loop unroll(disable)
-            for (int j = 0; j < K; j+=2) {
+            for (int j = 0; j + 1 < K; j+=2) {
                 asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
                 B_l3_1 += ldb;
                 asm volatile("vle64.v v24, (%0);" ::"r"(B_l3_1));
@@ -309,7 +309,13 @@ static inline void gemm_fp64_vec_naive_2sregs_unrolled(uint32_t setup_ssr, uint3
                 A_l3_1++; t0 = *A_l3_1;
                 asm volatile("vfmacc.vf v8, %0, v24" ::"f"(t1));
                 A_l3_2++; t1 = *A_l3_2;
-            }            
+            }
+
+            if (K%2) {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
+            }
 
             asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1));
             if (use_second) asm volatile("vse64.v v8, (%0);" ::"r"(C_l2_2));
@@ -367,11 +373,7 @@ static inline void gemm_fp64_vec_frep_unrolled(
             double t0 = *A_l3_1;
             double t1 = *A_l3_2;
 
-            int unrolled_iters = K / 2;
-            int last_iter = K % 2;
-
-            if (unrolled_iters) {
-                asm volatile(
+            asm volatile(
                     "frep.o  %[n_frep], 16, 0, 0 \n"
                     // Body:
                     "vle64.v v16, (%[ptr_b]) \n"
@@ -393,11 +395,10 @@ static inline void gemm_fp64_vec_frep_unrolled(
                     : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1),
                       [ptr_a1] "+r"(A_l3_2), [ft0] "+f"(t0), [ft1] "+f"(t1)
                     : [inc_b] "r"(inc_b), [inc_a] "r"(inc_a),
-                      [n_frep] "r"(unrolled_iters - 1)
+                      [n_frep] "r"(K/2 - 1)
                     :);
-            }
 
-            if (last_iter) {
+            if (K%2) {
                 asm volatile(
                     "vle64.v v16, (%[ptr_b]) \n"
                     "vfmacc.vf v0, %[ft0], v16 \n"
@@ -493,6 +494,258 @@ static inline void gemm_fp64_vec_frep(uint32_t setup_ssr, uint32_t partition_ban
     snrt_mcycle();
 }
 
+
+
+// Requires that A and B is regular and not transposed!
+// Should work for all MNK possible dimensions, not tested for very specific
+// edge cases
+static inline void gemm_fp64_vec_frep_unrolled_mopt(
+    uint32_t setup_ssr, uint32_t partition_banks, uint32_t transa,
+    uint32_t transb, uint32_t M, uint32_t N, uint32_t K, void* A_p,
+    uint32_t lda, void* B_p, uint32_t ldb, uint32_t beta, void* C_p,
+    uint32_t ldc) {
+
+    if (transa || transb || partition_banks)
+        return;  // Fallback not implemented here.
+
+    snrt_mcycle();
+
+    uint64_t inc_b = (uint64_t)ldb * sizeof(double);
+    uint64_t inc_a = sizeof(double);
+
+    int computed_col = 0;
+    while (computed_col < N) {
+        int vl;
+        asm volatile("vsetvli %[vl], %[rvl], e64, m1, ta, ma"
+                     : [vl] "=r"(vl)
+                     : [rvl] "r"(N - computed_col));
+
+        double* C_l1 = (double*)C_p + computed_col;
+        double* B_l1 = (double*)B_p + computed_col;
+        
+        double* C_l2_1 = C_l1;
+        double* C_l2_2 = C_l1 + ldc;
+        double* A_l2_1 = (double*)A_p;
+        double* A_l2_2 = (double*)A_p + lda;
+
+        for (int i = 0; i+1 < M; i += 2) {
+
+            if (beta) {
+                asm volatile("vle64.v v0, (%0);" ::"r"(C_l2_1));
+                asm volatile("vle64.v v8, (%0);" ::"r"(C_l2_2));
+            } else {
+                asm volatile("vmv.v.i v0, 0");
+                asm volatile("vmv.v.i v8, 0");
+            }
+
+            double* B_l3_1 = B_l1;
+            double* A_l3_1 = A_l2_1;
+            double* A_l3_2 = A_l2_2;
+
+            // Load the first two scalar values
+            double t0 = *A_l3_1;
+            double t1 = *A_l3_2;
+
+            asm volatile(
+                "frep.o  %[n_frep], 16, 0, 0 \n"
+                // Body:
+                "vle64.v v16, (%[ptr_b]) \n"
+                "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
+                "vle64.v v24, (%[ptr_b]) \n"
+                "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
+                "vfmacc.vf v0, %[ft0], v16 \n"
+                "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                "vfmacc.vf v8, %[ft1], v16 \n"
+                "add     %[ptr_a1], %[ptr_a1], %[inc_a] \n"
+                "fld     %[ft1], 0(%[ptr_a1]) \n"
+                "vfmacc.vf v0, %[ft0], v24 \n"
+                "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                "vfmacc.vf v8, %[ft1], v24 \n"
+                "add     %[ptr_a1], %[ptr_a1], %[inc_a] \n"
+                "fld     %[ft1], 0(%[ptr_a1]) \n"
+                : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1),
+                  [ptr_a1] "+r"(A_l3_2), [ft0] "+f"(t0), [ft1] "+f"(t1)
+                :
+                [inc_b] "r"(inc_b), [inc_a] "r"(inc_a), [n_frep] "r"(K / 2 - 1)
+                :);
+
+            if (K % 2) {
+                asm volatile(
+                    "vle64.v v16, (%[ptr_b]) \n"
+                    "vfmacc.vf v0, %[ft0], v16 \n"
+                    "vfmacc.vf v8, %[ft1], v16 \n"
+                    :
+                    : [ptr_b] "r"(B_l3_1), [ft0] "f"(t0), [ft1] "f"(t1)
+                    :);
+            }
+
+            asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1) : "memory");
+            asm volatile("vse64.v v8, (%0);" ::"r"(C_l2_2) : "memory");
+            
+            C_l2_1 += ldc * 2;
+            C_l2_2 = C_l2_1 + ldc;
+            A_l2_1 += lda * 2;
+            A_l2_2 = A_l2_1 + lda;
+        }
+
+        if (M % 2) {
+            if (beta) asm volatile("vle64.v v0, (%0);" ::"r"(C_l2_1));
+            else asm volatile("vmv.v.i v0, 0");
+
+            double* B_l3_1 = B_l1;
+            double* A_l3_1 = A_l2_1;
+
+            double t0 = *A_l3_1;
+
+            asm volatile(
+                "frep.o  %[n_frep], 10, 0, 0 \n"
+                // Body:
+                "vle64.v v16, (%[ptr_b]) \n"
+                "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
+                "vle64.v v24, (%[ptr_b]) \n"
+                "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
+                "vfmacc.vf v0, %[ft0], v16 \n"
+                "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                "vfmacc.vf v0, %[ft0], v24 \n"
+                "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1), [ft0] "+f"(t0)
+                : [inc_b] "r"(inc_b), [inc_a] "r"(inc_a), [n_frep] "r"(K / 2 - 1)
+                :);
+
+            if (K % 2)
+                asm volatile(
+                    "vle64.v v16, (%[ptr_b]) \n"
+                    "vfmacc.vf v0, %[ft0], v16 \n"
+                    :
+                    : [ptr_b] "r"(B_l3_1), [ft0] "f"(t0)
+                    :);
+
+            asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1) : "memory");
+        }
+
+        computed_col += vl;
+    }
+
+    snrt_mcycle();
+}
+
+
+// The pointer are called according to which loop they are updated in
+static inline void gemm_fp64_vec_naive_2sregs_unrolled_mopt(uint32_t setup_ssr, uint32_t partition_banks,
+                                       uint32_t transa, uint32_t transb,
+                                       uint32_t M, uint32_t N, uint32_t K,
+                                       void *A_p, uint32_t lda, void *B_p, uint32_t ldb,
+                                       uint32_t beta, void *C_p, uint32_t ldc) {
+    // Only supports !transa && !transb and non bank-partitioned layout.
+    if (transa || transb || partition_banks)
+        return; // Fallback not implemented here.
+
+    snrt_mcycle();
+
+    int computed_col = 0;
+    while (computed_col < N) {
+
+        int vl;
+        asm volatile("vsetvli %[vl], %[rvl], e64, m1, ta, ma"
+                 : [vl] "=r"(vl)
+                 : [rvl] "r"(N-computed_col));
+
+        double * C_l1 = (double *)C_p + computed_col;
+        double * B_l1 = (double *)B_p + computed_col;
+
+        double *C_l2_1 = C_l1;
+        double *C_l2_2 = C_l1 + ldc;
+        double *A_l2_1 = (double *)A_p;
+        double *A_l2_2 = (double *)A_p + lda;
+
+        for(int i = 0; i+1 < M; i+=2) {
+
+            if (beta) {
+                asm volatile("vle64.v v0, (%0);" ::"r"(C_l2_1));
+                asm volatile("vle64.v v8, (%0);" ::"r"(C_l2_2));
+            } else {
+                asm volatile("vmv.v.i v0, 0");
+                asm volatile("vmv.v.i v8, 0");
+            }
+            
+            double * B_l3_1 = B_l1;
+
+            double *A_l3_1 = A_l2_1;
+            double *A_l3_2 = A_l2_2;
+
+            double t0 = *A_l3_1;
+            double t1 = *A_l3_2;
+
+            int j;
+            #pragma clang loop unroll(disable)
+            for (j = 0; j + 1 < K; j+=2) {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vle64.v v24, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+                asm volatile("vfmacc.vf v0, %0, v24" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v8, %0, v24" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+            }
+
+            if (K%2) {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
+            }
+
+            asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1));
+            asm volatile("vse64.v v8, (%0);" ::"r"(C_l2_2));
+
+            C_l2_1 += ldc * 2;
+            C_l2_2 = C_l2_1 + ldc;
+            A_l2_1 += lda * 2;
+            A_l2_2 = A_l2_1 + lda;
+        }
+
+        if (M % 2) {
+            if (beta) asm volatile("vle64.v v0, (%0);" ::"r"(C_l2_1));
+            else asm volatile("vmv.v.i v0, 0");
+
+            double* B_l3_1 = B_l1;
+            double* A_l3_1 = A_l2_1;
+
+            double t0 = *A_l3_1;
+
+            #pragma clang loop unroll(disable)
+            for (int j = 0; j + 1 < K; j+=2) {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vle64.v v24, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v0, %0, v24" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+            }
+
+            if (K%2) {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+            }
+
+            asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1) : "memory");
+        }
+
+        computed_col += vl;
+    }
+
+    snrt_mcycle();
+}
 
 
 
