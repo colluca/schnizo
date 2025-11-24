@@ -1971,7 +1971,8 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
 
       // Always generate the core trace. This trace serves as the basis of the trace event.
       // This trace is extended with the details of the active FU.
-      trace_header = format_trace_header($time, cycle, core_trace.priv_level, core_trace.state,
+      // + 1 to fix mismatch between trace and waveform.
+      trace_header = format_trace_header($time, cycle + 1, core_trace.priv_level, core_trace.state,
                                          core_trace.stall, core_trace.exception);
 
 

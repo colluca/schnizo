@@ -186,7 +186,7 @@ static inline void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
 }
 
 // The pointer are called according to which loop they are updated in
-static inline void gemm_fp64_vec_naive_2sregs(uint32_t setup_ssr, uint32_t partition_banks,
+static inline void gemm_fp64_vec_dummy(uint32_t setup_ssr, uint32_t partition_banks,
                                        uint32_t transa, uint32_t transb,
                                        uint32_t M, uint32_t N, uint32_t K,
                                        void *A_p, uint32_t lda, void *B_p, uint32_t ldb,
@@ -247,6 +247,75 @@ static inline void gemm_fp64_vec_naive_2sregs(uint32_t setup_ssr, uint32_t parti
         computed_col += vl;
     }
 
+    
+    asm volatile("fence");
+    snrt_mcycle();
+}
+
+// The pointer are called according to which loop they are updated in
+static inline void gemm_fp64_vec_naive_2sregs(uint32_t setup_ssr, uint32_t partition_banks,
+                                       uint32_t transa, uint32_t transb,
+                                       uint32_t M, uint32_t N, uint32_t K,
+                                       void *A_p, uint32_t lda, void *B_p, uint32_t ldb,
+                                       uint32_t beta, void *C_p, uint32_t ldc) {
+    // Only supports !transa && !transb and non bank-partitioned layout.
+    if (transa || transb || partition_banks)
+        return; // Fallback not implemented here.
+
+    snrt_mcycle();
+
+    int computed_col = 0;
+    while (computed_col < N) {
+
+        int vl;
+        asm volatile("vsetvli %[vl], %[rvl], e64, m1, ta, ma"
+                 : [vl] "=r"(vl)
+                 : [rvl] "r"(N-computed_col));
+
+        double * C_l1 = (double *)C_p + computed_col;
+        double * B_l1 = (double *)B_p + computed_col;
+
+        for(int i = 0; i < M; i+=2) {
+            double *C_l2_1 = C_l1 + ldc*i;
+            double *C_l2_2 = C_l1 + ldc*(i+1);
+
+            uint8_t use_second = i+1 < M;
+
+            if (beta) {
+                asm volatile("vle64.v v0, (%0);" ::"r"(C_l2_1));
+                if (use_second) asm volatile("vle64.v v8, (%0);" ::"r"(C_l2_2));
+            } else {
+                asm volatile("vmv.v.i v0, 0");
+                if (use_second) asm volatile("vmv.v.i v8, 0");
+            }
+            
+            double * B_l3_1 = B_l1;
+
+            double *A_l3_1 = (double *)A_p + lda*i;
+            double *A_l3_2 = (double *)A_p + lda*(i+1);
+
+            double t0 = *A_l3_1;
+            double t1 = *A_l3_2;
+
+            #pragma clang loop unroll(disable)
+            for (int j = 0; j < K; j++) {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+            }
+
+            asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1));
+            if (use_second) asm volatile("vse64.v v8, (%0);" ::"r"(C_l2_2));
+        }
+
+        computed_col += vl;
+    }
+
+    
+    asm volatile("fence");
     snrt_mcycle();
 }
 
@@ -324,6 +393,7 @@ static inline void gemm_fp64_vec_naive_2sregs_unrolled(uint32_t setup_ssr, uint3
         computed_col += vl;
     }
 
+    asm volatile("fence");
     snrt_mcycle();
 }
 
@@ -416,6 +486,7 @@ static inline void gemm_fp64_vec_frep_unrolled(
         computed_col += vl;
     }
 
+    asm volatile("fence");
     snrt_mcycle();
 }
 
@@ -491,6 +562,7 @@ static inline void gemm_fp64_vec_frep(uint32_t setup_ssr, uint32_t partition_ban
         computed_col += vl;
     }
 
+    asm volatile("fence");
     snrt_mcycle();
 }
 
@@ -630,6 +702,7 @@ static inline void gemm_fp64_vec_frep_unrolled_mopt(
         computed_col += vl;
     }
 
+    asm volatile ("fence");
     snrt_mcycle();
 }
 
@@ -744,6 +817,7 @@ static inline void gemm_fp64_vec_naive_2sregs_unrolled_mopt(uint32_t setup_ssr, 
         computed_col += vl;
     }
 
+    asm volatile("fence");
     snrt_mcycle();
 }
 
@@ -889,5 +963,6 @@ static inline void gemm_fp64_vec_naive_16sregs(uint32_t setup_ssr, uint32_t part
         col += vl;
     }
 
+    asm volatile("fence");
     snrt_mcycle();
 }

@@ -36,9 +36,9 @@ VSIM_FLAGS += -t 1ps
 ifeq ($(DEBUG), ON)
 VSIM_FLAGS += -do "log -r /*"
 VOPT_FLAGS  = +acc
-
-VSIM_FLAGS += -do "source $(SN_TARGET_DIR)/useful_waves.tcl"
 endif
+
+DEFS += -DBUF_FPU
 
 # PL_SIM flag selects between RTL or post-layout simulation
 ifeq ($(PL_SIM), 1)
@@ -62,6 +62,8 @@ endif
 VSIM_TOP_MODULE = tb_bin
 VSIM_RTL_PREREQ_FILE = $(VSIM_BUILDDIR)/$(VSIM_TOP_MODULE).d
 
+VSIM_GUI_FLAGS := -do "source $(SN_TARGET_DIR)/useful_waves.tcl"
+
 #########
 # Rules #
 #########
@@ -75,7 +77,7 @@ $(eval $(call gen_rtl_prerequisites,$(VSIM_RTL_PREREQ_FILE),$(VSIM_BUILDDIR),$(V
 # Generate compilation script
 $(VSIM_BUILDDIR)/compile.vsim.tcl: $(BENDER_YML) $(BENDER_LOCK) | $(VSIM_BUILDDIR)
 	$(VLIB) $(dir $@)
-	$(BENDER) script vsim $(VSIM_BENDER_FLAGS) --vlog-arg="$(VLOG_FLAGS) " > $@
+	$(BENDER) script vsim $(VSIM_BENDER_FLAGS) $(DEFS) --vlog-arg="$(VLOG_FLAGS) " > $@
 	echo '$(VLOG) -work $(VSIM_BUILDDIR) $(TB_CC_SOURCES) $(RTL_CC_SOURCES) -vv -ccflags "$(TB_CC_FLAGS)"' >> $@
 	echo 'return 0' >> $@
 
@@ -95,7 +97,7 @@ $(SN_BIN_DIR)/$(TARGET).vsim: $(VSIM_BUILDDIR)/compile.vsim.tcl $(TB_CC_SOURCES)
 	@echo "#!/bin/bash" > $@.gui
 	@echo 'binary=$$(realpath $$1)' >> $@.gui
 	@echo 'echo $$binary > .rtlbinary' >> $@.gui
-	@echo '$(VSIM) +permissive $(VSIM_FLAGS) \
+	@echo '$(VSIM) +permissive $(VSIM_FLAGS) $(VSIM_GUI_FLAGS) \
 				-quiet -ldflags "-Wl,-rpath,$(FESVR)/lib -L$(FESVR)/lib -lfesvr -lutil" \
 				$(VSIM_TOP_MODULE)_opt +permissive-off ++$$binary ++$$2' >> $@.gui
 	@chmod +x $@.gui
