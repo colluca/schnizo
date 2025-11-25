@@ -28,14 +28,14 @@ module schnizo_fu_stage import schnizo_pkg::*; import fpnew_pkg::*; #(
   parameter int unsigned FpuNofOpPorts   = 1,
   parameter int unsigned FpuNofResReqIfs = 3,
   parameter int unsigned FpuNofResRspIfs = 1,
-  // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
-  // but they must be defined on the outer scope as they are needed there as well.
-  // Make sure to match them!
   parameter int unsigned SpatzNofRss       = 1,
   parameter int unsigned SpatzNofOperands  = 2,
   parameter int unsigned SpatzNofOpPorts   = 1,
   parameter int unsigned SpatzNofResReqIfs = 1,
   parameter int unsigned SpatzNofResRspIfs = 1,
+  // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
+  // but they must be defined on the outer scope as they are needed there as well.
+  // Make sure to match them!
   parameter int unsigned NofOperandIfs   = 1,
   parameter int unsigned NofResReqIfs    = 1,
   parameter int unsigned NofResRspIfs    = 1,

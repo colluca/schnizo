@@ -109,7 +109,7 @@
     compute_core_template: {
         isa: "rv32imafd",
         xdma: false,
-        xfrep: true, // enables the superscalar feature
+        xfrep: false, // enables the superscalar feature
         xf16: false,
         xf16alt: false,
         xf8: false,
@@ -128,7 +128,7 @@
         num_alu_slots: 2,
         num_lsus: 4,
         num_lsu_slots: 1,
-        num_fpus: 3,
+        num_fpus: 1,
         num_fpu_slots: 1,
     },
     dma_core_template: {

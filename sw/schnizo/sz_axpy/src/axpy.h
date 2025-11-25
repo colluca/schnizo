@@ -120,7 +120,7 @@ static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
 
 
     unsigned int max_vl;
-    asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m1, ta, ma       \n"
+    asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m2, ta, ma       \n"
                   : [rvl]"+r"(max_vl)
                   : [rdvl]"r"(-1)
     );
@@ -154,7 +154,7 @@ static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
 
     if (n_remaining_elems) {
 
-        asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m1, ta, ma       \n"
+        asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m2, ta, ma       \n"
                     : [rvl]"+r"(max_vl)
                     : [rdvl]"r"(n_remaining_elems)
         );
