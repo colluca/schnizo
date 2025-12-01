@@ -38,7 +38,7 @@
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
-            lat_comp_fp64: 2,
+            lat_comp_fp64: 3,
             lat_comp_fp16: 1,
             lat_comp_fp16_alt: 1,
             lat_comp_fp8: 1,
@@ -109,7 +109,7 @@
     compute_core_template: {
         isa: "rv32imafd",
         xdma: false,
-        xfrep: false, // enables the superscalar feature
+        xfrep: true, // enables the superscalar feature
         xf16: false,
         xf16alt: false,
         xf8: false,
@@ -124,9 +124,9 @@
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
         // Superscalar configuration
-        num_alus: 3,
+        num_alus: 2,
         num_alu_slots: 2,
-        num_lsus: 4,
+        num_lsus: 2,
         num_lsu_slots: 1,
         num_fpus: 1,
         num_fpu_slots: 1,

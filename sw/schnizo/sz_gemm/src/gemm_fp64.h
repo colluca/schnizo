@@ -268,7 +268,7 @@ static inline void gemm_fp64_vec_naive_2sregs(uint32_t setup_ssr, uint32_t parti
     while (computed_col < N) {
 
         int vl;
-        asm volatile("vsetvli %[vl], %[rvl], e64, m1, ta, ma"
+        asm volatile("vsetvli %[vl], %[rvl], e64, m4, ta, ma"
                  : [vl] "=r"(vl)
                  : [rvl] "r"(N-computed_col));
 
@@ -510,7 +510,7 @@ static inline void gemm_fp64_vec_frep(uint32_t setup_ssr, uint32_t partition_ban
     while (computed_col < N) {
 
         int vl;
-        asm volatile("vsetvli %[vl], %[rvl], e64, m1, ta, ma"
+        asm volatile("vsetvli %[vl], %[rvl], e64, m4, ta, ma"
                  : [vl] "=r"(vl)
                  : [rvl] "r"(N-computed_col));
 
@@ -559,6 +559,7 @@ static inline void gemm_fp64_vec_frep(uint32_t setup_ssr, uint32_t partition_ban
             if (use_second) asm volatile("vse64.v v8, (%0);" ::"r"(C_l2_2));
         }
 
+        // asm volatile("fence");
         computed_col += vl;
     }
 
@@ -699,6 +700,7 @@ static inline void gemm_fp64_vec_frep_unrolled_mopt(
             asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1) : "memory");
         }
 
+        asm volatile ("fence");
         computed_col += vl;
     }
 

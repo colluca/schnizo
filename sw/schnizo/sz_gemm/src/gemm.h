@@ -17,6 +17,7 @@
 #include "gemm_types.h"
 
 #include "gemm_fp64.h"
+#include "gemm_fp32.h"
 
 /**
  * @brief Executes one GEMM tile on one Snitch cluster (single-cluster,
