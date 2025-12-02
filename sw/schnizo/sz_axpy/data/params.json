@@ -5,6 +5,6 @@
 {
     // If we use the "each array on a separate bank" approach we must ensure that the TCDM is big enough..
     "n_tiles": 1,
-    "n": 2000,
+    "n": 1000,
     "funcptr": "axpy_vec_frep" // only effective if axpy_job() and not axpy_job_distributed()
 }

@@ -275,7 +275,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
   localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
   localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
-  localparam integer unsigned SpatzNofOperandIfs = SpatzNofOperands * SpatzNofOpPorts;
+  localparam integer unsigned SpatzNofOperandIfs = RVV ? SpatzNofOperands * SpatzNofOpPorts : 0;
 
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
                                               NofLsus * LsuNofOperandIfs +
@@ -288,7 +288,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   localparam integer unsigned AluNofResReqIfs = 1;
   localparam integer unsigned LsuNofResReqIfs = 1;
   localparam integer unsigned FpuNofResReqIfs = 1;
-  localparam integer unsigned SpatzNofResReqIfs = 1;
+  localparam integer unsigned SpatzNofResReqIfs = RVV ? 1 : 0;
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
@@ -299,7 +299,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   localparam integer unsigned AluNofResRspIfs = AluNofRss;
   localparam integer unsigned LsuNofResRspIfs = LsuNofRss;
   localparam integer unsigned FpuNofResRspIfs = FpuNofRss;
-  localparam integer unsigned SpatzNofResRspIfs = 1;
+  localparam integer unsigned SpatzNofResRspIfs = RVV ? 1 : 0;
 
   localparam integer unsigned NofResRspIfs = NofAlus * AluNofResRspIfs +
                                              NofLsus * LsuNofResRspIfs +
@@ -331,7 +331,17 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     end
   endfunction
 
-  localparam integer unsigned MaxNofRss = max4('{AluNofRss, LsuNofRss, FpuNofRss, SpatzNofRss});
+  function automatic int max3 (int array[3]);
+    max3 = array[0];
+    foreach (array[i]) begin
+      if (array[i] > max3) begin
+        max3 = array[i];
+      end
+    end
+  endfunction
+
+  localparam integer unsigned MaxNofRss = RVV ? max4('{AluNofRss, LsuNofRss, FpuNofRss, SpatzNofRss}) : 
+                                               max3('{AluNofRss, LsuNofRss, FpuNofRss});
 
   localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
 
@@ -444,7 +454,6 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   logic instr_retired_single_cycle, instr_retired_single_cycle_q;
   logic instr_retired_load,         instr_retired_load_q;
   logic instr_retired_acc,          instr_retired_acc_q;
-  logic instr_retired_spatz,       instr_retired_spatz_q;
 
   // 1to1 from Snitch FP SS
   logic issue_fpu,         issue_fpu_q;
@@ -455,9 +464,14 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   `FFAR(instr_retired_single_cycle_q, instr_retired_single_cycle, '0, clk_i, rst_i)
   `FFAR(instr_retired_load_q,         instr_retired_load,         '0, clk_i, rst_i)
   `FFAR(instr_retired_acc_q,          instr_retired_acc,          '0, clk_i, rst_i)
-  `FFAR(instr_retired_spatz_q,        instr_retired_spatz,        '0, clk_i, rst_i)
   `FFAR(issue_fpu_q,                  issue_fpu,                  '0, clk_i, rst_i)
   `FFAR(issue_core_to_fpu_q,          issue_core_to_fpu,          '0, clk_i, rst_i)
+
+  if (RVV) begin
+    logic instr_retired_spatz,       instr_retired_spatz_q;
+    `FFAR(instr_retired_spatz_q,        instr_retired_spatz,        '0, clk_i, rst_i)
+    assign core_events_o.retired_spatz  = instr_retired_spatz_q;
+  end
 
   // ---------------------------
   // Instruction fetch
@@ -601,7 +615,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     .gpr_waddr_i            (gpr_waddr),
     .fpr_we_i               (fpr_we),
     .fpr_waddr_i            (fpr_waddr),
-    .spatz_running_instrs_i (spatz_running_instrs)
+    .spatz_running_instrs_i (RVV ? spatz_running_instrs : '0)
 );
 
   // ---------------------------
@@ -754,6 +768,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     .FPUImplementation  (FPUImplementation),
     .RVF                (RVF),
     .RVD                (RVD),
+    .RVV                (RVV),
     .XF16               (XF16),
     .XF16ALT            (XF16ALT),
     .XF8                (XF8),
@@ -777,7 +792,6 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
     .drsp_t             (drsp_t),
-    .RVV                (RVV),
     .NumSpatzFPUs       (NumSpatzFPUs),
     .NumSpatzIPUs       (NumSpatzIPUs)
   ) i_fu_stage (
@@ -1031,7 +1045,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
   assign core_events_o.retired_load  = instr_retired_load_q;
   assign core_events_o.retired_acc   = instr_retired_acc_q;
-  assign core_events_o.retired_spatz  = instr_retired_spatz_q;
+
 
   assign core_events_o.issue_fpu         = issue_fpu_q;
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
@@ -1071,6 +1085,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     .wdata_i(fpr_wdata),
     .we_i   (fpr_we)
   );
+
 
   // --------------------------
   // Schnizo Tracer
@@ -1282,14 +1297,15 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
 
   typedef struct {
     logic valid; // high if handshake happens
+    string name;
   } internal_issue_spatz_trace_t;//It is actually just a one bit flag. Kept it as a struct for consistency with the other tracing structures
-  function automatic string format_internal_spatz_trace(internal_issue_spatz_trace_t trace, int id, string op);
+  function automatic string format_internal_spatz_trace(internal_issue_spatz_trace_t trace, int id, string name);
     string extras = "";
     if (!trace.valid) begin
       return "prova";
     end
     extras = $sformatf("%s'%s':0x%0x, ", extras, "id", id);
-    extras = $sformatf("%s'%s':\"%s\", ", extras, "op", op);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "op", name);
     return extras;
   endfunction
 
@@ -1490,6 +1506,16 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   // Internal traces for SPATZ
 
   internal_issue_spatz_trace_t internal_spatz_traces [NrParallelInstructions];
+
+  op_e spatz_instrs_names [NrParallelInstructions];
+
+  if (RVV) begin: gen_rvv_instr_names
+  always_comb begin
+     for(int i = 0; i < NrParallelInstructions; i++) begin
+        spatz_instrs_names[i] = i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.op;
+     end
+  end
+  end
   
 
   assign rescap_trace_empty = '{
@@ -1743,17 +1769,23 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
   end
 
   // SPATZ Traces
-  assign spatz_trace = '{
-    valid:       i_fu_stage.spatz_issue_req_valid &&
-                  i_fu_stage.spatz_issue_req_ready,
-    instr_iter:  '0, // does not apply in regular execution
-    producer: "SPATZ", // There is no address on the response.
-    spatz_opa: i_fu_stage.spatz_issue_req.fu_data.operand_a,
-    spatz_opb: i_fu_stage.spatz_issue_req.fu_data.operand_b,
-    internal_spatz_id: i_fu_stage.i_spatz.i_controller.next_insn_id
-  };
+  generate
+    if (RVV) begin : gen_spatz_trace
+      assign spatz_trace = '{
+        valid:       i_fu_stage.gen_rvv_block.spatz_issue_req_valid &&
+                      i_fu_stage.gen_rvv_block.spatz_issue_req_ready,
+        instr_iter:  '0, // does not apply in regular execution
+        producer: "SPATZ", // There is no address on the response.
+        spatz_opa: i_fu_stage.gen_rvv_block.spatz_issue_req.fu_data.operand_a,
+        spatz_opb: i_fu_stage.gen_rvv_block.spatz_issue_req.fu_data.operand_b,
+        internal_spatz_id: i_fu_stage.gen_rvv_block.i_spatz.i_controller.next_insn_id
+      };
+    end else begin : gen_spatz_trace_empty
+      assign spatz_trace = rss_spatz_traces_empty;
+    end
+  endgenerate
 
-
+  if (RVV) begin: gen_rvv_traces
   always_comb begin : spatz_retirement_trace
 
     for(int i = 0; i < NrParallelInstructions; i++) begin
@@ -1763,52 +1795,46 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
       };
     end
 
-    if (i_fu_stage.i_spatz.vfu_rsp_valid) begin
-      spatz_retirement[i_fu_stage.i_spatz.vfu_rsp.id].valid    = 1'b1;
+    if (i_fu_stage.gen_rvv_block.i_spatz.vfu_rsp_valid) begin
+      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vfu_rsp.id].valid    = 1'b1;
     end
-    if (i_fu_stage.i_spatz.vlsu_rsp_valid) begin
-      spatz_retirement[i_fu_stage.i_spatz.vlsu_rsp.id].valid    = 1'b1;
+    if (i_fu_stage.gen_rvv_block.i_spatz.vlsu_rsp_valid) begin
+      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vlsu_rsp.id].valid    = 1'b1;
     end
-    if (i_fu_stage.i_spatz.vsldu_rsp_valid) begin
-      spatz_retirement[i_fu_stage.i_spatz.vsldu_rsp.id].valid    = 1'b1;
+    if (i_fu_stage.gen_rvv_block.i_spatz.vsldu_rsp_valid) begin
+      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vsldu_rsp.id].valid    = 1'b1;
     end
     // TODO: We assume that CSR instructions retire in the same cycle they are issued inside spatz. That is way as an id we use the one from the request. May not be always true
-    if (i_fu_stage.i_spatz.i_controller.retire_csr) begin
-      spatz_retirement[i_fu_stage.i_spatz.i_controller.spatz_req.id].valid    = 1'b1;
+    if (i_fu_stage.gen_rvv_block.i_spatz.i_controller.retire_csr) begin
+      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].valid    = 1'b1;
     end
+
   end
-
-
-  // assign spatz_retirement = '{
-  //   valid:    i_fu_stage.spatz_result_valid &&
-  //             i_fu_stage.spatz_result_ready,
-  //   producer: i_fu_stage.rs_to_string(i_fu_stage.spatz_producer_start_id.rs_id)
-  // };
 
   for (genvar rss = 0; rss < SpatzNofRss; rss++) begin : gen_spatz_traces_rss
     // verilog_lint: waive-start line-length
     if (Xfrep) begin : gen_spatz_traces_rss_trace
       assign rss_spatz_traces[rss] = '{
-        valid:       i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
-                    i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
-        instr_iter:  i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+        valid:       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
+                    i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
+        instr_iter:  i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
         producer:    i_fu_stage.producer_to_string(
-                      i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        spatz_opa:     i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a,
-        spatz_opb:     i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b,
-        internal_spatz_id: i_fu_stage.i_spatz.i_controller.next_insn_id
+                      i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        spatz_opa:     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a,
+        spatz_opb:     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b,
+        internal_spatz_id: i_fu_stage.gen_rvv_block.i_spatz.i_controller.next_insn_id
       };
       assign spatz_rescap_traces[rss] = '{
-        valid:          (i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                          i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                        !i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+        valid:          (i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
+                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
+                        !i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
         producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-        result_iter:    i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-        enable_rf_wb:   i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-        rd:             i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-        rd_is_fp:       i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-        result:         i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+        result_iter:    i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
+        enable_rf_wb:   i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+        rd:             i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
+        rd_is_fp:       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
+        result:         i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
       };
     end else begin : gen_spatz_traces_no_rss
       assign rss_spatz_traces[rss]    = rss_spatz_traces_empty;
@@ -1818,14 +1844,14 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_spatz_traces_rss_resreq
       if (Xfrep) begin : gen_spatz_traces_rss_resreq_frep
         assign spatz_resreq_traces[rss][con] = '{
-          valid:          i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                          i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                          i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+          valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
+                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                            i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
           consumer:       i_fu_stage.consumer_to_string(con),
           // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.i_spatz_block.gen_superscalar.i_res_stat.res_iters[rss]
+          requested_iter: i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.res_iters[rss]
         };
       end else begin : gen_spatz_traces_no_resreq
         assign spatz_resreq_traces[rss][con] = reqreq_trace_empty;
@@ -1839,13 +1865,17 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     always_comb begin
       for(int i = 0; i < NrParallelInstructions; i++) begin
       internal_spatz_traces[i] = '{
-        valid: '0
+        valid: '0,
+        name: "null"
       };
       end
-      if (i_fu_stage.i_spatz.i_controller.spatz_req_valid) begin
-          internal_spatz_traces[i_fu_stage.i_spatz.i_controller.spatz_req.id].valid = '1;
+      if (i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req_valid) begin
+          internal_spatz_traces[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].valid = '1;
+          internal_spatz_traces[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].name = i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.op.name();
       end
     end
+
+  end
 
   assign csr_trace = '{
     valid:          csr_disp_req_valid && csr_disp_req_ready,
@@ -1957,7 +1987,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
     schnizo_dispatch_trace_t dispatch_trace;
   } lcp_dispatch_detail_t;
 
-  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus + 1; // +1 for Spatz
+  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus + (RVV ? 1 : 0); // +1 for Spatz
 
   lcp_dispatch_detail_t lcp_dispatch_queue[NofFus][$];
 
@@ -1975,11 +2005,12 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
       trace_header = format_trace_header($time, cycle + 1, core_trace.priv_level, core_trace.state,
                                          core_trace.stall, core_trace.exception);
 
-
+      if (RVV) begin: gen_internal_issues
       for (int i = 0; i < NrParallelInstructions; i++) begin
           write_trace_event(file_id, trace_header, "internal_spatz_issue",
-                    format_internal_spatz_trace(internal_spatz_traces[i], i, i_fu_stage.i_spatz.i_controller.spatz_req.op.name()),
+                    format_internal_spatz_trace(internal_spatz_traces[i], i, spatz_instrs_names[i].name()),
                     internal_spatz_traces[i].valid);
+      end
       end
 
       lcp_details = '{
@@ -2023,6 +2054,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
         end
       end
 
+      if (RVV) begin
       for (int rss = 0; rss < SpatzNofRss; rss++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
@@ -2030,6 +2062,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
                               spatz_resreq_traces[rss][con].valid);
           end
         end
+      end
 
       // Trace events are active depending on CPU states.
       if (loop_state inside {LoopRegular, LoopHwLoop}) begin
@@ -2050,7 +2083,8 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
         end
         dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
         dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
-        dispatch_event = $sformatf("%s%s", dispatch_event, format_spatz_trace(spatz_trace));
+
+        if (RVV) dispatch_event = $sformatf("%s%s", dispatch_event, format_spatz_trace(spatz_trace));
 
         write_trace_event(file_id, trace_header, "dispatch", dispatch_event, dispatch_trace.valid);
       end else if (loop_state inside {LoopLcp1, LoopLcp2}) begin
@@ -2100,7 +2134,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
             end
           end
         end
-
+        if (RVV) begin
         for (int rss = 0; rss < SpatzNofRss; rss++) begin
             if (rss_spatz_traces[rss].valid) begin
               details = lcp_dispatch_queue[NofAlus + NofLsus + NofFpus].pop_front();
@@ -2112,6 +2146,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
                                 dispatch_event, details.dispatch_trace.valid);
             end
           end
+        end
 
         // CSR and ACC instructions are not supported in FREP but can still execute (fallback in
         // hw loop mode). These are not cut and thus dispatch immediately.
@@ -2146,12 +2181,13 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
           end
         end
 
+        if (RVV) begin
         for (int rss = 0; rss < SpatzNofRss; rss++) begin
             write_trace_event(file_id, trace_header, "dispatch",
                              format_spatz_trace(rss_spatz_traces[rss]),
                              rss_spatz_traces[rss].valid);
           end
-
+        end
 
         // No CSR and ACC events possible
       end else begin
@@ -2170,7 +2206,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
                         format_wb_fu_trace(fpu_wb_trace, "FPU"),
                         fpu_wb_trace.valid);
 
-      write_trace_event(file_id, trace_header, "writeback",
+      if (RVV) write_trace_event(file_id, trace_header, "writeback",
                         format_wb_fu_trace(spatz_wb_trace, "SPATZ"),
                         spatz_wb_trace.valid);
 
@@ -2214,6 +2250,8 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
         end
       end
 
+
+      if (RVV) begin
       for (int i = 0; i < NrParallelInstructions; i++) begin
               write_trace_event(file_id, trace_header, "internal_spatz_retirement",
                         format_int_spatz_retire_trace(spatz_retirement[i]),
@@ -2228,6 +2266,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
                           spatz_rescap_traces[rss].valid);
       end
 
+      end
 
       write_trace_event(file_id, trace_header, "retirement",
                         format_fu_retire_trace(csr_retirement),

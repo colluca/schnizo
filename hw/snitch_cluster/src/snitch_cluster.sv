@@ -88,6 +88,8 @@ module snitch_cluster
   parameter bit [NrCores-1:0] RVF           = '0,
   /// Per-core enabling of the standard `D` ISA extensions.
   parameter bit [NrCores-1:0] RVD           = '0,
+  /// Per-core Spatz enabling
+  parameter bit [NrCores-1:0] RVV           = '0,
   /// Per-core enabling of `XDivSqrt` ISA extensions.
   parameter bit [NrCores-1:0] XDivSqrt      = '0,
   // Small-float extensions
@@ -216,8 +218,6 @@ module snitch_cluster
   parameter bit          IntBootromEnable   = 1'b1,
 
   // SPATZ
-
-  parameter bit                                          RVV                      = 1,
   // Spatz parameters
   parameter int                          unsigned        NumSpatzFPUs             = 4,
   parameter int                          unsigned        NumSpatzIPUs             = 1,
@@ -300,7 +300,7 @@ module snitch_cluster
   localparam int unsigned NrSuperBanks = NrBanks / BanksPerSuperBank;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return RVV ? NumMemPortsPerSpatz + NumLsus[core] : NumLsus[core];
+    return RVV[core] ? NumMemPortsPerSpatz + NumLsus[core] : NumLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1042,6 +1042,7 @@ module snitch_cluster
         .BootAddr (BootAddrInternal),
         .RVF (RVF[i]),
         .RVD (RVD[i]),
+        .RVV (RVV[i]),
         .XF16 (XF16[i]),
         .XF16ALT (XF16ALT[i]),
         .XF8 (XF8[i]),

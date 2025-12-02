@@ -114,6 +114,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .RVE (${core_isa('e')}),
     .RVF (${core_isa('f')}),
     .RVD (${core_isa('d')}),
+    .RVV (${core_isa('v')}),
     .XDivSqrt (${core_cfg_flat('Xdiv_sqrt')}),
     .XF16 (${core_cfg_flat('xf16')}),
     .XF16ALT (${core_cfg_flat('xf16alt')}),

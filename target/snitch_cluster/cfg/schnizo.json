@@ -107,7 +107,7 @@
     ],
     // Templates.
     compute_core_template: {
-        isa: "rv32imafd",
+        isa: "rv32imafdv",
         xdma: false,
         xfrep: true, // enables the superscalar feature
         xf16: false,

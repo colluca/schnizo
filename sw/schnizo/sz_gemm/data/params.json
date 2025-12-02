@@ -17,7 +17,7 @@
     transa: false,
     transb: false, // must be true for SIMD
     m: 2,
-    n: 8,
+    n: 16,
     k: 100,
     alpha: 1,
     beta: 0,

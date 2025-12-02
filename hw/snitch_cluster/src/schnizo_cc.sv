@@ -54,6 +54,7 @@ module schnizo_cc #(
   /// Enable F and D Extension
   parameter bit          RVF                = 1,
   parameter bit          RVD                = 1,
+  parameter bit          RVV                = 1,
   parameter bit          XF8                = 0,
   parameter bit          XF8ALT             = 0,
   parameter bit          XF16               = 0,
@@ -98,9 +99,6 @@ module schnizo_cc #(
   parameter bit          DebugSupport = 1,
 
   // SPATZ specific parameters
-
-  parameter bit                                          RVV                      = 1,
-  // Spatz parameters
   parameter int                          unsigned        NumSpatzFPUs             = 4,
   parameter int                          unsigned        NumSpatzIPUs             = 1,
 
@@ -207,6 +205,14 @@ module schnizo_cc #(
 
   `SNITCH_VM_TYPEDEF(AddrWidth)
 
+  tcdm_req_t [NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_req;
+  tcdm_rsp_t [NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_rsp;
+
+  if (RVV) begin
+    assign tcdm_req_o[TCDMPorts-1 : NumLsus] = spatz_tcdm_req;
+    assign spatz_tcdm_rsp = tcdm_rsp_i[TCDMPorts-1 : NumLsus];
+  end
+
   schnizo #(
     .BootAddr              (BootAddr),
     .AddrWidth             (AddrWidth),
@@ -216,6 +222,7 @@ module schnizo_cc #(
     .FP_EN                 (FPEn),
     .RVF                   (RVF),
     .RVD                   (RVD),
+    .RVV                   (RVV),
     .XF16                  (XF16),
     .XF16ALT               (XF16ALT),
     .XF8                   (XF8),
@@ -246,7 +253,6 @@ module schnizo_cc #(
     .FPUImplementation     (FPUImplementation),
     .RegisterFPUIn         (RegisterFPUIn),
     .RegisterFPUOut        (RegisterFPUOut),
-    .RVV                   (RVV),
     .NumSpatzFPUs          (NumSpatzFPUs),
     .NumSpatzIPUs          (NumSpatzIPUs)
 
@@ -273,8 +279,8 @@ module schnizo_cc #(
     .core_events_o   (schnizo_events),
     .barrier_o       (barrier_o),
     .barrier_i       (barrier_i),
-    .tcdm_req_o      (tcdm_req_o[TCDMPorts-1 : NumLsus]), // The last ports are for the SPATZ
-    .tcdm_rsp_i      (tcdm_rsp_i[TCDMPorts-1 : NumLsus])
+    .tcdm_req_o      (spatz_tcdm_req), // The last ports are for the SPATZ
+    .tcdm_rsp_i      (spatz_tcdm_rsp)
   );
 
   // ---------------------------

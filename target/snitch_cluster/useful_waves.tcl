@@ -7,8 +7,8 @@ add wave -noupdate -group {MAIN} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen
 add wave -noupdate -group {MAIN} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/instr_decoded}
 add wave -noupdate -group {MAIN} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/fu_data}
 add wave -noupdate -group {SCHNIZO} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/*}
-add wave -noupdate -group {SPATZ_CONTROLLER} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/i_fu_stage/i_spatz/i_controller/*}
-add wave -noupdate -group {VRF} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/i_fu_stage/i_spatz/i_vrf/*}
+add wave -noupdate -group {SPATZ_CONTROLLER} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/i_fu_stage/gen_rvv_block/i_spatz/i_controller/*}
+add wave -noupdate -group {VRF} {sim:/tb_bin/fix/i_snitch_cluster/i_cluster/gen_core[0]/i_snitch_cc/i_schnizo/i_fu_stage/gen_rvv_block/i_spatz/i_vrf/*}
 TreeUpdate [SetDefaultTree]
 WaveRestoreCursors {{Cursor 1} {0 ps} 0}
 quietly wave cursor active 1

@@ -200,7 +200,7 @@ module schnizo_fu_stage import schnizo_pkg::*; import fpnew_pkg::*; #(
   localparam integer unsigned ConsumerCount = AluNofOperands * AluNofRss * NofAlus +
                                               LsuNofOperands * LsuNofRss * NofLsus +
                                               FpuNofOperands * FpuNofRss * NofFpus +
-                                              SpatzNofOperands * SpatzNofRss * 1; // only 1 Spatz
+                                              (RVV ? (SpatzNofOperands * SpatzNofRss * 1) : 0); // only 1 Spatz
 
   // ---------------------------
   // Operand distribution network definitions
@@ -392,6 +392,7 @@ if (Xfrep) begin : gen_odn
         end
       end
     end
+    if(RVV) begin
     for (int port = 0; port < SpatzNofOpPorts; port++) begin
       for (int op = 0; op < SpatzNofOperands; op++) begin
         // operand requests
@@ -404,6 +405,7 @@ if (Xfrep) begin : gen_odn
         op_rsps_ready[ope_if]              = spatz_op_rsps_ready[port][op];
         ope_if = ope_if + 1;
       end
+    end
     end
   end
 
@@ -476,6 +478,7 @@ if (Xfrep) begin : gen_odn
       end
     end
 
+    if (RVV) begin
     //SPATZ
     for (int spatz_req_if = 0; spatz_req_if < SpatzNofResReqIfs; spatz_req_if++) begin
       // requests
@@ -491,6 +494,7 @@ if (Xfrep) begin : gen_odn
       spatz_res_rsps_ready[rsp]    = res_rsps_ready[rsp_if];
       rsp_if = rsp_if + 1;
     end
+  end
 
   end
 
@@ -1160,6 +1164,7 @@ end
   // SPATZ
   // ---------------------------
 
+  if (RVV) begin: gen_rvv_block
   // Signals connecting the FU block and the actual FU
   issue_req_t   spatz_issue_req;
   logic         spatz_issue_req_valid;
@@ -1367,6 +1372,11 @@ end
     assign spatz_mem_rsp_valid[p] = spatz_tcdm_rsp_i[p].p_valid;
   end
 
+  end else begin
+
+    assign spatz_loop_finish_o = '1;
+
+  end
 
 
   // ---------------------------
