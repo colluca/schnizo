@@ -97,7 +97,7 @@ $(SN_BIN_DIR)/$(TARGET).vsim: $(VSIM_BUILDDIR)/compile.vsim.tcl $(TB_CC_SOURCES)
 	@echo "#!/bin/bash" > $@.gui
 	@echo 'binary=$$(realpath $$1)' >> $@.gui
 	@echo 'echo $$binary > .rtlbinary' >> $@.gui
-	@echo '$(VSIM) +permissive $(VSIM_FLAGS) $(VSIM_GUI_FLAGS) \
+	@echo '$(VSIM) +permissive $(VSIM_GUI_FLAGS) $(VSIM_FLAGS)  \
 				-quiet -ldflags "-Wl,-rpath,$(FESVR)/lib -L$(FESVR)/lib -lfesvr -lutil" \
 				$(VSIM_TOP_MODULE)_opt +permissive-off ++$$binary ++$$2' >> $@.gui
 	@chmod +x $@.gui
@@ -107,7 +107,7 @@ $(SN_BIN_DIR)/$(TARGET).vsim: $(VSIM_BUILDDIR)/compile.vsim.tcl $(TB_CC_SOURCES)
 vsim: $(SN_BIN_DIR)/$(TARGET).vsim
 
 # Launch verification of a selected ELF with the built vsim wrapper
-.PHONY: verify
+.PHONY: verify benchmark
 
 KERNEL := sz_gemm
 
@@ -117,6 +117,11 @@ VERIFY_FLAGS  ?= --dump-results
 
 verify: $(SN_BIN_DIR)/$(TARGET).vsim
 	$(VERIFY_SCRIPT) $< $(VERIFY_ELF) $(VERIFY_FLAGS)
+
+benchmark:
+	$(MAKE) DEBUG=ON sw -j
+	$(MAKE) verify
+	$(MAKE) traces -j
 
 # Clean all build directories and temporary files for Questasim simulation
 clean-vsim: clean-work
