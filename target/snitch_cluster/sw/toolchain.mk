@@ -39,6 +39,7 @@ RISCV_CFLAGS += -fopenmp
 RISCV_CFLAGS += -ftls-model=local-exec
 RISCV_CFLAGS += -O3
 RISCV_CFLAGS += -Werror
+RISCV_CFLAGS += -DLMUL=\"$(LMUL)\"
 
 ifeq ($(DEBUG), ON)
 RISCV_CFLAGS += -g
