@@ -2167,7 +2167,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
           end
         end
         for (int lsu = 0; lsu < NofLsus; lsu++) begin
-          for (int rss = 0; rss < FpuNofRss; rss++) begin
+          for (int rss = 0; rss < LsuNofRss; rss++) begin
             write_trace_event(file_id, trace_header, "dispatch",
                              format_lsu_trace(rss_lsu_traces[lsu][rss]),
                              rss_lsu_traces[lsu][rss].valid);
@@ -2233,7 +2233,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
         write_trace_event(file_id, trace_header, "retirement",
                           format_fu_retire_trace(lsu_retirements[lsu]),
                           lsu_retirements[lsu].valid);
-        for (int rss = 0; rss < FpuNofRss; rss++) begin
+        for (int rss = 0; rss < LsuNofRss; rss++) begin
           write_trace_event(file_id, trace_header, "rescap",
                             format_rescap_trace(lsu_rescap_traces[lsu][rss]),
                             lsu_rescap_traces[lsu][rss].valid);

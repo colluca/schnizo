@@ -68,10 +68,10 @@ static inline void gemm_fp32_vec_frep(
                 "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
                 "vfmacc.vf v0, %[ft0], v16 \n"
                 "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
-                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                "flw     %[ft0], 0(%[ptr_a0]) \n"
                 "vfmacc.vf v8, %[ft1], v16 \n"
                 "add     %[ptr_a1], %[ptr_a1], %[inc_a] \n"
-                "fld     %[ft1], 0(%[ptr_a1]) \n"
+                "flw     %[ft1], 0(%[ptr_a1]) \n"
                 : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1),
                   [ptr_a1] "+r"(A_l3_2), [ft0] "+f"(t0), [ft1] "+f"(t1)
                 :
@@ -109,7 +109,7 @@ static inline void gemm_fp32_vec_frep(
                 "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
                 "vfmacc.vf v0, %[ft0], v16 \n"
                 "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
-                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                "flw     %[ft0], 0(%[ptr_a0]) \n"
                 : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1), [ft0] "+f"(t0)
                 : [inc_b] "r"(inc_b), [inc_a] "r"(inc_a), [n_frep] "r"(beta ? K - 1 : K - 2)
                 :);
