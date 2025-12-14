@@ -180,7 +180,7 @@ package schnizo_pkg;
   // ---------------------------
   // The Bodysize and max iterations depend on the instruction encoding.
   parameter int unsigned FREP_BODYSIZE_WIDTH = 12;
-  parameter int unsigned FREP_MAXITERS_WIDTH = 32+1; // +1 bit to convert Snitch FREP iters
+  parameter int unsigned FREP_MAXITERS_WIDTH = 32; // +1 bit to convert Snitch FREP iters but doesn't work with RVD = 0!
 
   typedef enum logic [2:0] {
     LoopRegular, // regular execution

@@ -508,6 +508,76 @@ static inline void gemm_fp64_vec_frep(
     asm volatile ("fence");
     snrt_mcycle();
 }
+// Requires that A and B is regular and not transposed!
+// Should work for all MNK possible dimensions, not tested for very specific
+// edge cases
+static inline void gemm_fp64_vec_frep_test(
+    uint32_t setup_ssr, uint32_t partition_banks, uint32_t transa,
+    uint32_t transb, uint32_t M, uint32_t N, uint32_t K, void* A_p,
+    uint32_t lda, void* B_p, uint32_t ldb, uint32_t beta, void* C_p,
+    uint32_t ldc) {
+
+    if (transa || transb || partition_banks)
+        return;  // Fallback not implemented here.
+
+    snrt_mcycle();
+
+    uint64_t inc_b = (uint64_t)ldb * sizeof(double);
+    uint64_t inc_a = sizeof(double);
+
+    int computed_col = 0;
+    while (computed_col < N) {
+        int vl;
+        SETVLEN(vl, N-computed_col)
+
+        double* C_l1 = (double*)C_p + computed_col;
+        double* B_l1 = (double*)B_p + computed_col;
+        
+        double* C_l2_1 = C_l1;
+        double* A_l2_1 = (double*)A_p;
+
+        for (int i = 0; i < M; i ++) {
+
+            double* B_l3_1 = B_l1;
+            double* A_l3_1 = A_l2_1;
+
+            double t0 = *A_l3_1;
+
+            if (beta) {
+                asm volatile("vle64.v v0, (%0);" ::"r"(C_l2_1));
+            } else {
+                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmul.vf v0, v16, %0" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+            }
+
+
+            asm volatile(
+                "frep.o  %[n_frep], 8, 0, 0 \n"
+                // Body:
+                "vle64.v v16, (%[ptr_b]) \n"
+                "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
+                "vfmacc.vf v0, %[ft0], v16 \n"
+                "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1), [ft0] "+f"(t0)
+                :
+                [inc_b] "r"(inc_b), [inc_a] "r"(inc_a), [n_frep] "r"(beta ? K - 1 : K - 2)
+                :);
+
+            asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1) : "memory");
+            
+            C_l2_1 += ldc;
+            A_l2_1 += lda;
+        }
+
+        computed_col += vl;
+    }
+
+    asm volatile ("fence");
+    snrt_mcycle();
+}
 
 
 

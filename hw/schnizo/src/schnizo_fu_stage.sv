@@ -80,7 +80,7 @@ module schnizo_fu_stage import schnizo_pkg::*; import fpnew_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
-  parameter type         spatz_result_t = logic [63:0], // Result can be floating point or integer
+  parameter type         spatz_result_t = logic [FLEN-1:0], // Result can be floating point or integer
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
 

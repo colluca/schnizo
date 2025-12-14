@@ -2036,7 +2036,7 @@ module schnizo import schnizo_pkg::*; import spatz_pkg::*; #(
         end
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
-        for (int rss = 0; rss < FpuNofRss; rss++) begin
+        for (int rss = 0; rss < LsuNofRss; rss++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
                               format_resreq_trace(lsu_resreq_traces[lsu][rss][con]),

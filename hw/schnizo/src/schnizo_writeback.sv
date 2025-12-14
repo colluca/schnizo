@@ -36,7 +36,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
   parameter type         instr_tag_t     = logic,
   parameter type         alu_result_t    = logic,
   parameter type         data_t          = logic,
-  parameter type         spatz_result_t  = logic [63:0] // Spatz can give fp results up to 64 bit
+  parameter type         spatz_result_t  = logic [FLEN-1:0] // Spatz can give fp results up to 64 bit
 ) (
   // ALU interface
   input  alu_result_t     alu_result_i,
