@@ -77,7 +77,7 @@ module schnizo_fpu import schnizo_pkg::*; #(
     EnableVectors: XFVEC,
     EnableNanBox:  1'b1,
     FpFmtMask:     {RVF, RVD, XF16, XF8, XF16ALT, XF8ALT},
-    IntFmtMask:    {XFVEC && (XF8 || XF8ALT), XFVEC && (XF16 || XF16ALT), 1'b1, 1'b0}
+    IntFmtMask:    {XFVEC && (XF8 || XF8ALT), XFVEC && (XF16 || XF16ALT), 1'b1, RVD}
   };
 
   typedef struct packed {

@@ -50,6 +50,7 @@ kernels  = [
     "numpy",
     "scikit-learn",
     "torch",
+    "bigtree"
 ]
 docs = [
     "mkdocs",

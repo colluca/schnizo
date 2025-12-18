@@ -1279,6 +1279,7 @@ end
     logic [5:0] id;
     logic error;
     data_t data;
+    logic is_fp;
   } spatz_rsp_t;
 
 
@@ -1292,13 +1293,13 @@ end
     data_op:   spatz_issue_req.fu_data.raw_instr,
     data_arga: spatz_issue_req.fu_data.operand_a,
     data_argb: spatz_issue_req.fu_data.operand_b,
-    data_argc: '0 // ignored
+    data_argc: '0 // ignored, Spatz can receive at most two scalar values
   };
 
   assign spatz_result = acc_resp.data;
   assign spatz_result_tag = {
     dest_reg: acc_resp.id,
-    dest_reg_is_fp: '0,
+    dest_reg_is_fp: acc_resp.is_fp,
     is_branch: '0,
     is_jump: '0
   };
@@ -1341,7 +1342,7 @@ end
     .issue_valid_i           (spatz_issue_req_valid  ),
     .issue_ready_o           (spatz_issue_req_ready  ),
     .issue_req_i             (acc_spatz_req        ), //Special care
-    .issue_rsp_o             (acc_spatz_resp       ),//Special care
+    .issue_rsp_o             (acc_spatz_resp       ), //Special care
     .rsp_valid_o             (spatz_result_valid   ),
     .rsp_ready_i             (spatz_result_ready   ),      
     .rsp_o                   (acc_resp              ), //Special care

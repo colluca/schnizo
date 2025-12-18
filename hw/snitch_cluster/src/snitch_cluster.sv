@@ -1059,6 +1059,7 @@ module snitch_cluster
         .NumAluRss(NumAluRss[i]),
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
+        .NumSpatzRss(NumSpatzRss[i]),
         .NumIntOutstandingLoads (NumIntOutstandingLoads[i]),
         .NumIntOutstandingMem (NumIntOutstandingMem[i]),
         .FPUImplementation (FPUImplementation[i]),
