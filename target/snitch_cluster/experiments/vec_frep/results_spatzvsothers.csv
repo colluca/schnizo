@@ -1,0 +1,8 @@
+Benchmark,Config,Vector Length,Cycles,Utilization
+
+sz_gemm,vec_frep,8.0,19459,0.8419754355311168
+sz_gemm,vec_frep,16.0,17286,0.9478190443133171
+sz_gemm,vec_frep,32.0,16712,0.9803733843944471
+sz_gemm,four_schnizo_cores_1FPU,0,19584,0.0.836601307
+sz_gemm,one_schnizo_cores_4FPUs,0,26498,0.618310816
+

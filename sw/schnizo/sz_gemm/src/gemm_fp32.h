@@ -124,7 +124,7 @@ static inline void gemm_fp32_vec_frep(
     snrt_mcycle();
 }
 
-static inline void gemm_fp32_vec_frep_opt(
+static inline void  gemm_fp32_vec_frep_opt(
     uint32_t setup_ssr, uint32_t partition_banks, uint32_t transa,
     uint32_t transb, uint32_t M, uint32_t N, uint32_t K, void* A_p,
     uint32_t lda, void* B_p, uint32_t ldb, uint32_t beta, void* C_p,
@@ -215,7 +215,7 @@ static inline void gemm_fp32_vec_frep_opt(
 
         for (int j = 0; j < M % 3; j++) {
 
-            // In this loop, one could just double the LMUL since we use half of the registers
+            // In this loop, one could just float the LMUL since we use half of the registers
 
             float* B_l3_1 = B_l1;
             float* A_l3_1 = A_l2_1;
@@ -349,6 +349,143 @@ static inline void gemm_fp32_vec_base(uint32_t setup_ssr, uint32_t partition_ban
                 B_l3_1 += ldb;
                 asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
                 A_l3_1++; t0 = *A_l3_1;
+            }
+
+            asm volatile("vse32.v v0, (%0);" ::"r"(C_l2_1) : "memory");
+        }
+
+        computed_col += vl;
+    }
+
+    asm volatile("fence");
+    snrt_mcycle();
+}
+
+static inline void gemm_fp32_vec_base_unrolled(uint32_t setup_ssr, uint32_t partition_banks,
+                                       uint32_t transa, uint32_t transb,
+                                       uint32_t M, uint32_t N, uint32_t K,
+                                       void *A_p, uint32_t lda, void *B_p, uint32_t ldb,
+                                       uint32_t beta, void *C_p, uint32_t ldc) {
+    // Only supports !transa && !transb and non bank-partitioned layout.
+    if (transa || transb || partition_banks)
+        return; // Fallback not implemented here.
+
+    snrt_mcycle();
+
+    int computed_col = 0;
+    while (computed_col < N) {
+
+        int vl;
+        SETVLEN32(vl, N-computed_col)
+
+        float * C_l1 = (float *)C_p + computed_col;
+        float * B_l1 = (float *)B_p + computed_col;
+
+        float *C_l2_1 = C_l1;
+        float *C_l2_2 = C_l1 + ldc;
+        float *A_l2_1 = (float *)A_p;
+        float *A_l2_2 = (float *)A_p + lda;
+
+        for(int i = 0; i+1 < M; i+=2) {
+
+            float * B_l3_1 = B_l1;
+
+            float *A_l3_1 = A_l2_1;
+            float *A_l3_2 = A_l2_2;
+
+            float t0 = *A_l3_1;
+            float t1 = *A_l3_2;
+
+            int j;
+
+            if (beta) {
+                asm volatile("vle32.v v0, (%0);" ::"r"(C_l2_1));
+                asm volatile("vle32.v v8, (%0);" ::"r"(C_l2_2));
+                j=0;
+            } else {
+                asm volatile("vle32.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vle32.v v24, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmul.vf v0, v16, %0" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmul.vf v8, v16, %0" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+                asm volatile("vfmacc.vf v0, %0, v24" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v8, %0, v24" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+                j = 2;
+            }
+            
+            #pragma clang loop unroll(disable)
+            for (; j + 1 < K; j+=2) {
+                asm volatile("vle32.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vle32.v v24, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+                asm volatile("vfmacc.vf v0, %0, v24" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v8, %0, v24" ::"f"(t1));
+                A_l3_2++; t1 = *A_l3_2;
+            }
+
+            if (j < K) {
+                asm volatile("vle32.v v16, (%0);" ::"r"(B_l3_1));
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
+            }
+
+            asm volatile("vse32.v v0, (%0);" ::"r"(C_l2_1));
+            asm volatile("vse32.v v8, (%0);" ::"r"(C_l2_2));
+
+            C_l2_1 += ldc * 2;
+            C_l2_2 = C_l2_1 + ldc;
+            A_l2_1 += lda * 2;
+            A_l2_2 = A_l2_1 + lda;
+        }
+
+        if (M % 2) {
+            float* B_l3_1 = B_l1;
+            float* A_l3_1 = A_l2_1;
+
+            float t0 = *A_l3_1;
+
+            int j;
+
+            if (beta) asm volatile("vle32.v v0, (%0);" ::"r"(C_l2_1));
+            else {
+                asm volatile("vle32.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vle32.v v24, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmul.vf v0, v16, %0" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v0, %0, v24" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                j = 2;
+            }
+
+
+            #pragma clang loop unroll(disable)
+            for (; j + 1 < K; j+=2) {
+                asm volatile("vle32.v v16, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vle32.v v24, (%0);" ::"r"(B_l3_1));
+                B_l3_1 += ldb;
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+                asm volatile("vfmacc.vf v0, %0, v24" ::"f"(t0));
+                A_l3_1++; t0 = *A_l3_1;
+            }
+
+            if (j < K) {
+                asm volatile("vle32.v v16, (%0);" ::"r"(B_l3_1));
+                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
             }
 
             asm volatile("vse32.v v0, (%0);" ::"r"(C_l2_1) : "memory");

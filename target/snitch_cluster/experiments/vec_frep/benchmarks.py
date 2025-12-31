@@ -15,63 +15,71 @@ from pathlib import Path
 WORKSPACE_ROOT = Path("../../../..").resolve()
 TARGET_DIR = WORKSPACE_ROOT / "target/snitch_cluster"
 LOGS_ROOT = TARGET_DIR / "logs" # Where make benchmark outputs files
-RESULTS_DIR = Path("results_256_frep_max_slots_big_K").resolve() # Where we save artifacts
+RESULTS_DIR = Path("results_baselinefp32_256_different_sizes").resolve() # Where we save artifacts
 
 # List of LMUL values to test
 LMULS = [1, 2, 4, 8]
 
 # Benchmark Definitions
-BENCHMARKS = [
-    {
-        "name": "sz_gemm",
-        "path": WORKSPACE_ROOT / "sw/schnizo/sz_gemm",
-        "params_file": "data/params.json",
-        "configs": [
-            # Example configuration 1
-            {
-                "m": 2, "n": 8, "k": 256,
-                "gemm_fp": "gemm_fp64_vec_base"
-            },
-            {
-                "m": 2, "n": 8, "k": 256,
-                "gemm_fp": "gemm_fp64_vec_base_unrolled"
-            },
-            {
-                "m": 2, "n": 8, "k": 256,
-                "gemm_fp": "gemm_fp64_vec_frep"
-            },
-            {
-                "m": 2, "n": 8, "k": 256,
-                "gemm_fp": "gemm_fp64_vec_frep_unrolled"
-            },
-            # {
-            #     "m": 4, "n": 32, "k": 64,
-            #     "gemm_fp": "gemm_fp64_vec_base"
-            # },
-            # {
-            #     "m": 4, "n": 32, "k": 64,
-            #     "gemm_fp": "gemm_fp64_vec_base_unrolled"
-            # },
-            # {
-            #     "m": 4, "n": 32, "k": 64,
-            #     "gemm_fp": "gemm_fp64_vec_frep"
-            # },
-            # {
-            #     "m": 4, "n": 32, "k": 64,
-            #     "gemm_fp": "gemm_fp64_vec_frep_unrolled"
-            # },
-        ]
-    },
-    # You can add other kernels here, e.g., sz_axpy
-    # {
-    #     "name": "sz_axpy",
-    #     "path": WORKSPACE_ROOT / "sw/schnizo/sz_axpy",
-    #     "params_file": "data/params.json",
-    #     "configs": [ ... ]
-    # }
-]
+BENCHMARKS = {
+    "high_k": [
+        {
+            "name": "sz_gemm",
+            "path": WORKSPACE_ROOT / "sw/schnizo/sz_gemm",
+            "params_file": "data/params.json",
+            "configs": [
+                # Example configuration 1
+                {
+                    "m": 4, "n": 32, "k": 256,
+                    "gemm_fp": "gemm_fp32_vec_base"
+                },
+                # {
+                #     "m": 4, "n": 32, "k": 256,
+                #     "gemm_fp": "gemm_fp32_vec_frep"
+                # },
+            ]
+        }
+    ],
+    "similar_sizes": [
+        {
+            "name": "sz_gemm",
+            "path": WORKSPACE_ROOT / "sw/schnizo/sz_gemm",
+            "params_file": "data/params.json",
+            "configs": [
+                # Example configuration 1
+                {
+                    "m": 32, "n": 32, "k": 64,
+                    "gemm_fp": "gemm_fp32_vec_base"
+                },
+                # {
+                #     "m": 32, "n": 32, "k": 64,
+                #     "gemm_fp": "gemm_fp32_vec_frep"
+                # },
+            ]
+        }
+    ]
+}
 
 # --- Helper Functions ---
+
+def get_vector_length(group_name, lmul):
+    """Calculates vector length based on group and LMUL."""
+    # Define base vector length per group (VLEN)
+    # Adjust these base values as per your architecture
+    base_vlen = 256 # Default 512 bits
+    
+    # Example logic: specific groups might have different base VLENs or calculation rules
+    # if group_name == "some_special_group":
+    #     base_vlen = 256
+
+    sew = 64
+    if "fp32" in group_name:
+        sew = 32
+        
+    # Vector Length in bits = VLEN * LMUL
+    # Or if you want elements: (VLEN * LMUL) / ElementSize
+    # Assuming just VLEN * LMUL for now as a generic metric, or just returning bits.
+    return base_vlen * lmul / sew
 
 def update_params(file_path, config):
     """Updates the JSON parameter file with the given configuration."""
@@ -153,99 +161,105 @@ def calculate_ops(bench_name, config):
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     
-    results_table = []
+    for group_name, benchmarks in BENCHMARKS.items():
+        print(f"Processing Group: {group_name}")
+        results_table = []
 
-    for bench in BENCHMARKS:
-        print(f"Processing Benchmark: {bench['name']}")
-        params_path = bench['path'] / bench['params_file']
-        
-        for config in bench['configs']:
-            # Construct a config ID string
-            config_str = "_".join([f"{k}{v}" for k, v in config.items() if k in ['m', 'n', 'k', 'gemm_fp']])
+        for bench in benchmarks:
+            print(f"Processing Benchmark: {bench['name']}")
+            params_path = bench['path'] / bench['params_file']
             
-            for lmul in LMULS:
-                # 1. Update Configuration (Touch file to trigger recompile)
-                print(f"  Configuring {config} with LMUL={lmul}")
-                update_params(params_path, config)
+            for config in bench['configs']:
+                # Construct a config ID string
+                config_str = "_".join([f"{k}{v}" for k, v in config.items() if k in ['m', 'n', 'k', 'gemm_fp']])
+                
+                for lmul in LMULS:
+                    # 1. Update Configuration (Touch file to trigger recompile)
+                    print(f"  Configuring {config} with LMUL={lmul}")
+                    update_params(params_path, config)
 
-                print(f"    Running with LMUL={lmul}...")
-                
-                # 2. Run Benchmark
-                success = run_make_benchmark(TARGET_DIR, lmul)
-                if not success:
-                    continue
-                
-                # 3. Collect Artifacts
-                run_id = f"{bench['name']}_{config_str}_lmul{lmul}"
-                run_dir = RESULTS_DIR / run_id
-                run_dir.mkdir(parents=True, exist_ok=True)
-                
-                trace_src = LOGS_ROOT / "sz_trace_hart_00000.txt"
-                perfetto_src = LOGS_ROOT / "sz_perfetto_hart_00000.tb"
-                
-                if trace_src.exists():
-                    shutil.copy(trace_src, run_dir / "trace.txt")
-                if perfetto_src.exists():
-                    shutil.copy(perfetto_src, run_dir / "perfetto.tb")
-                
-                # 4. Parse Performance
-                # Note: Ideally we parse the stdout from the make command if the app prints cycles there,
-                # or parse the trace file as requested.
-                cycles = parse_cycles(trace_src)
-                
-                utilization = 0.0
-                if cycles and cycles > 0:
-                    ops = calculate_ops(bench['name'], config)
-                    if ops > 0:
-                        utilization = ops / cycles
-                
-                results_table.append({
-                    "Benchmark": bench['name'],
-                    "Config": config_str,
-                    "LMUL": lmul,
-                    "Cycles": cycles,
-                    "Utilization": utilization
-                })
+                    print(f"    Running with LMUL={lmul}...")
+                    
+                    # 2. Run Benchmark
+                    success = run_make_benchmark(TARGET_DIR, lmul)
+                    if not success:
+                        continue
+                    
+                    # 3. Collect Artifacts
+                    run_id = f"{bench['name']}_{config_str}_lmul{lmul}"
+                    run_dir = RESULTS_DIR / run_id
+                    run_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    trace_src = LOGS_ROOT / "sz_trace_hart_00000.txt"
+                    perfetto_src = LOGS_ROOT / "sz_perfetto_hart_00000.tb"
+                    
+                    if trace_src.exists():
+                        shutil.copy(trace_src, run_dir / "trace.txt")
+                    if perfetto_src.exists():
+                        shutil.copy(perfetto_src, run_dir / "perfetto.tb")
+                    
+                    # 4. Parse Performance
+                    # Note: Ideally we parse the stdout from the make command if the app prints cycles there,
+                    # or parse the trace file as requested.
+                    cycles = parse_cycles(trace_src)
+                    
+                    utilization = 0.0
+                    if cycles and cycles > 0:
+                        ops = calculate_ops(bench['name'], config)
+                        if ops > 0:
+                            utilization = ops / cycles
+                    
+                    vector_length = get_vector_length(group_name, lmul)
 
-    # 5. Report
-    print("\n" + "="*80)
-    print(f"{'Benchmark':<15} | {'Config':<30} | {'LMUL':<5} | {'Cycles':<10} | {'Utilization':<10}")
-    print("-" * 80)
-    for row in results_table:
-        print(f"{row['Benchmark']:<15} | {row['Config']:<30} | {row['LMUL']:<5} | {row['Cycles']:<10} | {row['Utilization']:<10.2f}")
+                    results_table.append({
+                        "Benchmark": bench['name'],
+                        "Config": config_str,
+                        "Vector Length": vector_length,
+                        "Cycles": cycles,
+                        "Utilization": utilization
+                    })
 
-    # 6. Save to CSV
-    csv_path = RESULTS_DIR / "results.csv"
-    with open(csv_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["Benchmark", "Config", "LMUL", "Cycles", "Utilization"])
-        writer.writeheader()
-        writer.writerows(results_table)
-    print(f"\nResults saved to {csv_path}")
+        # 5. Report
+        print("\n" + "="*80)
+        print(f"Results for Group: {group_name}")
+        print(f"{'Benchmark':<15} | {'Config':<30} | {'Vector Length':<15} | {'Cycles':<10} | {'Utilization':<10}")
+        print("-" * 80)
+        for row in results_table:
+            print(f"{row['Benchmark']:<15} | {row['Config']:<30} | {row['Vector Length']:<15} | {row['Cycles']:<10} | {row['Utilization']:<10.2f}")
 
-    # 7. Graph Results
-    plot_path = RESULTS_DIR / "utilization.png"
-    plt.figure(figsize=(10, 6))
-    
-    # Group data by config
-    configs = {}
-    for row in results_table:
-        label = f"{row['Benchmark']} - {row['Config']}"
-        if label not in configs:
-            configs[label] = {'x': [], 'y': []}
-        configs[label]['x'].append(row['LMUL'])
-        configs[label]['y'].append(row['Utilization'])
-    
-    for label, data in configs.items():
-        plt.plot(data['x'], data['y'], marker='o', label=label)
-    
-    plt.xlabel('LMUL')
-    plt.ylabel('Utilization')
-    plt.title('Utilization vs LMUL')
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(LMULS)
-    plt.savefig(plot_path)
-    print(f"Graph saved to {plot_path}")
+        # 6. Save to CSV
+        csv_path = RESULTS_DIR / f"results_{group_name}.csv"
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=["Benchmark", "Config", "Vector Length", "Cycles", "Utilization"])
+            writer.writeheader()
+            writer.writerows(results_table)
+        print(f"\nResults saved to {csv_path}")
+
+        # 7. Graph Results
+        plot_path = RESULTS_DIR / f"utilization_{group_name}.png"
+        plt.figure(figsize=(10, 6))
+        
+        # Group data by config
+        configs = {}
+        for row in results_table:
+            label = f"{row['Benchmark']} - {row['Config']}"
+            if label not in configs:
+                configs[label] = {'x': [], 'y': []}
+            configs[label]['x'].append(row['Vector Length'])
+            configs[label]['y'].append(row['Utilization'])
+        
+        for label, data in configs.items():
+            plt.plot(data['x'], data['y'], marker='o', label=label)
+        
+        plt.xlabel('Vector Length')
+        plt.ylabel('Utilization')
+        plt.title(f'Utilization vs Vector Length - {group_name}')
+        plt.legend()
+        plt.grid(True)
+        # plt.xticks(LMULS) # Removed fixed LMUL ticks as X axis is now Vector Length
+        plt.savefig(plot_path)
+        plt.close()
+        print(f"Graph saved to {plot_path}")
 
 if __name__ == "__main__":
     main()

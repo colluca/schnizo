@@ -130,7 +130,6 @@ static inline void gemm_fp64_naive(uint32_t setup_ssr, uint32_t partition_banks,
     }
 }
 
-// Requires that A and B is regular and not transposed!
 static inline void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
                                  uint32_t transa, uint32_t transb, uint32_t M,
                                  uint32_t N, uint32_t K, void* A_p,
@@ -206,6 +205,123 @@ static inline void gemm_fp64_opt(uint32_t setup_ssr, uint32_t partition_banks,
     snrt_mcycle();
 }
 
+// Requires that A and B is regular and not transposed!
+static inline void gemm_fp64_opt_4FPUs(uint32_t setup_ssr, uint32_t partition_banks,
+                                 uint32_t transa, uint32_t transb, uint32_t M,
+                                 uint32_t N, uint32_t K, void* A_p,
+                                 uint32_t lda, void* B_p, uint32_t ldb,
+                                 uint32_t beta, void* C_p, uint32_t ldc) {
+    double* A = (double*)A_p;
+    double* B = (double*)B_p;
+    double* C = (double*)C_p;
+
+    // Unrolling factor of most inner loop.
+    // Should be at least as high as the FMA delay
+    // for maximum utilization
+    const uint32_t unroll = 4; // limitted by the number of slots
+
+    // Schnizo frep is non nested so we have to compute the address offsets manually.
+    double* ptr_a0;
+    double* ptr_a1;
+    double* ptr_a2;
+    double* ptr_a3;
+    double* ptr_b;
+    uint32_t inc_a, inc_b;
+
+    snrt_mcycle();
+
+    for (uint32_t m = 0; m < M; m+=4) {
+        uint32_t n = 0;
+        // Guard that we only compute columns which can be fully unrolled in the N dimension
+        for (uint32_t n0 = 0; n0 < N / unroll; n0++) {
+            double c[16];
+
+            // Start addresses
+            // Assumes that A and B is regular and not transposed
+
+            // Set the A pointers
+            ptr_a0 = &A[m*lda];
+            ptr_a1 = &A[(m+1)*lda];
+            ptr_a2 = &A[(m+2)*lda];
+            ptr_a3 = &A[(m+3)*lda];
+            inc_a = sizeof(double);
+            // Set the B pointer to the next columns
+            ptr_b = &B[n];
+            inc_b = sizeof(double) * ldb;
+
+            // Load intermediate result - beta is always zero
+            for (int i = 0; i < 16; i++) c[i] = 0.0;
+
+            asm volatile(
+            "frep.o %[n_frep], 29, 0, 0 \n"
+            "fld     ft1,  0(%[ptr_b])\n"
+            "fld     ft2,  8(%[ptr_b])\n"
+            "fld     ft3, 16(%[ptr_b])\n"
+            "fld     ft4, 24(%[ptr_b])\n"
+            
+            "fld     ft5,  0(%[ptr_a0])\n"
+            "fmadd.d %[c00], ft5, ft1, %[c00] \n"
+            "fmadd.d %[c01], ft5, ft2, %[c01] \n"
+            "fmadd.d %[c02], ft5, ft3, %[c02] \n"
+            "fmadd.d %[c03], ft5, ft4, %[c03] \n"
+            
+            "fld     ft6,  0(%[ptr_a1])\n"
+            "fmadd.d %[c10], ft6, ft1, %[c10] \n"
+            "fmadd.d %[c11], ft6, ft2, %[c11] \n"
+            "fmadd.d %[c12], ft6, ft3, %[c12] \n"
+            "fmadd.d %[c13], ft6, ft4, %[c13] \n"
+            
+            "fld     ft7,  0(%[ptr_a2])\n"
+            "fmadd.d %[c20], ft7, ft1, %[c20] \n"
+            "fmadd.d %[c21], ft7, ft2, %[c21] \n"
+            "fmadd.d %[c22], ft7, ft3, %[c22] \n"
+            "fmadd.d %[c23], ft7, ft4, %[c23] \n"
+            
+            "fld     ft8,  0(%[ptr_a3])\n"
+            "fmadd.d %[c30], ft8, ft1, %[c30] \n"
+            "fmadd.d %[c31], ft8, ft2, %[c31] \n"
+            "fmadd.d %[c32], ft8, ft3, %[c32] \n"
+            "fmadd.d %[c33], ft8, ft4, %[c33] \n"
+
+            "add     %[ptr_a0], %[ptr_a0], %[inc_a]\n"
+            "add     %[ptr_a1], %[ptr_a1], %[inc_a]\n"
+            "add     %[ptr_a2], %[ptr_a2], %[inc_a]\n"
+            "add     %[ptr_a3], %[ptr_a3], %[inc_a]\n"
+            "add     %[ptr_b], %[ptr_b], %[inc_b]\n"
+            : [c00] "+f"(c[0]), [c01] "+f"(c[1]), [c02] "+f"(c[2]), [c03] "+f"(c[3]),
+              [c10] "+f"(c[4]), [c11] "+f"(c[5]), [c12] "+f"(c[6]), [c13] "+f"(c[7]),
+              [c20] "+f"(c[8]), [c21] "+f"(c[9]), [c22] "+f"(c[10]), [c23] "+f"(c[11]),
+              [c30] "+f"(c[12]), [c31] "+f"(c[13]), [c32] "+f"(c[14]), [c33] "+f"(c[15]),
+              [ptr_a0] "+r"(ptr_a0), [ptr_a1] "+r"(ptr_a1), [ptr_a2] "+r"(ptr_a2), [ptr_a3] "+r"(ptr_a3),
+              [ptr_b] "+r"(ptr_b)
+            : [inc_a] "r"(inc_a), [inc_b] "r"(inc_b),
+              [n_frep] "r"(K - 1)
+            : "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "ft8", "memory");
+
+            // Store results back
+            C[m * ldc + n + 0] = c[0];
+            C[m * ldc + n + 1] = c[1];
+            C[m * ldc + n + 2] = c[2];
+            C[m * ldc + n + 3] = c[3];
+            C[(m+1) * ldc + n + 0] = c[4];
+            C[(m+1) * ldc + n + 1] = c[5];
+            C[(m+1) * ldc + n + 2] = c[6];
+            C[(m+1) * ldc + n + 3] = c[7];
+            C[(m+2) * ldc + n + 0] = c[8];
+            C[(m+2) * ldc + n + 1] = c[9];
+            C[(m+2) * ldc + n + 2] = c[10];
+            C[(m+2) * ldc + n + 3] = c[11];
+            C[(m+3) * ldc + n + 0] = c[12];
+            C[(m+3) * ldc + n + 1] = c[13];
+            C[(m+3) * ldc + n + 2] = c[14];
+            C[(m+3) * ldc + n + 3] = c[15];
+            n += unroll;
+        }
+    }
+
+    snrt_mcycle();
+}
+
 // The pointer are called according to which loop they are updated in
 static inline void gemm_fp64_vec_dummy(uint32_t setup_ssr, uint32_t partition_banks,
                                        uint32_t transa, uint32_t transb,
@@ -257,15 +373,6 @@ static inline void gemm_fp64_vec_dummy(uint32_t setup_ssr, uint32_t partition_ba
                 j++;
             }
             
-            #pragma clang loop unroll(disable)
-            for (; j < K; j++) {
-                asm volatile("vle64.v v16, (%0);" ::"r"(B_l3_1));
-                // B_l3_1 += ldb;
-                asm volatile("vfmacc.vf v0, %0, v16" ::"f"(t0));
-                // A_l3_1++; t0 = *A_l3_1;
-                asm volatile("vfmacc.vf v8, %0, v16" ::"f"(t1));
-                // A_l3_2++; t1 = *A_l3_2;
-            }
 
             asm volatile("vse64.v v0, (%0);" ::"r"(C_l2_1));
             asm volatile("vse64.v v8, (%0);" ::"r"(C_l2_2));
@@ -324,6 +431,9 @@ static inline void gemm_fp64_vec_dummy_scalar(uint32_t setup_ssr, uint32_t parti
 
     snrt_mcycle();
 
+    uint64_t inc_b = (uint64_t)ldb * sizeof(double);
+    uint64_t inc_a = sizeof(double);
+
     int computed_col = 0;
     while (computed_col < N) {
 
@@ -349,33 +459,29 @@ static inline void gemm_fp64_vec_dummy_scalar(uint32_t setup_ssr, uint32_t parti
 
             double t0 = *A_l3_1;
             double t1 = *A_l3_2;
-        
-            double tmp_db;
-            uint32_t tmp_int;
 
             /* Assembly label to locate this section in objdump */
             asm volatile(
                 "dummy_scalar_loop%=: \n"
                 : /* no outputs */ : /* no inputs */ : "memory");
 
-            uint64_t stride_b = (uint64_t)ldb * sizeof(double);
-            uint32_t loop_cnt = K - j;
 
             asm volatile(
-                "blez %[cnt], 2f \n"
-                "1: \n"
-                "add %[b_ptr], %[b_ptr], %[b_stride] \n"
-                "addi %[a1_ptr], %[a1_ptr], 8 \n"
-                "fld %[t0], 0(%[a1_ptr]) \n"
-                "addi %[a2_ptr], %[a2_ptr], 8 \n"
-                "fld %[t1], 0(%[a2_ptr]) \n"
-                "addi %[cnt], %[cnt], -1 \n"
-                "bnez %[cnt], 1b \n"
-                "2: \n"
-                : [b_ptr] "+r"(B_l3_1), [a1_ptr] "+r"(A_l3_1), [a2_ptr] "+r"(A_l3_2),
-                  [t0] "+f"(t0), [t1] "+f"(t1), [cnt] "+r"(loop_cnt)
-                : [b_stride] "r"(stride_b)
-                : "memory");
+                "frep.o  %[n_frep], 5, 0, 0 \n"
+                // Body:
+                // "vle64.v v16, (%[ptr_b]) \n"
+                "add     %[ptr_b], %[ptr_b], %[inc_b] \n"
+                // "vfmacc.vf v0, %[ft0], v16 \n"
+                "add     %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                "fld     %[ft0], 0(%[ptr_a0]) \n"
+                // "vfmacc.vf v8, %[ft1], v16 \n"
+                "add     %[ptr_a1], %[ptr_a1], %[inc_a] \n"
+                "fld     %[ft1], 0(%[ptr_a1]) \n"
+                : [ptr_b] "+r"(B_l3_1), [ptr_a0] "+r"(A_l3_1),
+                  [ptr_a1] "+r"(A_l3_2), [ft0] "+f"(t0), [ft1] "+f"(t1)
+                :
+                [inc_b] "r"(inc_b), [inc_a] "r"(inc_a), [n_frep] "r"(beta ? K - 1 : K - 2)
+                :);
 
             C_l2_1 += ldc * 2;
             C_l2_2 = C_l2_1 + ldc;
@@ -508,6 +614,8 @@ static inline void gemm_fp64_vec_frep(
     asm volatile ("fence");
     snrt_mcycle();
 }
+
+
 // Requires that A and B is regular and not transposed!
 // Should work for all MNK possible dimensions, not tested for very specific
 // edge cases
@@ -738,6 +846,7 @@ static inline void gemm_fp64_vec_frep_unrolled(
     asm volatile ("fence");
     snrt_mcycle();
 }
+
 
 // Needs at least K = 2
 // The pointer are called according to which loop they are updated in
