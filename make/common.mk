@@ -32,7 +32,7 @@ SN_VLT_BIN         = $(shell $(SN_VERILATOR_SEPP) which verilator_bin | tail -n1
 SN_VLT            ?= $(SN_VERILATOR_SEPP) verilator
 
 # Internal executables
-SN_GENTRACE_PY  ?= $(SN_UTIL_DIR)/trace/gen_trace.py
+SN_GENTRACE_PY  ?= $(SN_UTIL_DIR)/sz_trace/sz_gen_trace.py
 SN_ANNOTATE_PY  ?= $(SN_UTIL_DIR)/trace/annotate.py
 SN_EVENTS_PY    ?= $(SN_UTIL_DIR)/trace/events.py
 SN_JOIN_PY      ?= $(SN_UTIL_DIR)/bench/join.py
@@ -42,7 +42,7 @@ SN_BOOTROM_GEN   = $(SN_ROOT)/util/clustergen/gen_bootrom.py
 SN_CLUSTER_GEN   = $(SN_ROOT)/util/clustergen/clustergen.py
 
 # Gentrace prerequisites
-SN_GENTRACE_SRC = $(SN_UTIL_DIR)/trace/sequencer.py
+SN_GENTRACE_SRC = $(SN_UTIL_DIR)/sz_trace/trace.py
 
 # Annotate prerequisites
 SN_ANNOTATE_SRC = $(SN_UTIL_DIR)/trace/a2l.py
@@ -60,7 +60,7 @@ SN_COMMON_BENDER_SIM_FLAGS += -t simulation -t test
 SN_MCPU                    ?= snitch
 SN_RISCV_MC_FLAGS          ?= -disassemble
 SN_RISCV_MC_FLAGS          += -mcpu=$(SN_MCPU)
-SN_ANNOTATE_FLAGS          ?= -q --keep-time --addr2line=$(SN_ADDR2LINE)
+SN_ANNOTATE_FLAGS          ?= -q --keep-time --addr2line=$(SN_ADDR2LINE) --format schnizo
 SN_LAYOUT_EVENTS_FLAGS     ?= --cfg=$(SN_CFG)
 
 # Internal state

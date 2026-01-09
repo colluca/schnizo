@@ -12,10 +12,10 @@
 # of simulation in the vsim script
 SN_BINARY ?= $(shell cat $(SN_SIM_DIR)/.rtlbinary)
 
-SN_DASM_TRACES      = $(shell (ls $(SN_LOGS_DIR)/trace_hart_*.dasm 2>/dev/null))
+SN_DASM_TRACES      = $(shell (ls $(SN_LOGS_DIR)/sz_trace_hart_*.dasm 2>/dev/null))
 SN_TXT_TRACES       = $(shell (echo $(SN_DASM_TRACES) | sed 's/\.dasm/\.txt/g'))
 SN_ANNOTATED_TRACES = $(shell (echo $(SN_DASM_TRACES) | sed 's/\.dasm/\.s/g'))
-SN_PERF_DUMPS       = $(shell (echo $(SN_DASM_TRACES) | sed 's/trace_hart/hart/g' | sed 's/.dasm/_perf.json/g'))
+SN_PERF_DUMPS       = $(shell (echo $(SN_DASM_TRACES) | sed 's/sz_trace_hart/sz_hart/g' | sed 's/.dasm/_perf.json/g'))
 SN_DMA_PERF_DUMPS   = $(SN_LOGS_DIR)/dma_*_perf.json
 
 SN_JOINT_PERF_DUMP  = $(SN_LOGS_DIR)/perf.json
@@ -46,13 +46,13 @@ sn-clean-perf:
 sn-clean-visual-trace:
 	rm -f $(SN_VISUAL_TRACE)
 
-$(addprefix $(SN_LOGS_DIR)/,trace_hart_%.txt hart_%_perf.json dma_%_perf.json): $(SN_LOGS_DIR)/trace_hart_%.dasm $(SN_GENTRACE_PY) $(SN_GENTRACE_SRC)
-	$(SN_GENTRACE_PY) $< $(SN_GENTRACE_PY_FLAGS) --dma-trace $(SN_SIM_DIR)/dma_trace_$*_00000.log --dump-hart-perf $(SN_LOGS_DIR)/hart_$*_perf.json --dump-dma-perf $(SN_LOGS_DIR)/dma_$*_perf.json -o $(SN_LOGS_DIR)/trace_hart_$*.txt
+$(addprefix $(SN_LOGS_DIR)/,sz_trace_hart_%.txt sz_hart_%_perf.json dma_%_perf.json): $(SN_LOGS_DIR)/sz_trace_hart_%.dasm $(SN_GENTRACE_PY) $(SN_GENTRACE_SRC)
+	$(SN_GENTRACE_PY) $< $(SN_GENTRACE_PY_FLAGS) --dma-trace $(SN_SIM_DIR)/dma_trace_$*_00000.log --dump-hart-perf $(SN_LOGS_DIR)/sz_hart_$*_perf.json --dump-dma-perf $(SN_LOGS_DIR)/dma_$*_perf.json --perfetto-trace $(SN_LOGS_DIR)/sz_perfetto_hart_$*.tb -o $(SN_LOGS_DIR)/sz_trace_hart_$*.txt
 
 # Generate source-code interleaved traces for all harts
-$(SN_LOGS_DIR)/trace_hart_%.s: $(SN_LOGS_DIR)/trace_hart_%.txt $(SN_ANNOTATE_PY) $(SN_ANNOTATE_SRC)
+$(SN_LOGS_DIR)/sz_trace_hart_%.s: $(SN_LOGS_DIR)/sz_trace_hart_%.txt $(SN_ANNOTATE_PY) $(SN_ANNOTATE_SRC)
 	$(SN_ANNOTATE_PY) $(SN_ANNOTATE_FLAGS) -o $@ $(SN_BINARY) $<
-$(SN_LOGS_DIR)/trace_hart_%.diff: $(SN_LOGS_DIR)/trace_hart_%.txt $(SN_ANNOTATE_PY) $(SN_ANNOTATE_SRC)
+$(SN_LOGS_DIR)/sz_trace_hart_%.diff: $(SN_LOGS_DIR)/sz_trace_hart_%.txt $(SN_ANNOTATE_PY) $(SN_ANNOTATE_SRC)
 	$(SN_ANNOTATE_PY) $(SN_ANNOTATE_FLAGS) -o $@ $(SN_BINARY) $< -d
 
 $(SN_JOINT_PERF_DUMP): $(SN_PERF_DUMPS) $(SN_JOIN_PY)

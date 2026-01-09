@@ -28,6 +28,7 @@ dependencies = [
     "peakrdl",
     "peakrdl-markdown",
     "peakrdl-rawheader>=0.1.1",
+    "perfetto",
     "prettytable",
     "progressbar2",
     "psutil",

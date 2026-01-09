@@ -91,7 +91,7 @@ parser.add_argument(
     '-f',
     '--format',
     default='snitch',
-    choices=['cva6', 'snitch'],
+    choices=['cva6', 'snitch', 'schnizo'],
     help='Trace format'
 )
 
@@ -182,6 +182,8 @@ def parse_line(line, fmt='snitch'):
     # Regex capturing the timestamp and program counter (if present)
     if fmt == 'snitch':
         pattern = r'^\s*(\d+)?\s*.*?M (0x[0-9a-fA-F]+)?'
+    elif fmt == 'schnizo':
+        pattern = r'^\s*(\d+)?\s*.*?M\s+\S+\s+(0x[0-9a-fA-F]+)?'
     elif fmt == 'cva6':
         pattern = r'^\s*(\d+ns)?\s*.*?M ([0-9a-fA-F]+)?'
     else:
