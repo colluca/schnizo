@@ -523,13 +523,49 @@
                                             "type": "boolean",
                                             "title": "Enable Xssr Extension",
                                             "description": "Stream Semantic Registers (Xssr) custom extension.",
-                                            "default": true
+                                            "default": false
                                         },
                                         "xfrep": {
                                             "type": "boolean",
                                             "title": "Enable Xfrep Extension",
-                                            "description": "Floating-point repetition buffer (Xfrep) custom extension.",
-                                            "default": true
+                                            "description": "Enables the superscalar loop execution feature for Schnizo.",
+                                            "default": false
+                                        },
+                                        "num_alus": {
+                                            "type": "number",
+                                            "title": "Number of ALUs",
+                                            "description": "Number of ALUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
+                                            "default": 1
+                                        },
+                                        "num_alu_slots": {
+                                            "type": "number",
+                                            "title": "Number of Slots per ALU",
+                                            "description": "Number of Slots to capture instructions per ALU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
+                                        },
+                                        "num_lsus": {
+                                            "type": "number",
+                                            "title": "Number of LSUs",
+                                            "description": "Number of LSUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
+                                            "default": 1
+                                        },
+                                        "num_lsu_slots": {
+                                            "type": "number",
+                                            "title": "Number of Slots per LSU",
+                                            "description": "Number of Slots to capture instructions per LSU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
+                                        },
+                                        "num_fpus": {
+                                            "type": "number",
+                                            "title": "Number of FPUs",
+                                            "description": "Number of FPUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
+                                            "default": 1
+                                        },
+                                        "num_fpu_slots": {
+                                            "type": "number",
+                                            "title": "Number of Slots per FPU",
+                                            "description": "Number of Slots to capture instructions per FPU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
                                         },
                                         "xdma": {
                                             "type": "boolean",

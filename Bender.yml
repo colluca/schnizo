@@ -165,6 +165,40 @@ sources:
       # Level 1
       - hw/snitch_fp_ss/src/snitch_fp_ss.sv
 
+  # schnizo
+  - files:
+      # Level 0
+      - hw/schnizo/src/schnizo_pkg.sv
+      # Level 1
+      - hw/schnizo/src/schnizo_tracer_pkg.sv
+      - hw/schnizo/src/schnizo_alu.sv
+      - hw/schnizo/src/schnizo_decoder.sv
+      - hw/schnizo/src/schnizo_dispatcher.sv
+      - hw/schnizo/src/schnizo_read_operands.sv
+      - hw/schnizo/src/schnizo_scoreboard.sv
+      - hw/schnizo/src/schnizo_csr.sv
+      - hw/schnizo/src/schnizo_fpu.sv
+      - hw/schnizo/src/schnizo_lsu.sv
+      - hw/schnizo/src/schnizo_writeback.sv
+      - hw/schnizo/src/schnizo_res_stat_slot.sv
+      - hw/schnizo/src/schnizo_loop_controller.sv
+      - hw/schnizo/src/schnizo_xbar_req.sv
+      - hw/schnizo/src/schnizo_xbar_rsp.sv
+      - hw/schnizo/src/schnizo_res_req_filter.sv
+      # Level 2
+      - hw/schnizo/src/schnizo_tracer.sv
+      - hw/schnizo/src/schnizo_res_req_mux.sv
+      - hw/schnizo/src/schnizo_controller.sv
+      # Level 3
+      - hw/schnizo/src/schnizo_res_stat.sv
+      - hw/schnizo/src/schnizo_fu_block.sv
+      # Level 4
+      - hw/schnizo/src/schnizo_fu_stage.sv
+      # Level 5
+      - hw/schnizo/src/schnizo.sv
+      # Level 6
+      - hw/schnizo/src/schnizo_cc.sv
+
   # snitch_cluster
   - files:
       # Level 0

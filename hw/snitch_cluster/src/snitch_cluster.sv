@@ -110,8 +110,6 @@ module snitch_cluster
   parameter bit [NrCores-1:0] XFDOTP        = '0,
   /// Per-core enabling of the custom `Xdma` ISA extensions.
   parameter bit [NrCores-1:0] Xdma          = '0,
-  /// Per-core enabling of the custom `Xssr` ISA extensions.
-  parameter bit [NrCores-1:0] Xssr          = '0,
   /// Per-core enabling of the custom `Xfrep` ISA extensions.
   parameter bit [NrCores-1:0] Xfrep         = '0,
   /// Per-core enabling of the custom `Xcopift` ISA extensions.
@@ -145,28 +143,22 @@ module snitch_cluster
   /// Physical Memory Attribute Configuration
   parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '0,
   /// # Per-core parameters
+  /// Per-core number of ALUs
+  parameter int unsigned NumAlus [NrCores] = '{default: 1},
+  /// Per-core number of LSUs
+  parameter int unsigned NumLsus [NrCores] = '{default: 1},
+  /// Per-core number of FPUs
+  parameter int unsigned NumFpus [NrCores] = '{default: 0},
+  /// Per-core number of Slots per ALU
+  parameter int unsigned NumAluRss [NrCores] = '{default: 0},
+  /// Per-core number of Slots per LSU
+  parameter int unsigned NumLsuRss [NrCores] = '{default: 0},
+  /// Per-core number of Slots per FPU
+  parameter int unsigned NumFpuRss [NrCores] = '{default: 0},
   /// Per-core integer outstanding loads
   parameter int unsigned NumIntOutstandingLoads [NrCores] = '{default: 0},
   /// Per-core integer outstanding memory operations (load and stores)
   parameter int unsigned NumIntOutstandingMem [NrCores] = '{default: 0},
-  /// Per-core floating-point outstanding loads
-  parameter int unsigned NumFPOutstandingLoads [NrCores] = '{default: 0},
-  /// Per-core floating-point outstanding memory operations (load and stores)
-  parameter int unsigned NumFPOutstandingMem [NrCores] = '{default: 0},
-  /// Per-core number of data TLB entries.
-  parameter int unsigned NumDTLBEntries [NrCores] = '{default: 0},
-  /// Per-core number of instruction TLB entries.
-  parameter int unsigned NumITLBEntries [NrCores] = '{default: 0},
-  /// Maximum number of SSRs per core.
-  parameter int unsigned NumSsrsMax = 0,
-  /// Per-core number of SSRs.
-  parameter int unsigned NumSsrs [NrCores] = '{default: 0},
-  /// Per-core depth of TCDM Mux unifying SSR 0 and Snitch requests.
-  parameter int unsigned SsrMuxRespDepth [NrCores] = '{default: 0},
-  /// Per-core internal parameters for each SSR.
-  parameter snitch_ssr_pkg::ssr_cfg_t [NumSsrsMax-1:0] SsrCfgs [NrCores] = '{default: '0},
-  /// Per-core register indices for each SSR.
-  parameter logic [NumSsrsMax-1:0][4:0]  SsrRegs [NrCores] = '{default: 0},
   /// Per-core amount of sequencer instructions for IPU and FPU if enabled.
   parameter int unsigned NumSequencerInstr [NrCores] = '{default: 0},
   /// Per-core amount of sequencer loops for FPU if enabled.
@@ -376,7 +368,7 @@ module snitch_cluster
   localparam int unsigned DcaLaneDataWidth = NarrowDataWidth;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return (NumSsrs[core] > 1 ? NumSsrs[core] : 1);
+    return NumLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1132,7 +1124,7 @@ module snitch_cluster
     parameter logic [31:0] BootAddrInternal = (AliasRegionEnable & IntBootromEnable) ?
                                                 BootRomAliasStart : BootAddr;
 
-    snitch_cc #(
+    schnizo_cc #(
       .AddrWidth (PhysicalAddrWidth),
       .DataWidth (NarrowDataWidth),
       .DMADataWidth (WideDataWidth),
@@ -1156,18 +1148,17 @@ module snitch_cluster
       .acc_req_t (acc_req_t),
       .acc_resp_t (acc_resp_t),
       .dma_events_t (dma_events_t),
-      .EnableXif (EnableXif),
-      .XifIdWidth (XifIdWidth),
-      .x_issue_req_t (x_issue_req_t),
-      .x_issue_resp_t (x_issue_resp_t),
-      .x_register_t (x_register_t),
-      .x_commit_t (x_commit_t),
-      .x_result_t (x_result_t),
+      // TODO(colluca): add XIF to Schnizo
+      // .EnableXif (EnableXif),
+      // .XifIdWidth (XifIdWidth),
+      // .x_issue_req_t (x_issue_req_t),
+      // .x_issue_resp_t (x_issue_resp_t),
+      // .x_register_t (x_register_t),
+      // .x_commit_t (x_commit_t),
+      // .x_result_t (x_result_t),
       .BootAddr (BootAddrInternal),
-      .RVE (RVE[i]),
       .RVF (RVF[i]),
       .RVD (RVD[i]),
-      .XDivSqrt (XDivSqrt[i]),
       .XF16 (XF16[i]),
       .XF16ALT (XF16ALT[i]),
       .XF8 (XF8[i]),
@@ -1177,51 +1168,45 @@ module snitch_cluster
       .Xdma (Xdma[i]),
       .IsoCrossing (IsoCrossing),
       .Xfrep (Xfrep[i]),
-      .Xssr (Xssr[i]),
-      .Xcopift (Xcopift[i]),
-      .Xpulppostmod (Xpulppostmod[i]),
-      .Xpulpabs (Xpulpabs[i]),
-      .Xpulpbitop (Xpulpbitop[i]),
-      .Xpulpbr (Xpulpbr[i]),
-      .Xpulpclip (Xpulpclip[i]),
-      .Xpulpmacsi (Xpulpmacsi[i]),
-      .Xpulpminmax (Xpulpminmax[i]),
-      .Xpulpslet (Xpulpslet[i]),
-      .Xpulpvect (Xpulpvect[i]),
-      .Xpulpvectshufflepack (Xpulpvectshufflepack[i]),
-      .PrivateIpu (PrivateIpu[i]),
-      .VMSupport (VMSupport),
+      .NumAlus(NumAlus[i]),
+      .NumLsus(NumLsus[i]),
+      .NumFpus(NumFpus[i]),
+      .NumAluRss(NumAluRss[i]),
+      .NumLsuRss(NumLsuRss[i]),
+      .NumFpuRss(NumFpuRss[i]),
+      // TODO(colluca): add Xpulpv2 to Schnizo
+      // .Xpulppostmod (Xpulppostmod[i]),
+      // .Xpulpabs (Xpulpabs[i]),
+      // .Xpulpbitop (Xpulpbitop[i]),
+      // .Xpulpbr (Xpulpbr[i]),
+      // .Xpulpclip (Xpulpclip[i]),
+      // .Xpulpmacsi (Xpulpmacsi[i]),
+      // .Xpulpminmax (Xpulpminmax[i]),
+      // .Xpulpslet (Xpulpslet[i]),
+      // .Xpulpvect (Xpulpvect[i]),
+      // .Xpulpvectshufflepack (Xpulpvectshufflepack[i]),
+      // .PrivateIpu (PrivateIpu[i]),
       .NumIntOutstandingLoads (NumIntOutstandingLoads[i]),
       .NumIntOutstandingMem (NumIntOutstandingMem[i]),
-      .NumFPOutstandingLoads (NumFPOutstandingLoads[i]),
-      .NumFPOutstandingMem (NumFPOutstandingMem[i]),
       .FPUImplementation (FPUImplementation[i]),
-      .NumDTLBEntries (NumDTLBEntries[i]),
-      .NumITLBEntries (NumITLBEntries[i]),
-      .NumSequencerInstr (NumSequencerInstr[i]),
-      .NumSequencerLoops (NumSequencerLoops[i]),
-      .NumSsrs (NumSsrs[i]),
-      .SsrMuxRespDepth (SsrMuxRespDepth[i]),
-      .SsrCfgs (SsrCfgs[i][NumSsrs[i]-1:0]),
-      .SsrRegs (SsrRegs[i][NumSsrs[i]-1:0]),
       .RegisterOffloadReq (RegisterOffloadReq),
       .RegisterOffloadRsp (RegisterOffloadRsp),
       .RegisterCoreReq (RegisterCoreReq),
       .RegisterCoreRsp (RegisterCoreRsp),
-      .RegisterFPUReq (RegisterFPUReq),
-      .RegisterSequencer (RegisterSequencer),
       .RegisterFPUIn (RegisterFPUIn),
       .RegisterFPUOut (RegisterFPUOut),
-      .RegisterDcaReq (RegisterDcaReq),
-      .RegisterDcaRsp (RegisterDcaRsp),
+      // TODO(colluca): add DCA to Schnizo
+      // .RegisterDcaReq (RegisterDcaReq),
+      // .RegisterDcaRsp (RegisterDcaRsp),
       .TCDMAddrWidth (TCDMAddrWidth),
       .CaqDepth (CaqDepth),
       .CaqTagWidth (CaqTagWidth),
       .DebugSupport (DebugSupport),
       .TCDMAliasEnable (AliasRegionEnable),
-      .TCDMAliasStart (TCDMAliasStart),
-      .CollectiveWidth (CollectiveWidth),
-      .EnableDca (EnableDca)  
+      .TCDMAliasStart (TCDMAliasStart)
+      // TODO(colluca): add collectives and DCA to Schnizo
+      // .CollectiveWidth (CollectiveWidth),
+      // .EnableDca (EnableDca)  
     ) i_snitch_cc (
       .clk_i,
       .clk_d2_i (clk_d2),
@@ -1236,18 +1221,19 @@ module snitch_cluster
       .data_rsp_i (core_rsp[i]),
       .tcdm_req_o (tcdm_req_wo_user),
       .tcdm_rsp_i (tcdm_rsp[TcdmPortsOffs+:TcdmPorts]),
-      .x_issue_req_o (x_issue_req_o[i]),
-      .x_issue_resp_i (x_issue_resp_i[i]),
-      .x_issue_valid_o (x_issue_valid_o[i]),
-      .x_issue_ready_i (x_issue_ready_i[i]),
-      .x_register_o (x_register_o[i] ),
-      .x_register_valid_o (x_register_valid_o[i]),
-      .x_register_ready_i (x_register_ready_i[i]),
-      .x_commit_o (x_commit_o[i]),
-      .x_commit_valid_o (x_commit_valid_o[i]),
-      .x_result_i (x_result_i[i]),
-      .x_result_valid_i (x_result_valid_i[i]),
-      .x_result_ready_o (x_result_ready_o[i]),
+      // TODO(colluca): see comments above
+      // .x_issue_req_o (x_issue_req_o[i]),
+      // .x_issue_resp_i (x_issue_resp_i[i]),
+      // .x_issue_valid_o (x_issue_valid_o[i]),
+      // .x_issue_ready_i (x_issue_ready_i[i]),
+      // .x_register_o (x_register_o[i] ),
+      // .x_register_valid_o (x_register_valid_o[i]),
+      // .x_register_ready_i (x_register_ready_i[i]),
+      // .x_commit_o (x_commit_o[i]),
+      // .x_commit_valid_o (x_commit_valid_o[i]),
+      // .x_result_i (x_result_i[i]),
+      // .x_result_valid_i (x_result_valid_i[i]),
+      // .x_result_ready_o (x_result_ready_o[i]),
       .axi_dma_req_o (axi_dma_req),
       .axi_dma_res_i (axi_dma_res),
       .axi_dma_busy_o (),
@@ -1255,9 +1241,10 @@ module snitch_cluster
       .core_events_o (core_events[i]),
       .tcdm_addr_base_i (tcdm_start_address),
       .barrier_o (barrier_in[i]),
-      .barrier_i (barrier_out),
-      .dca_req_i (dca_lane_req[i]),
-      .dca_rsp_o (dca_lane_rsp[i])  
+      .barrier_i (barrier_out)
+      // TODO(colluca): see comments above
+      // .dca_req_i (dca_lane_req[i]),
+      // .dca_rsp_o (dca_lane_rsp[i])  
     );
     for (genvar j = 0; j < TcdmPorts; j++) begin : gen_tcdm_user
       always_comb begin
