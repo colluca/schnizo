@@ -117,6 +117,13 @@ snitch-cluster-vsim:
     paths:
       - test/runs/schnizo/**/sim.txt
 
+schnizo-experiments:
+  needs: [snitch-cluster-sw]
+  script:
+    - make vsim DEBUG=ON -j
+    - cd experiments/schnizo_frep
+    - ./experiments.py --actions sw run roi -j
+
 # Test OmegaNet TCDM interconnect
 snitch-cluster-omega-vsim:
   script:
