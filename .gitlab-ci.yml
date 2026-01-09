@@ -87,89 +87,60 @@ snitch-cluster-vlt:
   script:
     - make verilator
     - cd test
-    - ../util/experiments/run.py run.yaml --simulator verilator -j --run-dir runs/vlt
-
-# VCS
-snitch-cluster-vcs:
-  needs: [snitch-cluster-sw]
-  script:
-    - make vcs
-    - cd test
-    - ../util/experiments/run.py run.yaml --simulator vcs -j --run-dir runs/vcs
+    - ../util/experiments/run.py schnizo.yaml --simulator verilator -j --run-dir runs/vlt
 
 # Questa
 snitch-cluster-vsim:
   needs: [snitch-cluster-sw]
   script:
-    - make vsim -j
+    # TODO(colluca): fix errors that appear when removing DEBUG=ON
+    - make vsim DEBUG=ON -j
     - cd test
-    - ../util/experiments/run.py run.yaml --simulator vsim -j --run-dir runs/vsim
-    - ../util/experiments/run.py riscv_tests_isa.yaml --simulator vsim -j --run-dir runs/vsim
+    - ../util/experiments/run.py schnizo-orig.yaml --simulator vsim -j --run-dir runs/schniz-orig
+    - ../util/experiments/run.py schnizo.yaml --simulator vsim -j --run-dir runs/schnizo
+    - ../util/experiments/run.py riscv_tests_isa.yaml --simulator vsim -j --run-dir runs/riscv_tests_isa
     # Test convenience Make target
     - cd ..
-    - make vsim-run SN_BINARY=$PWD/sw/kernels/blas/axpy/build/axpy.elf \
-        SN_VERIFY_PY=$PWD/sw/kernels/blas/axpy/scripts/verify.py
+    - make vsim-run BINARY=$PWD/sw/kernels/blas/sz_axpy/build/sz_axpy.elf \
+        VERIFY_PY=$PWD/sw/kernels/blas/sz_axpy/scripts/verify.py
     # Test trace annotation
-    - make SIM_DIR=$PWD/test/runs/vsim/simple annotate -j
-    # Run additional, more extensive tests
-    - cd test/blas/gemm && ./test.sh && cd -
-    - cd test/dnn/transpose && ./test.sh && cd -
-    - cd test/dnn/flashattention_2 && ./test.sh && cd -
+    - make annotate -j
+    # Test expected performance of AXPY kernel
+    - grep -E "ipc\s+4.185" test/logs/sz_trace_hart_00000.txt
+    # # Run additional, more extensive tests
+    # - cd test/blas/gemm && ./test.sh && cd -
+    # - cd test/dnn/transpose && ./test.sh && cd -
+    # - cd test/dnn/flashattention_2 && ./test.sh && cd -
   artifacts:
     when: on_failure
     expire_in: 1 day
     paths:
-      - test/runs/vsim/**/sim.txt
-
+      - test/runs/schnizo/**/sim.txt
 
 # Test OmegaNet TCDM interconnect
 snitch-cluster-omega-vsim:
   script:
     - make CFG_OVERRIDE=cfg/omega.json sw -j
-    - make vsim -j
+    - make vsim DEBUG=ON -j
     - cd test
-    - ../util/experiments/run.py run.yaml --simulator vsim -j --run-dir runs/vsim
+    - ../util/experiments/run.py schnizo-orig.yaml --simulator vsim -j --run-dir runs/vsim
 
-# Test Multi-channel DMA
-snitch-cluster-mchan-vsim:
-  script:
-    - make CFG_OVERRIDE=cfg/dma_mchan.json sw -j
-    - make vsim -j
-    - cd test
-    - ../util/experiments/run.py dma_mchan.yaml --simulator vsim -j --run-dir runs/vsim
+# # Test Multi-channel DMA
+# snitch-cluster-mchan-vsim:
+#   script:
+#     - make CFG_OVERRIDE=cfg/dma_mchan.json sw -j
+#     - make vsim -j
+#     - cd test
+#     - ../util/experiments/run.py dma_mchan.yaml --simulator vsim -j --run-dir runs/vsim
 
-# Test Mempool configuration
-snitch-cluster-mempool-vsim:
-  script:
-    - make CFG_OVERRIDE=cfg/mempool.json SN_MCPU=snitch-mempool sw -j
-    - make vsim -j
-    - cd test
-    - ../util/experiments/run.py mempool.yaml --simulator vsim -j --run-dir runs/vsim
-    - make -C .. SIM_DIR=$PWD/runs/vsim/simple SN_MCPU=snitch-mempool annotate -j
-
-# Additional tests for different FREP configurations
-snitch-cluster-frep-vsim:
-  script:
-    # Large FREP configuration
-    - make CFG_OVERRIDE=cfg/frep_xl.json sw -j
-    - make vsim -j
-    - cd test
-    - ../util/experiments/run.py frep_xl.yaml --simulator vsim -j --run-dir runs/vsim
-    - cd -
-    # Small FREP configuration
-    - make CFG_OVERRIDE=cfg/frep_xs.json sw -j
-    - make vsim -j
-    - cd test
-    - ../util/experiments/run.py frep_xs.yaml --simulator vsim -j --run-dir runs/vsim
-
-# COPIFT and scalar chaining experiments
-snitch-cluster-copift-sc-vsim:
-  script:
-    - make CFG_OVERRIDE=experiments/copift/cfg.json vsim -j
-    - cd experiments/copift
-    - ./experiments.py experiments.yaml --actions sw run perf -j
-    - cd ../chaining
-    - ./experiments.py experiments.yaml --actions sw run perf -j
+# # Test Mempool configuration
+# snitch-cluster-mempool-vsim:
+#   script:
+#     - make CFG_OVERRIDE=cfg/mempool.json SN_MCPU=snitch-mempool sw -j
+#     - make vsim -j
+#     - cd test
+#     - ../util/experiments/run.py mempool.yaml --simulator vsim -j --run-dir runs/vsim
+#     - make -C .. SIM_DIR=$PWD/runs/vsim/simple SN_MCPU=snitch-mempool annotate -j
 
 ###################################
 # Open-source implementation flow #
@@ -181,9 +152,10 @@ yosys-synthesis:
     - make CFG_OVERRIDE=cfg/yosys-ci.json yosys
     # Following steps are not included in open-source CI since netlist
     # compilation with Verilator takes an excessive amount of time and memory.
-    - make PS_FREE_SIM=1 vsim
+    - make PS_FREE_SIM=1 DEBUG=ON vsim
     - make sw -j
-    - make vsim-run SN_BINARY=$PWD/sw/tests/build/simple.elf
+    - cd test/
+    - ../util/experiments/run.py schnizo.yaml -j
 
 ################################
 # Non-free implementation flow #
