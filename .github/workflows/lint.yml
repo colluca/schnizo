@@ -12,6 +12,48 @@ env:
 
 jobs:
 
+  ###########
+  # Sorting #
+  ###########
+
+  sorted-lists:
+    name: Check alphabetically sorted lists
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check lists are alphabetically sorted
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Put your files here (paths relative to repo root)
+          files=(
+            "./util/lint/rules.verible"
+          )
+
+          # Consistent, byte-wise ordering (recommended for CI)
+          export LC_ALL=C
+
+          failed=0
+          for f in "${files[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error file=$f::File not found"
+              failed=1
+              continue
+            fi
+
+            echo "Checking sorted: $f"
+            if ! sort --check "$f"; then
+              echo "::error file=$f::Not sorted (alphabetical order violated)"
+              echo "First offending area (expected vs actual):"
+              # Show a helpful hint: what the file would look like if sorted
+              diff --color=always -u "$f" <(sort "$f") || true
+              failed=1
+            fi
+          done
+
+          exit "$failed"
+
   ################
   # Verilog lint #
   ################
