@@ -13,7 +13,7 @@ env:
 jobs:
 
   ################
-  # Verible Lint #
+  # Verilog lint #
   ################
 
   verible-lint:
@@ -54,6 +54,41 @@ jobs:
           extra_args: "--waiver_files util/lint/waiver.verible"
           verible_version: "v0.0-4051-g9fdb4057"
           artifact_name: 'verible-lint-strict'
+
+  svlint:
+    name: Lint Verilog sources (svlint)
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bender
+        uses: pulp-platform/pulp-actions/bender-install@v2.4.1
+        with:
+          version: 0.29.1
+      - name: Checkout Bender dependencies
+        shell: bash
+        run: |
+          bender checkout
+      - name: Generate filelist
+        shell: bash
+        run: |
+          cat > lint.f <<EOF
+          +incdir+$(bender path common_cells | sed "s|^${GITHUB_WORKSPACE}/||")/include
+          +incdir+hw/snitch/include
+          EOF
+
+          git ls-files "hw/schnizo/src/*.sv" | sort >> lint.f
+
+          cat lint.f
+      - name: Run svlint
+        uses: colluca/svlint-action@master
+        with:
+          filelists: lint.f
+          version: v0.9.5
+        env:
+          SVLINT_CONFIG: ${{ github.workspace }}/util/lint/svlint.toml
 
   #####################
   # Vendor Up-to-Date #

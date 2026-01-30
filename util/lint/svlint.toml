@@ -1,0 +1,45 @@
+# Copyright 2026 ETH Zurich and University of Bologna.
+# Solderpad Hardware License, Version 0.51, see LICENSE for details.
+# SPDX-License-Identifier: SHL-0.51
+
+# Exclude files that are not within this repository
+option.exclude_paths = [
+    ".bender/.*",
+    "hw/snitch/.*",
+]
+
+# Style rules
+syntaxrules.tab_character = true
+syntaxrules.multiline_if_begin = true
+syntaxrules.multiline_for_begin = true
+syntaxrules.style_trailingwhitespace = true
+textrules.style_directives = true
+syntaxrules.style_operator_arithmetic = true
+syntaxrules.style_operator_integer = true
+syntaxrules.style_operator_unary = true
+syntaxrules.style_keyword_0or1space = true
+syntaxrules.style_keyword_0space = true
+syntaxrules.style_keyword_1or2space = true
+syntaxrules.style_keyword_1spaceornewline = true
+syntaxrules.style_keyword_construct = true
+syntaxrules.style_keyword_end = true
+syntaxrules.style_keyword_new = true
+syntaxrules.style_keyword_newline = true
+
+# See https://github.com/dalance/svlint/issues/320
+# syntaxrules.style_operator_arithmetic_leading_space = true
+
+# See https://github.com/dalance/svlint/issues/319
+# syntaxrules.style_operator_boolean = true
+
+# See https://github.com/dalance/svlint/issues/318
+# textrules.style_semicolon = true
+
+# See https://github.com/dalance/svlint/issues/321
+# syntaxrules.style_keyword_maybelabel = true
+
+# Fail when more than one space is used for alignment
+# syntaxrules.style_operator_boolean_leading_space = true
+# syntaxrules.style_operator_integer_leading_space = true
+# syntaxrules.style_keyword_1space = true
+# syntaxrules.style_keyword_datatype = true
