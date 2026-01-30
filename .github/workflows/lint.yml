@@ -15,6 +15,7 @@ jobs:
   ################
   # Verible Lint #
   ################
+
   verible-lint:
     name: Lint Verilog sources
     runs-on: ubuntu-latest
@@ -23,7 +24,7 @@ jobs:
       github.event.pull_request.head.repo.full_name != github.repository
     steps:
       - uses: actions/checkout@v4
-      - uses: chipsalliance/verible-linter-action@main
+      - uses: colluca/verible-linter-action@main
         with:
           paths: |
             ./hw
@@ -32,6 +33,27 @@ jobs:
           reviewdog_reporter: github-check
           extra_args: "--waiver_files util/lint/waiver.verible"
           verible_version: "v0.0-3318-g8d254167"
+          artifact_name: 'verible-lint'
+
+  strict-verible-lint:
+    name: Lint Verilog sources (strict)
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: colluca/verible-linter-action@main
+        with:
+          config_file: './util/lint/rules.verible'
+          paths: |
+            ./hw/schnizo
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_error: true
+          reviewdog_reporter: github-check
+          extra_args: "--waiver_files util/lint/waiver.verible"
+          verible_version: "v0.0-4051-g9fdb4057"
+          artifact_name: 'verible-lint-strict'
 
   #####################
   # Vendor Up-to-Date #

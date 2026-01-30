@@ -1,0 +1,13 @@
+dff-name-style=input:d;output:q
+endif-comment
+forbid-negative-array-dim
+legacy-generate-region
+legacy-genvar-declaration
+mismatched-labels
+one-module-per-file
+package-filename
+parameter-type-name-style
+port-name-suffix
+proper-parameter-declaration
+signal-name-style
+suspicious-semicolon
