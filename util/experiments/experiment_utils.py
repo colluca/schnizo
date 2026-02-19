@@ -33,7 +33,8 @@ except ImportError as e:
     print(f'{e}. Area results will not be available.')
 
 
-ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'visual-trace', 'power', 'all', 'none']
+ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
+           'none']
 
 
 class ExperimentManager:
@@ -231,7 +232,8 @@ class ExperimentManager:
             common.wait_processes(processes)
 
         # Build visual traces
-        if 'visual-trace' in self.actions or 'all' in self.actions:
+        # TODO(colluca): write in more compact way
+        if 'visual-trace' in self.actions or 'roi' in self.actions or 'all' in self.actions:
 
             for experiment in experiments:
 
@@ -261,10 +263,19 @@ class ExperimentManager:
                         with open(rendered_spec, 'w') as f:
                             json5.dump(spec_data, f, indent=4)
 
-                    # Build visual trace
-                    hw_cfg = self.derive_hw_cfg(experiment)
-                    build.build_visual_trace(experiment['run_dir'], rendered_spec,
-                                             hw_cfg=hw_cfg)
+                    if 'roi' in self.actions:
+                        # Build ROI dump
+                        vars = {
+                            'SIM_DIR': experiment['run_dir'],
+                            'ROI_SPEC': rendered_spec
+                        }
+                        common.make('roi', vars, dry_run=dry_run)
+
+                    if 'visual-trace' in self.actions:
+                        # Build visual trace
+                        hw_cfg = self.derive_hw_cfg(experiment)
+                        build.build_visual_trace(experiment['run_dir'], rendered_spec,
+                                                 hw_cfg=hw_cfg)
 
         # Generate joint performance dump
         if 'power' in self.actions or 'all' in self.actions:

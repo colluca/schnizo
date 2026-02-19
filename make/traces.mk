@@ -35,6 +35,7 @@ endif
 sn-traces: $(SN_TXT_TRACES)
 sn-annotate: $(SN_ANNOTATED_TRACES)
 sn-perf: $(SN_JOINT_PERF_DUMP)
+sn-roi: $(SN_ROI_DUMP)
 sn-visual-trace: $(SN_VISUAL_TRACE)
 sn-clean-traces:
 	rm -f $(SN_TXT_TRACES) $(SN_PERF_DUMPS) $(SN_DMA_PERF_DUMPS)

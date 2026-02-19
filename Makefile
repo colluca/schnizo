@@ -252,6 +252,7 @@ include $(SN_ROOT)/make/traces.mk
 traces: sn-traces
 annotate: sn-annotate
 perf: sn-perf
+roi: sn-roi
 visual-trace: sn-visual-trace
 clean-traces: sn-clean-traces
 clean-annotate: sn-clean-annotate
