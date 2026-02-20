@@ -169,6 +169,8 @@ jobs:
           # yamllint enable rule:line-length
           match_regex: true
           exclude_paths: |
+            target/sim/wave.do
+            sw/runtime/src/omp/interface.h
             sw/runtime/src/omp/interface.h
             hw/snitch_cluster/src/snitch_cluster_peripheral/snitch_cluster_peripheral_reg_pkg.sv
             hw/snitch_cluster/src/snitch_cluster_peripheral/snitch_cluster_peripheral_reg.sv
