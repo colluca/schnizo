@@ -39,6 +39,7 @@
 #include "perf_cnt.h"
 #include "printf.h"
 #include "riscv.h"
+#include "schnizo.h"
 #include "snitch_cluster_global_interrupts.h"
 #include "snitch_cluster_memory.h"
 #include "snitch_cluster_start.h"
