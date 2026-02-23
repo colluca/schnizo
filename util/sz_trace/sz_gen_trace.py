@@ -37,6 +37,7 @@ import json
 import subprocess
 from typing import Optional
 from ctypes import c_int32, c_uint32
+from itertools import tee, islice, chain
 from functools import lru_cache
 from collections import deque, defaultdict
 
@@ -940,6 +941,15 @@ def fmt_perf_metrics(perf_metrics: list, idx: int, omit_keys: bool = True):
     return '\n'.join(ret)
 
 
+# -------------------- Utils --------------------
+
+
+def current_and_next(iterable):
+    currs, nexts = tee(iterable, 2)
+    nexts = chain(islice(nexts, 1, None), [None])
+    return zip(currs, nexts)
+
+
 # -------------------- Main --------------------
 # noinspection PyTypeChecker
 def main():
@@ -1017,6 +1027,8 @@ def main():
     inflight_tracks = defaultdict(deque)
     perf_events = []
 
+    line_iter = iter(args.infile.readline, b'')
+
     with args.output as trace_file:
         # Setup stateful structures
         # Dicts to store information about LSU pipeline (for latency). A dict for each LSU.
@@ -1036,18 +1048,34 @@ def main():
         offset = trace.add_start_offset(all_tracks)
         perf_events.append(offset)
 
-        for line in args.infile:
-            # Process each event independently
-            trace_line, sim_time, cycle = gen_trace_line(line, args.mc_exec,
-                                                         lsu_pipelines, fpu_pipelines,
-                                                         all_tracks, inflight_tracks, perf_events,
-                                                         perf_metrics, producers, args.permissive)
-            # The newline character is in the trace line. This way the trace line can also be empty.
-            print(trace_line, file=trace_file, end="")
+        # Parse input line by line
+        for lineno, (line, nextl) in enumerate(current_and_next(line_iter)):
+            if line:
+                try:
+                    # Process each event independently
+                    trace_line, sim_time, cycle = gen_trace_line(line, args.mc_exec,
+                                                                 lsu_pipelines, fpu_pipelines,
+                                                                 all_tracks, inflight_tracks,
+                                                                 perf_events, perf_metrics,
+                                                                 producers, args.permissive)
+                    # The newline character is in the trace line. This way the trace line can also
+                    # be empty.
+                    print(trace_line, file=trace_file, end="")
 
-            if perf_metrics[0]['start'] is None:
-                perf_metrics[0]['tstart'] = sim_time // 1000
-                perf_metrics[0]['start'] = cycle
+                    if perf_metrics[0]['start'] is None:
+                        perf_metrics[0]['tstart'] = sim_time // 1000
+                        perf_metrics[0]['start'] = cycle
+                except Exception as e:
+                    message = 'Exception occured while processing '
+                    if not nextl:
+                        message += 'last line. Did the simulation terminate?'
+                    else:
+                        message += f'line {lineno + 1}.'
+                    print(message, file=sys.stderr)
+                    if not args.permissive:
+                        raise e
+            else:
+                break  # Nothing more in pipe, EOF
 
         perf_metrics[-1]['tend'] = sim_time // 1000
         perf_metrics[-1]['end'] = cycle
