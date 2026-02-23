@@ -703,7 +703,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
                         slot_q.result.is_valid;
   assign dest_mask_ready_o   = res_rsp_ready_i;
 
-  logic [ConsumerCountWidth-1:0] num_current_consumers;
+  logic [cf_math_pkg::idx_width($bits(dest_mask_i)+1)-1:0] num_current_consumers;
   popcount #(
     .INPUT_WIDTH($bits(dest_mask_i))
   ) i_consumer_popcount (

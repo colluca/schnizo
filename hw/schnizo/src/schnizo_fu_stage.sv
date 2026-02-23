@@ -197,7 +197,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     res_req_t request;
   } operand_req_t;
 
-  // TODO(colluca): what does W stand for
+  // TODO(colluca): what does W stand for? In schnizo.sv there is actually a difference between the
+  // two parameters
   localparam integer unsigned NofOperandIfsW = NofOperandIfs;
 
   // To which operand we should send the current result. This is a bitvector selecting each operand

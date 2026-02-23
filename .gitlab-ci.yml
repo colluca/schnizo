@@ -93,8 +93,7 @@ snitch-cluster-vlt:
 snitch-cluster-vsim:
   needs: [snitch-cluster-sw]
   script:
-    # TODO(colluca): fix errors that appear when removing DEBUG=ON
-    - make vsim DEBUG=ON -j
+    - make vsim -j
     - cd test
     - ../util/experiments/run.py schnizo-orig.yaml --simulator vsim -j --run-dir runs/schniz-orig
     - ../util/experiments/run.py schnizo.yaml --simulator vsim -j --run-dir runs/schnizo
@@ -128,7 +127,7 @@ schnizo-experiments:
 snitch-cluster-omega-vsim:
   script:
     - make CFG_OVERRIDE=cfg/omega.json sw -j
-    - make vsim DEBUG=ON -j
+    - make vsim -j
     - cd test
     - ../util/experiments/run.py schnizo-orig.yaml --simulator vsim -j --run-dir runs/vsim
 

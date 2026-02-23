@@ -38,9 +38,11 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     fu_data_o.csr_op       = instr_dec_i.csr_op;
     fu_data_o.fpu_op       = instr_dec_i.fpu_op;
     fu_data_o.lsu_size     = instr_dec_i.lsu_size;
-    fu_data_o.fpu_rnd_mode = instr_dec_i.fpu_rnd_mode;
-    fu_data_o.fpu_fmt_src  = instr_dec_i.fpu_fmt_src;
-    fu_data_o.fpu_fmt_dst  = instr_dec_i.fpu_fmt_dst;
+    // Cast here is necessary to remove Questa 2025.3 warning
+    // (probably a bug on Questa's side)
+    fu_data_o.fpu_rnd_mode = fpnew_pkg::roundmode_e'(instr_dec_i.fpu_rnd_mode);
+    fu_data_o.fpu_fmt_src  = fpnew_pkg::fp_format_e'(instr_dec_i.fpu_fmt_src);
+    fu_data_o.fpu_fmt_dst  = fpnew_pkg::fp_format_e'(instr_dec_i.fpu_fmt_dst);
 
     // Set the addresses
     // TODO(colluca): currently always reads from both register files and then MUXes.
