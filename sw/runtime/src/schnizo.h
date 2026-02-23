@@ -49,9 +49,11 @@ inline void szrt_total_fence() {
 /**
  * @brief Reads out details about the superscalar capabilities.
  */
+// TODO(colluca): create dedicated toolchain for Schnizo
+// frep_state replaces Snitch's sc CSR
 inline uint32_t szrt_frep_state() {
     uint32_t volatile capabilities;
-    asm volatile("csrr %[reg], 0x7C4" : [ reg ] "=r"(capabilities)::);
+    asm volatile("csrr %[reg], sc" : [ reg ] "=r"(capabilities)::);
     return capabilities;
 }
 
@@ -117,9 +119,11 @@ typedef enum {
     FREP_MEM_SERIALIZED = 1
 } frep_mem_consistency_e;
 
+// TODO(colluca): create dedicated toolchain for Schnizo
+// frep_config replaces Snitch's copift CSR
 inline uint32_t szrt_frep_config() {
     uint32_t volatile config;
-    asm volatile("csrr %[reg], 0x7C5" : [ reg ] "=r"(config)::);
+    asm volatile("csrr %[reg], copift" : [ reg ] "=r"(config)::);
     return config;
 }
 
@@ -140,5 +144,5 @@ inline void szrt_set_frep_mem_consistency(frep_mem_consistency_e mode) {
     config = szrt_frep_config();
     config &= ~(FREP_MEM_CONS_MASK << FREP_MEM_CONS_OFFSET);
     config |= (mode & FREP_MEM_CONS_MASK) << FREP_MEM_CONS_OFFSET;
-    asm volatile("csrw 0x7C5, %[reg]" : : [ reg ] "r"(config) :);
+    asm volatile("csrw copift, %[reg]" : : [ reg ] "r"(config) :);
 }

@@ -640,6 +640,7 @@ module schnizo_csr import schnizo_pkg::*; #(
           end
         end
         // Custom FREP config register
+        // TODO(colluca): move to riscv-opcodes
         schnizo_pkg::CsrFrepState: begin
           csr_rdata = {{XLEN - $bits(frep_state_t){1'b0}}, frep_state};
         end

@@ -152,8 +152,9 @@ package schnizo_pkg;
   // ---------------------------
   // FREP CSR
   // ---------------------------
-  localparam logic [11:0] CsrFrepState = 12'h7c4;
-  localparam logic [11:0] CsrFrepConfig = 12'h7c5;
+  // TODO(colluca): double check these
+  localparam logic [11:0] CsrFrepState = 12'h7c3;  // replaces Snitch's CSR_SC
+  localparam logic [11:0] CsrFrepConfig = 12'h7c6;  // replaces Snitch's CSR_COPIFT
 
   // ---------------------------
   // Remains from Snitch for unused inputs
