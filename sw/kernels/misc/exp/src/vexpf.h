@@ -55,6 +55,7 @@ __thread const double C[4] = {0x1.c6af84b912394p-5 / N / N / N,
 #include "vexpf_naive.h"
 #include "vexpf_optimized.h"
 #include "vexpf_optimized_v2.h"
+#include "vexpf_schnizo.h"
 static inline void vexpf_kernel(double *a, double *b) {
     snrt_mcycle();
     FUNC_PTR(a, b);
