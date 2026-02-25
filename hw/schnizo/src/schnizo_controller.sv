@@ -51,6 +51,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Number of iterations in LEP. Valid in the last LCP2 cycle (when the last iteration retires).
   output logic [MaxIterationsW-1:0] lep_iterations_o,
   output loop_state_e               loop_state_o,
+  output logic [MaxIterationsW-1:0] loop_iteration_o,
   output logic                      rs_restart_o,
 
   // Exception source interface
@@ -183,6 +184,7 @@ module schnizo_controller import schnizo_pkg::*; #(
       .loop_stall_o    (loop_stall),
       .sw_err_o        (frep_sw_error),
       .loop_state_o    (loop_state_o),
+      .loop_iteration_o(loop_iteration_o),
       .goto_lcp2_o     (goto_lcp2_o),
       .lep_iterations_o(lep_iterations_o),
       .rs_restart_o    (rs_restart_o),
@@ -195,6 +197,7 @@ module schnizo_controller import schnizo_pkg::*; #(
     assign loop_stall       = 1'b0;
     assign frep_sw_error    = 1'b0;
     assign loop_state_o     = LoopRegular;
+    assign loop_iteration_o = '0;
     assign goto_lcp2_o      = 1'b0;
     assign lep_iterations_o = '0;
     assign rs_restart_o     = 1'b1;

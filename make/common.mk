@@ -42,7 +42,9 @@ SN_BOOTROM_GEN   = $(SN_ROOT)/util/clustergen/gen_bootrom.py
 SN_CLUSTER_GEN   = $(SN_ROOT)/util/clustergen/clustergen.py
 
 # Gentrace prerequisites
-SN_GENTRACE_SRC = $(SN_UTIL_DIR)/sz_trace/trace.py
+SN_GENTRACE_SRC  = $(SN_UTIL_DIR)/sz_trace/perfetto_trace.py
+SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/formatter.py
+SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/architecture.py
 
 # Annotate prerequisites
 SN_ANNOTATE_SRC = $(SN_UTIL_DIR)/trace/a2l.py

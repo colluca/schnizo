@@ -51,6 +51,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   output logic                      sw_err_o,
   // The current state of the loop
   output loop_state_e               loop_state_o,
+  output logic [MaxIterationsW-1:0] loop_iteration_o,
   // Asserted when the last instruction of LCP1 is retiring.
   output logic                      goto_lcp2_o,
   // Number of iterations in LEP. Valid in the last LCP2 cycle (when the last iteration retires).
@@ -101,6 +102,10 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   logic loop_valid_d, loop_valid_q;
   `FFAR(loop_valid_q, loop_valid_d, '0, clk_i, rst_i);
 
+  // TODO(colluca): needed only to calculate loop_iteration_o for trace.
+  logic [MaxIterationsW-1:0] total_iterations_q, total_iterations_d;
+  `FFAR(total_iterations_q, total_iterations_d, '0, clk_i, rst_i);
+
   logic wait_for_retirement_d, wait_for_retirement_q;
   `FFAR(wait_for_retirement_q, wait_for_retirement_d, '0, clk_i, rst_i);
 
@@ -142,9 +147,12 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
                      instr_valid_i && !wait_for_retirement_q;
   logic lep_ends;
 
+  assign loop_iteration_o = total_iterations_q - loop_info_q.loop_iterations;
+
   always_comb begin
     loop_info_d  = loop_info_q;
     loop_valid_d = loop_valid_q;
+    total_iterations_d = total_iterations_q;
 
     loop_start_ready_o        = 1'b0;
     loop_jump_o               = 1'b0;
@@ -170,6 +178,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
         if (loop_start_commit_i) begin
           loop_info_d  = new_loop; // jumps to HwLoop or Lcp1 depending on the amount of iterations
           loop_valid_d = 1'b1;
+          total_iterations_d = loop_iterations_i;
           loop_start_ready_o = 1'b1;
         end
       end
@@ -265,6 +274,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
       loop_valid_d           = 1'b0;
       loop_info_d            = loop_info_reset;
       loop_info_d.loop_state = LoopRegular;
+      total_iterations_d     = '0;
       // we still must stall for this cycle
     end
   end

@@ -218,12 +218,12 @@ package schnizo_pkg;
   function automatic string loop_state_tostring(loop_state_e loop_state);
     string state;
     unique case (loop_state)
-      LoopRegular: state = "REG "; // ensure all strings have the same length
-      LoopHwLoop:  state = "HWL ";
+      LoopRegular: state = "REG";
+      LoopHwLoop:  state = "HWL";
       LoopLcp1:    state = "LCP1";
       LoopLcp2:    state = "LCP2";
-      LoopLep:     state = "LEP ";
-      default:     state = "????";
+      LoopLep:     state = "LEP";
+      default:     state = "???";
     endcase
     return state;
   endfunction
@@ -240,7 +240,7 @@ package schnizo_pkg;
       schnizo_pkg::FPU:       name = "FPU";
       schnizo_pkg::MULDIV:    name = "MULDIV"; // shared muldiv unit from hive
       schnizo_pkg::DMA:       name = "DMA";
-      default:                name = "Inconsistent FU types!";
+      default:                name = "???";
     endcase
     return name;
   endfunction

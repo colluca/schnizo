@@ -499,6 +499,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                         lxp_restart;
   logic                         goto_lcp2;
   loop_state_e                  loop_state;
+  logic [FrepMaxItersWidth-1:0] loop_iteration;
   logic [FrepMaxItersWidth-1:0] lep_iterations;
   logic                         all_rs_finish;
 
@@ -536,6 +537,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .goto_lcp2_o            (goto_lcp2),
     .lep_iterations_o       (lep_iterations),
     .loop_state_o           (loop_state),
+    .loop_iteration_o       (loop_iteration),
     .rs_restart_o           (lxp_restart),
     // Exception source interface
     .interrupt_i            (interrupt),
@@ -1049,6 +1051,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign core_trace = '{
     priv_level: priv_lvl,
     state:      loop_state,
+    iteration:  loop_iteration,
     stall:      stall,
     exception:  exception
   };
@@ -1062,6 +1065,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     rs2:          instr_decoded.rs2,
     rs3:          instr_decoded.imm, // fused FPU instructions use imm as operand
     rd:           instr_decoded.rd,
+    rs1_is_fp:    instr_decoded.rs1_is_fp,
+    rs2_is_fp:    instr_decoded.rs2_is_fp,
     rd_is_fp:     instr_decoded.rd_is_fp,
     is_branch:    instr_decoded.is_branch,
     branch_taken: alu_result.compare_res,

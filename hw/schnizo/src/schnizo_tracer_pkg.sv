@@ -15,10 +15,11 @@ package schnizo_tracer_pkg;
   //////////////////////
 
   typedef struct packed {
-    priv_lvl_t   priv_level;
-    loop_state_e state;
-    logic        stall;
-    logic        exception;
+    priv_lvl_t                    priv_level;
+    loop_state_e                  state;
+    logic [FrepMaxItersWidth-1:0] iteration;
+    logic                         stall;
+    logic                         exception;
   } schnizo_core_trace_t;
 
   typedef struct {
@@ -30,6 +31,8 @@ package schnizo_tracer_pkg;
     longint rs2;
     longint rs3; // for fused FPU instructions
     longint rd;
+    longint rs1_is_fp;
+    longint rs2_is_fp;
     longint rd_is_fp;
     longint is_branch; // jal & jalr are handled via pc_d (add goto if pc_d != pc_q + 4)
     longint branch_taken;
@@ -128,12 +131,11 @@ package schnizo_tracer_pkg;
   // Functions //
   ///////////////
 
-  // Returns the header of a trace event. This includes common trace data as well as the first
-  // basic extras. The ending } of the extras is missing.
+  // Returns the header of a trace event. This includes common trace data.
   function automatic string format_trace_header(time t, logic[63:0] cycle, schnizo_core_trace_t core);
-    return $sformatf("%t %d %s %s #; {'stall': 0x%0x, 'exception': 0x%0x, ",
+    return $sformatf("{'time': %0t, 'cycle': %0d, 'priv': \"%s\", 'state': \"%s\", 'iteration': %0d, 'stall': 0x%0x, 'exception': 0x%0x, ",
                      t, cycle, schnizo_pkg::priv_lvl_tostring(core.priv_level),
-                     schnizo_pkg::loop_state_tostring(core.state), core.stall, core.exception);
+                     schnizo_pkg::loop_state_tostring(core.state), core.iteration, core.stall, core.exception);
   endfunction
 
   // Format all dispatch extras as a key value pair list.
@@ -151,6 +153,8 @@ package schnizo_tracer_pkg;
     extras = $sformatf("%s'%s':0x%02x, ", extras, "rs2", trace.rs2);
     extras = $sformatf("%s'%s':0x%02x, ", extras, "rs3", trace.rs3);
     extras = $sformatf("%s'%s':0x%02x, ", extras, "rd", trace.rd);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "rs1_is_fp", trace.rs1_is_fp);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "rs2_is_fp", trace.rs2_is_fp);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.rd_is_fp);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "is_branch", trace.is_branch);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "branch_taken", trace.branch_taken);
