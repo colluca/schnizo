@@ -15,7 +15,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 2,
   parameter int unsigned ConsumerCount  = 16,
   // The bits to address all registers
-  parameter int unsigned RegAddrWidth  = 5,
+  parameter int unsigned RegAddrWidth   = 5,
+  parameter type         rss_idx_t      = logic,
   parameter type         disp_req_t     = logic,
   parameter type         producer_id_t  = logic,
   parameter type         operand_req_t  = logic,
@@ -30,6 +31,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic clk_i,
   input  logic rst_i,
 
+  // Index of this slot in the reservation station.
+  input  rss_idx_t     slot_id_i,
   // If restart is asserted, we initialize the slot. THERE MAY NOT BE ANY instruction in flight!
   input  logic         restart_i,
   // Asserted for last LEP dispatch iteration to end the operand fetching.
@@ -632,6 +635,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
     // is full or the result cannot be written because the current result has not been consumed
     // by all consumers yet.
+    // Tag used for the operation is the slot_id, to identify the result destination in case
+    // results can come back OoO from the FU (as is the case for the FPU).
     issue_req_o                      = '0;
     issue_req_o.fu_data.fu           = NONE; // Not required by FU
     issue_req_o.fu_data.alu_op       = slot_issue.alu_op;
@@ -645,10 +650,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     issue_req_o.fu_data.fpu_fmt_src  = slot_issue.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = slot_issue.fpu_fmt_dst;
     issue_req_o.fu_data.fpu_rnd_mode = slot_issue.fpu_rnd_mode;
-    issue_req_o.tag.dest_reg         = slot_issue.dest_id;
-    issue_req_o.tag.dest_reg_is_fp   = slot_issue.dest_is_fp;
-    issue_req_o.tag.is_branch        = 1'b0; // Not supported in FREP
-    issue_req_o.tag.is_jump          = 1'b0; // Not supported in FREP
+    issue_req_o.tag                  = slot_id_i;
 
     for (int i = 0; i < NofOperands; i++) begin
       op_valid[i] = slot_issue.operands[i].is_valid;
@@ -711,6 +713,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       .popcount_o(num_current_consumers)
   );
 
+  instr_tag_t rf_wb_tag;
   rs_slot_t slot_wb;
   logic     enable_rf_writeback;
   always_comb begin : result_wb_request_response
@@ -747,16 +750,21 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     //
     // We must check also the RF writeback for LCP and last LEP.
     // This is handled with a special stream fork.
-    rf_wb_result_o             = result_i;
-    rf_wb_tag_o                = '0;
-    rf_wb_tag_o.dest_reg       = slot_wb.dest_id;
-    rf_wb_tag_o.dest_reg_is_fp = slot_wb.dest_is_fp;
+
+    // Compose tag
+    rf_wb_tag = '0;
+    rf_wb_tag.dest_reg       = slot_wb.dest_id;
+    rf_wb_tag.dest_reg_is_fp = slot_wb.dest_is_fp;
+    // TODO(colluca): find proper solution for this
     // HACK:
     // We directly pass through the branch and jump details to support jumps in LCP1
     // (where we will fall back into regular HW loop mode). This is possible as the ALU is
     // single cycle and the dispatch request is valid until we write back.
-    rf_wb_tag_o.is_branch = disp_req_i.tag.is_branch;
-    rf_wb_tag_o.is_jump   = disp_req_i.tag.is_jump;
+    rf_wb_tag.is_branch = disp_req_i.tag.is_branch;
+    rf_wb_tag.is_jump   = disp_req_i.tag.is_jump;
+
+    rf_wb_result_o             = result_i;
+    rf_wb_tag_o                = rf_wb_tag;
 
     // Check if we want to write back to the RF. If so, enable the RF path for the dynamic stream
     // fork. A store has no writeback and the last result iteration is "immediately" reached.

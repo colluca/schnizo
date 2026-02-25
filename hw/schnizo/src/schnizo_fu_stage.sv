@@ -77,7 +77,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         operand_id_t   = logic, // used for tracer function
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
-  parameter type         issue_req_t    = logic,
+  parameter type         fu_data_t      = logic,
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
@@ -117,7 +117,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   input  logic      [NofAlus-1:0] alu_disp_reqs_valid_i,
   output logic      [NofAlus-1:0] alu_disp_reqs_ready_o,
   output disp_rsp_t [NofAlus-1:0] alu_disp_rsp_o,
-  output logic      [NofAlus-1:0] alu_loop_finish_o,
   output logic      [NofAlus-1:0] alu_rs_full_o,
 
   input  logic      [NofLsus-1:0] lsu_disp_reqs_valid_i,
@@ -127,7 +126,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output logic                    lsu_addr_misaligned_o,
   output dreq_t     [NofLsus-1:0] lsu_dreq_o,
   input  drsp_t     [NofLsus-1:0] lsu_drsp_i,
-  output logic      [NofLsus-1:0] lsu_loop_finish_o,
   output logic      [NofLsus-1:0] lsu_rs_full_o,
   input  addr_t     [NofLsus-1:0] caq_addr_i,
   input  logic      [NofLsus-1:0] caq_track_write_i,
@@ -139,7 +137,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   input  logic               [NofFpus-1:0] fpu_disp_reqs_valid_i,
   output logic               [NofFpus-1:0] fpu_disp_reqs_ready_o,
   output disp_rsp_t          [NofFpus-1:0] fpu_disp_rsp_o,
-  output logic               [NofFpus-1:0] fpu_loop_finish_o,
   output logic               [NofFpus-1:0] fpu_rs_full_o,
   // Combined status of all FPUs
   output fpnew_pkg::status_t fpu_status_o,
@@ -166,6 +163,15 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   /////////////////////////////////////
   // Parameters and type definitions //
   /////////////////////////////////////
+
+  // ---------
+  // Issue
+  // ---------
+
+  typedef struct packed {
+    fu_data_t fu_data;
+    instr_tag_t tag;
+  } issue_req_t;
 
   // ---------------------------
   // RSS
@@ -567,6 +573,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                [NofAlus-1:0] alu_wbs_result_valid;
   logic                [NofAlus-1:0] alu_wbs_result_ready;
 
+  logic [NofAlus-1:0] alu_loop_finish;
+
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
     // Helper signals to merge the result and tag
     alu_res_val_t alu_wb_result_value;
@@ -628,7 +636,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .lep_iterations_i   (lep_iterations_i),
       .goto_lcp2_i        (goto_lcp2_i),
       .fu_busy_i          (alu_busy),
-      .loop_finish_o      (alu_loop_finish_o[alu]),
+      .loop_finish_o      (alu_loop_finish[alu]),
       .rs_full_o          (alu_rs_full_o[alu]),
       /// Instruction stream
       // From dispatcher
@@ -770,6 +778,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                [NofLsus-1:0] lsu_wbs_result_valid;
   logic                [NofLsus-1:0] lsu_wbs_result_ready;
 
+  logic [NofLsus-1:0] lsu_loop_finish;
+
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsus
     // Helper signals to merge the result and tag
     lsu_result_t lsu_wb_result;
@@ -830,7 +840,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .lep_iterations_i   (lep_iterations_i),
       .goto_lcp2_i        (goto_lcp2_i),
       .fu_busy_i          (lsu_busy),
-      .loop_finish_o      (lsu_loop_finish_o[lsu]),
+      .loop_finish_o      (lsu_loop_finish[lsu]),
       .rs_full_o          (lsu_rs_full_o[lsu]),
       /// Instruction stream
       // From dispatcher
@@ -964,6 +974,15 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [FLEN-1:0] fpu_result_t;
 
+  typedef logic [cf_math_pkg::idx_width(FpuNofRss)-1:0] rs_tag_t;
+
+  typedef logic [cf_math_pkg::max($bits(rs_tag_t),$bits(instr_tag_t))-1:0] fpu_instr_tag_t;
+
+  typedef struct packed {
+    fu_data_t       fu_data;
+    fpu_instr_tag_t tag;
+  } fpu_issue_req_t;
+
   typedef struct packed {
     fpu_result_t result;
     instr_tag_t  tag;
@@ -977,19 +996,21 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                [NofFpus-1:0] fpu_wbs_result_valid;
   logic                [NofFpus-1:0] fpu_wbs_result_ready;
 
+  logic [NofFpus-1:0] fpu_loop_finish;
+
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpus
     // Helper signals to merge the result and tag
-    fpu_result_t fpu_wb_result;
-    instr_tag_t  fpu_wb_result_tag;
+    fpu_result_t    fpu_wb_result;
+    fpu_instr_tag_t fpu_wb_result_tag;
 
     // Signals connecting the FU block and the actual FU
-    issue_req_t  fpu_issue_req;
-    logic        fpu_issue_req_valid;
-    logic        fpu_issue_req_ready;
-    logic        fpu_exec_commit;
-    fpu_result_t fpu_result;
-    instr_tag_t  fpu_result_tag;
-    logic        fpu_busy;
+    fpu_issue_req_t fpu_issue_req;
+    logic           fpu_issue_req_valid;
+    logic           fpu_issue_req_ready;
+    logic           fpu_exec_commit;
+    fpu_result_t    fpu_result;
+    fpu_instr_tag_t fpu_result_tag;
+    logic           fpu_busy;
 
     producer_id_t producer_start_id;
     assign producer_start_id = producer_id_t'{
@@ -1005,9 +1026,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (issue_req_t),
+      .issue_req_t   (fpu_issue_req_t),
       .result_t      (fpu_result_t),
-      .instr_tag_t   (instr_tag_t),
+      .instr_tag_t   (fpu_instr_tag_t),
       .NofRss        (FpuNofRss),
       .NofOperands   (FpuNofOperands),
       .NofOpPorts    (FpuNofOpPorts),
@@ -1034,7 +1055,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .lep_iterations_i   (lep_iterations_i),
       .goto_lcp2_i        (goto_lcp2_i),
       .fu_busy_i          (fpu_busy),
-      .loop_finish_o      (fpu_loop_finish_o[fpu]),
+      .loop_finish_o      (fpu_loop_finish[fpu]),
       .rs_full_o          (fpu_rs_full_o[fpu]),
       /// Instruction stream
       // From dispatcher
@@ -1087,8 +1108,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .FLEN             (FLEN),
       .RegisterFPUIn    (RegisterFPUIn),
       .RegisterFPUOut   (RegisterFPUOut),
-      .issue_req_t      (issue_req_t),
-      .instr_tag_t      (instr_tag_t)
+      .issue_req_t      (fpu_issue_req_t),
+      .instr_tag_t      (fpu_instr_tag_t)
     ) i_fpu (
       .clk_i,
       .rst_ni           (~rst_i),
@@ -1171,7 +1192,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_loop_finish_o, &lsu_loop_finish_o, &fpu_loop_finish_o};
+  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish};
 
   ////////////////////
   // Tracer helpers //

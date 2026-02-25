@@ -217,13 +217,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     fpnew_pkg::roundmode_e fpu_rnd_mode;
   } fu_data_t;
 
-  typedef struct packed {
-    logic [RegAddrSize-1:0] dest_reg;
-    logic                   dest_reg_is_fp;
-    logic                   is_branch;
-    logic                   is_jump;
-  } instr_tag_t;
-
   // ---------------------------
   // RSS definitions / parameters
   // ---------------------------
@@ -726,7 +719,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .operand_id_t       (operand_id_t),
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
-    .issue_req_t        (issue_req_t),
+    .fu_data_t          (fu_data_t),
     .instr_tag_t        (instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
@@ -757,7 +750,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .alu_disp_reqs_valid_i(alu_disp_req_valid),
     .alu_disp_reqs_ready_o(alu_disp_req_ready),
     .alu_disp_rsp_o       (alu_disp_rsp),
-    .alu_loop_finish_o    (), // unused because of all_rs_finish_i
     .alu_rs_full_o        (alu_rs_full),
     // LSU
     .lsu_disp_reqs_valid_i(lsu_disp_req_valid),
@@ -767,7 +759,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .lsu_addr_misaligned_o(lsu_addr_misaligned),
     .lsu_dreq_o           (data_req_o), // Each LSU has its own reqrsp port
     .lsu_drsp_i           (data_rsp_i), // Each LSU has its own reqrsp port
-    .lsu_loop_finish_o    (), // unused because of all_rs_finish_i
     .lsu_rs_full_o        (lsu_rs_full),
     .caq_addr_i           ('0),
     .caq_track_write_i    ('0),
@@ -779,7 +770,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_disp_reqs_valid_i(fpu_disp_req_valid),
     .fpu_disp_reqs_ready_o(fpu_disp_req_ready),
     .fpu_disp_rsp_o       (fpu_disp_rsp),
-    .fpu_loop_finish_o    (), // unused because of all_rs_finish_i
     .fpu_rs_full_o        (fpu_rs_full),
     .fpu_status_o         (fpu_status),
     .fpu_status_valid_o   (fpu_status_valid),

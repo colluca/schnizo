@@ -73,9 +73,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   output logic       instr_exec_commit_o,
 
   // Result from FU
-  input  result_t result_i,
-  input  logic    result_valid_i,
-  output logic    result_ready_o,
+  input  result_t     result_i,
+  input  result_tag_t result_tag_i,
+  input  logic        result_valid_i,
+  output logic        result_ready_o,
 
   // RF writeback
   output result_t     rf_wb_result_o,
@@ -106,14 +107,16 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   output logic     [NofOpPorts-1:0][NofOperands-1:0] op_rsps_ready_o
 );
 
-  ////////////////
-  // Parameters //
-  ////////////////
+  /////////////////////////////////////
+  // Parameters and type definitions //
+  /////////////////////////////////////
 
   // The RSS pointer / index vector width
   localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
   // We need to count from 0 to NofRss for the control logic -> +1 bit
   localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
+
+  typedef logic [NofRssWidth-1:0] rss_idx_t;
 
   /////////////////
   // Connections //
@@ -132,8 +135,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The pointers / indexes to select the appropriate RSS. The issue MUX is always in sync with
   // the dispatch DEMUX.
-  logic [NofRssWidth-1:0] disp_idx;
-  logic [NofRssWidth-1:0] result_idx;
+  rss_idx_t disp_idx;
+  rss_idx_t result_idx;
 
   // To / from FU and RF writeback
   issue_req_t  [NofRss-1:0] issue_reqs;
@@ -224,6 +227,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .NofOperands  (NofOperands),
       .ConsumerCount(ConsumerCount),
       .RegAddrWidth (RegAddrWidth),
+      .rss_idx_t    (rss_idx_t),
       .disp_req_t   (disp_req_t),
       .producer_id_t(producer_id_t),
       .operand_req_t(operand_req_t),
@@ -238,6 +242,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
 
+      .slot_id_i            (rss_idx_t'(rss)),
       .restart_i            (restart_i),
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
@@ -300,7 +305,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // In case the dispatch index overflows (we are full), tie down any signals to a default value.
   logic sel_rss_valid;
   assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
-  logic [NofRssWidth-1:0] sel_rss;
+  rss_idx_t sel_rss;
   assign sel_rss = sel_rss_valid ? disp_idx : '0;
 
   always_comb begin : op_req_mux
@@ -561,11 +566,15 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic lep_finished_disp;
 
   // In LCP1 and LCP2 the RS has finished all instructions if:
-  // - There is no instruction in flight
   // - No dispatch request is pending
-  // The FU's busy flag is asserted as long as there is valid data in the path. This includes the
-  // output and thus the FU is busy also in the cycle in which we retire the instruction.
+  // - There is no instruction in flight
+  // The FU's busy flag is asserted as long as there is valid data in the path. This includes
+  // valid data at the output and thus the FU is busy also in the cycle in which we retire
+  // the instruction.
   // TODO(colluca): why do we need disp_req_valid_i?
+  // TODO(colluca): this signal doesn't really tell us that we're finished with LCP,
+  //                just that we are idle. It is probably additionally masked in the controller
+  //                to determine if we are actually finished. Update description comment.
   assign lcp_finished = !fu_busy_i && !disp_req_valid_i && !disp_req_valid_i_q &&
                         (loop_state_i inside {LoopLcp1, LoopLcp2});
 
@@ -577,12 +586,17 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // index and never have a wrap around. A wrap around would only occur if we run out of slots.
   // But this can never happen as we would revert to regular loop execution if there are not
   // enough slots.
+  // TODO(colluca): clarify what "overtake" means
+  // TODO(colluca): my impression is that if this signal is asserted, lcp_finished is also
+  //                asserted. In other words, the RHS of the || is not useful (except maybe
+  //                for "retiring"). We could test this with an assertion
   assign lcp_finish =
     (lcp_finished || ((lcp_disp_count == lcp_result_count) && retiring)) && !disp_req_valid_i &&
     (loop_state_i inside {LoopLcp1, LoopLcp2});
 
   // In LEP the RS has finished if:
   // - All iterations are dispatched -> this is guaranteed if all results have been captured
+  // AND
   // - All results are captured
   assign lep_finished_disp   = lep_disp_iter_count == '0;
   assign lep_finished_result = lep_result_iter_count == '0;
@@ -597,9 +611,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // This approach could make the result iteration counter obsolete. But we must ensure that there
   // is always a valid dispatch request during the whole LEP. However, the finish detection anyway
   // requires the result iteration counter.
-  assign lep_finished_alternatively = !fu_busy_i && !disp_req_internal_valid;
-  // TODO: At init these two signals differ
-  // `ASSERT(LepAlternativeFinished, lep_finished_alternatively == lep_finished, clk_i, rst_i);
+  // TODO(colluca): since we settled for using this, clean up all the legacy logic
+  assign lep_finished_alternatively = ((loop_state_i == LoopLep) && lep_finished_disp && !fu_busy_i)
+                                      || !any_instr_captured;
 
   // In LEP the finish condition is tricky as the dispatch index can "overtake" the result index.
   // The overtake can happen if the FU pipeline depth is larger than the number of slots.
@@ -613,7 +627,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   assign lep_finish_disp   = last_disp_iter && last_disp_instr && dispatching;
   assign lep_finish_result = last_result_iter && last_result_instr && retiring;
   // The dispatch finish condition is included in the result finish condition.
-  assign lep_finish        = (lep_finish_disp && lep_finish_result) || lep_finished;
+  // assign lep_finish        = (lep_finish_disp && lep_finish_result) || lep_finished;
+  assign lep_finish        = lep_finished_alternatively;
 
   always_comb begin : finish_selection
     loop_finish_o = 1'b0;
@@ -763,7 +778,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   ) i_result_demux (
     .inp_valid_i(result_valid_i),
     .inp_ready_o(result_ready_raw),
-    .oup_sel_i  (result_idx),
+    .oup_sel_i  (rss_idx_t'(result_tag_i)),
     .oup_valid_o(results_valid),
     .oup_ready_i(results_ready)
   );

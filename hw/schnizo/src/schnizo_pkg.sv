@@ -139,6 +139,13 @@ package schnizo_pkg;
     logic mxip;
   } interrupts_t;
 
+  typedef struct packed {
+    logic [RegAddrSize-1:0] dest_reg;
+    logic                   dest_reg_is_fp;
+    logic                   is_branch;
+    logic                   is_jump;
+  } instr_tag_t;
+
   // ---------------------------
   // Privilege Spec
   // ---------------------------
