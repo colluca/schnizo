@@ -5,8 +5,9 @@ This is required as the actual building is performed in the snitch_cluster space
 The start the experiment with the desired steps (start from hw) from the experiment folder.
 ```
 make clean-vsim
+make vsim CFG_OVERRIDE=cfg/schnizo_xl.json DEBUG=ON -j
 cd ./experiments/schnizo_frep/
-./experiments.py --actions hw sw run traces roi perf --hw schnizo -j
+./experiments.py --actions hw sw run traces roi perf -j
 ```
 
 ## Power
@@ -21,7 +22,7 @@ cd ./experiments/schnizo_frep/
 make clean-vsim
 cd ./experiments/schnizo_frep/
 rm -rf hw/
-./experiments.py --actions hw run power --hw schnizo --pls -j
+./experiments.py --actions hw run power --pls -j
 ```
 
 The power action invokes the following from the nonfree repo.

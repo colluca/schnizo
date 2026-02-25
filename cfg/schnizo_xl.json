@@ -22,9 +22,9 @@
         dma_req_fifo_depth: 8,
         narrow_trans: 4,
         wide_trans: 32,
-        // We don't need Snitch debugging in Occamy
+        // We don't need debugging in Schnizo
         enable_debug: false,
-        // We don't need Snitch (core-internal) virtual memory support
+        // We don't need Schnizo (core-internal) virtual memory support
         vm_support: false,
         // Memory configuration inputs
         sram_cfg_expose: true,
@@ -47,12 +47,22 @@
             fpu_pipe_config: "BEFORE",
             narrow_xbar_latency: "CUT_ALL_PORTS",
             wide_xbar_latency: "CUT_ALL_PORTS",
-            // Isolate the core.
+            // Isolate the core for any memory access.
             register_core_req: true,
             register_core_rsp: true,
+            // Cut the request & response to any accelerator
             register_offload_req: true,
             register_offload_rsp: true,
-            register_fpu_req: true,
+            // This has no effect in Schnizo.
+            register_fpu_req: false,
+            // In Snitch any FPU instruction is offloaded via the accelerator interface.
+            // This results in an actual FPU latency of 6 cycles.
+            // However, Snitch makes use of the sequencer which is already in the accelerator.
+            // This reduces the latency to 4 cycles (actual FPU latency). In Schnizo, there must not
+            // be any cut between dispatch & FPU to achieve a 4 cycle latency.
+            register_fpu_in: false,
+            // Don't register the output. In the FP SS the output goes directly to the FP register file.
+            register_fpu_out: false,
             register_ext_narrow: false,
             register_ext_wide: false
         },
@@ -94,40 +104,29 @@
     // Templates.
     compute_core_template: {
         isa: "rv32imafd",
-        xssr: true,
-        xfrep: true,
-        xcopift: true,
+        xfrep: true, // enables the superscalar feature
         xdma: false,
-        xf16: true,
-        xf16alt: true,
-        xf8: true,
-        xf8alt: true,
-        xfdotp: true,
-        xfvec: true,
-        ssr_nr_credits: 4,
+        xf16: false,
+        xf16alt: false,
+        xf8: false,
+        xf8alt: false,
+        xfdotp: false,
+        xfvec: false,
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
-        num_fp_outstanding_loads: 4,
-        num_fp_outstanding_mem: 4,
-        num_sequencer_instructions: 64,
-        num_sequencer_loops: 4,
-        num_dtlb_entries: 1,
-        num_itlb_entries: 1,
-        // SSSR configuration below
-        ssr_intersection: true,
-        ssr_intersection_triple: [0, 1, 2],
-        ssrs: [
-            {indirection: true},    // Master 0
-            {indirection: true},    // Master 1
-            {},                     // Slave
-        ],
+        // Superscalar configuration
+        num_alus: 3,
+        num_alu_slots: 32,
+        num_lsus: 3,
+        num_lsu_slots: 32,
+        num_fpus: 1,
+        num_fpu_slots: 64,
     },
     dma_core_template: {
         isa: "rv32imafd",
         xdma: true,
         xssr: false,
         xfrep: false,
-        xcopift: false,
         xf16: false,
         xf16alt: false,
         xf8: false,
@@ -138,7 +137,5 @@
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
-        num_dtlb_entries: 1,
-        num_itlb_entries: 1,
     }
 }

@@ -3,8 +3,6 @@
 ## SPDX-License-Identifier: Apache-2.0
 
 {
-    "n_tiles": 1,
-    "n": ${experiment['data_cfg']['n']},
-    "double_buffer": false,
-    "funcptr": "${experiment['data_cfg']['funcptr']}"
+    "len": ${experiment['data_cfg']['len']},
+    "batch_size": ${experiment['data_cfg']['batch_size']},
 }

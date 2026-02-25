@@ -119,7 +119,7 @@ snitch-cluster-vsim:
 schnizo-experiments:
   needs: [snitch-cluster-sw]
   script:
-    - make vsim DEBUG=ON -j
+    - make vsim CFG_OVERRIDE=cfg/schnizo_xl.json -j
     - cd experiments/schnizo_frep
     - ./experiments.py --actions sw run roi -j
 
