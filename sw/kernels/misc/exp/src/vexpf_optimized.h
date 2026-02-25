@@ -13,7 +13,7 @@ static inline void vexpf_optimized(double *a, double *b) {
 #ifdef SNRT_SUPPORTS_FREP
 
     // Derived parameters
-    unsigned int n_batches = LEN / BATCH_SIZE;
+    unsigned int n_batches = len / batch_size;
     unsigned int n_iterations = n_batches + 2 + 2;
 
     // Allocate buffers (ORDER IS IMPORTANT!)
@@ -23,22 +23,22 @@ static inline void vexpf_optimized(double *a, double *b) {
     double *b_buffers[N_W_BUFFERS];
     double *a_buffers[N_T_BUFFERS];
     uint64_t *t_buffers[N_T_BUFFERS];
-    ki_buffers[0] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    ki_buffers[1] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    ki_buffers[2] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
+    ki_buffers[0] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    ki_buffers[1] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    ki_buffers[2] = ALLOCATE_BUFFER(uint64_t, batch_size);
     kd_buffers[0] = (double *)ki_buffers[0];
     kd_buffers[1] = (double *)ki_buffers[1];
     kd_buffers[2] = (double *)ki_buffers[2];
-    w_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    w_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    w_buffers[2] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[2] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    a_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    a_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    t_buffers[0] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    t_buffers[1] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
+    w_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    w_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    w_buffers[2] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[2] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    a_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    a_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    t_buffers[0] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    t_buffers[1] = ALLOCATE_BUFFER(uint64_t, batch_size);
 
     // Define buffer pointers for every phase (fp0, int and fp1)
     unsigned int dma_a_idx = 0;
@@ -82,7 +82,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 dma_a_ptr = a_buffers[dma_a_idx];
 
                 // DMA transfer
-                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, BATCH_SIZE,
+                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, batch_size,
                                       sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -96,7 +96,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 dma_b_ptr = b_buffers[dma_b_idx];
 
                 // DMA transfer
-                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 4, BATCH_SIZE,
+                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 4, batch_size,
                                        sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -118,7 +118,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 fp0_w_ptr = w_buffers[fp0_w_idx];
 
                 // Configure SSRs
-                snrt_ssr_loop_1d(SNRT_SSR_DM_ALL, BATCH_SIZE, sizeof(double));
+                snrt_ssr_loop_1d(SNRT_SSR_DM_ALL, batch_size, sizeof(double));
                 snrt_ssr_read(SNRT_SSR_DM0, SNRT_SSR_1D, fp0_a_ptr);
                 snrt_ssr_write(SNRT_SSR_DM1, SNRT_SSR_1D, fp0_kd_ptr);
                 snrt_ssr_write(SNRT_SSR_DM2, SNRT_SSR_1D, fp0_w_ptr);
@@ -128,7 +128,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 int unroll_factor = 4;
                 asm volatile("frep.o %[n_frep], 36, 0, 0 \n" FP0_ASM_BODY
                              :
-                             : [ n_frep ] "r"(BATCH_SIZE / unroll_factor - 1),
+                             : [ n_frep ] "r"(batch_size / unroll_factor - 1),
                                [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
                                [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
                                [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3])
@@ -155,13 +155,13 @@ static inline void vexpf_optimized(double *a, double *b) {
                 int unroll_factor = 4;
                 if (iteration == 3) {
                     snrt_ssr_loop_3d(SNRT_SSR_DM0, unroll_factor, 2,
-                                     BATCH_SIZE / unroll_factor, sizeof(double),
-                                     N_T_BUFFERS * BATCH_SIZE * sizeof(double),
+                                     batch_size / unroll_factor, sizeof(double),
+                                     N_T_BUFFERS * batch_size * sizeof(double),
                                      sizeof(double) * unroll_factor);
-                    snrt_ssr_loop_1d(SNRT_SSR_DM1, BATCH_SIZE, sizeof(double));
+                    snrt_ssr_loop_1d(SNRT_SSR_DM1, batch_size, sizeof(double));
                     snrt_ssr_loop_3d(SNRT_SSR_DM2, unroll_factor, 3,
-                                     BATCH_SIZE / unroll_factor, sizeof(double),
-                                     N_W_BUFFERS * BATCH_SIZE * sizeof(double),
+                                     batch_size / unroll_factor, sizeof(double),
+                                     N_W_BUFFERS * batch_size * sizeof(double),
                                      sizeof(double) * unroll_factor);
                 }
                 snrt_ssr_read(SNRT_SSR_DM0, SNRT_SSR_3D, fp0_a_ptr);
@@ -172,7 +172,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 // FP0 and FP1 computation
                 asm volatile("frep.o %[n_frep], 40, 0, 0 \n" FP0_FP1_ASM_BODY
                              :
-                             : [ n_frep ] "r"(BATCH_SIZE / unroll_factor - 1),
+                             : [ n_frep ] "r"(batch_size / unroll_factor - 1),
                                [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
                                [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
                                [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3])
@@ -201,7 +201,7 @@ static inline void vexpf_optimized(double *a, double *b) {
 
                 // Configure SSRs
                 int unroll_factor = 4;
-                snrt_ssr_loop_1d(SNRT_SSR_DM_ALL, BATCH_SIZE, sizeof(double));
+                snrt_ssr_loop_1d(SNRT_SSR_DM_ALL, batch_size, sizeof(double));
                 snrt_ssr_read(SNRT_SSR_DM0, SNRT_SSR_1D, fp1_w_ptr);
                 snrt_ssr_read(SNRT_SSR_DM1, SNRT_SSR_1D, fp1_t_ptr);
                 snrt_ssr_write(SNRT_SSR_DM2, SNRT_SSR_1D, fp1_b_ptr);
@@ -210,7 +210,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 // FP1 computation
                 asm volatile("frep.o %[n_frep], 4, 0, 0 \n" FP1_ASM_BODY
                              :
-                             : [ n_frep ] "r"(BATCH_SIZE / unroll_factor - 1)
+                             : [ n_frep ] "r"(batch_size / unroll_factor - 1)
                              : "memory", "ft0", "ft1", "ft2");
 
                 // Increment buffer indices for next iteration
@@ -231,7 +231,7 @@ static inline void vexpf_optimized(double *a, double *b) {
                 // L0 cache
                 int unroll_factor = 4;
 #pragma nounroll
-                for (int i = 0; i < BATCH_SIZE; i += unroll_factor) {
+                for (int i = 0; i < batch_size; i += unroll_factor) {
                     asm volatile(INT_ASM_BODY
                                  :
                                  : [ ki ] "r"(int_ki_ptr + i), [ T ] "r"(T),

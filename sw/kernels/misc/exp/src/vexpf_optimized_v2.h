@@ -7,17 +7,17 @@
 #define N_BUFFERS 2
 
 static inline void vexpf_optimized_v2(double *a, double *b) {
-    int n_batches = LEN / BATCH_SIZE;
+    int n_batches = len / batch_size;
     int n_iterations = n_batches + 2;
-    int n_frep_m2 = BATCH_SIZE / 4 - 2;
+    int n_frep_m2 = batch_size / 4 - 2;
 
     double *a_buffers[N_BUFFERS];
     double *b_buffers[N_BUFFERS];
 
-    a_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    a_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
+    a_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    a_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
 
     unsigned int dma_a_idx = 0;
     unsigned int dma_b_idx = 0;
@@ -41,7 +41,7 @@ static inline void vexpf_optimized_v2(double *a, double *b) {
                 dma_a_ptr = a_buffers[dma_a_idx];
 
                 // DMA transfer
-                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, BATCH_SIZE,
+                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, batch_size,
                                       sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -55,7 +55,7 @@ static inline void vexpf_optimized_v2(double *a, double *b) {
                 dma_b_ptr = b_buffers[dma_b_idx];
 
                 // DMA transfer
-                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 2, BATCH_SIZE,
+                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 2, batch_size,
                                        sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -68,14 +68,14 @@ static inline void vexpf_optimized_v2(double *a, double *b) {
         if (snrt_cluster_core_idx() == 0) {
             // Compute phase
             if (iteration > 0 && iteration < n_iterations - 1) {
-                int n_inner_iter_m2 = BATCH_SIZE / 4 - 2;
+                int n_inner_iter_m2 = batch_size / 4 - 2;
 
                 // Index buffers
                 comp_a_ptr = a_buffers[comp_idx];
                 comp_b_ptr = b_buffers[comp_idx];
 
                 // Configure SSRs
-                snrt_ssr_loop_1d(SNRT_SSR_DM_ALL, BATCH_SIZE, sizeof(double));
+                snrt_ssr_loop_1d(SNRT_SSR_DM_ALL, batch_size, sizeof(double));
                 snrt_ssr_read(SNRT_SSR_DM0, SNRT_SSR_1D, comp_a_ptr);
                 snrt_ssr_write(SNRT_SSR_DM2, SNRT_SSR_1D, comp_b_ptr);
                 snrt_ssr_enable();

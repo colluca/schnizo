@@ -7,16 +7,16 @@
 #define N_BUFFERS 2
 
 static inline void vexpf_baseline(double *a, double *b) {
-    int n_batches = LEN / BATCH_SIZE;
+    int n_batches = len / batch_size;
     int n_iterations = n_batches + 2;
 
     double *a_buffers[N_BUFFERS];
     double *b_buffers[N_BUFFERS];
 
-    a_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    a_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
+    a_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    a_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
 
     unsigned int dma_a_idx = 0;
     unsigned int dma_b_idx = 0;
@@ -40,7 +40,7 @@ static inline void vexpf_baseline(double *a, double *b) {
                 dma_a_ptr = a_buffers[dma_a_idx];
 
                 // DMA transfer
-                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, BATCH_SIZE,
+                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, batch_size,
                                       sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -54,7 +54,7 @@ static inline void vexpf_baseline(double *a, double *b) {
                 dma_b_ptr = b_buffers[dma_b_idx];
 
                 // DMA transfer
-                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 2, BATCH_SIZE,
+                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 2, batch_size,
                                        sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -72,7 +72,7 @@ static inline void vexpf_baseline(double *a, double *b) {
                 comp_b_ptr = b_buffers[comp_idx];
 
                 // Loop over samples (unrolled by 4)
-                for (int i = 0; i < BATCH_SIZE; i += 4) {
+                for (int i = 0; i < batch_size; i += 4) {
                     asm volatile(
                         // clang-format off
                         "fmul.d  fa3, %[InvLn2N], %[input0] \n" // z = InvLn2N * xd

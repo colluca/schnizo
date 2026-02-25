@@ -9,7 +9,7 @@ static inline void vexpf_naive(double *a, double *b) {
 
     if (snrt_cluster_core_idx() == 0) {
         // Loop over samples
-        for (int i = 0; i < LEN; i++) {
+        for (int i = 0; i < len; i++) {
             asm volatile(
                 // clang-format off
                 "fmul.d  fa3, %[InvLn2N], %[input] \n" // z = InvLn2N * xd

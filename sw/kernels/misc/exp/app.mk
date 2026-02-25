@@ -5,7 +5,9 @@
 # Luca Colagrande <colluca@iis.ee.ethz.ch>
 
 APP              := exp
-SRCS             := $(SN_ROOT)/sw/kernels/misc/$(APP)/main.c
+SRC_DIR          := $(SN_ROOT)/sw/kernels/misc/$(APP)/src
+SRCS             := $(SRC_DIR)/main.c
 $(APP)_BUILD_DIR ?= $(SN_ROOT)/sw/kernels/misc/$(APP)/build
 
+include $(SN_ROOT)/sw/kernels/datagen.mk
 include $(SN_ROOT)/sw/kernels/common.mk
