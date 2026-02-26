@@ -52,7 +52,7 @@ float glibc_logf(float x) {
 }
 
 void vlogf_glibc(float *a, double *b) {
-    for (int i = 0; i < LEN; i++) {
+    for (int i = 0; i < len; i++) {
         b[i] = (double)glibc_logf(a[i]);
     }
 }
