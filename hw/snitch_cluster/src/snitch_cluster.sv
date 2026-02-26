@@ -539,9 +539,9 @@ module snitch_cluster
   // Event counter increments for the TCDM.
   typedef struct packed {
     /// Number requests going in
-    logic [$clog2(NrTCDMPortsCores):0] inc_accessed;
+    logic [$clog2(NrTCDMPortsCores+1)-1:0] inc_accessed;
     /// Number of requests stalled due to congestion
-    logic [$clog2(NrTCDMPortsCores):0] inc_congested;
+    logic [$clog2(NrTCDMPortsCores+1)-1:0] inc_congested;
   } tcdm_events_t;
 
   // Event counter increments for DMA.
