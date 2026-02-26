@@ -19,13 +19,13 @@ jobs:
     runs-on: ubuntu-22.04
     # Skip on forks due to missing secrets.
     if: >
-      github.repository == 'pulp-platform/snitch_cluster'
+      github.event.repository.fork == false
     steps:
       - name: Check Gitlab CI
         uses: pulp-platform/pulp-actions/gitlab-ci@v2.4.3
         with:
           domain: iis-git.ee.ethz.ch
-          repo: github-mirror/snitch_cluster
+          repo: github-mirror/${{ github.event.repository.name }}
           token: ${{ secrets.GITLAB_TOKEN }}
           poll-period: 20
           poll-count: 1000
