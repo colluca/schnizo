@@ -95,9 +95,9 @@ snitch-cluster-vsim:
   script:
     - make vsim -j
     - cd test
-    - ../util/experiments/run.py schnizo-orig.yaml --simulator vsim -j --run-dir runs/schniz-orig
-    - ../util/experiments/run.py schnizo.yaml --simulator vsim -j --run-dir runs/schnizo
-    - ../util/experiments/run.py riscv_tests_isa.yaml --simulator vsim -j --run-dir runs/riscv_tests_isa
+    - ../util/experiments/run.py schnizo-orig.yaml -j --run-dir runs/schniz-orig
+    - ../util/experiments/run.py schnizo.yaml -j --run-dir runs/schnizo
+    - ../util/experiments/run.py riscv_tests_isa.yaml -j --run-dir runs/riscv_tests_isa
     # Test convenience Make target
     - cd ..
     - make vsim-run BINARY=$PWD/sw/kernels/blas/sz_axpy/build/sz_axpy.elf \
@@ -130,23 +130,6 @@ snitch-cluster-omega-vsim:
     - make vsim -j
     - cd test
     - ../util/experiments/run.py schnizo-orig.yaml --simulator vsim -j --run-dir runs/vsim
-
-# # Test Multi-channel DMA
-# snitch-cluster-mchan-vsim:
-#   script:
-#     - make CFG_OVERRIDE=cfg/dma_mchan.json sw -j
-#     - make vsim -j
-#     - cd test
-#     - ../util/experiments/run.py dma_mchan.yaml --simulator vsim -j --run-dir runs/vsim
-
-# # Test Mempool configuration
-# snitch-cluster-mempool-vsim:
-#   script:
-#     - make CFG_OVERRIDE=cfg/mempool.json SN_MCPU=snitch-mempool sw -j
-#     - make vsim -j
-#     - cd test
-#     - ../util/experiments/run.py mempool.yaml --simulator vsim -j --run-dir runs/vsim
-#     - make -C .. SIM_DIR=$PWD/runs/vsim/simple SN_MCPU=snitch-mempool annotate -j
 
 ###################################
 # Open-source implementation flow #
