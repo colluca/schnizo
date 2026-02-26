@@ -9,9 +9,10 @@
 #define IMPL_OPTIMIZED 2
 #define IMPL_ISSR 3
 #define IMPL_OPTIMIZED_V2 4
+#define IMPL_SCHNIZO 5
 
 #ifndef IMPL
-#define IMPL IMPL_BASELINE
+#define IMPL IMPL_SCHNIZO
 #endif
 
 #if IMPL == IMPL_NAIVE
@@ -22,6 +23,8 @@
 #define FUNC_PTR vlogf_optimized
 #elif IMPL == IMPL_OPTIMIZED_V2
 #define FUNC_PTR vlogf_optimized_v2
+#elif IMPL == IMPL_SCHNIZO
+#define FUNC_PTR vlogf_schnizo
 #endif
 
 #define ALLOCATE_BUFFER(type, size) \
@@ -60,6 +63,7 @@ __thread const uint32_t OFF = 0x3f330000;
 #include "vlogf_naive.h"
 #include "vlogf_optimized.h"
 #include "vlogf_optimized_v2.h"
+#include "vlogf_schnizo.h"
 
 static inline void vlogf_kernel(float *a, double *b) {
     snrt_mcycle();
