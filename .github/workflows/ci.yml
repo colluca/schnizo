@@ -188,66 +188,9 @@ jobs:
       - name: Run Tests
         working-directory: test
         run: |
-          ../util/experiments/run.py run.yaml --simulator verilator -j
+          ../util/experiments/run.py schnizo-orig.yaml --simulator verilator -j
+          ../util/experiments/run.py schnizo.yaml --simulator verilator -j
           ../util/experiments/run.py riscv_tests_isa.yaml --simulator verilator -j
-      - name: Annotate traces
-        # Build the traces using the --permissive flag, since the Verilator
-        # testbench does not wait until all the instructions are retired
-        # (compiler introduces few instructions after exit routine).
-        run: |
-          make SIM_DIR=./test/runs/simple DEBUG=ON annotate -j
-
-  ########################################################
-  # Simulate SW on Snitch Cluster (Mempool) w/ Verilator #
-  ########################################################
-
-  snitch-mempool-cluster-vlt:
-    name: Build and Simulate Mempool Snitch Cluster w/ Verilator
-    runs-on: ubuntu-22.04
-    needs: [docker-meta, build-hw-image]
-    container:
-      image: ${{ needs.docker-meta.outputs.hw_image_name }}
-      volumes:
-        - ${{ github.workspace }}:/repo
-    defaults:
-      run:
-        working-directory: /repo
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: 'recursive'
-      - uses: ./.github/actions/setup-python
-      - name: Hash Verilator prerequisites
-        id: verilator-hash
-        run: |
-          hash=$(list-make-prerequisites verilator --recursive --hash)
-          echo "hash=$hash" >> "$GITHUB_OUTPUT"
-      - name: Set up cache for Verilator build
-        id: verilator-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            /repo/target/sim/build/bin
-          key: verilator-mempool-${{ steps.verilator-hash.outputs.hash }}
-          restore-keys: |
-            verilator-mempool-
-      - name: Build Hardware
-        if: steps.verilator-cache.outputs.cache-hit != 'true'
-        run: |
-          make CFG_OVERRIDE=cfg/mempool.json verilator
-      - name: Build Software for mempool tests
-        run: |
-          make sw CFG_OVERRIDE=cfg/mempool.json SN_MCPU=snitch-mempool -j
-      - name: Run Tests
-        run: |
-          cd test
-          ../util/experiments/run.py mempool.yaml --simulator verilator -j
-      - name: Annotate traces
-        # Build the traces using the --permissive flag, since the Verilator
-        # testbench does not wait until all the instructions are retired
-        # (compiler introduces few instructions after exit routine).
-        run: |
-          make SIM_DIR=./test/runs/simple SN_MCPU=snitch-mempool DEBUG=ON annotate -j
 
   #############
   # Synthesis #
