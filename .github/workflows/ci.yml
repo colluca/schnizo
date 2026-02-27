@@ -184,7 +184,7 @@ jobs:
       - uses: ./.github/actions/setup-python
       - name: Build Software
         run: |
-          make sw -j
+          make CFG_OVERRIDE=cfg/github-ci.json sw -j
       - name: Run Tests
         working-directory: test
         run: |

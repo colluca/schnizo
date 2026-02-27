@@ -146,7 +146,7 @@ COPY . ${REPO_DIR}
 WORKDIR ${REPO_DIR}
 
 # Build the verilator model
-RUN uv run make verilator
+RUN uv run make verilator CFG_OVERRIDE=cfg/github-ci.json
 
 #-------------------------------------------------------------------------------
 # Stage 4: Software development stage
