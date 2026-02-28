@@ -6,11 +6,14 @@
 //
 // The ALU consists of an adder, a comparison part for branch resolving and an arithmetic
 // shifter unit. It is based on the CVA6 alu module.
+// TODO(colluca): is it possible that adding the multiplier here, with its longer latency,
+// breaks some corner-case in case of a "race condition" with a branch instruction?
 module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
-  parameter int unsigned XLEN        = 32,
-  parameter bit          HasBranch   = 1'b1,
-  parameter type         issue_req_t = logic,
-  parameter type         instr_tag_t = logic
+  parameter int unsigned XLEN          = 32,
+  parameter bit          HasBranch     = 1'b1,
+  parameter bit          HasMultiplier = 1'b0,
+  parameter type         issue_req_t   = logic,
+  parameter type         instr_tag_t   = logic
 ) (
   input  logic            clk_i,
   input  logic            rst_i,
@@ -32,15 +35,47 @@ module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output logic            busy_o
 );
 
-  // ---------------------
-  // Valid/Ready handshake
-  // ---------------------
-  // This ALU is combinatorial only. Feed through handshake.
-  assign result_valid_o    = issue_req_valid_i;
-  assign issue_req_ready_o = result_ready_i;
-  assign tag_o             = issue_req_i.tag;
-  // The ALU is busy if there is valid data passing through.
-  assign busy_o = issue_req_valid_i;
+  typedef struct packed {
+    logic [XLEN-1:0] result;
+    instr_tag_t      tag;
+  } result_and_tag_t;
+
+  // ---------------
+  // Datapath DEMUX
+  // ---------------
+
+  logic sel_mul;
+
+  always_comb begin : datapath_select
+    sel_mul = 1'b0;
+
+    unique case (issue_req_i.fu_data.alu_op)
+      AluOpAdd,
+      AluOpSub,
+      AluOpXor,
+      AluOpOr,
+      AluOpAnd,
+      AluOpSlt,
+      AluOpSltu,
+      AluOpSll,
+      AluOpSrl,
+      AluOpSra: sel_mul = 1'b0;
+      default:  sel_mul = 1'b1;
+    endcase
+  end
+
+  logic alu_issue_valid, alu_issue_ready;
+  logic mul_issue_valid, mul_issue_ready;
+
+  stream_demux #(
+    .N_OUP(2)
+  ) i_issue_demux (
+    .inp_valid_i(issue_req_valid_i),
+    .inp_ready_o(issue_req_ready_o),
+    .oup_sel_i(sel_mul),
+    .oup_valid_o({mul_issue_valid, alu_issue_valid}),
+    .oup_ready_i({mul_issue_ready, alu_issue_ready})
+  );
 
   // ------------------
   // Operand extraction
@@ -75,6 +110,41 @@ module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign adder_result_ext  = adder_in_a + adder_in_b;
   assign adder_result      = adder_result_ext[XLEN:1];
   assign adder_res_is_zero = ~|adder_result;
+
+  // -----------
+  // Multiplier
+  // -----------
+
+  logic            mul_result_valid;
+  logic            mul_result_ready;
+  result_and_tag_t mul_result_and_tag;
+  logic            mul_busy;
+
+  if (HasMultiplier) begin : gen_multiplier
+    schnizo_multiplier #(
+      .Width(XLEN),
+      .IdWidth($bits(instr_tag_t))
+    ) i_multiplier (
+      .clk_i,
+      .rst_ni(!rst_i),
+      .id_i(issue_req_i.tag),
+      .operator_i(alu_op),
+      .operand_a_i(opa),
+      .operand_b_i(opb),
+      .valid_i(mul_issue_valid),
+      .ready_o(mul_issue_ready),
+      .result_o(mul_result_and_tag.result),
+      .valid_o(mul_result_valid),
+      .ready_i(mul_result_ready),
+      .id_o(mul_result_and_tag.tag),
+      .busy_o(mul_busy)
+    );
+  end else begin : gen_no_multiplier
+    assign mul_issue_ready = 1'b0;
+    assign mul_result_valid = 1'b0;
+    assign mul_result_and_tag = '0;
+    assign mul_busy = 1'b0;
+  end
 
   // ------------
   // Comparisons
@@ -144,21 +214,24 @@ module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // -----------
   // Result MUX
   // -----------
+
+  result_and_tag_t alu_result_and_tag;
+
   always_comb begin : result_mux
-    result_o = '0;
+    alu_result_and_tag.tag = issue_req_i.tag;
 
     unique case (alu_op)
       AluOpAdd,
-      AluOpSub:  result_o = adder_result;
-      AluOpXor:  result_o = xor_result;
-      AluOpOr:   result_o = or_result;
-      AluOpAnd:  result_o = and_result;
+      AluOpSub:  alu_result_and_tag.result = adder_result;
+      AluOpXor:  alu_result_and_tag.result = xor_result;
+      AluOpOr:   alu_result_and_tag.result = or_result;
+      AluOpAnd:  alu_result_and_tag.result = and_result;
       AluOpSlt,
-      AluOpSltu: result_o = {{(XLEN-1){1'b0}}, op_a_is_less};
+      AluOpSltu: alu_result_and_tag.result = {{(XLEN-1){1'b0}}, op_a_is_less};
       AluOpSll,
       AluOpSrl,
-      AluOpSra:  result_o = shift_result;
-      default:   result_o = '0;
+      AluOpSra:  alu_result_and_tag.result = shift_result;
+      default:   alu_result_and_tag.result = '0;
     endcase
   end
 
@@ -181,16 +254,34 @@ module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign compare_res_o = 1'b0;
   end
 
-  // --------------
-  // Unused Signals
-  // --------------
-  // clk_i and rst_i are only used by assertions
-  logic unused_clk;
-  logic unused_rst;
-  assign unused_clk = clk_i;
-  assign unused_rst = rst_i;
+  // -------------
+  // Datapath MUX
+  // -------------
 
-  // TODO: unused adder & shifter bits
+  logic alu_result_valid, alu_result_ready;
+  result_and_tag_t result_and_tag;
+
+  assign alu_result_valid = alu_issue_valid;
+  assign alu_issue_ready = alu_result_ready;
+
+  stream_arbiter #(
+    .DATA_T(result_and_tag_t),
+    .N_INP(2)
+  ) i_result_arbiter (
+    .clk_i,
+    .rst_ni     (!rst_i),
+    .inp_data_i ({mul_result_and_tag, alu_result_and_tag}),
+    .inp_valid_i({mul_result_valid, alu_result_valid}),
+    .inp_ready_o({mul_result_ready, alu_result_ready}),
+    .oup_data_o (result_and_tag),
+    .oup_valid_o(result_valid_o),
+    .oup_ready_i(result_ready_i)
+  );
+
+  assign result_o = result_and_tag.result;
+  assign tag_o = result_and_tag.tag;
+  // The ALU is busy if there is valid data passing through.
+  assign busy_o = alu_issue_valid || mul_busy;
 
   ////////////
   // Tracer //

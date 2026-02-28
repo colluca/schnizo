@@ -177,8 +177,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     acc_req_o.data_op = instr_fetch_data_i;
 
     unique case (instr_dec_i.fu)
+      schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
-        // always select ALU0 for branch instructions
+        // always select ALU0 for branch and MUL instructions
         alu_disp_req_valid_o[0] = dispatch_valid_i;
       end
       schnizo_pkg::ALU: begin
@@ -229,8 +230,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     fu_rs_full  = 1'b0;
 
     unique case (instr_dec_i.fu)
+      schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
-        // always select ALU0 for branch instructions
+        // always select ALU0 for branch and MUL instructions
         fu_response = alu_disp_rsp_i[0];
         fu_ready    = alu_disp_req_ready_i[0];
         fu_rs_full  = alu_rs_full_i[0];

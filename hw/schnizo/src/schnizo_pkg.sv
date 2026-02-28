@@ -18,6 +18,7 @@ package schnizo_pkg;
     LOAD,
     STORE,
     ALU,
+    MUL,
     CTRL_FLOW,
     MULDIV, // shared muldiv unit from hive
     CSR,
@@ -38,11 +39,15 @@ package schnizo_pkg;
   // as having a separate enum for each FU.
 
   // ALU Operations
-  typedef enum logic [3:0] {
-    // arithmetic
+  typedef enum logic [4:0] {
+    // Arithmetic
     AluOpAdd,
     AluOpSub,
-    // logical
+    AluOpMul,
+    AluOpMulh,
+    AluOpMulhu,
+    AluOpMulhsu,
+    // Logical
     AluOpXor,
     AluOpOr,
     AluOpAnd,
@@ -242,6 +247,7 @@ package schnizo_pkg;
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE:     name = "LSU";
       schnizo_pkg::ALU,
+      schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: name = "ALU";
       schnizo_pkg::CSR:       name = "CSR";
       schnizo_pkg::FPU:       name = "FPU";

@@ -564,6 +564,15 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // ALUs //
   //////////
 
+  typedef logic [cf_math_pkg::idx_width(AluNofRss)-1:0] alu_rs_tag_t;
+
+  typedef logic [cf_math_pkg::max($bits(alu_rs_tag_t),$bits(instr_tag_t))-1:0] alu_instr_tag_t;
+
+  typedef struct packed {
+    fu_data_t       fu_data;
+    alu_instr_tag_t tag;
+  } alu_issue_req_t;
+
   typedef struct packed {
     alu_result_t result;
     instr_tag_t  tag;
@@ -577,21 +586,21 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
     // Helper signals to merge the result and tag
-    alu_res_val_t alu_wb_result_value;
-    instr_tag_t   alu_wb_result_tag;
+    alu_res_val_t   alu_wb_result_value;
+    alu_instr_tag_t alu_wb_result_tag;
 
     // Signals connecting the FU block and the actual FU
-    issue_req_t   alu_issue_req;
-    logic         alu_issue_req_valid;
-    logic         alu_issue_req_ready;
-    logic         alu_exec_commit;
-    alu_result_t  alu_result;
-    alu_res_val_t alu_result_value;
-    instr_tag_t   alu_result_tag;
-    logic         alu_result_valid_raw;
-    logic         alu_result_valid;
-    logic         alu_result_ready;
-    logic         alu_busy;
+    alu_issue_req_t alu_issue_req;
+    logic           alu_issue_req_valid;
+    logic           alu_issue_req_ready;
+    logic           alu_exec_commit;
+    alu_result_t    alu_result;
+    alu_res_val_t   alu_result_value;
+    alu_instr_tag_t alu_result_tag;
+    logic           alu_result_valid_raw;
+    logic           alu_result_valid;
+    logic           alu_result_ready;
+    logic           alu_busy;
 
     producer_id_t producer_start_id;
     assign producer_start_id = producer_id_t'{
@@ -607,9 +616,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (issue_req_t),
+      .issue_req_t   (alu_issue_req_t),
       .result_t      (alu_res_val_t),
-      .instr_tag_t   (instr_tag_t),
+      .instr_tag_t   (alu_instr_tag_t),
       .NofRss        (AluNofRss),
       .NofOperands   (AluNofOperands),
       .NofOpPorts    (AluNofOpPorts),
@@ -687,10 +696,11 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign alu_wbs_result_and_tag[alu].tag = alu_wb_result_tag;
 
     schnizo_alu #(
-      .XLEN       (XLEN),
-      .HasBranch  (alu == '0), // only the first ALU has the branch logic
-      .issue_req_t(issue_req_t),
-      .instr_tag_t(instr_tag_t)
+      .XLEN         (XLEN),
+      .HasBranch    (alu == '0), // only the first ALU has the branch logic
+      .HasMultiplier(alu == '0), // only the first ALU has the multiplier
+      .issue_req_t  (alu_issue_req_t),
+      .instr_tag_t  (alu_instr_tag_t)
     ) i_alu (
       .clk_i,
       .rst_i,
@@ -728,7 +738,14 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // Therefore, we must "kill" the writeback if we don't commit. The kill must be after the result
     // as otherwise we create a loop. For the other FUs the "kill" is before we pass the instruction
     // downstream.
-    assign alu_result_valid = alu_result_valid_raw & alu_exec_commit;
+    // TODO(colluca): this can no longer be applied after addition of the multiplier which, taking
+    // multiple cycles, does not receive alu_exec_commit in the cycle of its writeback. As a result,
+    // the writeback never occurs.
+    // In any case, this does not sound needed to me. Branch instructions never writeback to the RF.
+    // The only side effect they have is on the PC, but this does not seem to depend on
+    // alu_result_valid at all.
+    // assign alu_result_valid = alu_result_valid_raw & alu_exec_commit;
+    assign alu_result_valid = alu_result_valid_raw;
   end
 
   // ALU branch result forwarding
@@ -974,9 +991,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [FLEN-1:0] fpu_result_t;
 
-  typedef logic [cf_math_pkg::idx_width(FpuNofRss)-1:0] rs_tag_t;
+  typedef logic [cf_math_pkg::idx_width(FpuNofRss)-1:0] fpu_rs_tag_t;
 
-  typedef logic [cf_math_pkg::max($bits(rs_tag_t),$bits(instr_tag_t))-1:0] fpu_instr_tag_t;
+  typedef logic [cf_math_pkg::max($bits(fpu_rs_tag_t),$bits(instr_tag_t))-1:0] fpu_instr_tag_t;
 
   typedef struct packed {
     fu_data_t       fu_data;
