@@ -93,6 +93,8 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
       // Always generate the core trace. This trace serves as the basis of the trace event.
       // This trace is extended with the details of the active FU.
+      // TODO(colluca): could this be one of the reasons why the simulation is much slower than
+      // Snitch?
       trace_header = format_trace_header($time, cycle, core_trace);
 
       lcp_details = '{

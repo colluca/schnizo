@@ -266,7 +266,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // Integer Reg-Reg Operations
       // --------------------------------
       OpcodeOpReg: begin
-        instr_dec_o.fu = schnizo_pkg::ALU; // Change MUX between ALU and MUL if M enabled
+        instr_dec_o.fu = schnizo_pkg::ALU;
         instr_dec_o.rs1 = instr.rtype.rs1;
         instr_dec_o.rs2 = instr.rtype.rs2;
         instr_dec_o.rd  = instr.rtype.rd;
@@ -282,11 +282,23 @@ module schnizo_decoder import schnizo_pkg::*; #(
           {7'b000_0000, 3'b001} : instr_dec_o.alu_op = schnizo_pkg::AluOpSll; //Shift Left Logical
           {7'b000_0000, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::AluOpSrl; //Shift Right Logical
           {7'b010_0000, 3'b101} : instr_dec_o.alu_op = schnizo_pkg::AluOpSra; //Shift Right Arithm
-          // Multiplication & Division: Offloaded to accelerator
-          {7'b000_0001, 3'b000},       // MUL
-          {7'b000_0001, 3'b001},       // MULH
-          {7'b000_0001, 3'b010},       // MULHSU
-          {7'b000_0001, 3'b011},       // MULHU
+          {7'b000_0001, 3'b000} : begin
+            instr_dec_o.fu = schnizo_pkg::MUL;
+            instr_dec_o.alu_op = schnizo_pkg::AluOpMul;
+          end
+          {7'b000_0001, 3'b001} : begin
+            instr_dec_o.fu = schnizo_pkg::MUL;
+            instr_dec_o.alu_op = schnizo_pkg::AluOpMulh;
+          end
+          {7'b000_0001, 3'b010} : begin
+            instr_dec_o.fu = schnizo_pkg::MUL;
+            instr_dec_o.alu_op = schnizo_pkg::AluOpMulhsu;
+          end
+          {7'b000_0001, 3'b011} : begin
+            instr_dec_o.fu = schnizo_pkg::MUL;
+            instr_dec_o.alu_op = schnizo_pkg::AluOpMulhu;
+          end
+          // Division: Offloaded to accelerator
           {7'b000_0001, 3'b100},       // DIV
           {7'b000_0001, 3'b101},       // DIVU
           {7'b000_0001, 3'b110},       // REM

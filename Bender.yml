@@ -170,7 +170,9 @@ sources:
       # Level 0
       - hw/schnizo/src/schnizo_pkg.sv
       # Level 1
+      # TODO(colluca): update
       - hw/schnizo/src/schnizo_tracer_pkg.sv
+      - hw/schnizo/src/schnizo_multiplier.sv
       - hw/schnizo/src/schnizo_alu.sv
       - hw/schnizo/src/schnizo_decoder.sv
       - hw/schnizo/src/schnizo_dispatcher.sv
