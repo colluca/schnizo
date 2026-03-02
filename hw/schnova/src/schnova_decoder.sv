@@ -1,3 +1,9 @@
+// Copyright 2026 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
+// Author: Stefan Odermatt <soderma@ethz.ch>
+
 module schnova_decoder import schnizo_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter bit          Xdma        = 0,
