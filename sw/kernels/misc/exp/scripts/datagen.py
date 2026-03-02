@@ -21,12 +21,13 @@ class ExpDataGen(du.DataGen):
 
     def validate(self, **kwargs):
         # Calculate total TCDM occupation
-        # Note: doesn't account for double buffering
         a_size = kwargs['batch_size'] * 8
         b_size = kwargs['batch_size'] * 8
         total_size = a_size
         total_size += b_size
-        total_size *= 2
+        # Double buffering is used if there is more than one tile
+        if kwargs['batch_size'] != kwargs['len']:
+            total_size *= 2
         du.validate_tcdm_footprint(total_size)
 
     def emit_header(self, **kwargs):
