@@ -65,7 +65,8 @@
                 icache: {
                     size: 8, // total instruction cache size in kByte
                     ways: 2, // number of ways
-                    cacheline: 512 // word size in bits
+                    cacheline: 512, // word size in bits
+                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -98,6 +99,7 @@
         isa: "rv32imafd",
         xssr: false,
         xfrep: false,
+        dyn_scheduling: false, // true: schnova core is used, false: schnizo is used
         xcopift: false,
         xdma: false,
         xf16: true,
