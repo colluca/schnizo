@@ -208,7 +208,7 @@ sources:
       # Level 1
       - hw/schnova/src/schnova_frontend.sv
       # Level 2
-      - hw/schnova/src/schnova_controller.sv 
+      - hw/schnova/src/schnova_controller.sv
       # Level 3
       # Level 4
       # Level 5
