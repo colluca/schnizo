@@ -69,6 +69,7 @@ package ${cfg['cluster']['name']}_pkg;
   localparam int unsigned ICacheLineWidth [NrHives] = '{${icache_cfg('cacheline')}};
   localparam int unsigned ICacheLineCount [NrHives] = '{${icache_cfg('depth')}};
   localparam int unsigned ICacheWays [NrHives] = '{${icache_cfg('ways')}};
+  localparam int unsigned ICacheFetchDataWidth = ${icache_cfg('fetch_data_width')};
   localparam bit ICacheL1TagScm [NrHives] = '{${icache_cfg('tag_scm')}};
   localparam bit ICacheL1DataScm [NrHives] = '{${icache_cfg('data_scm')}};
 
