@@ -16,6 +16,8 @@ module snitch_hive import snitch_icache_pkg::*; #(
   parameter int unsigned ICacheLineCount    = 128,
   /// Number of icache ways.
   parameter int unsigned ICacheWays         = 4,
+  /// Number of bits that get fetched per fetch request
+  parameter int unsigned ICacheFetchDataWidth = 32,
   parameter bit          ICacheL1TagScm     = 1'b0,
   parameter bit          ICacheL1DataScm    = 1'b0,
   parameter bit          IsoCrossing        = 1,
@@ -66,7 +68,7 @@ module snitch_hive import snitch_icache_pkg::*; #(
 
   addr_t [CoreCount-1:0] inst_addr;
   logic [CoreCount-1:0] inst_cacheable;
-  logic [CoreCount-1:0][31:0] inst_data;
+  logic [CoreCount-1:0][ICacheFetchDataWidth-1:0] inst_data;
   logic [CoreCount-1:0] inst_valid;
   logic [CoreCount-1:0] inst_ready;
   logic [CoreCount-1:0] inst_error;
@@ -85,22 +87,22 @@ module snitch_hive import snitch_icache_pkg::*; #(
     assign hive_rsp_o[i].inst_error = inst_error[i];
     assign hive_rsp_o[i].flush_i_ready = flush_ready[i];
   end
-
+  
   snitch_icache #(
-    .NR_FETCH_PORTS     ( CoreCount        ),
-    .L0_LINE_COUNT      ( 8                ),
-    .LINE_WIDTH         ( ICacheLineWidth  ),
-    .LINE_COUNT         ( ICacheLineCount  ),
-    .WAY_COUNT          ( ICacheWays       ),
-    .FETCH_AW           ( AddrWidth        ),
-    .FETCH_DW           ( 32               ),
-    .FILL_AW            ( AddrWidth        ),
-    .FILL_DW            ( WideDataWidth    ),
-    .SERIAL_LOOKUP      ( 0                ),
-    .L1_TAG_SCM         ( ICacheL1TagScm   ),
-    .L1_DATA_SCM        ( ICacheL1DataScm  ),
-    .NUM_AXI_OUTSTANDING( 2                ),
-    .EARLY_LATCH        ( 0                ),
+    .NR_FETCH_PORTS     ( CoreCount            ),
+    .L0_LINE_COUNT      ( 8                    ),
+    .LINE_WIDTH         ( ICacheLineWidth      ),
+    .LINE_COUNT         ( ICacheLineCount      ),
+    .WAY_COUNT          ( ICacheWays           ),
+    .FETCH_AW           ( AddrWidth            ),
+    .FETCH_DW           ( ICacheFetchDataWidth ),
+    .FILL_AW            ( AddrWidth            ),
+    .FILL_DW            ( WideDataWidth        ),
+    .SERIAL_LOOKUP      ( 0                    ),
+    .L1_TAG_SCM         ( ICacheL1TagScm       ),
+    .L1_DATA_SCM        ( ICacheL1DataScm      ),
+    .NUM_AXI_OUTSTANDING( 2                    ),
+    .EARLY_LATCH        ( 0                    ),
     .L0_EARLY_TAG_WIDTH ( snitch_pkg::PageShift - $clog2(ICacheLineWidth/8) ),
     .ISO_CROSSING       ( IsoCrossing     ),
     .sram_cfg_tag_t     ( sram_cfg_t ),
