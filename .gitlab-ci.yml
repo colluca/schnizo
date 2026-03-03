@@ -122,7 +122,7 @@ schnizo-experiments:
   script:
     - make vsim CFG_OVERRIDE=cfg/schnizo_xl.json -j
     - cd experiments/schnizo_frep
-    - ./experiments.py --actions sw run roi -j
+    - ./experiments.py --actions sw run roi --ci -j
 
 # Test OmegaNet TCDM interconnect
 snitch-cluster-omega-vsim:

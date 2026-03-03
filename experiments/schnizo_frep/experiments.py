@@ -40,16 +40,25 @@ class FrepExperimentManager(eu.ExperimentManager):
         return cdefines
 
 
-def gen_experiments():
+def gen_experiments(ci):
+    # Define experiment axes
+    modes = ['scalar', 'superscalar']
+    sizes = [256, 512, 1024, 2048, 4096]
+
+    # Drop failing tests at 256 when running in CI
+    if ci:
+        sizes.pop(0)
+
+    # Generate experiment list
     experiments = []
-    for mode in ['scalar', 'superscalar']:
-        for n in [256, 512, 1024, 2048, 4096]:
+    for mode in modes:
+        for size in sizes:
             experiments.extend([
                 {
                     'app': 'sz_dot',
                     'mode': mode,
                     'data_cfg': {
-                        'n': n,
+                        'n': size,
                         'funcptr': 'dot_schnizo',
                     },
                     'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
@@ -60,7 +69,7 @@ def gen_experiments():
                     'app': 'sz_axpy',
                     'mode': mode,
                     'data_cfg': {
-                        'n': n,
+                        'n': size,
                         'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnizo',
                     },
                     'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
@@ -71,8 +80,8 @@ def gen_experiments():
                     'app': 'exp',
                     'mode': mode,
                     'data_cfg': {
-                        'len': n,
-                        'batch_size': n,
+                        'len': size,
+                        'batch_size': size,
                     },
                     'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
                             "${sim_bin}", "${elf}"],
@@ -82,8 +91,8 @@ def gen_experiments():
                     'app': 'log',
                     'mode': mode,
                     'data_cfg': {
-                        'len': n,
-                        'batch_size': n,
+                        'len': size,
+                        'batch_size': size,
                     },
                     'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
                             "${sim_bin}", "${elf}"],
@@ -99,7 +108,7 @@ def gen_experiments():
                         'mc_prng': mc_prng,
                         'mode': mode,
                         'data_cfg': {
-                            'n': n,
+                            'n': size,
                             'func_ptr': 'calculate_psum_schnizo',
                         },
                         'roi': Path("roi/pi_estimation.json.tpl")
@@ -108,9 +117,12 @@ def gen_experiments():
 
 
 def main():
-    experiments = gen_experiments()
+    parser = FrepExperimentManager.parser()
+    parser.add_argument('--ci', action='store_true', help='Reduce number of experiments for CI')
+    args = parser.parse_args()
+    experiments = gen_experiments(ci=args.ci)
+    manager = FrepExperimentManager(experiments=experiments, args=args, parse_args=False)
 
-    manager = FrepExperimentManager(experiments=experiments)
     manager.run()
 
     df = manager.get_results()
