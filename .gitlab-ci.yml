@@ -117,6 +117,7 @@ snitch-cluster-vsim:
       - test/runs/schnizo/**/sim.txt
 
 schnizo-experiments:
+  timeout: 90m
   needs: [snitch-cluster-sw]
   script:
     - make vsim CFG_OVERRIDE=cfg/schnizo_xl.json -j
