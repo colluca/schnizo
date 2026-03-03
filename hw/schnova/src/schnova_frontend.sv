@@ -17,7 +17,7 @@ module schnova_frontend # (
     parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '{default: 0},
     /// Number of bits that get fetched per fetch request
     parameter int unsigned ICacheFetchDataWidth      = 0,
-    parameter type         instr_dec_t = logic,
+    parameter type         block_ctrl_info_t = logic,
     parameter type addr_t = logic [AddrWidth-1:0]
     ) (
     input  logic clk_i,
@@ -38,8 +38,6 @@ module schnova_frontend # (
     input  logic                              exception_i,
     input  logic                              mret_i,
     input  logic                              sret_i,
-    input  logic                              loop_jump_i,
-    input  logic [31:0]                       loop_jump_addr_i,
     /// To controller
     output logic [31:0]                       pc_o,
     output logic [XLEN-1:0]                   consecutive_pc_o,
@@ -53,10 +51,10 @@ module schnova_frontend # (
     input  logic [31:0]                       mepc_i,
     input  logic [31:0]                       sepc_i,
     /// From decoder
-    input  instr_dec_t                        instr_decoded_i,
+    input  block_ctrl_info_t                  blk_ctrl_info_i,
     /// To decoder and dispatcher
     output logic [PipeWidth-1:0][31:0]   instr_fetch_data_o,
-    output logic [PipeWidth-1:0]                             instr_fetch_data_valid_o
+    output logic [PipeWidth-1:0]         instr_fetch_data_valid_o
 );
     // RV32 instructions are 32 bit/4 bytes
     localparam int unsigned INSTR_BYTES = 4;
@@ -71,6 +69,8 @@ module schnova_frontend # (
     logic [$clog2(PipeWidth)-1:0] instr_index;
     logic            valid_fetch_block; // Whether the current fetch block is valid
     logic [XLEN-1:0] consecutive_pc;
+    // Number of remaining instructions until the next block
+    
     logic [31:0]     pc_d, pc_q; // PC is fixed to 32 bits in RV32
     logic            stall_fetch; // Whether instruction fetch should be stalled
     `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i);
@@ -124,9 +124,7 @@ module schnova_frontend # (
     // - Exception: go to trap handler
     // - MRET, SRET: go to handlers
     // - Jumped PC: for JAL, JALR we take the ALU result. JALR must have last bit reset
-    // - Loop: Go to the beginning of the loop
     // - Consequtive PC: PC+4 or, branch/immediate updates.
-    // TODO(colluca): describe missing loop jump case here
     // - Branched & Consecutive PC: for all regular instructions & branches if taken
 
     // Program counter
@@ -142,19 +140,24 @@ module schnova_frontend # (
     // we would always have invalid instructions per fetch purely because of that.
     // If we have a JAL or JALR, we store the regular consecutive PC (PC+4) in rd.
 
-    // TODO(soderma): Handle branches, do they come from a single ALU? 
+    // TODO(soderma): Assumes the branch will be completed in the same cycle!
     // We have to stall until the branch is resolved, so we would not use the decoded instruction
     // in that case, since it would take one or multiple cycles until we have that result.
     assign consecutive_pc = pc_q +
-        ((instr_decoded_i.is_branch && alu_compare_res_i) ? instr_decoded_i.imm
-        // Next PC is now PC + #instructions used in the last fetch block * 4
-                                                          : (PipeWidth-instr_index) << 2);
+        ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
+        // In case of a branch, we just add the immediate
+                                      blk_ctrl_info_i.imm :
+                                      ((blk_ctrl_info_i.is_fence_i)      ?
+        // In case of a FENCE_I we have to fetch the next instruction after the fence_i
+                                      (blk_ctrl_info_i.instr_idx + 1'b1) :
+        // Next PC is now PC + #instructions used in the last fetch block
+                                      (PipeWidth-instr_index)) << 2);
 
     // If we stall fetch, we don't request a new instruction
     // If however onlly stall_i is asserted, this means we were not able to dispatch the request
     // in that case we have to refetch the same instruction, hence in that case we just don't
     // update the PC, but the fetch is still valid.
-    assign stall_fetch = barrier_stall_i || wfi_i;
+    assign stall_fetch = barrier_stall_i | wfi_i;
 
     always_comb begin : pc_update
       pc_d = pc_q; // per default stay at current PC
@@ -168,13 +171,11 @@ module schnova_frontend # (
           pc_d = mepc_i;
         end else if (sret_i) begin
           pc_d = sepc_i;
-        end else if (instr_decoded_i.is_jal || instr_decoded_i.is_jalr) begin
+        end else if (blk_ctrl_info_i.is_jal || blk_ctrl_info_i.is_jalr) begin
           // Set to alu result. Clear last bit if JALR
-          pc_d = alu_result_i & {{31{1'b1}}, ~instr_decoded_i.is_jalr};
-        end else if (loop_jump_i) begin
-          pc_d = loop_jump_addr_i; // We jump back to the start of the loop
+          pc_d = alu_result_i & {{31{1'b1}}, ~blk_ctrl_info_i.is_jalr};
         end else begin
-          // The consecutive address covers regular and branch instructions
+          // The consecutive address covers regular and branch instructions as well as fence_i
           pc_d = consecutive_pc;
         end
       end
@@ -226,7 +227,7 @@ module schnova_frontend # (
       // Calcualte the instruction index from the current PC
       assign instr_index = pc_q[FETCH_ALIGN-1:INSTR_ALIGN];
 
-      for (genvar i = 0; i < PipeWidth; i++) begin: gen_relaigment_mux_network
+      for (genvar i = 0; i < PipeWidth; i++) begin: gen_realignment_mux_network
         // The instructions are realigned according to the example above, with a multiplexer network
         assign instr_fetch_data_o[i]= instr_fetch_data_i[(i + instr_index)*32 +: 32];
 
