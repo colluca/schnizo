@@ -121,7 +121,7 @@ schnizo-experiments:
   needs: [snitch-cluster-sw]
   script:
     - make vsim CFG_OVERRIDE=cfg/schnizo_xl.json -j
-    - cd experiments/schnizo_frep
+    - cd experiments/micro/perf
     - ./experiments.py --actions sw run roi --ci -j
 
 # Test OmegaNet TCDM interconnect
