@@ -207,6 +207,11 @@ sources:
       - hw/schnova/src/schnova_pkg.sv
       # Level 1
       - hw/schnova/src/schnova_frontend.sv
+      - hw/schnova/src/schnova_decoder.sv
+      - hw/schnova/src/schnova_read_operands.sv
+      - hw/schnova/src/schnova_rmt.sv
+      - hw/schnova/src/schnova_rename.sv
+      - hw/schnova/src/schnova_dispatcher.sv
       # Level 2
       - hw/schnova/src/schnova_controller.sv
       # Level 3
