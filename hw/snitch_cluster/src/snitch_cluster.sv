@@ -1432,6 +1432,7 @@ module snitch_cluster
       .ICacheLineWidth (ICacheLineWidth[i]),
       .ICacheLineCount (ICacheLineCount[i]),
       .ICacheWays (ICacheWays[i]),
+      .ICacheFetchDataWidth (ICacheFetchDataWidth),
       .ICacheL1TagScm (ICacheL1TagScm[i]),
       .ICacheL1DataScm (ICacheL1DataScm[i]),
       .IsoCrossing (IsoCrossing),
