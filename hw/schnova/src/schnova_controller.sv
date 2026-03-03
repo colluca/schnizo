@@ -8,11 +8,11 @@
 //
 // The controller handles instruction dependencies, keeping track of busy registers in a
 // scoreboard. It controls the program flow by updating the PC and stalling instruction fetch and
-// dispatch when necessary, handling exceptions, HW barriers, control flow instructions and HW
-// loops.
+// dispatch when necessary, handling exceptions, HW barriers, control flow instructions.
 module schnova_controller import schnizo_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          Xfrep           = 1,
+  parameter int unsigned PipeWidth       = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
@@ -20,6 +20,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // TODO(colluca): explicitly write Width
   parameter int unsigned MaxIterationsW  = 6,
   parameter type         instr_dec_t     = logic,
+  parameter type         block_ctrl_info_t = logic,
   parameter type         priv_lvl_t      = logic
 ) (
   input  logic clk_i,
@@ -30,34 +31,32 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic            flush_i_ready_i,
   output logic            flush_i_valid_o,
   input  logic [XLEN-1:0] consecutive_pc_i,
-  output logic            loop_jump_o,
-  output logic [31:0]     loop_jump_addr_o,
 
   // Decoder interface
-  input  instr_dec_t instr_decoded_i,
-  input  logic       instr_valid_i,
-  input  logic       instr_decoded_illegal_i,
+  input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
+  input  logic       [PipeWidth-1:0] instr_valid_i,
+  input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
+  input  block_ctrl_info_t           blk_ctrl_info_i,
 
   // Special FREP data
   input  logic [MaxIterationsW-1:0] frep_iterations_i,
 
   // Interface to dispatcher & RS
-  output logic                      dispatch_instr_valid_o,
-  input  logic                      dispatch_instr_ready_i,
-  output logic                      instr_exec_commit_o,
+  output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
+  input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
+  output logic [PipeWidth-1:0]      instr_exec_commit_o,
   output logic                      stall_o,
   input  logic                      rs_full_i,
   input  logic                      all_rs_finish_i,
-  output logic                      goto_lcp2_o,
-  // Number of iterations in LEP. Valid in the last LCP2 cycle (when the last iteration retires).
-  output logic [MaxIterationsW-1:0] lep_iterations_o,
-  output loop_state_e               loop_state_o,
-  output logic                      rs_restart_o,
 
   // Exception source interface
   input  logic        interrupt_i,
   input  logic        csr_exception_raw_i,
-  input  logic [0:0]  lsu_empty_i,
+  input  logic        lsu_empty_i,
+  input  logic        csr_inflight_i,
+  input  logic        ctrl_inflight_i,
+  input  logic        load_inflight_i,
+  input  logic        store_inflight_i,
   input  logic        lsu_addr_misaligned_i,
   input  priv_lvl_t   priv_lvl_i,
 
@@ -71,184 +70,90 @@ module schnova_controller import schnizo_pkg::*; #(
   output logic            ecall_o,
   output logic            ebreak_o,
   output logic            mret_o,
-  output logic            sret_o,
-
-  // GPR & FPR Write back snooping for Scoreboard
-  input  logic                                        gpr_we_i,
-  input  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_i,
-  input  logic                                        fpr_we_i,
-  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i
+  output logic            sret_o
 );
 
-  logic            instr_dispatched;
+  logic [PipeWidth-1:0] instr_dispatched;
   logic            csr_exception;
-
-  ////////////////
-  // Scoreboard //
-  ////////////////
-
-  logic operands_ready;
-  logic destination_ready;
-  logic registers_ready;
-  logic fpr_busy;
-  logic gpr_busy;
-
-  schnizo_scoreboard #(
-    .RegAddrSize(RegAddrSize),
-    .instr_dec_t(instr_dec_t)
-  ) i_scoreboard (
-    .clk_i,
-    .rst_i,
-    .instr_dec_i        (instr_decoded_i),
-    .operands_ready_o   (operands_ready),
-    .destination_ready_o(destination_ready),
-    .fpr_busy_o         (fpr_busy),
-    .gpr_busy_o         (gpr_busy),
-    .dispatched_i       (instr_dispatched),
-    // The write back is snooped to place the reservations and
-    // enable same cycle WAW conflict detection / resolution
-    .write_enable_gpr_i (gpr_we_i),
-    .waddr_gpr_i        (gpr_waddr_i),
-    .write_enable_fpr_i (fpr_we_i),
-    .waddr_fpr_i        (fpr_waddr_i)
-  );
-
-  assign registers_ready = operands_ready & destination_ready;
-
-  ////////////////////////
-  // Loop control logic //
-  ////////////////////////
-
-  logic        loop_start_ready;
-  logic        loop_jump;
-  logic [31:0] loop_jump_addr;
-  logic        loop_stall;
-  logic        frep_sw_error;
-  logic        goto_hw_loop;
-
-  assign loop_jump_o = loop_jump;
-  assign loop_jump_addr_o = loop_jump_addr;
-
-  if (Xfrep) begin : gen_loop_ctrl
-    // Convert the decoded loop iterations to the actual number of iterations.
-    // In Snitch we specify one less in the encoding.
-    logic [MaxIterationsW-1:0] loop_iterations;
-    assign loop_iterations = frep_iterations_i + 1;
-
-    // Convert the loop body size to the actual number of iterations.
-    // In Snitch we specify one less in the encoding.
-    logic [FrepBodySizeWidth-1:0] loop_bodysize;
-    assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
-
-    schnizo_loop_controller #(
-      .AddrWidth     (32),
-      .MaxBodysizeW  (FrepBodySizeWidth),
-      .MaxIterationsW(MaxIterationsW),
-      .instr_dec_t   (instr_dec_t)
-    ) i_loop_ctrl (
-      .clk_i,
-      .rst_i,
-      .instr_decoded_i  (instr_decoded_i),
-      .instr_valid_i    (instr_valid_i),
-      .instr_addr_i     (pc_i),
-      // The next instruction after an FREP can only be the immediately next instruction.
-      // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
-      // on the loop_jump signal. TODO: check address overflow..
-      .next_instr_addr_i(pc_i + 'd4),
-      .stall_i          (stall_o),
-      .exception_i      (exception_o),
-      .rs_full_i        (rs_full_i),
-      .all_rs_finish_i  (all_rs_finish_i),
-
-      .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
-      .loop_start_commit_i(instr_decoded_i.is_frep & instr_exec_commit_o),
-      // A ready response for the commit to adhere to the ready/valid flow.
-      .loop_start_ready_o (loop_start_ready),
-      .loop_bodysize_i    (loop_bodysize),
-      .loop_iterations_i  (loop_iterations),
-      .frep_mode_i        (instr_decoded_i.frep_mode),
-
-      .loop_jump_o     (loop_jump),
-      .loop_jump_addr_o(loop_jump_addr),
-      .loop_stall_o    (loop_stall),
-      .sw_err_o        (frep_sw_error),
-      .loop_state_o    (loop_state_o),
-      .goto_lcp2_o     (goto_lcp2_o),
-      .lep_iterations_o(lep_iterations_o),
-      .rs_restart_o    (rs_restart_o),
-      .goto_hw_loop_o  (goto_hw_loop)
-    );
-  end else begin : gen_no_loop_ctrl
-    assign loop_start_ready = 1'b0;
-    assign loop_jump        = 1'b0;
-    assign loop_jump_addr   = '0;
-    assign loop_stall       = 1'b0;
-    assign frep_sw_error    = 1'b0;
-    assign loop_state_o     = LoopRegular;
-    assign goto_lcp2_o      = 1'b0;
-    assign lep_iterations_o = '0;
-    assign rs_restart_o     = 1'b1;
-    assign goto_hw_loop     = 1'b0;
-  end
 
   ////////////////
   // Exceptions //
   ////////////////
+  // Per instruction exception
+  logic [PipeWidth-1:0] ecall_ex;
+  logic [PipeWidth-1:0] ebreak_ex;
+  logic [PipeWidth-1:0] csr_ex;
+  logic [PipeWidth-1:0] instr_addr_misaligned_ex;
+  logic [PipeWidth-1:0] enter_wfi;
+  logic [PipeWidth-1:0] privileges_violated_raw;
+  logic [PipeWidth-1:0] privileges_violated;
+  logic [PipeWidth-1:0] mret;
+  logic [PipeWidth-1:0] sret;
 
-  assign ecall_o  = instr_decoded_i.is_ecall  && instr_valid_i;
-  assign ebreak_o = instr_decoded_i.is_ebreak && instr_valid_i;
-  assign csr_exception = (instr_decoded_i.fu == CSR) && csr_exception_raw_i && instr_valid_i;
-
-  // Unaligned address check
-  assign instr_addr_misaligned_o = (instr_decoded_i.is_branch ||
-                                    instr_decoded_i.is_jal    ||
-                                    instr_decoded_i.is_jalr)
-                                    && (consecutive_pc_i[1:0] != 2'b0);
-
-  // Check LSU addresses. This exception may only be raised if the LSU dispatch request is valid.
-  // This means the operands must be valid. Otherwise we compute a wrong address and an exception
-  // raised. We may NOT use the dispatch valid signal as these exception signals control this
-  // signal. This would lead to loops. Therefore, we use the operands_ready signal.
-  assign load_addr_misaligned_o  = lsu_addr_misaligned_i && (instr_decoded_i.fu == LOAD) &&
-                                   instr_valid_i && operands_ready;
-  assign store_addr_misaligned_o = lsu_addr_misaligned_i && (instr_decoded_i.fu == STORE) &&
-                                   instr_valid_i && operands_ready;
-
-  // Signal to CSR when entering WFI state.
-  // TODO(colluca): what to do with debug signal?
-  assign enter_wfi_o = instr_decoded_i.is_wfi && instr_valid_i; // && !debug_q;
-
-  // Check privileges for certain instructions
-  logic privileges_violated_raw;
-  logic privileges_violated;
-
-  always_comb begin : check_privileges
-    privileges_violated_raw = 1'b0;
-    if (instr_decoded_i.is_wfi) begin
-      // WFI is not allowed in U-mode
-      if ((priv_lvl_i == PrivLvlU)) begin
-        privileges_violated_raw = 1'b1;
+  for (genvar instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin: gen_per_instr_exception
+    assign ecall_ex[instr_idx]  = instr_decoded_i[instr_idx].is_ecall  && instr_valid_i[instr_idx];
+    assign ebreak_ex[instr_idx] = instr_decoded_i[instr_idx].is_ebreak && instr_valid_i[instr_idx];
+    // TODO(soderma): Assumes csr instruction will be done in 1 cycle
+    assign csr_ex[instr_idx] =  (instr_decoded_i[instr_idx].fu == CSR) &&
+                                csr_exception_raw_i                    &&
+                                instr_valid_i[instr_idx];
+    // Unaligned address check
+    assign instr_addr_misaligned_ex[instr_idx] = (instr_decoded_i[instr_idx].is_branch ||
+                                    instr_decoded_i[instr_idx].is_jal            ||
+                                    instr_decoded_i[instr_idx].is_jalr)          &&
+                                    (consecutive_pc_i[1:0] != 2'b0);
+    // Signal to CSR when entering WFI state.
+    // TODO(colluca): what to do with debug signal?
+    assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid_i[instr_idx]; // && !debug_q;
+    // Check privileges for certain instructions
+    always_comb begin : check_privileges
+      privileges_violated_raw[instr_idx] = 1'b0;
+      if (instr_decoded_i[instr_idx].is_wfi) begin
+        // WFI is not allowed in U-mode
+        if ((priv_lvl_i == PrivLvlU)) begin
+          privileges_violated_raw[instr_idx] = 1'b1;
+        end
+      end
+      if (instr_decoded_i[instr_idx].is_mret) begin
+        if (priv_lvl_i != PrivLvlM) begin
+          privileges_violated_raw[instr_idx] = 1'b1;
+        end
+      end
+      if (instr_decoded_i[instr_idx].is_sret) begin
+        if (!(priv_lvl_i inside {PrivLvlM, PrivLvlS})) begin
+          privileges_violated_raw[instr_idx] = 1'b1;
+        end
       end
     end
-    if (instr_decoded_i.is_mret) begin
-      if (priv_lvl_i != PrivLvlM) begin
-        privileges_violated_raw = 1'b1;
-      end
-    end
-    if (instr_decoded_i.is_sret) begin
-      if (!(priv_lvl_i inside {PrivLvlM, PrivLvlS})) begin
-        privileges_violated_raw = 1'b1;
-      end
-    end
+    assign privileges_violated[instr_idx] = privileges_violated_raw[instr_idx] && instr_valid_i[instr_idx];
+    // Only update the privilege stack if there is a valid xRET instruction.
+    assign mret[instr_idx] =  instr_decoded_i[instr_idx].is_mret &&
+                              instr_valid_i[instr_idx]           &&
+                              !privileges_violated[instr_idx];
+    assign sret[instr_idx] =  instr_decoded_i[instr_idx].is_sret &&
+                              instr_valid_i[instr_idx]           &&
+                              !privileges_violated[instr_idx];
   end
-  assign privileges_violated = privileges_violated_raw && instr_valid_i;
-
-  // Only update the privilege stack if there is a valid xRET instruction.
-  assign mret_o = instr_decoded_i.is_mret && instr_valid_i && !privileges_violated;
-  assign sret_o = instr_decoded_i.is_sret && instr_valid_i && !privileges_violated;
+  // We have an exception if one of the instructions in the block had an exception
+  assign ecall_o  = |ecall_ex;
+  assign ebreak_o = |ebreak_ex;
+  assign csr_exception = |csr_ex;
+  assign instr_addr_misaligned_o = |instr_addr_misaligned_ex;
+  // Load and store address are missaligned if LSU assert address misaligned
+  // and a load/store operation is currently being processed.
+  assign load_addr_misaligned_o  = lsu_addr_misaligned_i & load_inflight_i;
+  assign store_addr_misaligned_o = lsu_addr_misaligned_i & store_inflight_i;
+  assign enter_wfi_o = |enter_wfi;
+  // xRET instructions are control instructions, there can only be one valid control intstruction per fetch packet.
+  // Therefore we can tell the frontend there is a valid xRET instruction of one of the instructions was a valid xRET
+  // instruction
+  assign mret_o = |mret;
+  assign sret_o = |sret;
 
   // A privilege violation is handled as illegal instruction
-  assign instr_illegal_o = instr_decoded_illegal_i | privileges_violated;
+  // This is done at a instruction block granularity, we throw an exception
+  // if one of the instructions of the block was illegal
+  assign instr_illegal_o = (|instr_decoded_illegal_i) | (|privileges_violated);
 
   // TODO(colluca): what to do with TLB signals?
   assign exception_o = instr_illegal_o
@@ -258,8 +163,7 @@ module schnova_controller import schnizo_pkg::*; #(
                    | instr_addr_misaligned_o
                    | load_addr_misaligned_o
                    | store_addr_misaligned_o
-                   | interrupt_i
-                   | frep_sw_error;
+                   | interrupt_i;
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
 
@@ -268,37 +172,63 @@ module schnova_controller import schnizo_pkg::*; #(
   ////////////
 
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
-  logic all_lsus_empty, fence_stall;
-  assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
-  assign fence_stall = (instr_decoded_i.is_fence & ~all_lsus_empty) & instr_valid_i;
+  logic all_lsus_empty;
+  logic [PipeWidth-1:0] fence_stall;
+  // The lsu_empty_i signal already declares whether all LSUs are empty
+  assign all_lsus_empty = lsu_empty_i;
+  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_fence_stall
+    if (instr_idx == 0) begin: gen_fence_stall
+      // We stall if the instruction is a fence, and not all LSU are empty and it was not
+      // yet dispatched. If it was dispatched, it can be that there still is some fence instruction
+      // in the same fetch block.
+      assign fence_stall[instr_idx] = (instr_decoded_i[instr_idx].is_fence &
+                                      ~all_lsus_empty                      &
+                                      ~instr_dispatched[instr_idx])        &
+                                      instr_valid_i[instr_idx];
+    end else begin: gen_propagate_fence_stall
+      // If a previous instruction is a fence, we also have to stall the current instruction
+      // if it is valid
+      assign fence_stall[instr_idx] = ((instr_decoded_i[instr_idx].is_fence &
+                                      ~all_lsus_empty                       &
+                                      ~instr_dispatched[instr_idx])         |
+                                      fence_stall[instr_idx-1])             &
+                                      instr_valid_i[instr_idx];
+    end
+  end
+
+  // If we observe a CSR instruction, all younger instructions
+  // can only start executing once the CSR instruction was commited.
+  logic [PipeWidth-1:0] csr_stall;
+  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_csr_stall
+    if (instr_idx == 0) begin: gen_no_csr_stall
+      // We only have to stall the first instruction
+      // if a CSR instruction is till being processed
+      assign csr_stall[instr_idx] = csr_inflight_i;
+    end else begin: gen_propagate_csr_stall
+      // We have to stall this instruction if a previous instruction was a csr instruction
+      // that was not yet dispatched or if a CSR instruction is still inflight
+      assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR &
+                                      ~instr_dispatched[instr_idx])         |
+                                      csr_stall[instr_idx-1])               |
+                                      csr_inflight_i)                       &
+                                      instr_valid_i[instr_idx];
+    end
+  end
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
-  // We can continue as soon as the cache responds
+  // Discard all the instructions after the fence_i instruction and update the PC to point
+  // to the next instruction after the FENCE_I. Then only fetch that once all the instructions
+  // before the FENCE_I are retired.
+  // This is already done by invalidating all the instructions after the fence_i instruction.
   logic fence_i_stall;
-  assign flush_i_valid_o = instr_decoded_i.is_fence_i & instr_valid_i;
+  // We flush once we have one valid fence_i instruction in the block
+  assign flush_i_valid_o = blk_ctrl_info_i.is_fence_i;
+  // We stall fetching until the flush was performed
   assign fence_i_stall = flush_i_valid_o & ~flush_i_ready_i;
 
-  // Check if the current instruction wants to read or write the FCSR. If so, stall until no FPU
-  // instructions are ongoing. This ensures that any FCSR access is ordered.
-  logic [11:0] csr_addr;
-  logic        is_fcsr_instr;
-  logic        fcsr_stall;
-
-  assign csr_addr = instr_decoded_i.imm[11:0];
-  assign is_fcsr_instr = (csr_addr inside {riscv_instr::CSR_FFLAGS, riscv_instr::CSR_FRM,
-                                           riscv_instr::CSR_FMODE,  riscv_instr::CSR_FCSR})
-                         && (instr_decoded_i.fu == CSR);
-  // We must stall on both register file scoreboards as certain FPU instructions (FEQ etc.) do also
-  // write back into the integer register file.
-  // TODO(colluca): we should probably use a separate register in the scoreboard to track if there
-  // are any ongoing FPU instructions instead of checking both scoreboards indiscriminately.
-  assign fcsr_stall = fpr_busy & gpr_busy & is_fcsr_instr & instr_valid_i;
-
-  // Before starting an FREP loop all writebacks must be completed. Reason is that during FREP the
-  // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
-  logic frep_start_stall;
-  assign frep_start_stall = (instr_decoded_i.is_frep & instr_valid_i) ? (fpr_busy | gpr_busy) :
-                                                                        1'b0;
+  // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
+  logic ctrl_stall;
+  assign ctrl_stall = blk_ctrl_info_i.is_ctrl & ~ctrl_inflight_i;
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
@@ -308,10 +238,7 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // We can dispatch the current instruction if:
   // - it is valid
-  // - all registers are ready
-  // - no stall due to a FENCE or FCSR
-  // - no stall due to the loop controller
-  // - no exception occurred
+  // - no stall due to a FENCE or CSR
   // - TODO: the Consistency Address Queue (CAQ) between all LSUs are ready
   //
   // TODO(colluca): is this the case also in Snitch?
@@ -323,29 +250,38 @@ module schnova_controller import schnizo_pkg::*; #(
   // from the desired FU. The FU then can raise an exception and the commit signal will prevent
   // any stateful update / blocks the execution.
 
-  logic stall_raw;
-  assign stall_raw = fence_stall   ||
-                     fence_i_stall ||
-                     fcsr_stall    ||
-                     loop_stall    ||
-                     frep_start_stall;
+  logic [PipeWidth-1:0] stall_raw;
+  logic [PipeWidth-1:0] instr_dispatched_mask;
+  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_dispatch_sig
+    assign stall_raw[instr_idx] =   fence_stall[instr_idx]   |
+                                    csr_stall[instr_idx];
+    assign dispatch_instr_valid_o[instr_idx] =  instr_valid_i[instr_idx] &
+                                                !stall_raw[instr_idx];
+    // The instruction may only execute if there are no errors/exceptions.
+    // TODO(colluca): clarify "multi-cycle issues" in following comment
+    // This signal controls all stateful updates like RF writes or multi-cycle issues.
+    assign instr_exec_commit_o[instr_idx] = dispatch_instr_valid_o[instr_idx] & !exception_o;
+    // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
+    // performed successfully. The signal instr_dispatched signals that the current instruction has
+    // been dispatched successfully and the scoreboard can update its state.
+    assign instr_dispatched[instr_idx] =  instr_exec_commit_o[instr_idx] &
+                                          dispatch_instr_ready_i[instr_idx];
+  end
 
-  assign dispatch_instr_valid_o = instr_valid_i   &&
-                                  registers_ready &&
-                                  !stall_raw;
+  // Stall fetching new instructions when we have
+  // to stall because of a FENCE_I instruction
+  // have to wait until a branch/jump is resolved
+  // not all the instructions that were valid
+  // were yet dispatched
 
-  // The instruction may only execute if there are no errors/exceptions.
-  // TODO(colluca): clarify "multi-cycle issues" in following comment
-  // This signal controls all stateful updates like RF writes or multi-cycle issues.
-  logic instr_exec_commit;
-  assign instr_exec_commit = dispatch_instr_valid_o && !exception_o && !goto_hw_loop;
-  assign instr_exec_commit_o = instr_exec_commit;
-
-  // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
-  // performed successfully. The signal instr_dispatched signals that the current instruction has
-  // been dispatched successfully and the scoreboard can update its state.
-  assign instr_dispatched = instr_exec_commit_o && (dispatch_instr_ready_i || loop_start_ready);
-  // During LEP the commit signal is always high but we must stall on the loop stall.
-  assign stall_o = !instr_dispatched;
+  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_instr_disp_mask
+    // If the instruction was not valid, we don't have to dispatch it in the first place
+    // in that case we  treat it as if it successfully dispatched
+    assign instr_dispatched_mask[instr_idx] = (instr_valid_i[instr_idx])  ?
+                                              instr_dispatched[instr_idx] :
+                                              1'b1;
+  end
+  assign stall_o =  fence_i_stall |
+                    ~(|instr_dispatched_mask);
 
 endmodule
