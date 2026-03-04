@@ -308,7 +308,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef struct packed {
     producer_id_t producer;
-    logic         is_produced; // set if producer is a valid mapping
+    logic         valid; // set if producer is a valid mapping
   } rmt_entry_t;
 
   typedef struct packed {
