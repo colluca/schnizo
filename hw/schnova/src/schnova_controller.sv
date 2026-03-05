@@ -31,13 +31,16 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
   // To rename stage
-  output logic                      all_instr_dispatched_o,
+  output logic                      clear_renaming_o,
 
   // Interface to dispatcher & RS
   output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
   input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
   output logic [PipeWidth-1:0]      instr_exec_commit_o,
   output logic                      stall_o,
+   // Asserted if all reservation stations have no instructions in flight.
+  input  logic all_rs_finish_i,
+  output logic rs_restart_o,
 
   // Exception source interface
   input  logic        interrupt_i,
@@ -156,6 +159,9 @@ module schnova_controller import schnizo_pkg::*; #(
                    | interrupt_i;
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
+  // In case of an exception we flush the entire backend
+  assign clear_renaming_o = exception_o;
+  assign rs_restart_o = exception_o;
 
   ////////////
   // Stalls //
@@ -191,17 +197,22 @@ module schnova_controller import schnizo_pkg::*; #(
   logic [PipeWidth-1:0] csr_stall;
   for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_csr_stall
     if (instr_idx == 0) begin: gen_no_csr_stall
-      // We only have to stall the first instruction
-      // if a CSR instruction is till being processed
-      assign csr_stall[instr_idx] = csr_inflight_i;
+      // We have to stall the first instruction
+      // if it is a CSR instruction and was not yet dispatched
+      // and all older instruction have not yet finished their execution.
+      assign csr_stall[instr_idx] = (instr_decoded_i[instr_idx].fu == CSR) &
+                                    ~instr_dispatched[instr_idx]           &
+                                    ~all_rs_finish_i                       &
+                                    instr_valid_i[instr_idx];
     end else begin: gen_propagate_csr_stall
-      // We have to stall this instruction if a previous instruction was a csr instruction
-      // that was not yet dispatched or if a CSR instruction is still inflight
-      assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR &
-                                      ~instr_dispatched[instr_idx])         |
-                                      csr_stall[instr_idx-1])               |
-                                      csr_inflight_i)                       &
-                                      instr_valid_i[instr_idx];
+      // We have to stall all other instructions on the same conditions, in addition
+      // if in this cycle a previous instruction was stalled because of a CSR stall
+      // all younger instructions also have to be stalled
+      assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR) &
+                                    ~instr_dispatched[instr_idx]             &
+                                    ~all_rs_finish_i)                        |
+                                    csr_stall[instr_idx-1])                  &
+                                    instr_valid_i[instr_idx];
     end
   end
 
