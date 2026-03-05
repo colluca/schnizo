@@ -25,7 +25,7 @@ module schnova_rename import schnizo_pkg::*; #(
   input  logic         rst_i,
   // From controller, whether all the instructions in the current fetch block
   // where dispatched successfully
-  input  logic all_instr_dispatched_i;
+  input  logic all_instr_dispatched_i,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
   input  rmt_entry_t   [PipeWidth-1:0]  dest_map_i,
@@ -49,7 +49,7 @@ module schnova_rename import schnizo_pkg::*; #(
   rmt_entry_t [PipeWidth-1:0] new_mapping_rd;
 
   // Whether the instruction was already renamed in a previous cycle
-  logic is_renamed_d, is_renamed_q;
+  logic [PipeWidth-1:0] is_renamed_d, is_renamed_q;
 
   rmt_entry_t no_mapping;
   assign no_mapping = '{
@@ -246,12 +246,5 @@ module schnova_rename import schnizo_pkg::*; #(
       end
     end
   end
-
-  ////////////////
-  // Assertions //
-  //////////// ///
-
-  // This module assumes that NrIntWritePorts == PipeWidth == NrFpWritePorts
-  `ASSERT_INIT(CheckRenameTypeDim, (NrIntWritePorts == PipeWidth) && (NrFpWritePorts == PipeWidth))
 
 endmodule

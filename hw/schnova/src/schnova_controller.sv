@@ -10,15 +10,8 @@
 // scoreboard. It controls the program flow by updating the PC and stalling instruction fetch and
 // dispatch when necessary, handling exceptions, HW barriers, control flow instructions.
 module schnova_controller import schnizo_pkg::*; #(
-  // Enable the superscalar feature
-  parameter bit          Xfrep           = 1,
   parameter int unsigned PipeWidth       = 1,
   parameter int unsigned XLEN            = 32,
-  parameter int unsigned NrIntWritePorts = 1,
-  parameter int unsigned NrFpWritePorts  = 1,
-  parameter int unsigned RegAddrSize     = 5,
-  // TODO(colluca): explicitly write Width
-  parameter int unsigned MaxIterationsW  = 6,
   parameter type         instr_dec_t     = logic,
   parameter type         block_ctrl_info_t = logic,
   parameter type         priv_lvl_t      = logic
@@ -37,17 +30,14 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic       [PipeWidth-1:0] instr_valid_i,
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
-
-  // Special FREP data
-  input  logic [MaxIterationsW-1:0] frep_iterations_i,
+  // To rename stage
+  output logic                      all_instr_dispatched_o,
 
   // Interface to dispatcher & RS
   output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
   input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
   output logic [PipeWidth-1:0]      instr_exec_commit_o,
   output logic                      stall_o,
-  input  logic                      rs_full_i,
-  input  logic                      all_rs_finish_i,
 
   // Exception source interface
   input  logic        interrupt_i,
@@ -252,6 +242,7 @@ module schnova_controller import schnizo_pkg::*; #(
 
   logic [PipeWidth-1:0] stall_raw;
   logic [PipeWidth-1:0] instr_dispatched_mask;
+
   for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_dispatch_sig
     assign stall_raw[instr_idx] =   fence_stall[instr_idx]   |
                                     csr_stall[instr_idx];
@@ -281,7 +272,11 @@ module schnova_controller import schnizo_pkg::*; #(
                                               instr_dispatched[instr_idx] :
                                               1'b1;
   end
+  // We have to tell the renaming stage when all instructions are successfully dispatched
+  // that way it can restart the renaming process
+  assign all_instr_dispatched_o = |instr_dispatched_mask;
+
   assign stall_o =  fence_i_stall |
-                    ~(|instr_dispatched_mask);
+                    ~all_instr_dispatched_o;
 
 endmodule

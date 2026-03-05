@@ -143,7 +143,7 @@ module schnova_decoder import schnizo_pkg::*; #(
       blk_ctrl_instr_idx += instr_valid_masked[instr_idx];
     end
   end
-  // Assign the control block info according to the instrucytion
+  // Assign the control block info according to the instruction
   // the blk_ctr_instr_idx points to
   assign blk_ctrl_info_o = '{
     imm:        instr_dec_o[blk_ctrl_instr_idx].imm,
