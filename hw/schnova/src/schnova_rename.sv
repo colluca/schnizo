@@ -23,9 +23,10 @@ module schnova_rename import schnizo_pkg::*; #(
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
-  // From controller, whether all the instructions in the current fetch block
-  // where dispatched successfully
-  input  logic all_instr_dispatched_i,
+  // From controller, the rename state should be cleared. There are two cases for this
+  // 1) If all the instructions were dispatched successfully
+  // 2) If there is an exception, we have to flush the entire backend
+  input  logic clear_i,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
   input  rmt_entry_t   [PipeWidth-1:0]  dest_map_i,
@@ -49,7 +50,7 @@ module schnova_rename import schnizo_pkg::*; #(
   rmt_entry_t [PipeWidth-1:0] new_mapping_rd;
 
   // Whether the instruction was already renamed in a previous cycle
-  logic [PipeWidth-1:0] is_renamed_d, is_renamed_q;
+  logic [PipeWidth-2:0] is_renamed_d, is_renamed_q;
 
   rmt_entry_t no_mapping;
   assign no_mapping = '{
@@ -208,9 +209,9 @@ module schnova_rename import schnizo_pkg::*; #(
     .rst_ni (~rst_i),
     .raddr_i(rmt_int_raddr),
     .rdata_o(rmt_int_rdata),
-    .waddr_i(gpr_waddr),
-    .wdata_i(gpr_wdata),
-    .we_i   (gpr_we)
+    .waddr_i(rmt_int),
+    .wdata_i(new_mapping_rd),
+    .we_i   (rmt_int_we)
   );
 
   schnova_rmt #(
@@ -225,8 +226,8 @@ module schnova_rename import schnizo_pkg::*; #(
     .raddr_i(rmt_fp_raddr),
     .rdata_o(rmt_fp_rdata),
     .waddr_i(fpr_waddr),
-    .wdata_i(fpr_wdata),
-    .we_i   (fpr_we)
+    .wdata_i(new_mapping_rd),
+    .we_i   (rmt_fp_we)
   );
 
   // Update the is_renamed register that keeps track of which registers already have been
@@ -236,7 +237,7 @@ module schnova_rename import schnizo_pkg::*; #(
   always_comb begin: rename_state_update
     is_renamed_d = is_renamed_q;
     for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-      if(all_instr_dispatched_i) begin
+      if(clear_i) begin
         // We have to restart renaming in the next cycle in that case
         is_renamed_d[instr_idx] = 1'b0;
       end else if (dest_map_i[instr_idx].valid) begin
