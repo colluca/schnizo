@@ -36,13 +36,18 @@ module schnova_decoder import schnizo_pkg::*; #(
 );
 
   logic [PipeWidth-1:0] instr_valid;
-  logic [PipeWidth-1:0] instr_valid_masked;
   // Per instruction signal, whether the instruction is a control instruction
   logic [PipeWidth-1:0] is_ctrl_instr;
   // Per instruction signal, whether the instruction is a fence_i instruction
   logic [PipeWidth-1:0] is_fence_i_instr;
-  // Signal that tracks whether the following innstructions have to be invalidated
-  logic [PipeWidth-2:0] invalidate_instr;
+  // Valid mask, that mask all the instruction that have to be invalidated
+  // due to a fence_i or control instruction
+  logic [PipeWidth-1:0] valid_mask;
+  // If this instruction is a critical instrucation that has to be considered
+  // when generating the valid mask
+  logic [PipeWidth-1:0] is_crit_instr;
+  // One hot encoded signal of the only valid critical instruction after masking
+  logic [PipeWidth-1:0] one_hot_crit_instr;
   // The idx of the instruction that is relevant for the block control info
   // this instruction is the relevant instruction that decides how the frontend
   // controller has to react to this fetch block
@@ -96,52 +101,54 @@ module schnova_decoder import schnizo_pkg::*; #(
   // executed.
 
   // Compute per instruction indicator whether it is a valid control or fence_i instruction
-  for (genvar i=0; i < PipeWidth; i++) begin: gen_is_ctrl_fence_i
-    assign is_ctrl_instr[i] = (instr_dec_o[i].is_branch |
-                              instr_dec_o[i].is_jal    |
-                              instr_dec_o[i].is_mret   |
-                              instr_dec_o[i].is_sret   |
-                              instr_dec_o[i].is_jalr)  &
-                              instr_valid[i];
-    assign is_fence_i_instr[i] = instr_dec_o[i].is_fence_i & instr_valid[i];
+  always_comb begin: gen_per_instr_info
+    for (int unsigned instr_idx=0; instr_idx < PipeWidth; instr_idx++) begin
+      is_ctrl_instr[instr_idx] = (instr_dec_o[instr_idx].is_branch |
+                              instr_dec_o[instr_idx].is_jal    |
+                              instr_dec_o[instr_idx].is_mret   |
+                              instr_dec_o[instr_idx].is_sret   |
+                              instr_dec_o[instr_idx].is_jalr);
+      is_fence_i_instr[instr_idx] = instr_dec_o[instr_idx].is_fence_i;
+      // The instruction is a critical instruction, if it is either a fence_i
+      // or a control instruction.
+      is_crit_instr[instr_idx] = is_ctrl_instr[instr_idx] | is_fence_i_instr[instr_idx];
+    end
   end
 
-
-  for (genvar instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin: gen_valid_mask
-    // Iterate through the slots and kill any instruction younger than the
-    // the first valid control or fence_i instruction.
-    if (instr_idx == 0) begin: gen_no_masking
-      // We don't have to mask the first instruction, it is always valid if it was valid before
-      assign instr_valid_masked[instr_idx] = instr_valid[instr_idx];
-      // We invalidate the second instruction if the first is a control or fence_i instruction.
-      assign invalidate_instr[instr_idx] =  is_ctrl_instr[instr_idx] |
-                                            is_fence_i_instr[instr_idx];
-    end else begin: gen_valid_masking
-      // If an older instruction was a control or  fence_i instruction,
-      // this instruction has to be invalidated
-      assign instr_valid_masked[instr_idx] = (invalidate_instr[instr_idx-1])
-                                              ? 1'b0
-                                              : instr_valid[instr_idx];
-      // Propagate the invalidate signal as well
-      assign invalidate_instr[instr_idx] = (invalidate_instr[instr_idx-1]) ?
-                                            invalidate_instr[instr_idx-1] :
-                                            is_ctrl_instr[instr_idx] |
-                                            is_fence_i_instr[instr_idx];
+  // Generate the valid mask
+  always_comb begin: gen_valid_mask
+    for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
+      // Iterate through the slots and mask any instruction younger than the
+      // the first valid control or fence_i instruction.
+      if (instr_idx == 0) begin
+        // We don't have to mask the first instruction, it is always valid if it was valid before
+        valid_mask[instr_idx] = 1'b1;
+      end else begin
+        // We have to mask this signal, if an older instruction was masked or if the previous
+        // instruction was a ctrl or fence_i instruction (critical instruction)
+        valid_mask[instr_idx] = (is_crit_instr[instr_idx-1] | ~valid_mask[instr_idx-1])
+                                ? 1'b0 : 1'b1;
+      end
     end
   end
 
   // The instruction valid output is now just the masked instruction valid signal
-  assign instr_valid_o = instr_valid_masked;
+  assign instr_valid_o = instr_valid & valid_mask;
 
-  // Instructions are always valid until the first invalid instruction comes either
-  // since the fetch block was misaligned or it was invalidated due to a ctrl or
-  // fence i instruction. Hence the last valid instruction is a candiate to be a
-  // ctrl or fence_i instruction
+  // We can one hot encode the critical instruction by anding it with the valid mask
+  // There should only be one valid critical instruction per fetch block
+  // after masking.
+  // Note it is also possible that no bit is set if there was no critical instruction
+  assign one_hot_crit_instr = is_crit_instr & instr_valid_o;
+
+  // To find the index we can no just use a one hot encoder
   always_comb begin: fetch_idx_calc
     blk_ctrl_instr_idx = '0;
-    for (int instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-      blk_ctrl_instr_idx += instr_valid_masked[instr_idx];
-    end
+      for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
+        if (one_hot_crit_instr[instr_idx]) begin
+          blk_ctrl_instr_idx = instr_idx[$clog2(PipeWidth)-1:0];
+        end
+      end
   end
   // Assign the control block info according to the instruction
   // the blk_ctr_instr_idx points to

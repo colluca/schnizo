@@ -136,9 +136,10 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam int unsigned NrFpWritePorts = 1*PipeWidth;
   // In the renaming stage we potentially also have to read the mapping of the destination register
   // Thats why we have to increase the number of write ports for the RMTs
-  localparam int unsigned RmtNrIntReadPorts = NrIntReadPorts + NrIntWritePorts;
+  // The last destination does not have to be read, since that is not considered for dependency bypassing
+  localparam int unsigned RmtNrIntReadPorts = NrIntReadPorts + NrIntWritePorts - 1;
   localparam int unsigned RmtNrIntWritePorts = NrIntWritePorts;
-  localparam int unsigned RmtNrFpReadPorts = NrFpReadPorts + NrFpWritePorts;
+  localparam int unsigned RmtNrFpReadPorts = NrFpReadPorts + NrFpWritePorts - 1;
   localparam int unsigned RmtNrFpWritePorts = NrFpWritePorts;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
@@ -149,11 +150,11 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // of the module so it would have to be a macro.
   // Decoded instruction for dispatcher
   typedef struct packed {
-    fu_t                          fu;
-    alu_op_e                      alu_op;
-    lsu_op_e                      lsu_op;
-    csr_op_e                      csr_op;
-    fpu_op_e                      fpu_op;
+    fu_t                          fu; // 4 bit
+    alu_op_e                      alu_op; // 5 bit
+    lsu_op_e                      lsu_op; // 4 bit
+    csr_op_e                      csr_op; // 3 bit
+    fpu_op_e                      fpu_op; // 5 bit
     // rd and rs_is_fp must be set to all zero to encoded that there is
     // no write back for this instruction.
     logic [RegAddrSize-1:0]       rd;
@@ -166,11 +167,11 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // this field holds the address of the third operand (rs3) from the floating-point regfile
     logic [XLEN-1:0]              imm;
     logic                         use_imm_as_rs3; // set if rs3 is a FP register
-    lsu_size_e                    lsu_size; // The bit width the LSU operates on
-    fpnew_pkg::fp_format_e        fpu_fmt_src; // The FPU format field.
-    fpnew_pkg::fp_format_e        fpu_fmt_dst; // The FPU format field.
+    lsu_size_e                    lsu_size; // The bit width the LSU operates on, 2 bit
+    fpnew_pkg::fp_format_e        fpu_fmt_src; // The FPU format field. 3 bit
+    fpnew_pkg::fp_format_e        fpu_fmt_dst; // The FPU format field. 3 but
     // The round mode for the FPU. If DYN was specified, it contains the value from the CSR.
-    fpnew_pkg::roundmode_e        fpu_rnd_mode;
+    fpnew_pkg::roundmode_e        fpu_rnd_mode; // 3 bit
     logic                         use_imm_as_op_b; // set if we need to use the immediate as ALU op b
     logic                         use_pc_as_op_a; // set if we need to use the PC as ALU operand a
     logic                         use_rs1addr_as_op_a; // set if CSR instruction uses rs1 address
@@ -568,7 +569,9 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_decoded_illegal_i(instr_decoded_illegal),
     .blk_ctrl_info_i        (blk_ctrl_info),
     // To rename stage
-    .all_instr_dispatched_o (/* TODO (soderma) */),
+    .clear_renaming_o (clear_rename),
+    .all_rs_finish_i(/* TODO (soderma) */),
+    .rs_restart_o(/* TODO (soderma) */),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
@@ -596,6 +599,34 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .mret_o                 (mret),
     .sret_o                 (sret)
   );
+
+  ////////////
+  // Rename //
+  ////////////
+
+  logic clear_rename;
+  rmt_entry_t   [PipeWidth-1:0]  dest_map;
+  rename_data_t [PipeWidth-1:0]  rename_info;
+
+  schnova_rename #(
+    .PipeWidth(PipeWidth),
+    /// Size of both int and fp register file
+    .RegAddrSize(RegAddrSize),
+    .RmtNrIntReadPorts(RmtNrIntReadPorts),
+    .RmtNrIntWritePorts(RmtNrIntWritePorts),
+    .RmtNrFpReadPorts(RmtNrFpReadPorts),
+    .RmtNrFpWritePorts(RmtNrFpWritePorts),
+    .instr_dec_t(instr_dec_t),
+    .rmt_entry_t(rmt_entry_t),
+    .rename_data_t(rename_data_t)
+  ) i_rename (
+    .clk_i,
+    .rst_i,
+    .clear_i(clear_rename),
+    .dest_map_i(dest_map), /* TODO (soderma) */
+    .instr_dec_i(instr_decoded),
+    .rename_info_o(rename_info) /* TODO (soderma) */
+);
 
   //////////////
   // Dispatch //
