@@ -128,14 +128,18 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   localparam int unsigned XLEN = 32;
   // localparam int unsigned FLEN = DataWidth;
-  localparam int unsigned NrIntReadPorts = 2;
-  localparam int unsigned NrIntWritePorts = 1;
-  localparam int unsigned NrFpReadPorts = 3;
-  localparam int unsigned NrFpWritePorts = 1;
-
-  // The pipeline width of the PipeWidth-wide superscalar schnova processor 
+  // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
-
+  localparam int unsigned NrIntReadPorts = 2*PipeWidth;
+  localparam int unsigned NrIntWritePorts = 1*PipeWidth;
+  localparam int unsigned NrFpReadPorts = 3*PipeWidth;
+  localparam int unsigned NrFpWritePorts = 1*PipeWidth;
+  // In the renaming stage we potentially also have to read the mapping of the destination register
+  // Thats why we have to increase the number of write ports for the RMTs
+  localparam int unsigned RmtNrIntReadPorts = NrIntReadPorts + NrIntWritePorts;
+  localparam int unsigned RmtNrIntWritePorts = NrIntWritePorts;
+  localparam int unsigned RmtNrFpReadPorts = NrFpReadPorts + NrFpWritePorts;
+  localparam int unsigned RmtNrFpWritePorts = NrFpWritePorts;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
   // common data type for all FUs.
@@ -185,6 +189,17 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     logic [FrepBodySizeWidth-1:0] frep_bodysize;
     frep_mode_e                   frep_mode;
   } instr_dec_t;
+
+  // Fetch block level info needed by the controller and frontend
+  typedef struct packed {
+    logic [XLEN-1:0]              imm;
+    logic                         is_branch; // set if instruction is a branch
+    logic                         is_jal; // set if JAL
+    logic                         is_jalr; // set if JALR
+    logic                         is_fence_i; // set if FENCE.I
+    logic                         is_ctrl;
+    logic [$clog2(PipeWidth)-1:0] instr_idx;
+  } block_ctrl_info_t;
 
   // !! The OpLen parameters are not always sign extended by the read_operands module !!
   // Only consume the expected bits.
@@ -296,8 +311,15 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef struct packed {
     producer_id_t producer;
-    logic         is_produced; // set if producer is a valid mapping
+    logic         valid; // set if producer is a valid mapping
   } rmt_entry_t;
+
+  typedef struct packed {
+    rmt_entry_t producer_op_a;
+    rmt_entry_t producer_op_b;
+    rmt_entry_t producer_op_c;
+    logic       valid; // set if this instruction renaming is valid
+  } rename_data_t;
 
   typedef struct packed {
     fu_data_t   fu_data;
@@ -325,8 +347,8 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // Connections //
   /////////////////
 
-  logic [ICacheFetchDataWidth-1:0] instr_fetch_data;
-  logic                            instr_fetch_data_valid;
+  logic [PipeWidth-1:0][31:0] instr_fetch_data;
+  logic [PipeWidth-1:0]       instr_fetch_data_valid;
   logic [XLEN-1:0]                 consecutive_pc;
   logic                            loop_jump;
   logic [31:0]                     loop_jump_addr;
@@ -348,8 +370,8 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   logic            flush_i_valid;
   logic [31:0]     pc;
-  logic            instr_valid;
-  logic            instr_decoded_illegal;
+  logic [PipeWidth-1:0] instr_valid;
+  logic [PipeWidth-1:0] instr_decoded_illegal;
   logic            instr_illegal;
   logic            stall;
   logic            enter_wfi;
@@ -370,13 +392,14 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic            interrupt;
   logic            exception;
   logic            wfi; // asserted if we are waiting for an interrupt
-  logic            dispatch_instr_valid;
-  logic            dispatch_instr_ready;
-  logic            instr_exec_commit;
+  logic [PipeWidth-1:0] dispatch_instr_valid;
+  logic [PipeWidth-1:0] dispatch_instr_ready;
+  logic [PipeWidth-1:0] instr_exec_commit;
 
   fpnew_pkg::roundmode_e fpu_rnd_mode;
   fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
-  instr_dec_t instr_decoded;
+  instr_dec_t [PipeWidth-1:0] instr_decoded;
+  block_ctrl_info_t blk_ctrl_info;
 
   alu_result_t alu_result;
   instr_tag_t  alu_result_tag;
@@ -422,7 +445,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .AddrWidth            (AddrWidth),
     .SnitchPMACfg         (SnitchPMACfg),
     .ICacheFetchDataWidth (ICacheFetchDataWidth),
-    .instr_dec_t          (instr_dec_t),
+    .block_ctrl_info_t    (block_ctrl_info_t),
     .addr_t               (addr_t)
   ) i_frontend (
     .clk_i,
@@ -436,13 +459,12 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_fetch_valid_o      (inst_valid_o),
     // From controller
     .exception_i              (exception),
+    .stall_i                  (stall),
     .mret_i                   (mret),
     .sret_i                   (sret),
-    .loop_jump_i              (loop_jump),
-    .loop_jump_addr_i         (loop_jump_addr),
     // To controller
-    .consecutive_pc_o         (consecutive_pc),
     .pc_o                     (pc),
+    .consecutive_pc_o         (consecutive_pc),
     // Exception source interface
     .wfi_i                    (wfi),
     .barrier_stall_i          (barrier_stall),
@@ -453,8 +475,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .alu_compare_res_i        (branch_result.compare_res),
     .alu_result_i             (branch_result.result),
     // From decoder
-    .instr_decoded_i          (instr_decoded),
-    .stall_i                  (stall),
+    .blk_ctrl_info_i          (blk_ctrl_info),
     // To decoder and dispatcher
     .instr_fetch_data_o      (instr_fetch_data),
     .instr_fetch_data_valid_o(instr_fetch_data_valid)
@@ -469,17 +490,19 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   // TODO(colluca): could lead to conflicts, e.g. instr_dec_t also depends on XLEN. The best would be
   // to only pass e.g. XLEN here, and internally derive instr_dec_t in the decoder using a macro.
-  schnizo_decoder #(
-    .XLEN   (XLEN),
-    .Xdma   (Xdma),
-    .Xfrep  (Xfrep),
-    .RVF    (RVF),
-    .RVD    (RVD),
-    .XF16   (XF16),
-    .XF16ALT(XF16ALT),
-    .XF8    (XF8),
-    .XF8ALT (XF8ALT),
-    .instr_dec_t(instr_dec_t)
+  schnova_decoder #(
+    .XLEN              (XLEN),
+    .PipeWidth         (PipeWidth),
+    .Xdma              (Xdma),
+    .Xfrep             (Xfrep),
+    .RVF               (RVF),
+    .RVD               (RVD),
+    .XF16              (XF16),
+    .XF16ALT           (XF16ALT),
+    .XF8               (XF8),
+    .XF8ALT            (XF8ALT),
+    .block_ctrl_info_t (block_ctrl_info_t),
+    .instr_dec_t       (instr_dec_t)
   ) i_decoder (
     .clk_i,
     .rst_i,
@@ -489,6 +512,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_fmt_mode_i          (fpu_fmt_mode),
     .instr_valid_o           (instr_valid),
     .instr_illegal_o         (instr_decoded_illegal),
+    .blk_ctrl_info_o         (blk_ctrl_info),
     .instr_dec_o             (instr_decoded)
   );
 
@@ -525,14 +549,11 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                         all_rs_finish;
 
   schnova_controller #(
-    .Xfrep          (Xfrep),
-    .XLEN           (XLEN),
-    .NrIntWritePorts(NrIntWritePorts),
-    .NrFpWritePorts (NrFpWritePorts),
-    .RegAddrSize    (RegAddrSize),
-    .MaxIterationsW (FrepMaxItersWidth),
-    .instr_dec_t    (instr_dec_t),
-    .priv_lvl_t     (priv_lvl_t)
+    .PipeWidth          (PipeWidth),
+    .XLEN               (XLEN),
+    .instr_dec_t        (instr_dec_t),
+    .block_ctrl_info_t  (block_ctrl_info_t),
+    .priv_lvl_t         (priv_lvl_t)
   ) i_controller (
     .clk_i,
     .rst_i,
@@ -541,29 +562,26 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .flush_i_ready_i        (flush_i_ready_i),
     .flush_i_valid_o        (flush_i_valid),
     .consecutive_pc_i       (consecutive_pc),
-    .loop_jump_o            (loop_jump),
-    .loop_jump_addr_o       (loop_jump_addr),
     // Decoder interface
     .instr_decoded_i        (instr_decoded),
     .instr_valid_i          (instr_valid),
     .instr_decoded_illegal_i(instr_decoded_illegal),
-    // FREP data from registers
-    .frep_iterations_i      (fu_data.operand_a[FrepMaxItersWidth-1:0]),
+    .blk_ctrl_info_i        (blk_ctrl_info),
+    // To rename stage
+    .all_instr_dispatched_o (/* TODO (soderma) */),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .instr_exec_commit_o    (instr_exec_commit),
     .stall_o                (stall),
-    .rs_full_i              (rs_full),
-    .all_rs_finish_i        (all_rs_finish),
-    .goto_lcp2_o            (goto_lcp2),
-    .lep_iterations_o       (lep_iterations),
-    .loop_state_o           (loop_state),
-    .rs_restart_o           (lxp_restart),
     // Exception source interface
     .interrupt_i            (interrupt),
     .csr_exception_raw_i    (csr_exception_raw),
     .lsu_empty_i            (lsu_empty),
+    .csr_inflight_i         (/* TODO (soderma) */),
+    .ctrl_inflight_i        (/* TODO (soderma) */),
+    .load_inflight_i        (/* TODO (soderma) */),
+    .store_inflight_i       (/* TODO (soderma) */),
     .lsu_addr_misaligned_i  (lsu_addr_misaligned),
     .priv_lvl_i             (priv_lvl),
     // Interface to CSR & write back for handling an exception
@@ -576,12 +594,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .ecall_o                (ecall),
     .ebreak_o               (ebreak),
     .mret_o                 (mret),
-    .sret_o                 (sret),
-    // GPR & FPR Write back snooping for Scoreboard
-    .gpr_we_i               (gpr_we),
-    .gpr_waddr_i            (gpr_waddr),
-    .fpr_we_i               (fpr_we),
-    .fpr_waddr_i            (fpr_waddr)
+    .sret_o                 (sret)
   );
 
   //////////////
@@ -949,6 +962,8 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // Core Events //
   /////////////////
 
+  // TODO (soderma): Make core events superscalar
+
   // This is 1to1 from Snitch and it is misnamed. The stall signal tells us that we did not
   // dispatch an instruction. However, it is used to signal if we retired an instruction right now.
   // We keep this inconsistency to match the Snitch behaviour. And in terms of performance, it
@@ -966,12 +981,14 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   for (genvar i = 0; i < NofFpus; i++) begin : gen_issue_fpu
     assign all_issue_fpu_handshakes[i] = fpu_disp_req_valid[i] & fpu_disp_req_ready[i];
   end
-  assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
+  // TODO (soderma): This was just written to compile
+  assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit[0];
   // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
   // also FP loads as the FP register is in the subsystem. Schnizo cannot distinguish this case as
   // we handle all instructions in the core. We thus set the same signal.
   // TODO: rework the core events
-  assign issue_core_to_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
+  // TODO (soderma): This was just written to compile
+  assign issue_core_to_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit[0];
 
   assign core_events_o.retired_instr = instr_retired_q;
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
@@ -1069,17 +1086,17 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     valid:        i_controller.instr_dispatched,
     pc_q:         i_frontend.pc_q,
     pc_d:         i_frontend.pc_d,
-    instr_data:   instr_fetch_data,
-    rs1:          instr_decoded.rs1,
-    rs2:          instr_decoded.rs2,
-    rs3:          instr_decoded.imm, // fused FPU instructions use imm as operand
-    rd:           instr_decoded.rd,
-    rs1_is_fp:    instr_decoded.rs1_is_fp,
-    rs2_is_fp:    instr_decoded.rs2_is_fp,
-    rd_is_fp:     instr_decoded.rd_is_fp,
-    is_branch:    instr_decoded.is_branch,
+    instr_data:   instr_fetch_data[0],
+    rs1:          instr_decoded[0].rs1,
+    rs2:          instr_decoded[0].rs2,
+    rs3:          instr_decoded[0].imm, // fused FPU instructions use imm as operand
+    rd:           instr_decoded[0].rd,
+    rs1_is_fp:    instr_decoded[0].rs1_is_fp,
+    rs2_is_fp:    instr_decoded[0].rs2_is_fp,
+    rd_is_fp:     instr_decoded[0].rd_is_fp,
+    is_branch:    instr_decoded[0].is_branch,
     branch_taken: alu_result.compare_res,
-    fu_type:      schnizo_pkg::fu_to_string(instr_decoded.fu),
+    fu_type:      schnizo_pkg::fu_to_string(instr_decoded[0].fu),
     disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response.producer)
   };
 

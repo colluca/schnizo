@@ -34,8 +34,8 @@ module schnova_frontend # (
     // If the fetch request is valid (new fetch request when valid asserted)
     output logic                              instr_fetch_valid_o,
     /// From controller
-    input  logic                              stall_i,
     input  logic                              exception_i,
+    input  logic                              stall_i,
     input  logic                              mret_i,
     input  logic                              sret_i,
     /// To controller
@@ -140,9 +140,6 @@ module schnova_frontend # (
     // we would always have invalid instructions per fetch purely because of that.
     // If we have a JAL or JALR, we store the regular consecutive PC (PC+4) in rd.
 
-    // TODO(soderma): Assumes the branch will be completed in the same cycle!
-    // We have to stall until the branch is resolved, so we would not use the decoded instruction
-    // in that case, since it would take one or multiple cycles until we have that result.
     assign consecutive_pc = pc_q +
         ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
         // In case of a branch, we just add the immediate
