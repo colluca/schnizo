@@ -15,6 +15,7 @@
 module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // Globally enable the superscalar feature
   parameter bit          Xfrep           = 1,
+  parameter bit          MulInAlu0       = 1'b1,
   parameter int unsigned NofAlus         = 1,
   parameter int unsigned AluNofRss       = 3,
   parameter int unsigned AluNofOperands  = 2,
@@ -452,8 +453,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       assign op_reqs_producers[i] = op_reqs[i].producer;
     end
     // TODO(colluca): we don't need this module at all!
-    //                A 1 to NofResReqIfs demux is sufficient where the payload
-    //                is res_req_t [NofOperandIfs-1:0].
+    //                It is just a collection of NofOperandIfs 1->NofResReqIfs demuxes.
     schnizo_xbar_req #(
       .NumInp     (NofOperandIfs),
       .NumOut     (NofResReqIfs),
@@ -698,7 +698,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     schnizo_alu #(
       .XLEN         (XLEN),
       .HasBranch    (alu == '0), // only the first ALU has the branch logic
-      .HasMultiplier(alu == '0), // only the first ALU has the multiplier
+      .HasMultiplier((alu == '0) && MulInAlu0), // only the first ALU has the multiplier
       .issue_req_t  (alu_issue_req_t),
       .instr_tag_t  (alu_instr_tag_t)
     ) i_alu (
