@@ -177,6 +177,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     acc_req_o.data_op = instr_fetch_data_i;
 
     unique case (instr_dec_i.fu)
+    // TODO(colluca): how to handle the case when MulInAlu0 is set to zero?
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions

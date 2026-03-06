@@ -61,6 +61,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned AluNofRss  = 3,
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
+  parameter bit          MulInAlu0  = 1'b1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -672,6 +673,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   schnizo_fu_stage #(
     .Xfrep              (Xfrep),
+    .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
