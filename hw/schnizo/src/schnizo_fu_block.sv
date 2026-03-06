@@ -88,8 +88,12 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic       wb_result_ready_i,
 
   /// Operand distribution network
+  // Info required for arbitration in request XBAR
+  output operand_req_t [NofRss-1:0] available_results_o,
+
   // TODO(colluca): use generic_reqrsp interfaces for all of these. Would then reduce to four signals:
-  // operand_req_o, operand_rsp_i, result_req_i, result_rsp_o
+  // operand_req_o, operand_rsp_i, result_req_i, result_rsp_o.
+  // We can't actually do it at the moment, because the cardinality of req_reqs and res_rsps differs.
   //
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOpPorts-1:0][NofOperands-1:0] op_reqs_o,
@@ -97,9 +101,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - from each possible requester
-  input  res_req_t [NofOperandIfs-1:0] res_reqs_i,
-  input  logic     [NofOperandIfs-1:0] res_reqs_valid_i,
-  output logic     [NofOperandIfs-1:0] res_reqs_ready_o,
+  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
+  input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
+  output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
 
   // Result response interface - outgoing - result as operand response
   output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
@@ -325,6 +329,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
       .rf_wb_ready_i      (rs_wb_result_ready),
 
       /// Operand distribution network - directly fed through
+      .available_results_o(available_results_o),
       // Operand request interface - outgoing - request a result as operand
       .op_reqs_o          (op_reqs_o),
       .op_reqs_valid_o    (op_reqs_valid_o),

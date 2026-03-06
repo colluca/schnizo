@@ -199,6 +199,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   } res_req_t;
 
   // The request going into the request crossbar
+  // TODO(colluca): replace with a flat struct, called result_tag_t
   typedef struct packed {
     rs_id_t   producer; // where to place the request
     res_req_t request;
@@ -247,9 +248,10 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   operand_req_t [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs;
   logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs_valid;
   logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs_ready;
-  res_req_t     [NofAlus-1:0][AluNofResReqIfs-1:0][NofOperandIfs-1:0] alu_res_reqs;
-  logic         [NofAlus-1:0][AluNofResReqIfs-1:0][NofOperandIfs-1:0] alu_res_reqs_valid;
-  logic         [NofAlus-1:0][AluNofResReqIfs-1:0][NofOperandIfs-1:0] alu_res_reqs_ready;
+  operand_req_t [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_available_results;
+  dest_mask_t   [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_reqs;
+  logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_reqs_valid;
+  logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_reqs_ready;
   res_rsp_t     [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_rsps;
   logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_rsps_valid;
   logic         [NofAlus-1:0][AluNofResRspIfs-1:0]                    alu_res_rsps_ready;
@@ -260,9 +262,10 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   operand_req_t [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs;
   logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs_valid;
   logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
-  res_req_t     [NofLsus-1:0][LsuNofResReqIfs-1:0][NofOperandIfs-1:0] lsu_res_reqs;
-  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0][NofOperandIfs-1:0] lsu_res_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofResReqIfs-1:0][NofOperandIfs-1:0] lsu_res_reqs_ready;
+  operand_req_t [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_available_results;
+  dest_mask_t   [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_reqs;
+  logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_reqs_valid;
+  logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_reqs_ready;
   res_rsp_t     [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_rsps;
   logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_rsps_valid;
   logic         [NofLsus-1:0][LsuNofResRspIfs-1:0]                    lsu_res_rsps_ready;
@@ -273,9 +276,10 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   operand_req_t [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs;
   logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs_valid;
   logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs_ready;
-  res_req_t     [NofFpus-1:0][FpuNofResReqIfs-1:0][NofOperandIfs-1:0] fpu_res_reqs;
-  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0][NofOperandIfs-1:0] fpu_res_reqs_valid;
-  logic         [NofFpus-1:0][FpuNofResReqIfs-1:0][NofOperandIfs-1:0] fpu_res_reqs_ready;
+  operand_req_t [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_available_results;
+  dest_mask_t   [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_reqs;
+  logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_reqs_valid;
+  logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_reqs_ready;
   res_rsp_t     [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_rsps;
   logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_rsps_valid;
   logic         [NofFpus-1:0][FpuNofResRspIfs-1:0]                    fpu_res_rsps_ready;
@@ -287,13 +291,14 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic         [NofOperandIfs-1:0] op_reqs_valid;
   logic         [NofOperandIfs-1:0] op_reqs_ready;
 
-  res_req_t     [NofResReqIfs-1:0][NofOperandIfs-1:0] res_reqs;
-  logic         [NofResReqIfs-1:0][NofOperandIfs-1:0] res_reqs_valid;
-  logic         [NofResReqIfs-1:0][NofOperandIfs-1:0] res_reqs_ready;
+  dest_mask_t   [NofResRspIfs-1:0] res_reqs;
+  logic         [NofResRspIfs-1:0] res_reqs_valid;
+  logic         [NofResRspIfs-1:0] res_reqs_ready;
+  operand_req_t [NofResRspIfs-1:0] available_results;
 
-  res_rsp_t     [NofResRspIfs-1:0]  res_rsps;
-  logic         [NofResRspIfs-1:0]  res_rsps_valid;
-  logic         [NofResRspIfs-1:0]  res_rsps_ready;
+  res_rsp_t     [NofResRspIfs-1:0] res_rsps;
+  logic         [NofResRspIfs-1:0] res_rsps_valid;
+  logic         [NofResRspIfs-1:0] res_rsps_ready;
 
   operand_t     [NofOperandIfs-1:0] op_rsps;
   logic         [NofOperandIfs-1:0] op_rsps_valid;
@@ -393,11 +398,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       fpu_res_rsps_ready = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
-        for (int alu_req_if = 0; alu_req_if < AluNofResReqIfs; alu_req_if++) begin
+        for (int alu_req_if = 0; alu_req_if < AluNofResRspIfs; alu_req_if++) begin
           // requests
           alu_res_reqs[alu][alu_req_if]       = res_reqs[req_if];
           alu_res_reqs_valid[alu][alu_req_if] = res_reqs_valid[req_if];
           res_reqs_ready[req_if]              = alu_res_reqs_ready[alu][alu_req_if];
+          available_results[req_if]           = alu_available_results[alu][alu_req_if];
           req_if = req_if + 1;
         end
         for (int rsp = 0; rsp < AluNofResRspIfs; rsp++) begin
@@ -409,11 +415,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         end
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
-        for (int lsu_req_if = 0; lsu_req_if < LsuNofResReqIfs; lsu_req_if++) begin
+        for (int lsu_req_if = 0; lsu_req_if < LsuNofResRspIfs; lsu_req_if++) begin
           // requests
           lsu_res_reqs[lsu][lsu_req_if]       = res_reqs[req_if];
           lsu_res_reqs_valid[lsu][lsu_req_if] = res_reqs_valid[req_if];
           res_reqs_ready[req_if]              = lsu_res_reqs_ready[lsu][lsu_req_if];
+          available_results[req_if]           = lsu_available_results[lsu][lsu_req_if];
           req_if = req_if + 1;
         end
         for (int rsp = 0; rsp < LsuNofResRspIfs; rsp++) begin
@@ -425,11 +432,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         end
       end
       for (int fpu = 0; fpu < NofFpus; fpu++) begin
-        for (int fpu_req_if = 0; fpu_req_if < FpuNofResReqIfs; fpu_req_if++) begin
+        for (int fpu_req_if = 0; fpu_req_if < FpuNofResRspIfs; fpu_req_if++) begin
           // requests
           fpu_res_reqs[fpu][fpu_req_if]       = res_reqs[req_if];
           fpu_res_reqs_valid[fpu][fpu_req_if] = res_reqs_valid[req_if];
           res_reqs_ready[req_if]              = fpu_res_reqs_ready[fpu][fpu_req_if];
+          available_results[req_if]           = fpu_available_results[fpu][fpu_req_if];
           req_if = req_if + 1;
         end
         for (int rsp = 0; rsp < FpuNofResRspIfs; rsp++) begin
@@ -443,37 +451,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     end
 
     // ---------------------------
-    // Operand request demux
+    // Operand request XBAR
     // ---------------------------
 
-    res_req_t [NofOperandIfs-1:0] op_reqs_requests;
-    rs_id_t   [NofOperandIfs-1:0] op_reqs_producers;
-    for (genvar i = 0; i < NofOperandIfs; i++) begin : gen_flatten_op_reqs
-      assign op_reqs_requests[i]  = op_reqs[i].request;
-      assign op_reqs_producers[i] = op_reqs[i].producer;
-    end
-    // TODO(colluca): we don't need this module at all!
-    //                It is just a collection of NofOperandIfs 1->NofResReqIfs demuxes.
     schnizo_req_xbar #(
-      .NumInp     (NofOperandIfs),
-      .NumOut     (NofResReqIfs),
-      .res_req_t  (res_req_t),
-      // TODO(colluca): if we don't envision the possibility to change these parameters just
-      //                hardcode them internally for better separation of concerns
-      .OutSpillReg(0),
-      .AxiVldRdy  (0),
-      .LockIn     (0),
-      .AxiVldMask ('0)
+      .NofOperandReqs(NofOperandIfs),
+      .NofResRspIfs  (NofResRspIfs),
+      .operand_req_t (operand_req_t),
+      .dest_mask_t   (dest_mask_t)
     ) i_request_xbar (
-      .clk_i,
-      .rst_ni   (~rst_i),
-      .data_i   (op_reqs_requests),
-      .sel_i    (op_reqs_producers),
-      .valid_i  (op_reqs_valid),
-      .ready_o  (op_reqs_ready),
-      .res_req_o(res_reqs),
-      .valid_o  (res_reqs_valid),
-      .ready_i  (res_reqs_ready)
+      .op_reqs_i          (op_reqs),
+      .op_reqs_valid_i    (op_reqs_valid),
+      .op_reqs_ready_o    (op_reqs_ready),
+      .available_results_i(available_results),
+      .res_reqs_o         (res_reqs),
+      .res_reqs_valid_o   (res_reqs_valid),
+      .res_reqs_ready_i   (res_reqs_ready)
     );
 
     // ---------------------------
@@ -670,6 +663,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .wb_result_valid_o  (alu_wbs_result_valid[alu]),
       .wb_result_ready_i  (alu_wbs_result_ready[alu]),
       /// Operand distribution network
+      .available_results_o(alu_available_results[alu]),
       .op_reqs_o          (alu_op_reqs[alu]),
       .op_reqs_valid_o    (alu_op_reqs_valid[alu]),
       .op_reqs_ready_i    (alu_op_reqs_ready[alu]),
@@ -882,6 +876,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .wb_result_valid_o  (lsu_wbs_result_valid[lsu]),
       .wb_result_ready_i  (lsu_wbs_result_ready[lsu]),
       /// Operand distribution network
+      .available_results_o(lsu_available_results[lsu]),
       .op_reqs_o          (lsu_op_reqs[lsu]),
       .op_reqs_valid_o    (lsu_op_reqs_valid[lsu]),
       .op_reqs_ready_i    (lsu_op_reqs_ready[lsu]),
@@ -1097,6 +1092,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .wb_result_valid_o  (fpu_wbs_result_valid[fpu]),
       .wb_result_ready_i  (fpu_wbs_result_ready[fpu]),
       /// Operand distribution network
+      .available_results_o(fpu_available_results[fpu]),
       .op_reqs_o          (fpu_op_reqs[fpu]),
       .op_reqs_valid_o    (fpu_op_reqs_valid[fpu]),
       .op_reqs_ready_i    (fpu_op_reqs_ready[fpu]),

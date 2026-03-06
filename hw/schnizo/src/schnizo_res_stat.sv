@@ -85,15 +85,19 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic        rf_wb_ready_i,
 
   /// Operand distribution network
+  // Info required for arbitration in request XBAR
+  // TODO(colluca): constrain NofRss and NofResRspIfs to be equal
+  output operand_req_t [NofRss-1:0] available_results_o,
+
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOpPorts-1:0][NofOperands-1:0] op_reqs_o,
   output logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOpPorts-1:0][NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - from each possible requester
-  input  res_req_t [NofOperandIfs-1:0] res_reqs_i,
-  input  logic     [NofOperandIfs-1:0] res_reqs_valid_i,
-  output logic     [NofOperandIfs-1:0] res_reqs_ready_o,
+  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
+  input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
+  output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
 
   // Result response interface - outgoing - result as operand response
   // Shared port for all slots.
@@ -161,9 +165,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   operand_req_t [NofRss-1:0][NofOperands-1:0] op_reqs;
   logic         [NofRss-1:0][NofOperands-1:0] op_reqs_valid;
   logic         [NofRss-1:0][NofOperands-1:0] op_reqs_ready;
-  dest_mask_t   [NofRss-1:0]                  dest_masks;
-  logic         [NofRss-1:0]                  dest_masks_valid;
-  logic         [NofRss-1:0]                  dest_masks_ready;
   res_rsp_t     [NofRss-1:0]                  res_rsps;
   logic         [NofRss-1:0]                  res_rsps_valid;
   logic         [NofRss-1:0]                  res_rsps_ready;
@@ -258,9 +259,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .op_reqs_valid_o(op_reqs_valid[rss]),
       .op_reqs_ready_i(op_reqs_ready[rss]),
 
-      .dest_mask_i      (dest_masks[rss]),
-      .dest_mask_valid_i(dest_masks_valid[rss]),
-      .dest_mask_ready_o(dest_masks_ready[rss]),
+      .dest_mask_i      (res_reqs_i[rss]),
+      .dest_mask_valid_i(res_reqs_valid_i[rss]),
+      .dest_mask_ready_o(res_reqs_ready_o[rss]),
 
       .res_rsp_o      (res_rsps[rss]),
       .res_rsp_valid_o(res_rsps_valid[rss]),
@@ -350,24 +351,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // In addition, it implements a filtering mechanism such that only requests which can currently
   // be served are handled. Otherwise, deadlocks would occur.
 
-  schnizo_res_req_mux #(
-    .NofOperandIfs(NofOperandIfs),
-    .NofSlots     (NofRss),
-    .res_req_t    (res_req_t),
-    .dest_mask_t  (dest_mask_t),
-    .slot_id_t    (slot_id_t)
-  ) i_res_req_mux (
-    .clk_i,
-    .rst_i,
-    .slot_ids_i       (slot_ids),
-    .res_iters_i      (res_iters),
-    .res_req_i        (res_reqs_i),
-    .res_req_valid_i  (res_reqs_valid_i),
-    .res_req_ready_o  (res_reqs_ready_o),
-    .dest_mask_o      (dest_masks),
-    .dest_mask_valid_o(dest_masks_valid),
-    .dest_mask_ready_i(dest_masks_ready)
-  );
+  for (genvar i = 0; i < NofRss; i++) begin : gen_available_results
+    assign available_results_o[i].producer = producer_id_i;
+    assign available_results_o[i].request.requested_iter = res_iters[i];
+    assign available_results_o[i].request.slot_id = slot_ids[i];
+  end
 
   // Result response:
   // On the response side we could simplify it to one shared input to the result response crossbar.

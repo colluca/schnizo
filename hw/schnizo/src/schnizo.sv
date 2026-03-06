@@ -1104,9 +1104,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
           assign alu_resreq_traces[alu][rss][con] = '{
-            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
@@ -1161,9 +1161,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
         if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
           assign lsu_resreq_traces[lsu][rss][con] = '{
-            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
@@ -1217,9 +1217,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
         if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
           assign fpu_resreq_traces[fpu][rss][con] = '{
-            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
