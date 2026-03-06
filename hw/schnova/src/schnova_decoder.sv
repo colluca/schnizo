@@ -9,7 +9,6 @@ module schnova_decoder import schnizo_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter int unsigned PipeWidth   = 1,
   parameter bit          Xdma        = 0,
-  parameter bit          Xfrep       = 1,
   /// Enable F Extension (single).
   parameter bit          RVF         = 1,
   /// Enable D Extension (double).
@@ -66,7 +65,7 @@ module schnova_decoder import schnizo_pkg::*; #(
     schnizo_decoder #(
       .XLEN   (XLEN),
       .Xdma   (Xdma),
-      .Xfrep  (Xfrep),
+      .Xfrep  (1), // For now we always abuse Xfrep to switch in and out of superscalar mode
       .RVF    (RVF),
       .RVD    (RVD),
       .XF16   (XF16),
@@ -107,8 +106,9 @@ module schnova_decoder import schnizo_pkg::*; #(
                               instr_dec_o[instr_idx].is_jal    |
                               instr_dec_o[instr_idx].is_mret   |
                               instr_dec_o[instr_idx].is_sret   |
-                              instr_dec_o[instr_idx].is_jalr);
-      is_fence_i_instr[instr_idx] = instr_dec_o[instr_idx].is_fence_i;
+                              instr_dec_o[instr_idx].is_jalr)  &
+                              instr_valid[instr_idx];
+      is_fence_i_instr[instr_idx] = instr_dec_o[instr_idx].is_fence_i & instr_valid[instr_idx];
       // The instruction is a critical instruction, if it is either a fence_i
       // or a control instruction.
       is_crit_instr[instr_idx] = is_ctrl_instr[instr_idx] | is_fence_i_instr[instr_idx];
