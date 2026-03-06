@@ -524,6 +524,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       end
     end
     // Set the writeback flag if we are the last RSS writing to this destination
+    // TODO(colluca): couldn't we have the dispatcher calculate `do_writeback` instead?
+    // This way we don't need to store it in the cut. It may increase the critical path
+    // if the critical path is before the cut.
     if ((own_producer_id_i == disp_req_i.current_producer_dest.producer) &&
         disp_req_i.current_producer_dest.valid) begin
       slot_lcp2.do_writeback = 1'b1;

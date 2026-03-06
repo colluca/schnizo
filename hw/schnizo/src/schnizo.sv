@@ -210,6 +210,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     logic [OpLen-1:0]      operand_b;
     // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the value of the third operand
+    // TODO(colluca): with the exception of the FPU, this field could be reduced in size
     logic [OpLen-1:0]      imm;
     lsu_size_e             lsu_size;
     fpnew_pkg::fp_format_e fpu_fmt_src;

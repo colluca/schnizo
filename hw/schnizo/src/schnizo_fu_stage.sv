@@ -452,8 +452,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       assign op_reqs_producers[i] = op_reqs[i].producer;
     end
     // TODO(colluca): we don't need this module at all!
-    //                A 1 to NofResReqIfs demux is sufficient where the payload
-    //                is res_req_t [NofOperandIfs-1:0].
+    //                It is just a collection of NofOperandIfs 1->NofResReqIfs demuxes.
     schnizo_xbar_req #(
       .NumInp     (NofOperandIfs),
       .NumOut     (NofResReqIfs),
