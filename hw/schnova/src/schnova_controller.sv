@@ -30,8 +30,9 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic       [PipeWidth-1:0] instr_valid_i,
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
-  // To rename stage
-  output logic                      clear_renaming_o,
+  // To backend
+  output logic                      flush_backend_o,
+  output logic                      all_instr_dispatched_o,
 
   // Interface to dispatcher & RS
   output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
@@ -63,7 +64,10 @@ module schnova_controller import schnizo_pkg::*; #(
   output logic            ecall_o,
   output logic            ebreak_o,
   output logic            mret_o,
-  output logic            sret_o
+  output logic            sret_o,
+
+  // Superscalar features enabled
+  output logic en_superscalar_o
 );
 
   logic [PipeWidth-1:0] instr_dispatched;
@@ -160,7 +164,7 @@ module schnova_controller import schnizo_pkg::*; #(
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
   // In case of an exception we flush the entire backend
-  assign clear_renaming_o = exception_o;
+  assign flush_backend_o = exception_o;
   assign rs_restart_o = exception_o;
 
   ////////////
@@ -290,4 +294,28 @@ module schnova_controller import schnizo_pkg::*; #(
   assign stall_o =  fence_i_stall |
                     ~all_instr_dispatched_o;
 
+//////////////////////////////
+// Superscalar enable logic //
+//////////////////////////////
+
+logic en_superscalar_d, en_superscalar_q;
+logic [PipeWidth-1:0] is_valid_frep_instr;
+
+// Per default the core starts in scalar mode
+`FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
+
+always_comb begin
+  en_superscalar_d = en_superscalar_q;
+
+  for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
+    is_valid_frep_instr[instr_idx] = instr_decoded_i[instr_idx].is_frep & instr_valid_i[instr_idx];
+  end
+
+  // We toggle the mode whenever a valid frep instruction was decoded
+  if (|is_valid_frep_instr) begin
+    en_superscalar_d = ~en_superscalar_q;
+  end
+end
+
+assign en_superscalar_o = en_superscalar_q;
 endmodule

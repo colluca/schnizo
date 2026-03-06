@@ -38,6 +38,7 @@ module schnova_frontend # (
     input  logic                              stall_i,
     input  logic                              mret_i,
     input  logic                              sret_i,
+    input  logic                              en_superscalar_i,
     /// To controller
     output logic [31:0]                       pc_o,
     output logic [XLEN-1:0]                   consecutive_pc_o,
@@ -69,6 +70,7 @@ module schnova_frontend # (
     logic [$clog2(PipeWidth)-1:0] instr_index;
     logic            valid_fetch_block; // Whether the current fetch block is valid
     logic [XLEN-1:0] consecutive_pc;
+    logic [PipeWidth-1:0] instr_fetch_data_valid;
     // Number of remaining instructions until the next block
     
     logic [31:0]     pc_d, pc_q; // PC is fixed to 32 bits in RV32
@@ -192,7 +194,7 @@ module schnova_frontend # (
     // This still works the same as for the single issue core as the fetch block is 
     // always aligned to the fetch block size. So it is impossible to have a situation
     // where the PC lies in the cacheable region but an instruction in the fetch block lies
-    // outside of it. 
+    // outside of it.
     assign instr_fetch_cacheable_o =
         snitch_pma_pkg::is_inside_cacheable_regions(SnitchPMACfg, instr_fetch_addr_o);
 
@@ -230,19 +232,35 @@ module schnova_frontend # (
 
         // If the instruction points to the N-th instruction in the fetch block,
         // Then the first N-1 instruction in that fetch block are invalid.
-        // Now since we reshuffle the instruction the first PipeWidth-N instructions in 
+        // Now since we reshuffle the instruction the first PipeWidth-N instructions in
         // instr_fetch data will be valid and the rest invalid. Finally, they are valid in the first
         // place only if the fetch block is valid.
-        assign instr_fetch_data_valid_o[i] = (i + instr_index < PipeWidth) & valid_fetch_block;
+        assign instr_fetch_data_valid[i] = (i + instr_index < PipeWidth) & valid_fetch_block;
       end
-
     end else begin : gen_no_alignment
       // There is only one instruction per fetch block, no index necesary
       assign instr_index = '0;
       // If we only fetch one instruction, we can just forward it
       assign instr_fetch_data_o = instr_fetch_data_i;
       // The instruction is valid if the handshake with the L0 cache is successful
-      assign instr_fetch_data_valid_o = valid_fetch_block;
+      assign instr_fetch_data_valid = valid_fetch_block;
     end
+
+  // When we are in scalar mode, we will always fetch multiple instructions
+  // however, the other instructions are not valid
+  logic [PipeWidth-1:0] scalar_mask = {{PipeWidth-1{1'b0}}, 1'b1};
+  always_comb begin: scalar_masking
+    // Depending on the mode of the core we have to invalidate some instructions
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (i == 0) begin
+        // The first instruction will stay valid, its the instruction thats being used in
+        // scalar in order execution.
+        instr_fetch_data_valid_o[i] = instr_fetch_data_valid[i];
+      end else begin
+        // All other instructions are masked.
+        instr_fetch_data_valid_o[i] = instr_fetch_data_valid[i] & en_superscalar_i;
+      end
+    end
+  end
 
 endmodule

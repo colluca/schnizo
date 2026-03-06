@@ -134,13 +134,6 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam int unsigned NrIntWritePorts = 1*PipeWidth;
   localparam int unsigned NrFpReadPorts = 3*PipeWidth;
   localparam int unsigned NrFpWritePorts = 1*PipeWidth;
-  // In the renaming stage we potentially also have to read the mapping of the destination register
-  // Thats why we have to increase the number of write ports for the RMTs
-  // The last destination does not have to be read, since that is not considered for dependency bypassing
-  localparam int unsigned RmtNrIntReadPorts = NrIntReadPorts + NrIntWritePorts - 1;
-  localparam int unsigned RmtNrIntWritePorts = NrIntWritePorts;
-  localparam int unsigned RmtNrFpReadPorts = NrFpReadPorts + NrFpWritePorts - 1;
-  localparam int unsigned RmtNrFpWritePorts = NrFpWritePorts;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
   // common data type for all FUs.
@@ -316,6 +309,13 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   } rmt_entry_t;
 
   typedef struct packed {
+    rmt_entry_t producer_dest; // info about the producer for the value of the destination register
+    logic [RegAddrSize-1:0] dest_reg; // the idx of the destination register
+    logic                   dest_reg_is_fp; // set if the destination register is a fp register
+    logic       valid;      // If the request is valid
+  } rmt_clear_req_t;
+
+  typedef struct packed {
     rmt_entry_t producer_op_a;
     rmt_entry_t producer_op_b;
     rmt_entry_t producer_op_c;
@@ -410,6 +410,13 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic               fpu_status_valid;
   frep_mem_cons_mode_e frep_mem_cons_mode;
 
+  logic flush_backend;
+  logic all_instr_dispatched;
+  rmt_entry_t   [PipeWidth-1:0]  dest_map;
+  rename_data_t [PipeWidth-1:0]  rename_info;
+
+  logic en_superscalar;
+
   // ---------------------------
   // Core Events
   // ---------------------------
@@ -463,6 +470,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .stall_i                  (stall),
     .mret_i                   (mret),
     .sret_i                   (sret),
+    .en_superscalar_i         (en_superscalar),
     // To controller
     .pc_o                     (pc),
     .consecutive_pc_o         (consecutive_pc),
@@ -495,7 +503,6 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .XLEN              (XLEN),
     .PipeWidth         (PipeWidth),
     .Xdma              (Xdma),
-    .Xfrep             (Xfrep),
     .RVF               (RVF),
     .RVD               (RVD),
     .XF16              (XF16),
@@ -569,7 +576,8 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_decoded_illegal_i(instr_decoded_illegal),
     .blk_ctrl_info_i        (blk_ctrl_info),
     // To rename stage
-    .clear_renaming_o (clear_rename),
+    .flush_backend_o (flush_backend),
+    .all_instr_dispatched_o(all_instr_dispatched),
     .all_rs_finish_i(/* TODO (soderma) */),
     .rs_restart_o(/* TODO (soderma) */),
     // Interface to dispatcher
@@ -597,35 +605,30 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .ecall_o                (ecall),
     .ebreak_o               (ebreak),
     .mret_o                 (mret),
-    .sret_o                 (sret)
+    .sret_o                 (sret),
+    .en_superscalar_o       (en_superscalar)
   );
 
   ////////////
   // Rename //
   ////////////
 
-  logic clear_rename;
-  rmt_entry_t   [PipeWidth-1:0]  dest_map;
-  rename_data_t [PipeWidth-1:0]  rename_info;
-
   schnova_rename #(
     .PipeWidth(PipeWidth),
-    /// Size of both int and fp register file
     .RegAddrSize(RegAddrSize),
-    .RmtNrIntReadPorts(RmtNrIntReadPorts),
-    .RmtNrIntWritePorts(RmtNrIntWritePorts),
-    .RmtNrFpReadPorts(RmtNrFpReadPorts),
-    .RmtNrFpWritePorts(RmtNrFpWritePorts),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
-    .rename_data_t(rename_data_t)
+    .rename_data_t(rename_data_t),
+    .rmt_clear_req_t(rmt_clear_req_t)
   ) i_rename (
     .clk_i,
     .rst_i,
-    .clear_i(clear_rename),
+    .flush_i(flush_backend),
+    .all_instr_dispatched_i(all_instr_dispatched),
     .dest_map_i(dest_map), /* TODO (soderma) */
     .instr_dec_i(instr_decoded),
-    .rename_info_o(rename_info) /* TODO (soderma) */
+    .rename_info_o(rename_info), /* TODO (soderma) */
+    .rmt_clear_req_i(/* TODO (soderma) */)
 );
 
   //////////////
