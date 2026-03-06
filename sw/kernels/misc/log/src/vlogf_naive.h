@@ -4,9 +4,9 @@
 //
 // Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-static inline void vlogf_naive(float *a, double *b) {
+static inline void vlogf_naive(float *a, float *b) {
     // Loop over sample
-    for (int i = 0; i < LEN; i++) {
+    for (int i = 0; i < len; i++) {
         asm volatile(
             // clang-format off
             "fmv.x.w  a0, %[input]             \n" // ix = asuint (x)

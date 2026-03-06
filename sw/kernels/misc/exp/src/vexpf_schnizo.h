@@ -21,9 +21,14 @@ static inline void vexpf_schnizo(double *a, double *b) {
     double *b_buffers[N_BUFFERS];
 
     a_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
-    a_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
     b_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
-    b_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+
+    // Only allocate double buffers if there is more than one batch.
+    // Allows to allocate larger tiles in this corner case.
+    if (n_batches > 1) {
+        a_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+        b_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    }
 
     unsigned int dma_a_idx = 0;
     unsigned int dma_b_idx = 0;
@@ -185,11 +190,11 @@ static inline void vexpf_schnizo(double *a, double *b) {
                     "fsd     fs1, 16(%[out_addr])             \n"
                     "fsd     fs2, 24(%[out_addr])             \n"
                     "addi    %[out_addr], %[out_addr], %[inc] \n" // address update
+                    // Terminate final iteration
                     "fmul.d  fa3, %[InvLn2N], fa3             \n" // z = InvLn2N * xd
                     "fmul.d  ft3, %[InvLn2N], ft3             \n" // z = InvLn2N * xd
                     "fmul.d  ft4, %[InvLn2N], ft4             \n" // z = InvLn2N * xd
                     "fmul.d  ft5, %[InvLn2N], ft5             \n" // z = InvLn2N * xd
-                    "addi    %[in_addr], %[in_addr], %[inc]   \n" // increment address after FPU to hide latency
                     "fadd.d  fa1, fa3, %[SHIFT]               \n" // kd = (double) (z + SHIFT)
                     "fadd.d  fa5, ft3, %[SHIFT]               \n" // kd = (double) (z + SHIFT)
                     "fadd.d  fa6, ft4, %[SHIFT]               \n" // kd = (double) (z + SHIFT)

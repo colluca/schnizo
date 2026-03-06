@@ -7,22 +7,18 @@
 #include "math.h"
 #include "snrt.h"
 
+#include "data.h"
 #include "vlogf.h"
 
-float a[LEN];
-double b_golden[LEN], b_actual[LEN];
+double b_golden[len];
 
 int main() {
     uint32_t tstart, tend;
 
-    // Initialize input array
-    if (snrt_cluster_core_idx() == 0)
-        for (int i = 0; i < LEN; i++) a[i] = (float)(i + 1) / LEN;
-
 #ifdef BIST
     // Calculate logarithm of input array using reference implementation
     if (snrt_cluster_core_idx() == 0) {
-        for (int i = 0; i < LEN; i++) {
+        for (int i = 0; i < len; i++) {
             b_golden[i] = (double)logf(a[i]);
         }
     }
@@ -32,16 +28,16 @@ int main() {
     snrt_cluster_hw_barrier();
 
     // Calculate logarithm of input array using vectorized implementation
-    vlogf_kernel(a, b_actual);
+    vlogf_kernel(a, b);
 
 #ifdef BIST
     // Check if the results are correct
     if (snrt_cluster_core_idx() == 0) {
-        uint32_t n_err = LEN;
-        for (int i = 0; i < LEN; i++) {
-            if ((float)b_golden[i] != (float)b_actual[i])
-                printf("Error: b_golden[%d] = %f, b_actual[%d] = %f\n", i,
-                       (float)b_golden[i], i, (float)b_actual[i]);
+        uint32_t n_err = len;
+        for (int i = 0; i < len; i++) {
+            if ((float)b_golden[i] != (float)b[i])
+                printf("Error: b_golden[%d] = %f, b[%d] = %f\n", i,
+                       (float)b_golden[i], i, (float)b[i]);
             else
                 n_err--;
         }

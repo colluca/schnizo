@@ -143,6 +143,7 @@ class ExperimentManager:
         dry_run = self.args.dry_run
         n_procs = self.args.n_procs
         experiments = self.experiments
+        sync = True if self.args.n_procs == 1 else False
 
         # Build hardware
         if 'hw' in self.actions or 'all' in self.actions:
@@ -235,6 +236,7 @@ class ExperimentManager:
         # TODO(colluca): write in more compact way
         if 'visual-trace' in self.actions or 'roi' in self.actions or 'all' in self.actions:
 
+            processes = []
             for experiment in experiments:
 
                 # Take ROI spec from experiment or default location
@@ -269,13 +271,15 @@ class ExperimentManager:
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
-                        common.make('roi', vars, dry_run=dry_run)
+                        process = common.make('roi', vars, dry_run=dry_run, sync=sync)
+                        processes.append(process)
 
                     if 'visual-trace' in self.actions:
                         # Build visual trace
                         hw_cfg = self.derive_hw_cfg(experiment)
                         build.build_visual_trace(experiment['run_dir'], rendered_spec,
                                                  hw_cfg=hw_cfg)
+            common.wait_processes(processes)
 
         # Generate joint performance dump
         if 'power' in self.actions or 'all' in self.actions:

@@ -1047,7 +1047,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   };
 
   assign dispatch_trace = '{
-    valid:        i_controller.instr_dispatched,
+    valid:        i_controller.instr_dispatched || exception,
     pc_q:         i_controller.pc_q,
     pc_d:         i_controller.pc_d,
     instr_data:   instr_fetch_data_i,
