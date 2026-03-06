@@ -7,7 +7,7 @@
 /// Fully connected crossbar for multi-output result broadcasting.
 ///
 /// Handshaking rules as defined by the `AMBA AXI` standard on default.
-module schnizo_xbar_rsp #(
+module schnizo_rsp_xbar #(
   /// Number of inputs into the crossbar (`> 0`).
   parameter int unsigned NumInp      = 32'd0,
   /// Number of outputs from the crossbar (`> 0`).

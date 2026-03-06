@@ -184,8 +184,8 @@ sources:
       - hw/schnizo/src/schnizo_writeback.sv
       - hw/schnizo/src/schnizo_res_stat_slot.sv
       - hw/schnizo/src/schnizo_loop_controller.sv
-      - hw/schnizo/src/schnizo_xbar_req.sv
-      - hw/schnizo/src/schnizo_xbar_rsp.sv
+      - hw/schnizo/src/schnizo_req_xbar.sv
+      - hw/schnizo/src/schnizo_rsp_xbar.sv
       - hw/schnizo/src/schnizo_res_req_filter.sv
       # Level 2
       - hw/schnizo/src/schnizo_tracer.sv

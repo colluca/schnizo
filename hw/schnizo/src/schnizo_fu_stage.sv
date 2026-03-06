@@ -454,7 +454,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     end
     // TODO(colluca): we don't need this module at all!
     //                It is just a collection of NofOperandIfs 1->NofResReqIfs demuxes.
-    schnizo_xbar_req #(
+    schnizo_req_xbar #(
       .NumInp     (NofOperandIfs),
       .NumOut     (NofResReqIfs),
       .res_req_t  (res_req_t),
@@ -487,7 +487,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       assign res_rsps_dest_masks[i] = res_rsps[i].dest_mask;
     end
 
-    schnizo_xbar_rsp #(
+    schnizo_rsp_xbar #(
       .NumInp     (NofResRspIfs),
       .NumOut     (NofOperandIfs),
       .payload_t  (operand_t),
