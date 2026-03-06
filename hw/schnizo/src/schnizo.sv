@@ -35,8 +35,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter bit          Xdma      = 0,
   /// Enable the Superscalar FREP mode
   parameter bit          Xfrep     = 1,
-  /// Enable FP in general
-  parameter bit          FP_EN     = 0,
   /// Enable F Extension.
   parameter bit          RVF       = 0,
   /// Enable D Extension.
