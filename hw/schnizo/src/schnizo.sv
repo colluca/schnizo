@@ -984,21 +984,25 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .we_i   (gpr_we)
   );
 
-  snitch_regfile #(
-    .DataWidth    (FLEN),
-    .NrReadPorts  (NrFpReadPorts),
-    .NrWritePorts (NrFpWritePorts),
-    .ZeroRegZero  (0),
-    .AddrWidth    (RegAddrSize)
-  ) i_fp_regfile (
-    .clk_i,
-    .rst_ni (~rst_i),
-    .raddr_i(fpr_raddr),
-    .rdata_o(fpr_rdata),
-    .waddr_i(fpr_waddr),
-    .wdata_i(fpr_wdata),
-    .we_i   (fpr_we)
-  );
+  if (NofFpus > 0) begin : gen_fp_rf
+    snitch_regfile #(
+      .DataWidth    (FLEN),
+      .NrReadPorts  (NrFpReadPorts),
+      .NrWritePorts (NrFpWritePorts),
+      .ZeroRegZero  (0),
+      .AddrWidth    (RegAddrSize)
+    ) i_fp_regfile (
+      .clk_i,
+      .rst_ni (~rst_i),
+      .raddr_i(fpr_raddr),
+      .rdata_o(fpr_rdata),
+      .waddr_i(fpr_waddr),
+      .wdata_i(fpr_wdata),
+      .we_i   (fpr_we)
+    );
+  end else begin
+    assign fpr_rdata = '0;
+  end
 
   ////////////
   // Tracer //
