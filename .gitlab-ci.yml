@@ -152,6 +152,15 @@ yosys-synthesis:
 ################################
 
 nonfree:
+  parallel:
+    matrix:
+      - DESIGN:
+          - schnizo_req_xbar_synth
+          - schnizo_rsp_xbar_synth
+          - schnizo_res_stat_synth
+          - schnizo_synth
+          - snitch_synth
+          - snitch_cluster_wrapper
   script:
     - make nonfree
-    - make elab
+    - make elab DESIGN=$DESIGN

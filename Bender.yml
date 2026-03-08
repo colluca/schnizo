@@ -275,3 +275,13 @@ sources:
   - target: all(snitch_cluster_wrapper, ihp13, netlist)
     files:
       - target/asic/yosys/out/snitch_cluster_wrapper_yosys_debug.v
+
+  - target: gf12
+    files:
+      - hw/schnizo/synth/schnizo_synth_pkg.sv
+      - hw/schnizo/synth/schnizo_res_stat_synth.sv
+      - hw/schnizo/synth/schnizo_req_xbar_synth.sv
+      - hw/schnizo/synth/schnizo_rsp_xbar_synth.sv
+      - hw/schnizo/synth/schnizo_fu_stage_synth.sv
+      - hw/schnizo/synth/schnizo_synth.sv
+      - hw/schnizo/synth/snitch_synth.sv
