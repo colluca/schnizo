@@ -484,22 +484,15 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .NumInp     (NofResRspIfs),
       .NumOut     (NofOperandIfs),
       .payload_t  (operand_t),
-      .dest_mask_t(dest_mask_t),
-      // TODO(colluca): if we don't envision the possibility to change these parameters just
-      //                hardcode them internally for better separation of concerns. Same thing
-      //                for port signals.
-      .OutSpillReg(0)
+      .dest_mask_t(dest_mask_t)
     ) i_response_xbar (
       .clk_i,
-      .rst_ni (~rst_i),
-      .flush_i('0),
-      .rr_i   ('0),
+      .rst_ni (!rst_i),
       .data_i (res_rsps_operands),
       .sel_i  (res_rsps_dest_masks),
       .valid_i(res_rsps_valid),
       .ready_o(res_rsps_ready),
       .data_o (op_rsps),
-      .idx_o  (),
       .valid_o(op_rsps_valid),
       .ready_i(op_rsps_ready)
     );
