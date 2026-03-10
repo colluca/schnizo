@@ -42,6 +42,7 @@ module schnova_frontend # (
     /// To controller
     output logic [31:0]                       pc_o,
     output logic [XLEN-1:0]                   consecutive_pc_o,
+    output logic [XLEN-1:0]                   jump_pc_o,
     // Branch result
     input  logic                              alu_compare_res_i,
     input  logic[XLEN-1:0]                    alu_result_i,
@@ -71,10 +72,10 @@ module schnova_frontend # (
     logic            valid_fetch_block; // Whether the current fetch block is valid
     logic [XLEN-1:0] consecutive_pc;
     logic [PipeWidth-1:0] instr_fetch_data_valid;
-    // Number of remaining instructions until the next block
-    
+
     logic [31:0]     pc_d, pc_q; // PC is fixed to 32 bits in RV32
     logic            stall_fetch; // Whether instruction fetch should be stalled
+
     `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i);
 
     ///////////////////////
@@ -130,6 +131,7 @@ module schnova_frontend # (
     // - Branched & Consecutive PC: for all regular instructions & branches if taken
 
     // Program counter
+    // TODO(soderma): Is instr misalignment handled correctly for JAL and JALR instructions?
     assign consecutive_pc_o = consecutive_pc;
     assign pc_o             = pc_q;
 
@@ -141,17 +143,34 @@ module schnova_frontend # (
     // would lose performance, basically once the PC would not be aligned to a fetch block,
     // we would always have invalid instructions per fetch purely because of that.
     // If we have a JAL or JALR, we store the regular consecutive PC (PC+4) in rd.
+    if (PipeWidth > 1) begin: gen_superscalar_cons_pc
+      assign consecutive_pc = pc_q +
+          ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
+          // In case of a branch, we just add the immediate
+                                        blk_ctrl_info_i.imm :
+                                        ((blk_ctrl_info_i.is_fence_i ||
+                                          blk_ctrl_info_i.is_jal     ||
+                                          blk_ctrl_info_i.is_jalr)      ?
+          // In case of a FENCE_I we have to fetch the next instruction after the fence_i
+          // in case of JAL or JALR we have to store the next instruction in rd
+                                        (instr_index + blk_ctrl_info_i.instr_idx + 1'b1) << 2:
+          // Next PC is now PC + #instructions used in the last fetch block
+                                        (PipeWidth-instr_index)) << 2);
 
-    assign consecutive_pc = pc_q +
-        ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
-        // In case of a branch, we just add the immediate
-                                      blk_ctrl_info_i.imm :
-                                      ((blk_ctrl_info_i.is_fence_i)      ?
-        // In case of a FENCE_I we have to fetch the next instruction after the fence_i
-                                      (blk_ctrl_info_i.instr_idx + 1'b1) :
-        // Next PC is now PC + #instructions used in the last fetch block
-                                      (PipeWidth-instr_index)) << 2);
-
+      // The PC of the JAL/JALR instructions is needed for the relative
+      // address calculation
+      assign jump_pc_o = pc_q + ((instr_index + blk_ctrl_info_i.instr_idx) << 2);
+    end else begin
+      // There is only one instruction, so things are simpler
+      // The instruction after fence_i is just PC + 4, similarily for jal and jalr we can also just use PC + 4
+      assign consecutive_pc = pc_q +
+          ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
+          // In case of a branch, we just add the immediate
+                                        blk_ctrl_info_i.imm :
+                                        4'd4);
+      // Since there is only one instruction, the PC of the jump instruction is the current PC
+      assign jump_pc_o = pc_q;
+    end
     // If we stall fetch, we don't request a new instruction
     // If however onlly stall_i is asserted, this means we were not able to dispatch the request
     // in that case we have to refetch the same instruction, hence in that case we just don't

@@ -20,7 +20,6 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic rst_i,
 
   // Frontend interface
-  input  logic [31:0]     pc_i,
   input  logic            flush_i_ready_i,
   output logic            flush_i_valid_o,
   input  logic [XLEN-1:0] consecutive_pc_i,
@@ -33,7 +32,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // To backend
   output logic                      flush_backend_o,
   output logic                      all_instr_dispatched_o,
-
+  input logic                       registers_ready_i,
   // Interface to dispatcher & RS
   output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
   input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
@@ -235,6 +234,11 @@ module schnova_controller import schnizo_pkg::*; #(
   logic ctrl_stall;
   assign ctrl_stall = blk_ctrl_info_i.is_ctrl & ~ctrl_inflight_i;
 
+  // Check if there is any valid instruction in the block in the first place, otherwise we are still waiting
+  // on the fetch to return valid instructions for the current PC
+  logic all_instr_invalid;
+  assign all_instr_invalid = ~(&instr_valid_i);
+
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
   ////////////////////
@@ -262,6 +266,7 @@ module schnova_controller import schnizo_pkg::*; #(
     assign stall_raw[instr_idx] =   fence_stall[instr_idx]   |
                                     csr_stall[instr_idx];
     assign dispatch_instr_valid_o[instr_idx] =  instr_valid_i[instr_idx] &
+                                                registers_ready_i        &
                                                 !stall_raw[instr_idx];
     // The instruction may only execute if there are no errors/exceptions.
     // TODO(colluca): clarify "multi-cycle issues" in following comment
@@ -282,7 +287,7 @@ module schnova_controller import schnizo_pkg::*; #(
 
   for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_instr_disp_mask
     // If the instruction was not valid, we don't have to dispatch it in the first place
-    // in that case we  treat it as if it successfully dispatched
+    // in that case we treat it as if it successfully dispatched
     assign instr_dispatched_mask[instr_idx] = (instr_valid_i[instr_idx])  ?
                                               instr_dispatched[instr_idx] :
                                               1'b1;
@@ -292,6 +297,7 @@ module schnova_controller import schnizo_pkg::*; #(
   assign all_instr_dispatched_o = |instr_dispatched_mask;
 
   assign stall_o =  fence_i_stall |
+                    all_instr_invalid |
                     ~all_instr_dispatched_o;
 
 //////////////////////////////

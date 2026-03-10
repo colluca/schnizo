@@ -15,6 +15,7 @@
 module schnova_dispatcher import schnizo_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          EnableFrep  = 1,
+  parameter int unsigned PipeWidth       = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
   parameter int unsigned NofAlus     = 1,
@@ -24,18 +25,24 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   parameter type         rmt_entry_t = logic,
   parameter type         disp_req_t  = logic,
   parameter type         disp_rsp_t  = logic,
+  parameter type         rename_data_t = logic,
   parameter type         fu_data_t   = logic,
   parameter type         acc_req_t   = logic
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
+  input  logic         en_superscalar_i,
   // Handshake to dispatch instruction consisting of instr_dec_i and instr_fu_data_i
-  input  instr_dec_t   instr_dec_i,
-  input  fu_data_t     instr_fu_data_i,
+  input  instr_dec_t [PipeWidth-1:0]   instr_dec_i,
+  input  fu_data_t   [PipeWidth-1:0]   instr_fu_data_i,
   input  logic [31:0]  instr_fetch_data_i,
-  input  logic         dispatch_valid_i,
+  input  logic [PipeWidth-1:0]        dispatch_valid_i,
   output logic         dispatch_ready_o,
   input  logic         instr_exec_commit_i,
+
+  // From rename stage
+  input  rename_data_t [PipeWidth-1:0] rename_info_i,
+  output rmt_entry_t   [PipeWidth-1:0] dest_map_o,
 
   // Handshake to all possible FUs. Each FU has own ready/valid interface.
   output disp_req_t disp_req_o,
@@ -83,9 +90,6 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
 
-  // Two RMT for the integer (rmti) and floating point (rmtf) register files.
-  rmt_entry_t [2**RegAddrSize-1:0] rmti_d, rmti_q, rmtf_d, rmtf_q;
-
   ////////////////////////
   // Request generation //
   ////////////////////////
@@ -95,48 +99,34 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   rmt_entry_t no_mapping;
   assign no_mapping = '{
     producer:    '0,
-    is_produced: 1'b0
+    valid: 1'b0
   };
 
   rmt_entry_t current_dest_entry;
-  assign current_dest_entry = instr_dec_i.rd_is_fp ? rmtf_q[instr_dec_i.rd] :
-                                                     rmti_q[instr_dec_i.rd];
+  // TODO (soderma): Remove this
+  // Not needed at this point
+  assign current_dest_entry = no_mapping;
 
   always_comb begin : dispatch_generation
     disp_req_o = '0;
-    disp_req_o.fu_data = instr_fu_data_i;
+    disp_req_o.fu_data = instr_fu_data_i[0];
 
-    // Producer fields are only used if FREP is enabled
-    if (EnableFrep) begin
-      // Operand A
-      disp_req_o.producer_op_a = instr_dec_i.rs1_is_fp ? rmtf_q[instr_dec_i.rs1] :
-                                                         rmti_q[instr_dec_i.rs1];
+    // Operand A
+    disp_req_o.producer_op_a = rename_info_i[0].producer_op_a;
+    disp_req_o.producer_op_b = rename_info_i[0].producer_op_b;
+    disp_req_o.producer_op_c = rename_info_i[0].producer_op_c;
 
-      // Operand B
-      disp_req_o.producer_op_b = instr_dec_i.rs2_is_fp ? rmtf_q[instr_dec_i.rs2] :
-                                                         rmti_q[instr_dec_i.rs2];
-
-      // Operand C
-      disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
-                                 rmtf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
-                                 no_mapping;
-
-      // current destination producer
-      // TODO(colluca): the comment correctly calls it "current destination producer".
-      //                Align LHS signal name.
-      disp_req_o.current_producer_dest = current_dest_entry;
-    end else begin
-      disp_req_o.producer_op_a         = '0;
-      disp_req_o.producer_op_b         = '0;
-      disp_req_o.producer_op_c         = '0;
-      disp_req_o.current_producer_dest = '0;
-    end
+    // current destination producer
+    // TODO(colluca): the comment correctly calls it "current destination producer".
+    //                Align LHS signal name.
+    disp_req_o.current_producer_dest = current_dest_entry;
 
     // generate the tag
-    disp_req_o.tag.dest_reg       = instr_dec_i.rd;
-    disp_req_o.tag.dest_reg_is_fp = instr_dec_i.rd_is_fp;
-    disp_req_o.tag.is_branch      = instr_dec_i.is_branch;
-    disp_req_o.tag.is_jump        = instr_dec_i.is_jal | instr_dec_i.is_jalr;
+    disp_req_o.tag.producer_id  = fu_response.producer;
+    disp_req_o.tag.dest_reg       = instr_dec_i[0].rd;
+    disp_req_o.tag.dest_reg_is_fp = instr_dec_i[0].rd_is_fp;
+    disp_req_o.tag.is_branch      = instr_dec_i[0].is_branch;
+    disp_req_o.tag.is_jump        = instr_dec_i[0].is_jal | instr_dec_i[0].is_jalr;
   end
 
   //////////////////
@@ -173,40 +163,41 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     acc_disp_req_valid_o = 1'b0;
 
     acc_req_o         = '0;
-    acc_req_o.id      = instr_dec_i.rd; // TODO: currently only GPR address supported
+    acc_req_o.id      = instr_dec_i[0].rd; // TODO: currently only GPR address supported
+    // TODO (soderma): In superscalar this should be the acc instruction fetch data
     acc_req_o.data_op = instr_fetch_data_i;
 
-    unique case (instr_dec_i.fu)
+    unique case (instr_dec_i[0].fu)
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
-        alu_disp_req_valid_o[0] = dispatch_valid_i;
+        alu_disp_req_valid_o[0] = dispatch_valid_i[0];
       end
       schnizo_pkg::ALU: begin
-        alu_disp_req_valid_o[alu_idx] = dispatch_valid_i;
+        alu_disp_req_valid_o[alu_idx] = dispatch_valid_i[0];
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
-        lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i;
+        lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i[0];
       end
       schnizo_pkg::CSR : begin
-        csr_disp_req_valid_o = dispatch_valid_i;
+        csr_disp_req_valid_o = dispatch_valid_i[0];
       end
       schnizo_pkg::FPU: begin
-        fpu_disp_req_valid_o[fpu_idx] = dispatch_valid_i;
+        fpu_disp_req_valid_o[fpu_idx] = dispatch_valid_i[0];
       end
       schnizo_pkg::MULDIV: begin
-        acc_disp_req_valid_o = dispatch_valid_i;
+        acc_disp_req_valid_o = dispatch_valid_i[0];
         acc_req_o.addr         = snitch_pkg::IPU; // TODO: use schnizo defined address.
-        acc_req_o.data_arga    = instr_fu_data_i.operand_a;
-        acc_req_o.data_argb    = instr_fu_data_i.operand_b;
+        acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
+        acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
         acc_req_o.data_argc    = '0; // unused for shared muldiv
       end
       schnizo_pkg::DMA: begin
-        acc_disp_req_valid_o = dispatch_valid_i;
+        acc_disp_req_valid_o = dispatch_valid_i[0];
         acc_req_o.addr         = snitch_pkg::DMA_SS; // TODO: use schnizo defined address.
-        acc_req_o.data_arga    = instr_fu_data_i.operand_a;
-        acc_req_o.data_argb    = instr_fu_data_i.operand_b;
+        acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
+        acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
       end
       schnizo_pkg::NONE: begin
@@ -229,7 +220,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     fu_ready    = 1'b0;
     fu_rs_full  = 1'b0;
 
-    unique case (instr_dec_i.fu)
+    unique case (instr_dec_i[0].fu)
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
@@ -403,81 +394,9 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   //////////////////////////////////
   // Register Mapping Table (RMT) //
   //////////////////////////////////
-
-  // The RMT captures which RSS produces a value such that dependent instructions know from where
-  // to fetch their operands. We create or update a mapping depending on the LxP state.
-  // - In LCP1 we always create or update the mapping.
-  // - In LCP2 we may only create new mappings.
-  //     -> I.e., if there is already a mapping, we may not update the mapping.
-  // - In LEP there should be no dispatching.. For debug purposes we don't reset the mapping in LEP
-  // - In any other state we can reset the RMT.
-
-  // TODO(colluca): even better, the reset value would use the no_mapping signal declared above
-  `FFAR(rmti_q, rmti_d, '0, clk_i, rst_i)
-  `FFAR(rmtf_q, rmtf_d, '0, clk_i, rst_i)
-
-  if (EnableFrep) begin : gen_rmt
-
-    rmt_entry_t new_entry;
-    assign new_entry = '{
-      producer:    fu_response.producer,
-      is_produced: 1'b1
-    };
-
-    always_comb begin : rmt_update
-      rmti_d = rmti_q;
-      rmtf_d = rmtf_q;
-
-      unique case (loop_state_i)
-        LoopRegular,
-        LoopHwLoop: begin
-          // Reset the RMT
-          rmti_d = '0;
-          rmtf_d = '0;
-        end
-        LoopLcp1: begin
-          // Always create or update the mapping at dispatch
-          if (dispatched) begin
-            if (instr_dec_i.rd_is_fp) begin
-              rmtf_d[instr_dec_i.rd] = new_entry;
-            end else begin
-              rmti_d[instr_dec_i.rd] = new_entry;
-            end
-          end
-        end
-        LoopLcp2: begin
-          // Create a mapping if no mapping exists yet at dispatch
-          // TODO(colluca): how could this ever be the case? Every instruction that is
-          //                dispatched in LCP2 must have been dispatched in LCP1.
-          //                Test that this condition never arises with an assertion.
-          if (dispatched && !current_dest_entry.is_produced) begin
-            if (instr_dec_i.rd_is_fp) begin
-              rmtf_d[instr_dec_i.rd] = new_entry;
-            end else begin
-              rmti_d[instr_dec_i.rd] = new_entry;
-            end
-          end
-        end
-        LoopLep: ; // do nothing
-        default: begin
-          // Reset the RMT
-          rmti_d = '0;
-          rmtf_d = '0;
-        end
-      endcase
-
-      // register x0 can never be produced.
-      rmti_d[0] = no_mapping;
-    end
-  end else begin : gen_no_rmt
-    assign rmti_d = '0;
-    assign rmtf_d = '0;
+  always_comb begin : write_rmt
+    // Forward the new destination mappings to the rename stage
+    dest_map_o[0].producer = fu_response.producer;
+    dest_map_o[0].valid = dispatched;
   end
-
-  // Assert that only one dispatch request is set at a time
-  // TODO: How to suppress spikes at beginning of cycle?
-  // `ASSERT(MoreThanOneValid, !$onehot0({alu_disp_req_valid_o, lsu_disp_req_valid_o,
-  //                                      csr_disp_req_valid_o, fpu_disp_req_valid_o,
-  //                                      acc_disp_req_valid_o}),
-  //         clk_i, rst_i, "Only one dispatch request may be valid at a time");
 endmodule

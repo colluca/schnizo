@@ -24,7 +24,7 @@
 //   have committed before the core gets stopped.
 //
 // Use automatic retiming options in the synthesis tool to optimize the fpnew design.
-module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
+module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   /// Boot address of core.
   parameter logic [31:0] BootAddr  = 32'h0000_1000,
   /// Physical Address width of the core.
@@ -134,6 +134,22 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam int unsigned NrIntWritePorts = 1*PipeWidth;
   localparam int unsigned NrFpReadPorts = 3*PipeWidth;
   localparam int unsigned NrFpWritePorts = 1*PipeWidth;
+
+  // We have to read out a mapping for every source operand and potentially
+  // the destination operand if it takes multiple cycles except for the last destination operand
+  // since we only have to track/forward dependencies in this current instruction block
+  // If PipeWidth = 1, we still have to read the destination register for the scoreboard
+  // functionality
+  // Integer instructons have 2 source + 1 destination register
+  localparam int unsigned RmtNrIntReadPorts = (PipeWidth > 1 ? 2*PipeWidth + 1*PipeWidth - 1 :
+                                              2*PipeWidth + 1*PipeWidth);
+  // Float instructions have 3 source + 1 destination register
+  localparam int unsigned RmtNrFpReadPorts = (PipeWidth > 1 ? 3*PipeWidth + 1*PipeWidth - 1 :
+                                              3*PipeWidth + 1*PipeWidth);
+  // We have to write the new mapping for every destination register
+  localparam int unsigned RmtNrWritePorts = 1*PipeWidth;
+  // We have to potentially clear a mappy for every instruction each cycle
+  localparam int unsigned RmtNrClearPorts = 1*PipeWidth;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
   // common data type for all FUs.
@@ -299,6 +315,15 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // ---------------------------
   // Dispatch/issue/result data types
   // ---------------------------
+
+  typedef struct packed {
+    producer_id_t           producer_id;
+    logic [RegAddrSize-1:0] dest_reg;
+    logic                   dest_reg_is_fp;
+    logic                   is_branch;
+    logic                   is_jump;
+  } schnova_instr_tag_t;
+
   typedef struct packed {
     producer_id_t producer;
   } disp_rsp_t;
@@ -311,7 +336,6 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   typedef struct packed {
     rmt_entry_t producer_dest; // info about the producer for the value of the destination register
     logic [RegAddrSize-1:0] dest_reg; // the idx of the destination register
-    logic                   dest_reg_is_fp; // set if the destination register is a fp register
     logic       valid;      // If the request is valid
   } rmt_clear_req_t;
 
@@ -328,12 +352,12 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     rmt_entry_t producer_op_b;
     rmt_entry_t producer_op_c;
     rmt_entry_t current_producer_dest;
-    instr_tag_t tag;
+    schnova_instr_tag_t tag;
   } disp_req_t;
 
   typedef struct packed {
     fu_data_t fu_data;
-    instr_tag_t tag;
+    schnova_instr_tag_t tag;
   } issue_req_t;
 
   // The ALU result without the branch decision
@@ -371,6 +395,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   logic            flush_i_valid;
   logic [31:0]     pc;
+  logic [31:0]     jump_pc;
   logic [PipeWidth-1:0] instr_valid;
   logic [PipeWidth-1:0] instr_decoded_illegal;
   logic            instr_illegal;
@@ -403,7 +428,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   block_ctrl_info_t blk_ctrl_info;
 
   alu_result_t alu_result;
-  instr_tag_t  alu_result_tag;
+  schnova_instr_tag_t  alu_result_tag;
   alu_result_t branch_result;
   logic [0:0]  lsu_empty;
   fpnew_pkg::status_t fpu_status;
@@ -414,8 +439,11 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic all_instr_dispatched;
   rmt_entry_t   [PipeWidth-1:0]  dest_map;
   rename_data_t [PipeWidth-1:0]  rename_info;
+  rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_int_clear_req;
+  rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_fp_clear_req;
 
   logic en_superscalar;
+  logic registers_ready;
 
   // ---------------------------
   // Core Events
@@ -474,6 +502,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // To controller
     .pc_o                     (pc),
     .consecutive_pc_o         (consecutive_pc),
+    .jump_pc_o                (jump_pc),
     // Exception source interface
     .wfi_i                    (wfi),
     .barrier_stall_i          (barrier_stall),
@@ -526,7 +555,8 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   // Read the operands - do always read (even if invalid instr) because controller depends on
   // values from registers. See for example the FREP instruction and its number of iterations.
-  schnizo_read_operands #(
+  schnova_read_operands #(
+    .PipeWidth     (PipeWidth),
     .XLEN          (XLEN),
     .FLEN          (FLEN),
     .RegAddrSize   (RegAddrSize),
@@ -535,7 +565,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_dec_t   (instr_dec_t),
     .fu_data_t     (fu_data_t)
   ) i_read_operands (
-    .pc_i       (pc),
+    .jump_pc_i(jump_pc),
     .instr_dec_i(instr_decoded),
     .gpr_raddr_o(gpr_raddr),
     .gpr_rdata_i(gpr_rdata),
@@ -549,11 +579,11 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   ////////////////
 
   logic                         rs_full;
-  logic                         lxp_restart;
-  logic                         goto_lcp2;
-  loop_state_e                  loop_state;
-  logic [FrepMaxItersWidth-1:0] loop_iteration;
-  logic [FrepMaxItersWidth-1:0] lep_iterations;
+  logic                         lxp_restart = 1'b1;
+  logic                         goto_lcp2 = 1'b0;
+  loop_state_e                  loop_state = LoopRegular;
+  logic [FrepMaxItersWidth-1:0] loop_iteration = '0;
+  logic [FrepMaxItersWidth-1:0] lep_iterations = '0;
   logic                         all_rs_finish;
 
   schnova_controller #(
@@ -566,7 +596,6 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .clk_i,
     .rst_i,
     // Frontend interface
-    .pc_i                   (pc),
     .flush_i_ready_i        (flush_i_ready_i),
     .flush_i_valid_o        (flush_i_valid),
     .consecutive_pc_i       (consecutive_pc),
@@ -578,8 +607,9 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // To rename stage
     .flush_backend_o (flush_backend),
     .all_instr_dispatched_o(all_instr_dispatched),
-    .all_rs_finish_i(/* TODO (soderma) */),
+    .all_rs_finish_i(1'b1), // TODO (soderma): Have to correctly assign this, currently it is loop dependent
     .rs_restart_o(/* TODO (soderma) */),
+    .registers_ready_i(registers_ready),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
@@ -589,10 +619,10 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .interrupt_i            (interrupt),
     .csr_exception_raw_i    (csr_exception_raw),
     .lsu_empty_i            (lsu_empty),
-    .csr_inflight_i         (/* TODO (soderma) */),
-    .ctrl_inflight_i        (/* TODO (soderma) */),
-    .load_inflight_i        (/* TODO (soderma) */),
-    .store_inflight_i       (/* TODO (soderma) */),
+    .csr_inflight_i         (1'b0),
+    .ctrl_inflight_i        (1'b0),
+    .load_inflight_i        (1'b0),
+    .store_inflight_i       (1'b0),
     .lsu_addr_misaligned_i  (lsu_addr_misaligned),
     .priv_lvl_i             (priv_lvl),
     // Interface to CSR & write back for handling an exception
@@ -615,6 +645,10 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   schnova_rename #(
     .PipeWidth(PipeWidth),
+    .RmtNrIntReadPorts(RmtNrIntReadPorts),
+    .RmtNrFpReadPorts(RmtNrFpReadPorts),
+    .RmtNrWritePorts(RmtNrWritePorts),
+    .RmtNrClearPorts(RmtNrClearPorts),
     .RegAddrSize(RegAddrSize),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
@@ -625,10 +659,13 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .rst_i,
     .flush_i(flush_backend),
     .all_instr_dispatched_i(all_instr_dispatched),
-    .dest_map_i(dest_map), /* TODO (soderma) */
+    .dest_map_i(dest_map),
     .instr_dec_i(instr_decoded),
-    .rename_info_o(rename_info), /* TODO (soderma) */
-    .rmt_clear_req_i(/* TODO (soderma) */)
+    .en_superscalar_i(en_superscalar),
+    .registers_ready_o(registers_ready),
+    .rename_info_o(rename_info),
+    .rmt_int_clear_req_i(rmt_int_clear_req),
+    .rmt_fp_clear_req_i(rmt_fp_clear_req)
 );
 
   //////////////
@@ -652,13 +689,15 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
   logic      [NofFpus-1:0] fpu_rs_full;
 
-  schnizo_dispatcher #(
+  schnova_dispatcher #(
+    .PipeWidth(PipeWidth),
     .RegAddrSize(RegAddrSize),
     .NofAlus    (NofAlus),
     .NofLsus    (NofLsus),
     .NofFpus    (NofFpus),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
+    .rename_data_t(rename_data_t),
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
     .fu_data_t  (fu_data_t),
@@ -666,6 +705,10 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   ) i_dispatcher (
     .clk_i,
     .rst_i,
+    // Rename interface
+    .rename_info_i(rename_info),
+    .dest_map_o(dest_map),
+    .en_superscalar_i    (en_superscalar),
     .instr_dec_i         (instr_decoded),
     .instr_fu_data_i     (fu_data),
     .instr_fetch_data_i  (instr_fetch_data),
@@ -718,12 +761,12 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic            alu_result_ready;
   logic            lsu_result_valid;
   logic            lsu_result_ready;
-  instr_tag_t      lsu_result_tag;
+  schnova_instr_tag_t      lsu_result_tag;
   data_t           lsu_result;
   logic [FLEN-1:0] fpu_result;
   logic            fpu_result_valid;
   logic            fpu_result_ready;
-  instr_tag_t      fpu_result_tag;
+  schnova_instr_tag_t      fpu_result_tag;
 
   // Trace signals
   // pragma translate_off
@@ -786,7 +829,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
     .fu_data_t          (fu_data_t),
-    .instr_tag_t        (instr_tag_t),
+    .instr_tag_t        (schnova_instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
@@ -864,7 +907,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // TODO: Maybe we should unify the behaviour?
   logic csr_result_valid;
   logic csr_result_ready;
-  instr_tag_t csr_result_tag;
+  schnova_instr_tag_t csr_result_tag;
   logic [XLEN-1:0] csr_result;
 
   schnizo_csr #(
@@ -875,7 +918,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .Xdma        (Xdma),
     .VMSupport   (0),
     .issue_req_t (issue_req_t),
-    .result_tag_t(instr_tag_t),
+    .result_tag_t(schnova_instr_tag_t),
     .NofAlus     (NofAlus),
     .AluNofRss   (AluNofRss),
     .NofLsus     (NofLsus),
@@ -934,7 +977,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // Convert the accelerator response to a proper result and result tag such that the
   // write back and scoreboard functions properly.
   logic [XLEN-1:0] acc_result;
-  instr_tag_t      acc_result_tag;
+  schnova_instr_tag_t      acc_result_tag;
   always_comb begin : acc_response_conversion
     acc_result = acc_prsp_i.data;
     acc_result_tag = '0;
@@ -943,14 +986,17 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   end
 
   // See module for details and specialities!
-  schnizo_writeback #(
+  schnova_writeback #(
+    .PipeWidth      (PipeWidth),
+    .RmtNrClearPorts(RmtNrClearPorts),
     .XLEN           (XLEN),
     .FLEN           (FLEN),
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
     .RegAddrSize    (RegAddrSize),
-    .instr_tag_t    (instr_tag_t),
+    .instr_tag_t    (schnova_instr_tag_t),
     .alu_result_t   (alu_result_t),
+    .rmt_clear_req_t(rmt_clear_req_t),
     .data_t         (data_t)
   ) i_writeback (
     // ALU interface
@@ -958,6 +1004,7 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .alu_result_tag_i  (alu_result_tag),
     .alu_result_valid_i(alu_result_valid),
     .alu_result_ready_o(alu_result_ready),
+    // TODO (soderma): This used to be PC+4, the instruction after the jal/jalr
     .consecutive_pc_i  (consecutive_pc),
     // CSR interface
     .csr_result_i      (csr_result),
@@ -989,7 +1036,10 @@ module schnova import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // Core events signals
     .retired_single_cycle_o(instr_retired_single_cycle),
     .retired_load_o        (instr_retired_load),
-    .retired_acc_o         (instr_retired_acc)
+    .retired_acc_o         (instr_retired_acc),
+    // To rename
+    .rmt_int_clear_req_o       (rmt_int_clear_req),
+    .rmt_fp_clear_req_o       (rmt_fp_clear_req)
   );
 
   /////////////////

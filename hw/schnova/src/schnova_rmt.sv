@@ -37,7 +37,6 @@ module schnova_rmt #(
   rmt_entry_t [NumWords-1:0] mem;
   logic [NrWritePorts-1:0][NumWords-1:0] we_dec;
   logic [NrClearPorts-1:0][NumWords-1:0] clear_dec;
-  rmt_entry_t [NrReadPorts-1:0]          rdata_tmp;
 
   rmt_entry_t no_mapping;
   assign no_mapping = '{
@@ -102,15 +101,7 @@ module schnova_rmt #(
 
   always_comb begin: gen_read_port
     for (int unsigned i = 0; i < NrReadPorts; i++) begin
-      rdata_tmp[i] = mem[raddr_i[i]];
-      for (int j = 0; j < NrClearPorts; j++) begin
-        if  (clear_i[j] && (raddr_i[i] == caddr_i[j]) &&
-            (mem[raddr_i[i]].producer == cdata_i[j].producer)) begin
-          // That register is cleared in the same cycle, we have to forward it
-          rdata_tmp[i] = no_mapping;
-        end
-      end
-      rdata_o[i] = rdata_tmp[i];
+      rdata_o[i] = mem[raddr_i[i]];
     end
   end
 endmodule
