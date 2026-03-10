@@ -42,7 +42,7 @@ packages:
     - scm
     - tech_cells_generic
   common_cells:
-    revision: 68f5ff1405635580e231f83240d9527f2bc51fb8
+    revision: 95a1617a5517edc70cb7a9150a909c2ac3393cdf
     version: null
     source:
       Git: https://github.com/pulp-platform/common_cells.git
