@@ -237,7 +237,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // Check if there is any valid instruction in the block in the first place, otherwise we are still waiting
   // on the fetch to return valid instructions for the current PC
   logic all_instr_invalid;
-  assign all_instr_invalid = ~(&instr_valid_i);
+  assign all_instr_invalid = ~(|instr_valid_i);
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
@@ -294,7 +294,7 @@ module schnova_controller import schnizo_pkg::*; #(
   end
   // We have to tell the renaming stage when all instructions are successfully dispatched
   // that way it can restart the renaming process
-  assign all_instr_dispatched_o = |instr_dispatched_mask;
+  assign all_instr_dispatched_o = &instr_dispatched_mask;
 
   assign stall_o =  fence_i_stall |
                     all_instr_invalid |

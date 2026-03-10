@@ -28,7 +28,7 @@ module schnova_rmt #(
   input  logic       [NrWritePorts-1:0]                we_i,
   // clear ports
   input  logic       [NrClearPorts-1:0][AddrWidth-1:0] caddr_i,
-  input  rmt_entry_t [NrWritePorts-1:0]                cdata_i,
+  input  rmt_entry_t [NrClearPorts-1:0]                cdata_i,
   input  logic       [NrClearPorts-1:0]                clear_i
 );
 

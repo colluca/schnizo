@@ -143,24 +143,26 @@ module schnova_frontend # (
     // would lose performance, basically once the PC would not be aligned to a fetch block,
     // we would always have invalid instructions per fetch purely because of that.
     // If we have a JAL or JALR, we store the regular consecutive PC (PC+4) in rd.
+    // and in case of FENCE_I we use PC+4 to fetch the instruction after the FENCE_I instruction
     if (PipeWidth > 1) begin: gen_superscalar_cons_pc
       assign consecutive_pc = pc_q +
           ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
           // In case of a branch, we just add the immediate
                                         blk_ctrl_info_i.imm :
-                                        ((blk_ctrl_info_i.is_fence_i ||
-                                          blk_ctrl_info_i.is_jal     ||
-                                          blk_ctrl_info_i.is_jalr)      ?
-          // In case of a FENCE_I we have to fetch the next instruction after the fence_i
-          // in case of JAL or JALR we have to store the next instruction in rd
-                                        (instr_index + blk_ctrl_info_i.instr_idx + 1'b1) << 2:
+                                        ((blk_ctrl_info_i.is_fence_i)    ?
+          // We fetch the next instruction after the instruction the blk control info points to
+                                        (blk_ctrl_info_i.instr_idx + 1'b1) << 2:
+                                        (en_superscalar_i ?
           // Next PC is now PC + #instructions used in the last fetch block
-                                        (PipeWidth-instr_index)) << 2);
+                                        (PipeWidth-instr_index) << 2 :
+          // In scalar mode we just have to calculate PC+4 since the PC and the instruction we
+          // use is the one the PC points to.
+                                                            4'd4)));
 
       // The PC of the JAL/JALR instructions is needed for the relative
       // address calculation
-      assign jump_pc_o = pc_q + ((instr_index + blk_ctrl_info_i.instr_idx) << 2);
-    end else begin
+      assign jump_pc_o = pc_q + (blk_ctrl_info_i.instr_idx << 2);
+    end else begin: gen_scalar_cons_pc
       // There is only one instruction, so things are simpler
       // The instruction after fence_i is just PC + 4, similarily for jal and jalr we can also just use PC + 4
       assign consecutive_pc = pc_q +
@@ -242,20 +244,28 @@ module schnova_frontend # (
     assign valid_fetch_block = instr_fetch_valid_o & instr_fetch_ready_i;
 
     if (PipeWidth > 1) begin : gen_alignment
-      // Calcualte the instruction index from the current PC
-      assign instr_index = pc_q[FETCH_ALIGN-1:INSTR_ALIGN];
+      always_comb begin
+        // Calcualte the instruction index from the current PC
+        instr_index = pc_q[FETCH_ALIGN-1:INSTR_ALIGN];
 
-      for (genvar i = 0; i < PipeWidth; i++) begin: gen_realignment_mux_network
-        // The instructions are realigned according to the example above, with a multiplexer network
-        assign instr_fetch_data_o[i]= instr_fetch_data_i[(i + instr_index)*32 +: 32];
+        for (int unsigned i = 0; i < PipeWidth; i++) begin
+          if (i+instr_index < PipeWidth) begin
+            // The instructions are realigned according to the example above, with a multiplexer network
+            instr_fetch_data_o[i]= instr_fetch_data_i[(i + instr_index)*32 +: 32];
+          end else begin
+            // This data is invalid so we can just assign 0 in that case
+            instr_fetch_data_o[i] = '0;
+          end
 
-        // If the instruction points to the N-th instruction in the fetch block,
-        // Then the first N-1 instruction in that fetch block are invalid.
-        // Now since we reshuffle the instruction the first PipeWidth-N instructions in
-        // instr_fetch data will be valid and the rest invalid. Finally, they are valid in the first
-        // place only if the fetch block is valid.
-        assign instr_fetch_data_valid[i] = (i + instr_index < PipeWidth) & valid_fetch_block;
+          // If the instruction points to the N-th instruction in the fetch block,
+          // Then the first N-1 instruction in that fetch block are invalid.
+          // Now since we reshuffle the instruction the first PipeWidth-N instructions in
+          // instr_fetch data will be valid and the rest invalid. Finally, they are valid in the first
+          // place only if the fetch block is valid.
+          instr_fetch_data_valid[i] = (i + instr_index < PipeWidth) & valid_fetch_block;
+        end
       end
+
     end else begin : gen_no_alignment
       // There is only one instruction per fetch block, no index necesary
       assign instr_index = '0;
