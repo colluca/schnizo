@@ -20,7 +20,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 3,
   // How many slots in parallel can request / capture operands.
   parameter int unsigned NofOpPorts     = 1,
-  parameter int unsigned NofOperandIfs  = 1,
   parameter int unsigned NofResRspIfs   = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
@@ -723,6 +722,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   assign issue_reqs_ready = (disp_idx >= NofRss) ? {NofRss{1'b0}} : issue_reqs_ready_raw;
 
   // TODO(colluca): do we need this special case? Isn't it already implemented within the stream_mux?
+  // stream_mux was indeed buggy, see https://github.com/pulp-platform/common_cells/pull/280.
+  // If disp_idx is guaranteed to be zero in the NofRss=1 case, then it should be safe to remove this.
   if (NofRss == 1) begin : gen_1slot_issue
     // If we only have one slot, we can directly connect the issue request.
     assign issue_req_raw           = issue_reqs[0];
@@ -796,6 +797,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   result_and_tag_t result_and_tag_raw;
 
   // TODO(colluca): do we need this special case? Isn't it already implemented within the stream_mux?
+  // stream_mux was indeed buggy, see https://github.com/pulp-platform/common_cells/pull/280.
+  // If result_idx is guaranteed to be zero in the NofRss=1 case, then it should be safe to remove this.
   if (NofRss == 1) begin : gen_1slot_wb
     assign result_and_tag_raw = results_and_tags[0];
     assign rf_wb_valid_raw    = rf_wbs_valid[0];

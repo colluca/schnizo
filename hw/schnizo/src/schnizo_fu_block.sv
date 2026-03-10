@@ -27,7 +27,6 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   // The number of operand request / response ports to the operand distribution network.
   // 1 port has a connection for each operand.
   parameter int unsigned NofOpPorts     = 1,
-  parameter int unsigned NofOperandIfs  = 1,
   parameter int unsigned NofResRspIfs   = 1,
   parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
@@ -277,7 +276,6 @@ module schnizo_fu_block import schnizo_pkg::*; #(
       .NofRss        (NofRss),
       .NofOperands   (NofOperands),
       .NofOpPorts    (NofOpPorts),
-      .NofOperandIfs (NofOperandIfs),
       .NofResRspIfs  (NofResRspIfs),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
