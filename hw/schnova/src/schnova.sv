@@ -61,6 +61,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned AluNofRss  = 3,
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
+  parameter bit          MulInAlu0  = 1'b1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -131,9 +132,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
   localparam int unsigned NrIntReadPorts = 2*PipeWidth;
-  localparam int unsigned NrIntWritePorts = 1*PipeWidth;
+  localparam int unsigned NrIntWritePorts = 1;
   localparam int unsigned NrFpReadPorts = 3*PipeWidth;
-  localparam int unsigned NrFpWritePorts = 1*PipeWidth;
+  localparam int unsigned NrFpWritePorts = 1;
 
   // We have to read out a mapping for every source operand and potentially
   // the destination operand if it takes multiple cycles except for the last destination operand
@@ -148,8 +149,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                                               3*PipeWidth + 1*PipeWidth);
   // We have to write the new mapping for every destination register
   localparam int unsigned RmtNrWritePorts = 1*PipeWidth;
-  // We have to potentially clear a mappy for every instruction each cycle
-  localparam int unsigned RmtNrClearPorts = 1*PipeWidth;
+  // We have to potentially clear a map for every instruction each cycle
+  localparam int unsigned RmtNrClearPorts = 1;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
   // common data type for all FUs.
@@ -391,7 +392,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   logic [NrFpWritePorts-1:0][FLEN-1:0]        fpr_wdata;
   logic [NrFpWritePorts-1:0]                  fpr_we;
 
-  fu_data_t fu_data;
+  fu_data_t [PipeWidth-1:0] fu_data;
 
   logic            flush_i_valid;
   logic [31:0]     pc;
@@ -780,6 +781,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   schnizo_fu_stage #(
     .Xfrep              (Xfrep),
+    .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
@@ -845,7 +847,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
     // Global commit signal
-    .instr_exec_commit_i  (instr_exec_commit),
+    .instr_exec_commit_i  (instr_exec_commit[0]),
     // Trace
     // pragma translate_off
     .alu_trace_o          (alu_trace),
@@ -1103,22 +1105,25 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .we_i   (gpr_we)
   );
 
-  snitch_regfile #(
-    .DataWidth    (FLEN),
-    .NrReadPorts  (NrFpReadPorts),
-    .NrWritePorts (NrFpWritePorts),
-    .ZeroRegZero  (0),
-    .AddrWidth    (RegAddrSize)
-  ) i_fp_regfile (
-    .clk_i,
-    .rst_ni (~rst_i),
-    .raddr_i(fpr_raddr),
-    .rdata_o(fpr_rdata),
-    .waddr_i(fpr_waddr),
-    .wdata_i(fpr_wdata),
-    .we_i   (fpr_we)
-  );
-
+  if (NofFpus > 0) begin : gen_fp_rf
+    snitch_regfile #(
+      .DataWidth    (FLEN),
+      .NrReadPorts  (NrFpReadPorts),
+      .NrWritePorts (NrFpWritePorts),
+      .ZeroRegZero  (0),
+      .AddrWidth    (RegAddrSize)
+    ) i_fp_regfile (
+      .clk_i,
+      .rst_ni (~rst_i),
+      .raddr_i(fpr_raddr),
+      .rdata_o(fpr_rdata),
+      .waddr_i(fpr_waddr),
+      .wdata_i(fpr_wdata),
+      .we_i   (fpr_we)
+    );
+  end else begin
+    assign fpr_rdata = '0;
+  end
   ////////////
   // Tracer //
   ////////////
@@ -1219,9 +1224,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
           assign alu_resreq_traces[alu][rss][con] = '{
-            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
@@ -1276,9 +1281,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
         if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
           assign lsu_resreq_traces[lsu][rss][con] = '{
-            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
@@ -1332,9 +1337,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
         if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
           assign fpu_resreq_traces[fpu][rss][con] = '{
-            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),

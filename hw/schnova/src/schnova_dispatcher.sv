@@ -35,10 +35,10 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // Handshake to dispatch instruction consisting of instr_dec_i and instr_fu_data_i
   input  instr_dec_t [PipeWidth-1:0]   instr_dec_i,
   input  fu_data_t   [PipeWidth-1:0]   instr_fu_data_i,
-  input  logic [31:0]  instr_fetch_data_i,
+  input  logic [32*PipeWidth-1:0]  instr_fetch_data_i,
   input  logic [PipeWidth-1:0]        dispatch_valid_i,
-  output logic         dispatch_ready_o,
-  input  logic         instr_exec_commit_i,
+  output logic [PipeWidth-1:0]        dispatch_ready_o,
+  input  logic [PipeWidth-1:0]        instr_exec_commit_i,
 
   // From rename stage
   input  rename_data_t [PipeWidth-1:0] rename_info_i,
@@ -165,7 +165,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     acc_req_o         = '0;
     acc_req_o.id      = instr_dec_i[0].rd; // TODO: currently only GPR address supported
     // TODO (soderma): In superscalar this should be the acc instruction fetch data
-    acc_req_o.data_op = instr_fetch_data_i;
+    acc_req_o.data_op = instr_fetch_data_i[31:0];
 
     unique case (instr_dec_i[0].fu)
       schnizo_pkg::MUL,
@@ -273,10 +273,10 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // Dispatch logic //
   ////////////////////
 
-  assign dispatched = instr_exec_commit_i & fu_ready;
+  assign dispatched = instr_exec_commit_i[0] & fu_ready;
 
   // Signal back the dispatch
-  assign dispatch_ready_o = dispatched;
+  assign dispatch_ready_o[0] = dispatched;
 
   // Asserted if the currently selected FU has no empty RSS.
   assign rs_full_o = fu_rs_full;
@@ -396,7 +396,14 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   //////////////////////////////////
   always_comb begin : write_rmt
     // Forward the new destination mappings to the rename stage
-    dest_map_o[0].producer = fu_response.producer;
-    dest_map_o[0].valid = dispatched;
-  end
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (i == 0) begin
+        dest_map_o[i].producer = fu_response.producer;
+        dest_map_o[i].valid = dispatched;
+      end else begin
+        dest_map_o[i].producer = '0;
+        dest_map_o[i].valid = 1'b0;
+      end
+    end
+  end 
 endmodule
