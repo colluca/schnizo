@@ -190,6 +190,33 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // Operand distribution network
   // ---------------------------
 
+  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus;
+
+  typedef int unsigned nof_rss_t [NofRs-1:0];
+
+  function automatic nof_rss_t gen_nof_rss();
+    nof_rss_t tmp;
+    int unsigned k;
+
+    k = 0;
+    for (int unsigned i = 0; i < NofAlus; i++) begin
+      tmp[k] = AluNofRss;
+      k++;
+    end
+    for (int unsigned i = 0; i < NofLsus; i++) begin
+      tmp[k] = LsuNofRss;
+      k++;
+    end
+    for (int unsigned i = 0; i < NofFpus; i++) begin
+      tmp[k] = FpuNofRss;
+      k++;
+    end
+
+    return tmp;
+  endfunction
+
+  localparam nof_rss_t NofRss = gen_nof_rss();
+
   // The request arriving at the crossbar output connections. This is converted to a destination
   // mask inside the crossbar output logic. This mask is used to send the result to multiple
   // operands at once.
@@ -481,10 +508,11 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     end
 
     schnizo_rsp_xbar #(
+      .NofRs      (NofRs),
+      .NofRss     (NofRss),
       .NumInp     (NofResRspIfs),
       .NumOut     (NofOperandIfs),
-      .payload_t  (operand_t),
-      .dest_mask_t(dest_mask_t)
+      .payload_t  (operand_t)
     ) i_response_xbar (
       .clk_i,
       .rst_ni (!rst_i),
