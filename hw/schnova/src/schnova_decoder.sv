@@ -34,6 +34,8 @@ module schnova_decoder import schnizo_pkg::*; #(
   output instr_dec_t [PipeWidth-1:0]   instr_dec_o
 );
 
+  localparam int unsigned IdxWidth = (PipeWidth > 1) ? $clog2(PipeWidth) : 1;
+
   logic [PipeWidth-1:0] instr_valid;
   // Per instruction signal, whether the instruction is a control instruction
   logic [PipeWidth-1:0] is_ctrl_instr;
@@ -50,7 +52,7 @@ module schnova_decoder import schnizo_pkg::*; #(
   // The idx of the instruction that is relevant for the block control info
   // this instruction is the relevant instruction that decides how the frontend
   // controller has to react to this fetch block
-  logic [$clog2(PipeWidth)-1:0] blk_ctrl_instr_idx;
+  logic [IdxWidth-1:0] blk_ctrl_instr_idx;
 
   // The decoder has to main tasks
   // 1) Decode all the instructions of the fetch block
@@ -142,14 +144,20 @@ module schnova_decoder import schnizo_pkg::*; #(
   assign one_hot_crit_instr = is_crit_instr & instr_valid_o;
 
   // To find the index we can no just use a one hot encoder
-  always_comb begin: fetch_idx_calc
-    blk_ctrl_instr_idx = '0;
-      for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-        if (one_hot_crit_instr[instr_idx]) begin
-          blk_ctrl_instr_idx = instr_idx[$clog2(PipeWidth)-1:0];
+  if (PipeWidth > 1) begin : gen_idx_superscalar
+    always_comb begin: fetch_idx_calc
+      blk_ctrl_instr_idx = '0;
+        for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
+          if (one_hot_crit_instr[instr_idx]) begin
+            blk_ctrl_instr_idx = instr_idx[$clog2(PipeWidth)-1:0];
+          end
         end
-      end
+    end
+  end else begin : gen_idx_scalar
+    // There is only one instruction
+    assign blk_ctrl_instr_idx = 1'b0;
   end
+
   // Assign the control block info according to the instruction
   // the blk_ctr_instr_idx points to
   assign blk_ctrl_info_o = '{

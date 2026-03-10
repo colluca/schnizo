@@ -215,6 +215,7 @@ sources:
       - hw/schnova/src/schnova_rmt.sv
       - hw/schnova/src/schnova_rename.sv
       - hw/schnova/src/schnova_dispatcher.sv
+      - hw/schnova/src/schnova_writeback.sv
       # Level 2
       - hw/schnova/src/schnova_controller.sv
       # Level 3

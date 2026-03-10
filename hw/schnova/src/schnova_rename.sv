@@ -11,6 +11,10 @@
 // Description: Renaming stage
 module schnova_rename import schnizo_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
+  parameter int unsigned RmtNrIntReadPorts = 3,
+  parameter int unsigned RmtNrFpReadPorts = 4,
+  parameter int unsigned RmtNrWritePorts = 1,
+  parameter int unsigned RmtNrClearPorts = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
   parameter type         instr_dec_t = logic,
@@ -24,26 +28,18 @@ module schnova_rename import schnizo_pkg::*; #(
   // to start from a clean slate
   input  logic flush_i,
   input  logic all_instr_dispatched_i,
+  input  logic en_superscalar_i,
+  // To controller
+  output logic registers_ready_o,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
   input  rmt_entry_t   [PipeWidth-1:0]  dest_map_i,
   input  instr_dec_t   [PipeWidth-1:0]  instr_dec_i,
   output rename_data_t [PipeWidth-1:0]  rename_info_o,
   // From writeback
-  input rmt_clear_req_t [PipeWidth-1:0] rmt_clear_req_i
+  input rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_int_clear_req_i,
+  input rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_fp_clear_req_i
 );
-
-  // We have to read out a mapping for every source operand and potentially
-  // the destination operand if it takes multiple cycles except for the last destination operand
-  // since we only have to track/forward dependencies in this current instruction block
-  // Integer instructons have 2 source + 1 destination register
-  localparam int unsigned RmtNrIntReadPorts = 2*PipeWidth + 1*PipeWidth - 1;
-  // Float instructions have 3 source + 1 destination register
-  localparam int unsigned RmtNrFpReadPorts = 3*PipeWidth + 1*PipeWidth - 1;
-  // We have to write the new mapping for every destination register
-  localparam int unsigned RmtNrWritePorts = 1*PipeWidth;
-  // We have to potentially clear a mappy for every instruction each cycle
-  localparam int unsigned RmtNrClearPorts = 1*PipeWidth;
 
   logic       [RmtNrIntReadPorts-1:0][RegAddrSize-1:0] rmt_int_raddr;
   logic       [RmtNrFpReadPorts-1:0][RegAddrSize-1:0]  rmt_fp_raddr;
@@ -56,18 +52,20 @@ module schnova_rename import schnizo_pkg::*; #(
   logic       [RmtNrWritePorts-1:0]                  rmt_int_we;
   logic       [RmtNrWritePorts-1:0]                  rmt_fp_we;
 
-  logic       [RmtNrClearPorts-1:0][RegAddrSize-1:0] rmt_caddr;
-  rmt_entry_t [RmtNrClearPorts-1:0]                  rmt_cdata;
+  logic       [RmtNrClearPorts-1:0][RegAddrSize-1:0] rmt_int_caddr;
+  logic       [RmtNrClearPorts-1:0][RegAddrSize-1:0] rmt_fp_caddr;
+  rmt_entry_t [RmtNrClearPorts-1:0]                  rmt_int_cdata;
+  rmt_entry_t [RmtNrClearPorts-1:0]                  rmt_fp_cdata;
   logic       [RmtNrClearPorts-1:0]                  rmt_int_clear;
   logic       [RmtNrClearPorts-1:0]                  rmt_fp_clear;
 
   rmt_entry_t [PipeWidth-1:0] mapping_rs1;
   rmt_entry_t [PipeWidth-1:0] mapping_rs2;
   rmt_entry_t [PipeWidth-1:0] mapping_rs3;
-  rmt_entry_t [PipeWidth-2:0] mapping_rd;
+  rmt_entry_t [PipeWidth-1:0] mapping_rd;
 
   // Whether the instruction was already renamed in a previous cycle
-  logic [PipeWidth-2:0] is_renamed_d, is_renamed_q;
+  logic [PipeWidth-1:0] is_renamed_d, is_renamed_q;
 
   rmt_entry_t no_mapping;
   assign no_mapping = '{
@@ -148,14 +146,16 @@ module schnova_rename import schnizo_pkg::*; #(
   always_comb begin: clear_rmt
     rmt_int_clear = '0;
     rmt_fp_clear    = '0;
-    for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-      rmt_caddr[instr_idx] = rmt_clear_req_i[instr_idx].dest_reg;
-      rmt_cdata[instr_idx] = rmt_clear_req_i[instr_idx].producer_dest;
-      // We have to send a clear request to the RMT if it is a valid clear request
-      if (rmt_clear_req_i[instr_idx].valid) begin
-        rmt_fp_clear[instr_idx] = rmt_clear_req_i[instr_idx].dest_reg_is_fp;
-        rmt_int_clear[instr_idx] = ~rmt_clear_req_i[instr_idx].dest_reg_is_fp;
-      end
+    for (int unsigned clear_idx = 0; clear_idx < RmtNrClearPorts; clear_idx++) begin
+      // Forward the clear request to the RMT clear ports
+      rmt_int_caddr[clear_idx] = rmt_int_clear_req_i[clear_idx].dest_reg;
+      rmt_fp_caddr[clear_idx] = rmt_fp_clear_req_i[clear_idx].dest_reg;
+
+      rmt_int_cdata[clear_idx] = rmt_int_clear_req_i[clear_idx].producer_dest;
+      rmt_fp_cdata[clear_idx] = rmt_fp_clear_req_i[clear_idx].producer_dest;
+
+      rmt_int_clear[clear_idx] = rmt_int_clear_req_i[clear_idx].valid;
+      rmt_fp_clear[clear_idx]  = rmt_fp_clear_req_i[clear_idx].valid;
     end
   end
 
@@ -215,18 +215,9 @@ module schnova_rename import schnizo_pkg::*; #(
                                                       new_mapping_rd[older_idx];
         end
       end
-    end
-  end
-
-  ////////////////////////////
-  // Renaming valid masking //
-  ////////////////////////////
-
-  // Renaming for an instruction has to strictly happen in order
-  // so we have to make sure that renamings are valid only if all
-  // older instruction renamings are valid
-  always_comb begin: rename_valid_masking
-    for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
+      // Renaming for an instruction has to strictly happen in order
+      // so we have to make sure that renamings are valid only if all
+      // older instruction renamings are valid
       if(instr_idx == 0) begin
         // The first instruction does not have to wait on older instructions to complete renaming
         rename_info_o[instr_idx].valid = dest_map_i[instr_idx].valid | is_renamed_q[instr_idx];
@@ -267,8 +258,8 @@ module schnova_rename import schnizo_pkg::*; #(
     .wdata_i(new_mapping_rd),
     .we_i   (rmt_int_we),
     // clear port
-    .caddr_i(rmt_caddr),
-    .cdata_i(rmt_cdata),
+    .caddr_i(rmt_int_caddr),
+    .cdata_i(rmt_int_cdata),
     .clear_i(rmt_int_clear)
   );
 
@@ -292,8 +283,8 @@ module schnova_rename import schnizo_pkg::*; #(
     .wdata_i(new_mapping_rd),
     .we_i   (rmt_fp_we),
     // clear port
-    .caddr_i(rmt_caddr),
-    .cdata_i(rmt_cdata),
+    .caddr_i(rmt_fp_caddr),
+    .cdata_i(rmt_fp_cdata),
     .clear_i(rmt_fp_clear)
   );
 
@@ -313,5 +304,32 @@ module schnova_rename import schnizo_pkg::*; #(
         is_renamed_d[instr_idx] = 1'b1;
       end
     end
+  end
+
+  //////////////////////////////////////////////
+  // Extract scoreboard functonality from RMT //
+  //////////////////////////////////////////////
+  // If we are in scaral operation mode, the RMT works like scoreboard
+  // We have to check all the source and  destination registers. If the mapping of one of these is valid
+  // this means the values for these registers are currently being produced (they are busy) hence
+  // we have to stall the instruction from being dispatched
+  logic op_a_has_raw, op_b_has_raw, op_c_has_raw;
+  logic operands_ready, dest_ready;
+  logic dest_has_waw;
+
+  always_comb begin
+    // In scalar execution, only the first instruction is relevant
+    op_a_has_raw = mapping_rs1[0].valid;
+    op_b_has_raw = mapping_rs2[0].valid;
+    op_c_has_raw = mapping_rs3[0].valid;
+    dest_has_waw = mapping_rd[0].valid;
+    // The operands are ready if we have no raw conflict for all operands
+    operands_ready = ~(op_a_has_raw | op_b_has_raw | op_c_has_raw);
+    // The destination is ready if we have no waw conflict
+    dest_ready = ~dest_has_waw;
+    // In superscalar mode, we can always say the registers are ready. It does not matter
+    // if one is not ready, the  dependencies will be resolved dynamically via the
+    // reservation stations.
+    registers_ready_o = en_superscalar_i ? 1'b1 : operands_ready & dest_ready;
   end
 endmodule
