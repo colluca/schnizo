@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from scipy.stats import gmean
 
 THEORETICAL_METRICS = {
     'fpu_util':
@@ -29,6 +30,15 @@ APP_LABELS = {
     'exp': 'EXP',
     'log': 'LOG',
 }
+
+
+def format_metric(val, metric):
+    if metric == 'fpu_util':
+        return f'{round(100 * val, 1)}%'
+    elif metric == 'ipc':
+        return f'{round(val, 2)}'
+    else:
+        raise ValueError(f'Unsupported metric {metric}')
 
 
 def fit_inverse_function(n_vals, y_vals, x_lim):
@@ -114,13 +124,15 @@ def superscalar_comparison_plot(df, metric='fpu_util'):
     superscalar_bars = bar_containers[list(plot_df.columns).index('Superscalar')]
 
     # Add theoretical markers on top of scalar bars
-    for i, (bar, app) in enumerate(zip(scalar_bars, plot_df.index)):
+    labeled = False
+    for bar, app in zip(scalar_bars, plot_df.index):
         if metric in THEORETICAL_METRICS:
             if app in THEORETICAL_METRICS[metric]:
                 theoretical = THEORETICAL_METRICS[metric][app]
                 ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
                            color='black', marker='D', s=100, zorder=3,
-                           label='Theoretical' if i == 0 else '')
+                           label='Theoretical' if not labeled else '')
+                labeled = True
 
     # Add asymptote markers on top of superscalar bars
     for i, (bar, asymptote) in enumerate(zip(superscalar_bars, asymptotes)):
@@ -136,6 +148,9 @@ def superscalar_comparison_plot(df, metric='fpu_util'):
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
     fig.tight_layout()
     plt.show()
+
+    geomean_superscalar_metric = format_metric(gmean(plot_df['Superscalar']), metric)
+    print(f'Geomean superscalar {metric}: {geomean_superscalar_metric}')
 
 
 def plot1(df):
