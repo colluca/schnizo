@@ -26,15 +26,15 @@ try:
 except ImportError as e:
     print(f'{e}. Power results will not be available.')
 
-# Try importing AreaResults module (not available in open-source repo)
+# Try importing SynthResults module (not available in open-source repo)
 try:
-    from snitch.nonfree.AreaResults import AreaResults
+    from pysynthutils import SynthResults
 except ImportError as e:
-    print(f'{e}. Area results will not be available.')
+    print(f'{e}. Synthesis results will not be available.')
 
 
 ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
-           'none']
+           'elab', 'synth', 'none']
 
 
 class ExperimentManager:
@@ -69,7 +69,7 @@ class ExperimentManager:
         else:
             self.run_dir = self.dir / 'runs'
         self.power_dir = self.dir / 'power'
-        self.area_dir = self.dir / 'area'
+        self.synth_dir = self.dir / 'synth'
 
         # Get experiments
         if experiments is not None:
@@ -118,10 +118,9 @@ class ExperimentManager:
     def derive_experiment_info(self, experiment):
         experiment['axes'] = self.derive_axes(experiment)
         experiment['name'] = self.derive_name(experiment)
-        experiment['elf'] = self.derive_elf(experiment)
         experiment['run_dir'] = self.derive_dir(self.run_dir, experiment)
         experiment['power_dir'] = self.derive_dir(self.power_dir, experiment)
-        experiment['area_dir'] = self.derive_dir(self.area_dir, experiment)
+        experiment['synth_dir'] = self.derive_dir(self.synth_dir, experiment)
 
     def derive_cdefines(self, experiment):
         return {}
@@ -165,6 +164,7 @@ class ExperimentManager:
             processes = []
             for experiment in experiments:
                 target = experiment['app']
+                experiment['elf'] = self.derive_elf(experiment)
                 build_dir = experiment['elf'].parent
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
@@ -311,6 +311,28 @@ class ExperimentManager:
                             colored(' finished.', 'green', attrs=['bold'])
                         )
 
+        # Run synthesis
+        if any(x in ['elab', 'synth', 'all'] for x in self.actions):
+            if 'synth' in self.actions:
+                action = 'synth'
+            else:
+                action = 'elab'
+            processes = []
+            for experiment in experiments:
+                def func(design=None, hdl_params={}):
+                    hdl_params_str = ':'.join([f'{key}={val}' for key, val in hdl_params.items()])
+                    vars = {
+                        'DESIGN': design,
+                        'HDL_PARAMS': hdl_params_str,
+                        'RUNDIR': experiment['synth_dir'],
+                    }
+                    return common.make(action, vars=vars, sync=sync)
+                if action in self.callbacks:
+                    func = self.callbacks[action]
+                process = func(experiment['design'], experiment.get('hdl_params', {}))
+                processes.append(process)
+            common.wait_processes(processes)
+
     def export_experiments(self, path='experiments.yaml'):
         # Save power experiments to a YAML file
         with open(path, 'w') as f:
@@ -343,7 +365,7 @@ class ExperimentManager:
         # Initialize flags
         self.perf_results_available = False
         self.power_results_available = False
-        self.area_results_available = False
+        self.synth_results_available = False
 
         # Create the DataFrame
         df = pd.DataFrame(self.experiments)
@@ -368,46 +390,27 @@ class ExperimentManager:
             except FileNotFoundError:
                 pass
 
+        # Create SynthResults objects
+        if 'SynthResults' in globals():
+            try:
+                synth_results = df['synth_dir'].apply(lambda synth_dir: SynthResults(synth_dir))
+                synth_results.rename('synth_results', inplace=True)
+                self.synth_results_available = True
+            except FileNotFoundError:
+                pass
+
         # Combine experiment axes and results into a new DataFrame
         columns = [axes]
         if self.perf_results_available:
             columns.append(results)
         if self.power_results_available:
             columns.append(power_results)
+        if self.synth_results_available:
+            columns.append(synth_results)
         df = pd.concat(columns, axis=1)
 
         # If desired, reset the index
         df = df.reset_index(drop=True)
-
-        return df
-
-    def get_area_results(self):
-        """Returns a DataFrame of AreaResults objects."""
-
-        # Initialize flags
-        self.area_results_available = False
-
-        # Create the DataFrame
-        df = pd.DataFrame(self.experiments)
-
-        # Expand the 'axes' column into separate columns
-        axes = df['axes'].apply(pd.Series)
-        hw_cfg = pd.Series(axes['hw'].unique(),  name="cfg")
-
-        # Create AreaResults objects
-        if 'AreaResults' in globals():
-            try:
-                area_results = hw_cfg.apply(lambda cfg: AreaResults(f'./area/{cfg}'))
-                area_results.rename('area_results', inplace=True)
-                self.area_results_available = True
-            except FileNotFoundError:
-                print('Area results not available.')
-
-        # Combine cfg axis and results into a new DataFrame
-        columns = [hw_cfg]
-        if self.area_results_available:
-            columns.append(area_results)
-        df = pd.concat(columns, axis=1)
 
         return df
 

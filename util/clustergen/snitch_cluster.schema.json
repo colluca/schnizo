@@ -567,6 +567,24 @@
                                             "description": "Number of Slots to capture instructions per FPU. Only relevant if Xfrep is enabled.",
                                             "default": 1
                                         },
+                                        "num_alu_rsp_ports": {
+                                            "type": "number",
+                                            "title": "Number of Response Ports per ALU",
+                                            "description": "Number of ports to read results from each ALU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
+                                        },
+                                        "num_lsu_rsp_ports": {
+                                            "type": "number",
+                                            "title": "Number of Response Ports per LSU",
+                                            "description": "Number of ports to read results from each LSU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
+                                        },
+                                        "num_fpu_rsp_ports": {
+                                            "type": "number",
+                                            "title": "Number of Response Ports per FPU",
+                                            "description": "Number of ports to read results from each FPU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
+                                        },
                                         "xdma": {
                                             "type": "boolean",
                                             "title": "Xdma Extension",

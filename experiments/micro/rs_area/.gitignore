@@ -1,0 +1,12 @@
+/build
+/power
+/results
+/runs
+/pls
+/power.yaml
+/hw
+/results.csv
+/power.csv
+/area
+/synth
+results_*
