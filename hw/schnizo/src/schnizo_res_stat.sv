@@ -148,10 +148,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   result_t     [NofRss-1:0] results;
   logic        [NofRss-1:0] results_valid;
   logic        [NofRss-1:0] results_ready;
-  result_t     [NofRss-1:0] rf_wb_results;
   result_tag_t [NofRss-1:0] rf_wb_tags;
-  logic        [NofRss-1:0] rf_wbs_valid;
-  logic        [NofRss-1:0] rf_wbs_ready;
+  logic        [NofRss-1:0] rf_do_writebacks;
 
   // loop control
   logic last_disp_instr;
@@ -278,10 +276,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .result_valid_i(results_valid[rss]),
       .result_ready_o(results_ready[rss]),
 
-      .rf_wb_result_o(rf_wb_results[rss]),
-      .rf_wb_tag_o   (rf_wb_tags[rss]),
-      .rf_wb_valid_o (rf_wbs_valid[rss]),
-      .rf_wb_ready_i (rf_wbs_ready[rss])
+      .rf_wb_tag_o      (rf_wb_tags[rss]),
+      .rf_do_writeback_o(rf_do_writebacks[rss])
     );
 
   end
@@ -331,7 +327,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
         end
       end else begin
         // We only support one port currently
-        // TODO(colluca): add assertion
+        // TODO(colluca): remove ports altogether
         op_reqs_o[port]       = '0;
         op_reqs_valid_o[port] = '0;
         op_rsps_ready_o[port] = '0;
@@ -752,77 +748,77 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Each accepted dispatch request was committed so we also commit to each issue request
   assign instr_exec_commit_o = issue_req_valid_o;
 
+  /////////////////////////
+  // Result RF/RSS demux //
+  /////////////////////////
+
+  logic rss_wb_valid, rss_wb_ready;
+  logic rf_wb_valid, rf_wb_ready;
+
+  stream_fork #(
+    .N_OUP(32'd2)
+  ) i_result_fork (
+    .clk_i,
+    .rst_ni (!rst_i),
+    .valid_i(result_valid_i),
+    .ready_o(result_ready_o),
+    .valid_o({rf_wb_valid, rss_wb_valid}),
+    .ready_i({rf_wb_ready, rss_wb_ready})
+  );
+
+  ///////////////////////////////////////
+  // Synchronize RF and RSS writebacks //
+  ///////////////////////////////////////
+
+  rss_idx_t result_rss_sel;
+  logic rf_do_writeback;
+
+  logic rss_wb_valid_sync, rss_wb_ready_sync;
+  logic rf_wb_valid_sync, rf_wb_ready_sync;
+  logic rss_wb_enable;
+
+  assign result_rss_sel = rss_idx_t'(result_tag_i);
+  assign rf_do_writeback = rf_do_writebacks[result_rss_sel];
+
+  // Synchronize the two streams, otherwise it may occur that a result
+  // capture event preceeds an issue event, with single-cycle FUs.
+  // While this does not seem to compromise correctness, it does complicate the
+  // tracer design, and it does go against the expectation that issue
+  // precedes result capture.
+  assign rf_wb_valid_sync = rf_wb_valid && rss_wb_ready_sync;
+  assign rf_wb_ready = rf_wb_ready_sync && rss_wb_ready_sync;
+  assign rss_wb_enable = rf_do_writeback ? rf_wb_valid_sync && rf_wb_ready_sync : 1'b1;
+  assign rss_wb_valid_sync = rss_wb_valid && rss_wb_enable;
+  assign rss_wb_ready = rss_wb_ready_sync && rss_wb_enable;
+
+  //////////////////
+  // RF writeback //
+  //////////////////
+
+  stream_filter i_filter_rf_writeback (
+    .valid_i(rf_wb_valid_sync),
+    .ready_o(rf_wb_ready_sync),
+    .drop_i (!rf_do_writeback),
+    .valid_o(rf_wb_valid_o),
+    .ready_i(rf_wb_ready_i)
+  );
+  assign rf_wb_result_o = result_i;
+  assign rf_wb_tag_o    = rf_wb_tags[result_rss_sel];
+
   //////////////////
   // Result DEMUX //
   //////////////////
 
-  logic result_ready_raw;
-
-  // result_idx can overflow the same way as the disp_idx. Tie down the ready in case of overflow.
-  assign result_ready_o = (result_idx >= NofRss) ? 1'b0 : result_ready_raw;
-
   assign results = {NofRss{result_i}};
   stream_demux #(
     .N_OUP (NofRss)
-  ) i_result_demux (
-    .inp_valid_i(result_valid_i),
-    .inp_ready_o(result_ready_raw),
-    .oup_sel_i  (rss_idx_t'(result_tag_i)),
+  ) i_rss_result_demux (
+    .inp_valid_i(rss_wb_valid_sync),
+    .inp_ready_o(rss_wb_ready_sync),
+    .oup_sel_i  (result_rss_sel),
     .oup_valid_o(results_valid),
     .oup_ready_i(results_ready)
   );
-
-  ///////////////////
-  // Writeback MUX //
-  ///////////////////
-
-  // This could also be implemented with an arbiter but a MUX is simpler & smaller.
-
-  // TODO(colluca): this struct is redefined everywhere, just centralize it
-  typedef struct packed {
-    result_t     result;
-    result_tag_t tag;
-  } result_and_tag_t;
-
-  result_and_tag_t [NofRss-1:0] results_and_tags;
-  result_and_tag_t              result_and_tag;
-
-  for (genvar rss = 0; rss < NofRss; rss++) begin : gen_merge_wb
-    assign results_and_tags[rss].result = rf_wb_results[rss];
-    assign results_and_tags[rss].tag    = rf_wb_tags[rss];
-  end
-
-  // result_idx overflow tie down
-  logic            rf_wb_valid_raw;
-  result_and_tag_t result_and_tag_raw;
-
-  // TODO(colluca): do we need this special case? Isn't it already implemented within the stream_mux?
-  // stream_mux was indeed buggy, see https://github.com/pulp-platform/common_cells/pull/280.
-  // If result_idx is guaranteed to be zero in the NofRss=1 case, then it should be safe to remove this.
-  if (NofRss == 1) begin : gen_1slot_wb
-    assign result_and_tag_raw = results_and_tags[0];
-    assign rf_wb_valid_raw    = rf_wbs_valid[0];
-    assign rf_wbs_ready[0]    = rf_wb_ready_i;
-  end else begin : gen_nslots_wb
-    stream_mux #(
-      .DATA_T(result_and_tag_t),
-      .N_INP (NofRss)
-    ) i_wb_mux (
-      .inp_data_i (results_and_tags),
-      .inp_ready_o(rf_wbs_ready),
-      .inp_valid_i(rf_wbs_valid),
-      .inp_sel_i  (result_idx),
-      .oup_data_o (result_and_tag_raw),
-      .oup_valid_o(rf_wb_valid_raw),
-      .oup_ready_i(rf_wb_ready_i)
-    );
-  end
-
-  assign rf_wb_valid_o = (result_idx >= NofRss) ? 1'b0 : rf_wb_valid_raw;
-  assign result_and_tag = (result_idx >= NofRss) ?  '0 : result_and_tag_raw;
-
-  assign rf_wb_result_o = result_and_tag.result;
-  assign rf_wb_tag_o    = result_and_tag.tag;
 
   //////////////
   // Counters //
