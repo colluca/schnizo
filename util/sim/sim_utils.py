@@ -182,10 +182,10 @@ def get_simulations(tests, simulator: Simulator | dict[str, Simulator],
     if type(simulator) == Simulator:
         simulations = [simulator.get_simulation(test) for test in tests if simulator.supports(test)]
     elif type(simulator) == dict:
-        simulations = [simulator[test['hw']].get_simulation(test) 
+        simulations = [simulator[test['hw']].get_simulation(test)
                        for test in tests if simulator[test['hw']].supports(test)]
     else:
-        raise TypeError("Simulations should be a Simulator or a Dict[str, Simulator]" + 
+        raise TypeError("Simulations should be a Simulator or a Dict[str, Simulator]" +
                         " which maps 'hw' key of an experiment to a simulator.")
 
     # Set simulation run directory
