@@ -81,7 +81,7 @@ module schnova_frontend # (
     ///////////////////////
     // Instruction Fetch //
     ///////////////////////
-    
+
     // Instruction fetching for the superscalar pipeline happens roughly in three steps:
     // 1) The next PC is calculated to which the fetch request is sent. This happens at
     //    a fetch block granularity, i.e. one fetch request will fetch multiple instructions
@@ -89,7 +89,7 @@ module schnova_frontend # (
     //    and the frontend will have to select the correct instruction from the fetch block.
     // 2) A new fetch request is sent if the fetching is not stalled.
     // 3) The fetch block has to be extracted and realigned to be sent to the decoder. The fetch block
-    //    is valid when the handshake with the L0 cache is successful and it is not one of the 
+    //    is valid when the handshake with the L0 cache is successful and it is not one of the
     //    instructions before the current PC that were fetched purely since we fetch in a
     //    block granualrity.
 
@@ -137,7 +137,7 @@ module schnova_frontend # (
 
     // We can merge the consecutive and branched PC computation such that we only have one adder.
     // The consecutive PC is either PC+imm for taken branches or
-    // it depends on the amount of valid instructions we had in this fetch block. 
+    // it depends on the amount of valid instructions we had in this fetch block.
     // For example if the packet is 4 instructions and we had 3 valid instructions
     // we only have to increment by 4 bytes, not 16 bytes. This is important otherwise we
     // would lose performance, basically once the PC would not be aligned to a fetch block,
@@ -211,8 +211,8 @@ module schnova_frontend # (
     // request the fetch block at the current PC
     assign instr_fetch_addr_o = {{{AddrWidth-32}{1'b0}}, pc_q};
 
-    // The fetch request is cacheable if the requested address is in a cacheable region. 
-    // This still works the same as for the single issue core as the fetch block is 
+    // The fetch request is cacheable if the requested address is in a cacheable region.
+    // This still works the same as for the single issue core as the fetch block is
     // always aligned to the fetch block size. So it is impossible to have a situation
     // where the PC lies in the cacheable region but an instruction in the fetch block lies
     // outside of it.

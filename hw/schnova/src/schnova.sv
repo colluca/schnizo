@@ -445,6 +445,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   logic en_superscalar;
   logic registers_ready;
+  logic fpr_busy;
+  logic gpr_busy;
 
   // ---------------------------
   // Core Events
@@ -611,6 +613,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .all_rs_finish_i(1'b1), // TODO (soderma): Have to correctly assign this, currently it is loop dependent
     .rs_restart_o(/* TODO (soderma) */),
     .registers_ready_i(registers_ready),
+    .fpr_busy_i(fpr_busy),
+    .gpr_busy_i(gpr_busy),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
@@ -620,7 +624,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .interrupt_i            (interrupt),
     .csr_exception_raw_i    (csr_exception_raw),
     .lsu_empty_i            (lsu_empty),
-    .csr_inflight_i         (1'b0),
     .ctrl_inflight_i        (1'b0),
     .load_inflight_i        (1'b0),
     .store_inflight_i       (1'b0),
@@ -664,6 +667,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_dec_i(instr_decoded),
     .en_superscalar_i(en_superscalar),
     .registers_ready_o(registers_ready),
+    .fpr_busy_o(fpr_busy),
+    .gpr_busy_o(gpr_busy),
     .rename_info_o(rename_info),
     .rmt_int_clear_req_i(rmt_int_clear_req),
     .rmt_fp_clear_req_i(rmt_fp_clear_req)

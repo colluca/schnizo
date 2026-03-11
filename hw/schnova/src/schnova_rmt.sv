@@ -29,7 +29,9 @@ module schnova_rmt #(
   // clear ports
   input  logic       [NrClearPorts-1:0][AddrWidth-1:0] caddr_i,
   input  rmt_entry_t [NrClearPorts-1:0]                cdata_i,
-  input  logic       [NrClearPorts-1:0]                clear_i
+  input  logic       [NrClearPorts-1:0]                clear_i,
+  // busy flag
+  output logic                                         busy_o
 );
 
   localparam int unsigned NumWords  = 2**AddrWidth;
@@ -37,6 +39,7 @@ module schnova_rmt #(
   rmt_entry_t [NumWords-1:0] mem;
   logic [NrWritePorts-1:0][NumWords-1:0] we_dec;
   logic [NrClearPorts-1:0][NumWords-1:0] clear_dec;
+  logic [NumWords-1:0] busy;
 
   rmt_entry_t no_mapping;
   assign no_mapping = '{
@@ -104,4 +107,15 @@ module schnova_rmt #(
       rdata_o[i] = mem[raddr_i[i]];
     end
   end
+
+  // The RMT is busy, meaning an insturction is inflight if any of the
+  // entries are valid
+  always_comb begin: gen_busy_flag
+    for (int unsigned i = 0; i < NumWords; i++) begin
+      busy[i] = mem[i].valid;
+    end
+  end
+
+  assign busy_o = |busy;
+
 endmodule
