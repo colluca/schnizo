@@ -153,7 +153,8 @@ def _resolve_relative_path(base_path, s):
         return s
 
 
-def get_simulations(tests, simulator: Simulator | dict[str, Simulator], run_dir=None, base_path=None):
+def get_simulations(tests, simulator: Simulator | dict[str, Simulator],
+                    run_dir=None, base_path=None):
     """Create simulation objects from a list of tests.
 
     Args:
@@ -181,9 +182,11 @@ def get_simulations(tests, simulator: Simulator | dict[str, Simulator], run_dir=
     if type(simulator) == Simulator:
         simulations = [simulator.get_simulation(test) for test in tests if simulator.supports(test)]
     elif type(simulator) == dict:
-        simulations = [simulator[test['hw']].get_simulation(test) for test in tests if simulator[test['hw']].supports(test)]
+        simulations = [simulator[test['hw']].get_simulation(test) 
+                       for test in tests if simulator[test['hw']].supports(test)]
     else:
-        raise TypeError("Simulations should be a Simulator or a Dict[str, Simulator] which maps 'hw' key of an experiment to a simulator.")
+        raise TypeError("Simulations should be a Simulator or a Dict[str, Simulator]" + 
+                        " which maps 'hw' key of an experiment to a simulator.")
 
     # Set simulation run directory
     if run_dir is not None:

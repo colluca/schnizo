@@ -15,7 +15,7 @@ import pandas as pd
 from pathlib import Path
 from snitch.util.experiments.SimResults import SimResults
 from snitch.util.experiments import run, build, common
-from snitch.util.sim import sim_utils, Simulator
+from snitch.util.sim import sim_utils
 import sys
 from termcolor import colored
 import yaml
@@ -145,12 +145,12 @@ class ExperimentManager:
 
     def derive_hw_cfg(self, experiment):
         if 'hw' not in experiment or experiment['hw'] == 'default':
-            return self.schnizo_dir / 'cfg/default.json' 
+            return self.schnizo_dir / 'cfg/default.json'
         return self.dir / 'configs' / experiment['hw']
 
     def derive_hw_bin(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'bin/snitch_cluster.vsim'
-    
+
     def derive_all_hw_cfgs(self) -> list[str]:
         """This function should return a list of names of all different used hardware configs.
         If no hw is specified in the experiments. It uses the default simulator for each.
@@ -158,7 +158,7 @@ class ExperimentManager:
         hardware_configs = []
         keys = set.union(*[set(experiment.keys()) for experiment in self.experiments])
         if 'hw' in keys:
-            assert(all(['hw' in set(e.keys()) for e in self.experiments]))
+            assert all(['hw' in set(e.keys()) for e in self.experiments])
             hardware_configs = list(set([e['hw'] for e in self.experiments]))
         else:
             hardware_configs = ['default']
@@ -175,8 +175,13 @@ class ExperimentManager:
         n_procs = self.args.n_procs
         experiments = self.experiments
         sync = True if self.args.n_procs == 1 else False
-        # We keep a dictionary of different simulators, since different hardware configs need different vsim binary paths.
-        simulators = {'default': run.Simulator.QuestaSimulator(self.dir / 'hw/default/bin/snitch_cluster.vsim')}
+        # We keep a dictionary of different simulators, since different
+        # hardware configs need different vsim binary paths.
+        simulators = {
+            'default': run.Simulator.QuestaSimulator(
+                self.dir / 'hw/default/bin/snitch_cluster.vsim'
+            )
+        }
 
         # Clean hardware
         if 'hw' in self.clean_actions or 'all' in self.clean_actions:
@@ -192,7 +197,7 @@ class ExperimentManager:
                 print(colored(f"Cleaned generated rtl folder: {folder_path}", 'cyan'))
             else:
                 print(colored("Nothing to clean for generated rtl", 'blue'))
-        
+
         # Clean software
         if 'sw' in self.clean_actions or 'all' in self.clean_actions:
             folder_path = Path('./build/')
@@ -227,7 +232,7 @@ class ExperimentManager:
                         continue
                     bin = self.derive_hw_bin(experiment)
                     print(colored('Generate hardware', 'black', attrs=['bold']),
-                        colored(bin, 'cyan', attrs=['bold']))
+                          colored(bin, 'cyan', attrs=['bold']))
                     vars = {
                         'SN_BIN_DIR': bin.parent,
                         'SN_VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
@@ -237,10 +242,11 @@ class ExperimentManager:
                     }
                     flags = ['-j']
                     common.make(bin, vars, flags=flags, dry_run=dry_run)
-                    
-                    # Pass the binary path to the QuestaSimulator constructor and add to the list of simulators
+
+                    # Pass bin path to the QuestaSimulator constructor and add to the list of simulators
                     simulators[hardware_cfg] = run.Simulator.QuestaSimulator(bin)
-                    # we only need to built the hardware once. Note: make wouldn't have done anything anyways since lru_cfg is the same.
+                    # we only need to built the hardware once.
+                    # Note: make wouldn't have done anything anyways since lru_cfg is the same.
                     break 
 
             # Build software
