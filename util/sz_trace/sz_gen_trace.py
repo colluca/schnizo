@@ -40,6 +40,7 @@ from formatter import int_lit, flt_lit, flt_fmt
 from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, get_fu_type, CSR_NAMES
 from architecture import LSU_SIZE_TO_FLOAT
 from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_NONE
+from processor import ProcessorState
 
 
 # -------------------- Tracer configuration  --------------------
@@ -68,6 +69,7 @@ LOOP_LCP1 = "LCP1"
 LOOP_LCP2 = "LCP2"
 LOOP_LEP = "LEP"
 
+
 # -------------------- helpers  --------------------------
 
 
@@ -89,25 +91,23 @@ def parse_line(line: str) -> dict:
         raise ValueError(f"Not a valid trace line:\n{line}")
 
 
-def gen_dispatch_trace(loop_state, extras, producers, mc_exec) -> str:
+def gen_dispatch_trace(loop_state, extras, proc_state, mc_exec) -> str:
     # In LEP certain information on the original instruction is not known, e.g.
     # the source registers might be altered during register renaming, etc.
     # We save this information in LCP, and restore it in LEP.
     # The iteration is also not logged in LEP, so we track it here.
     # TODO(colluca): should we rather log the iteration in LEP as well?
-    # TODO(colluca): `producers` is not a clear name, consider changing
-    extras_to_restore = {'instr_data', 'pc_q', 'rs1', 'rs2', 'rd', 'rs1_is_fp', 'rs2_is_fp'}
-    if loop_state in {LOOP_REGULAR, LOOP_HWLOOP, LOOP_LCP1}:
-        producers = {}
-        fu_str = extras['disp_resp'] if loop_state in {LOOP_LCP1} else ''
+    if loop_state in {LOOP_REGULAR, LOOP_HWLOOP}:
+        fu_str = ''
+    elif loop_state in {LOOP_LCP1}:
+        fu_str = extras['disp_resp']
+        proc_state.lcp1_dispatch(fu_str)
     elif loop_state in {LOOP_LCP2}:
         fu_str = extras['disp_resp']
-        producers[fu_str] = {k: extras[k] for k in extras_to_restore}
-        producers[fu_str]['iteration'] = 1
+        proc_state.lcp2_dispatch(fu_str, extras)
     elif loop_state in {LOOP_LEP}:
         fu_str = extras['producer']
-        producers[fu_str]['iteration'] += 1
-        extras.update(producers[fu_str])
+        proc_state.lep_dispatch(fu_str, extras)
     else:
         raise ValueError(f"Not a valid loop state: {loop_state}")
 
@@ -176,9 +176,10 @@ def gen_rescap_trace(extras):
     else:
         result = int_lit(extras['result'])
     result_iter = extras['result_iter']
+    iter_count = extras['iteration']
     return (
         f"{'':<10} {'':<26}  {'':<6} #; RESCAP {producer} <-- "
-        f"{result}, result iter = {result_iter}"
+        f"{result}, iter = {iter_count} ({result_iter})"
     )
 
 
@@ -282,7 +283,7 @@ def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
 
 
 def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
-                          trace, producers, mc_exec):
+                          trace, mc_exec):
     if extras['stall'] and not (loop_state in {LOOP_LEP}):
         return
 
@@ -299,9 +300,7 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
         else:
             fu_str = extras['disp_resp']
     elif loop_state in {LOOP_LEP}:
-        # See `gen_dispatch_trace` for more info
         fu_str = extras['producer']
-        extras.update(producers[fu_str])
     else:
         raise ValueError(f"Not a valid loop state: {loop_state}\n")
 
@@ -348,28 +347,8 @@ def gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
 
 def gen_trace_line(line, mc_exec,
                    lsu_pipelines, fpu_pipelines, trace,
-                   perf_metrics, producers, permissive) -> tuple[str, int, int]:
+                   perf_metrics, proc_state, permissive) -> tuple[str, int, int]:
     data = parse_line(line)
-
-    # Update stateful structures
-    # We need to know
-    # - In flight instructions to measure the latency of loads/stores
-    # - instruction to producer mappings after LCP2 (for all instructions
-    #   we must know the producer) -> ALU0.0 : addi t0, xcvxv
-    #     This way we can print the nmemonics also during LEP
-    # - the format of the currently written back float value
-
-    # Performance data
-    # - start / stop between mcycle CSR reads
-    # - the total number of
-    #    - instruction issues
-    #    - stores / loads (separate for int and fp)
-    #    - fpu instruction issues
-    # - Store / Load latency of int and fp
-
-    # FREP visualization
-    # Each FREP loop generates a TraceEvent json file
-    # We need to track all instructions.
 
     # Aliases
     # TODO(colluca): get rid of these
@@ -390,9 +369,9 @@ def gen_trace_line(line, mc_exec,
             handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, data,
                                   lsu_pipelines, fpu_pipelines,
                                   perf_metrics)
-            trace_body = gen_dispatch_trace(loop_state, data, producers, mc_exec)
+            trace_body = gen_dispatch_trace(loop_state, data, proc_state, mc_exec)
             gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, data,
-                                  trace, producers, mc_exec)
+                                  trace, mc_exec)
     elif (data['event'] == EVENT_WRITEBACK):
         # Nothing statefull to handle - TODO: extract somehow the float format..
         trace_body = gen_writeback_trace(data)
@@ -400,6 +379,7 @@ def gen_trace_line(line, mc_exec,
         # Nothing statefull to handle
         trace_body = gen_resreq_trace(data)
     elif (data['event'] == EVENT_RESCAP):
+        proc_state.capture_result(data['producer'], data)
         trace_body = gen_rescap_trace(data)
         gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
     elif (data['event'] == EVENT_RETIREMENT):
@@ -558,8 +538,8 @@ def main():
         # Dicts to store information about LSU pipeline (for latency). A dict for each LSU.
         lsu_pipelines = defaultdict(deque)
         fpu_pipelines = defaultdict(deque)
-        # Dict to store the instruction to producer mapping for LEP trace data
-        producers = {}
+        # ProcessorState tracking active RSS slots during FREP loops
+        proc_state = ProcessorState()
         # Various performance metrics of the core
         perf_metrics = [
             defaultdict(int)
@@ -576,7 +556,7 @@ def main():
                     trace_line, sim_time, cycle = gen_trace_line(line, args.mc_exec,
                                                                  lsu_pipelines, fpu_pipelines,
                                                                  trace, perf_metrics,
-                                                                 producers, args.permissive)
+                                                                 proc_state, args.permissive)
                     # The newline character is in the trace line. This way the trace line can also
                     # be empty.
                     print(trace_line, file=trace_file, end="")

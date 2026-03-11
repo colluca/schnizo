@@ -45,6 +45,7 @@ SN_CLUSTER_GEN   = $(SN_ROOT)/util/clustergen/clustergen.py
 SN_GENTRACE_SRC  = $(SN_UTIL_DIR)/sz_trace/perfetto_trace.py
 SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/formatter.py
 SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/architecture.py
+SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/processor.py
 
 # Annotate prerequisites
 SN_ANNOTATE_SRC = $(SN_UTIL_DIR)/trace/a2l.py
