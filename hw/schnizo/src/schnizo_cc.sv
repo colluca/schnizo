@@ -214,7 +214,6 @@ module schnizo_cc #(
     .DataWidth             (DataWidth),
     .Xdma                  (Xdma),
     .Xfrep                 (Xfrep),
-    .FP_EN                 (FPEn),
     .RVF                   (RVF),
     .RVD                   (RVD),
     .XF16                  (XF16),

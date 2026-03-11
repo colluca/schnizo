@@ -35,8 +35,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter bit          Xdma      = 0,
   /// Enable the Superscalar FREP mode
   parameter bit          Xfrep     = 1,
-  /// Enable FP in general
-  parameter bit          FP_EN     = 0,
   /// Enable F Extension.
   parameter bit          RVF       = 0,
   /// Enable D Extension.
@@ -61,6 +59,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned AluNofRss  = 3,
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
+  parameter bit          MulInAlu0  = 1'b1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -210,6 +209,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     logic [OpLen-1:0]      operand_b;
     // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the value of the third operand
+    // TODO(colluca): with the exception of the FPU, this field could be reduced in size
     logic [OpLen-1:0]      imm;
     lsu_size_e             lsu_size;
     fpnew_pkg::fp_format_e fpu_fmt_src;
@@ -308,7 +308,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef struct packed {
     producer_id_t producer;
-    logic         is_produced; // set if producer is a valid mapping
+    logic         valid; // set if producer is a valid mapping
   } rmt_entry_t;
 
   typedef struct packed {
@@ -671,6 +671,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   schnizo_fu_stage #(
     .Xfrep              (Xfrep),
+    .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
@@ -983,21 +984,25 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .we_i   (gpr_we)
   );
 
-  snitch_regfile #(
-    .DataWidth    (FLEN),
-    .NrReadPorts  (NrFpReadPorts),
-    .NrWritePorts (NrFpWritePorts),
-    .ZeroRegZero  (0),
-    .AddrWidth    (RegAddrSize)
-  ) i_fp_regfile (
-    .clk_i,
-    .rst_ni (~rst_i),
-    .raddr_i(fpr_raddr),
-    .rdata_o(fpr_rdata),
-    .waddr_i(fpr_waddr),
-    .wdata_i(fpr_wdata),
-    .we_i   (fpr_we)
-  );
+  if (NofFpus > 0) begin : gen_fp_rf
+    snitch_regfile #(
+      .DataWidth    (FLEN),
+      .NrReadPorts  (NrFpReadPorts),
+      .NrWritePorts (NrFpWritePorts),
+      .ZeroRegZero  (0),
+      .AddrWidth    (RegAddrSize)
+    ) i_fp_regfile (
+      .clk_i,
+      .rst_ni (~rst_i),
+      .raddr_i(fpr_raddr),
+      .rdata_o(fpr_rdata),
+      .waddr_i(fpr_waddr),
+      .wdata_i(fpr_wdata),
+      .we_i   (fpr_we)
+    );
+  end else begin
+    assign fpr_rdata = '0;
+  end
 
   ////////////
   // Tracer //
@@ -1047,7 +1052,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   };
 
   assign dispatch_trace = '{
-    valid:        i_controller.instr_dispatched,
+    valid:        i_controller.instr_dispatched || exception,
     pc_q:         i_controller.pc_q,
     pc_d:         i_controller.pc_d,
     instr_data:   instr_fetch_data_i,
@@ -1099,9 +1104,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
           assign alu_resreq_traces[alu][rss][con] = '{
-            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
@@ -1156,9 +1161,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
         if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
           assign lsu_resreq_traces[lsu][rss][con] = '{
-            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
@@ -1212,9 +1217,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
         if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
           assign fpu_resreq_traces[fpu][rss][con] = '{
-            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
                               i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),

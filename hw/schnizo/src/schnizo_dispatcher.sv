@@ -95,7 +95,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   rmt_entry_t no_mapping;
   assign no_mapping = '{
     producer:    '0,
-    is_produced: 1'b0
+    valid: 1'b0
   };
 
   rmt_entry_t current_dest_entry;
@@ -177,6 +177,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     acc_req_o.data_op = instr_fetch_data_i;
 
     unique case (instr_dec_i.fu)
+    // TODO(colluca): how to handle the case when MulInAlu0 is set to zero?
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
@@ -421,7 +422,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     rmt_entry_t new_entry;
     assign new_entry = '{
       producer:    fu_response.producer,
-      is_produced: 1'b1
+      valid: 1'b1
     };
 
     always_comb begin : rmt_update
@@ -450,7 +451,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           // TODO(colluca): how could this ever be the case? Every instruction that is
           //                dispatched in LCP2 must have been dispatched in LCP1.
           //                Test that this condition never arises with an assertion.
-          if (dispatched && !current_dest_entry.is_produced) begin
+          if (dispatched && !current_dest_entry.valid) begin
             if (instr_dec_i.rd_is_fp) begin
               rmtf_d[instr_dec_i.rd] = new_entry;
             end else begin

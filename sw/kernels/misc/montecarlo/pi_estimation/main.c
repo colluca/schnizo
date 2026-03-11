@@ -17,7 +17,7 @@
 #endif
 
 #ifndef FUNC_PTR
-#define FUNC_PTR calculate_psum_baseline
+#define FUNC_PTR calculate_psum_schnizo
 #endif
 
 #ifndef N_CORES
@@ -110,7 +110,6 @@ static inline uint32_t calculate_psum_baseline(PRNG_T *prngs,
         uint32_t xoshiro128p_state_1 = prngs->s[1];
         uint32_t xoshiro128p_state_2 = prngs->s[2];
         uint32_t xoshiro128p_state_3 = prngs->s[3];
-        uint32_t xoshiro128p_tmp;
 #endif
 
         // clang-format off
@@ -127,7 +126,7 @@ static inline uint32_t calculate_psum_baseline(PRNG_T *prngs,
 #elif PRNG == PRNG_XOSHIRO128P
             EVAL_XOSHIRO128P_UNROLL4
             FCVT_UNROLL_8(t0, t1, t2, t3, a0, a1, a2, a3,
-                          ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3)
+                          ft0, fa0, ft1, fa1, ft2, fa2, ft3, fa3)
 #endif
 
             // Normalize PRNs to [0, 1] range
@@ -176,8 +175,6 @@ static inline uint32_t calculate_psum_baseline(PRNG_T *prngs,
             : [ div ] "f"(max_uint_plus_1_inverse)
 #if PRNG == PRNG_LCG
               , ASM_LCG_INPUTS
-#elif PRNG == PRNG_XOSHIRO128P
-              , ASM_XOSHIRO128P_INPUTS
 #endif
 #if APPLICATION == APPLICATION_PI
               , ASM_PI_CONSTANTS(one)
@@ -186,7 +183,7 @@ static inline uint32_t calculate_psum_baseline(PRNG_T *prngs,
 #endif
             : "ft0", "ft1", "ft2", "ft3",
               "fa0", "fa1", "fa2", "fa3",
-              "t0", "t1", "t2", "t3",
+              "t0", "t1", "t2", "t3", "t4",
               "a0", "a1", "a2", "a3",
               "memory"
 #if APPLICATION == APPLICATION_POLY
@@ -297,7 +294,6 @@ static inline uint32_t calculate_psum_optimized(PRNG_T *prngs,
     uint32_t xoshiro128p_state_1 = prngs->s[1];
     uint32_t xoshiro128p_state_2 = prngs->s[2];
     uint32_t xoshiro128p_state_3 = prngs->s[3];
-    uint32_t xoshiro128p_tmp;
 #endif
 
     if (snrt_cluster_core_idx() < N_CORES) {
@@ -436,8 +432,6 @@ static inline uint32_t calculate_psum_optimized(PRNG_T *prngs,
                       [ rng_y ] "r"(int_y_ptr)
 #if PRNG == PRNG_LCG
                       , ASM_LCG_INPUTS
-#elif PRNG == PRNG_XOSHIRO128P
-                      , ASM_XOSHIRO128P_INPUTS
 #endif
                     : "t0", "a0", "t1", "a1", "t2", "a2", "t3", "a3",
                       "memory"
@@ -529,7 +523,6 @@ static inline uint32_t calculate_psum_optimized_v2(PRNG_T *prngs,
     uint32_t xoshiro128p_state_1 = prngs->s[1];
     uint32_t xoshiro128p_state_2 = prngs->s[2];
     uint32_t xoshiro128p_state_3 = prngs->s[3];
-    uint32_t xoshiro128p_tmp;
 #endif
 
     if (snrt_cluster_core_idx() < N_CORES) {
@@ -638,8 +631,6 @@ static inline uint32_t calculate_psum_optimized_v2(PRNG_T *prngs,
 #endif
 #if PRNG == PRNG_LCG
                 , ASM_LCG_INPUTS
-#elif PRNG == PRNG_XOSHIRO128P
-                , ASM_XOSHIRO128P_INPUTS
 #endif
             : "t0", "a0", "t1", "a1", "t2", "a2", "t3", "a3", "t6",
               "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft8",
@@ -661,6 +652,8 @@ static inline uint32_t calculate_psum_optimized_v2(PRNG_T *prngs,
 
     return 0;
 }
+
+#include "mc_schnizo.h"
 
 int main() {
     uint32_t n_seq_per_core, n_seq;

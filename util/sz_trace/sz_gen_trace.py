@@ -383,13 +383,16 @@ def gen_trace_line(line, mc_exec,
 
     # Compose trace body dependent on the event type
     trace_body = ""
-    if (data['event'] == EVENT_DISPATCH):
-        handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, data,
-                              lsu_pipelines, fpu_pipelines,
-                              perf_metrics)
-        trace_body = gen_dispatch_trace(loop_state, data, producers, mc_exec)
-        gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, data,
-                              trace, producers, mc_exec)
+    if data['event'] == EVENT_DISPATCH:
+        # To catch exceptions we allow tracing dispatch events that are not committed (i.e. killed)
+        # We must however prevent that they are parsed, since they may contain illegal data.
+        if not data['exception']:
+            handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, data,
+                                  lsu_pipelines, fpu_pipelines,
+                                  perf_metrics)
+            trace_body = gen_dispatch_trace(loop_state, data, producers, mc_exec)
+            gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, data,
+                                  trace, producers, mc_exec)
     elif (data['event'] == EVENT_WRITEBACK):
         # Nothing statefull to handle - TODO: extract somehow the float format..
         trace_body = gen_writeback_trace(data)

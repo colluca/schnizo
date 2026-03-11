@@ -9,16 +9,25 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
+THEORETICAL_METRICS = {
+    'fpu_util':
+    {
+        # 4x unrolled
+        'sz_axpy': 4/(4*3+3+4),
+        'sz_dot': 4/(4*2+2+4)
+    }
+}
 
-THEORETICAL_FPU_UTIL = {
-    # 4x unrolled
-    'sz_axpy': 4/(4*3+3+4),
-    'sz_dot': 4/(4*2+2+4),
+METRIC_LABELS = {
+    'fpu_util': 'FPU Util.',
+    'ipc': 'IPC',
 }
 
 APP_LABELS = {
     'sz_axpy': 'AXPY',
     'sz_dot': 'DOT',
+    'exp': 'EXP',
+    'log': 'LOG',
 }
 
 
@@ -79,19 +88,11 @@ def kernel_scaling_plot(df, app):
     plt.show()
 
 
-def plot1(df):
-    kernel_scaling_plot(df, app="sz_axpy")
-
-
-def plot2(df):
-    kernel_scaling_plot(df, app="sz_dot")
-
-
-def plot3(df):
-    """Plot FPU utilization comparison across applications and modes"""
+def superscalar_comparison_plot(df, metric='fpu_util'):
+    """Compare scalar and superscalar results across applications"""
     # Pivot data to get utilization from the run with max size per app and mode
     idx_max_size = df.groupby(['app', 'mode'])['size'].idxmax()
-    plot_df = df.loc[idx_max_size].pivot(index='app', columns='mode', values='fpu_util')
+    plot_df = df.loc[idx_max_size].pivot(index='app', columns='mode', values=metric)
     plot_df.columns = [col.capitalize() for col in plot_df.columns]
 
     # Calculate asymptotes for superscalar mode
@@ -99,7 +100,7 @@ def plot3(df):
     for app in plot_df.index:
         app_df = df[(df['app'] == app) & (df['mode'] == 'superscalar')].sort_values('size')
         n_vals = app_df['size'].to_numpy(dtype=float)
-        util_vals = app_df['fpu_util'].to_numpy(dtype=float)
+        util_vals = app_df[metric].to_numpy(dtype=float)
         _, _, a, b, _ = fit_inverse_function(n_vals, util_vals, x_lim=8192)
         asymptotes.append(a / b)
 
@@ -114,10 +115,12 @@ def plot3(df):
 
     # Add theoretical markers on top of scalar bars
     for i, (bar, app) in enumerate(zip(scalar_bars, plot_df.index)):
-        theoretical = THEORETICAL_FPU_UTIL[app]
-        ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
-                   color='black', marker='D', s=100, zorder=3,
-                   label='Theoretical' if i == 0 else '')
+        if metric in THEORETICAL_METRICS:
+            if app in THEORETICAL_METRICS[metric]:
+                theoretical = THEORETICAL_METRICS[metric][app]
+                ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
+                           color='black', marker='D', s=100, zorder=3,
+                           label='Theoretical' if i == 0 else '')
 
     # Add asymptote markers on top of superscalar bars
     for i, (bar, asymptote) in enumerate(zip(superscalar_bars, asymptotes)):
@@ -127,7 +130,7 @@ def plot3(df):
 
     # Format plot
     ax.set_xlabel('')
-    ax.set_ylabel('FPU Utilization', fontsize=12)
+    ax.set_ylabel(METRIC_LABELS[metric], fontsize=12)
     ax.set_xticklabels(plot_df.index, rotation=0)
     ax.legend()
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
@@ -135,18 +138,43 @@ def plot3(df):
     plt.show()
 
 
+def plot1(df):
+    kernel_scaling_plot(df, app="sz_axpy")
+
+
+def plot2(df):
+    kernel_scaling_plot(df, app="sz_dot")
+
+
+def plot3(df):
+    kernel_scaling_plot(df, app="exp")
+
+
+def plot4(df):
+    kernel_scaling_plot(df, app="log")
+
+
+def plot5(df):
+    superscalar_comparison_plot(df, 'fpu_util')
+
+
+def plot6(df):
+    superscalar_comparison_plot(df, 'ipc')
+
+
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = ['plot1', 'plot2', 'plot3']
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6]
+    plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'plots',
         nargs='+',
-        choices=plots,
-        default=plots,
+        choices=plot_dict.keys(),
+        default=plot_dict.keys(),
         help='Select which plots to show (default: all)'
     )
     args = parser.parse_args()
@@ -160,14 +188,8 @@ def main():
     df = pd.read_csv(results_path)
 
     # Generate selected plots
-    if 'plot1' in args.plots:
-        plot1(df)
-
-    if 'plot2' in args.plots:
-        plot2(df)
-
-    if 'plot3' in args.plots:
-        plot3(df)
+    for name in args.plots:
+        plot_dict[name](df)
 
 
 if __name__ == '__main__':

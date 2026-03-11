@@ -14,14 +14,15 @@ import snitch.util.sim.data_utils as du
 np.random.seed(42)
 
 
-class ExpDataGen(du.DataGen):
+class LogDataGen(du.DataGen):
 
     def golden_model(self, a):
-        return np.exp(a)
+        return np.log(a).astype('double')
 
     def validate(self, **kwargs):
         # Calculate total TCDM occupation
-        a_size = kwargs['batch_size'] * 8
+        # Note: doesn't account for double buffering
+        a_size = kwargs['batch_size'] * 4
         b_size = kwargs['batch_size'] * 8
         total_size = a_size
         total_size += b_size
@@ -37,9 +38,9 @@ class ExpDataGen(du.DataGen):
         self.validate(**kwargs)
 
         vlen, batch_size = kwargs['len'], kwargs['batch_size']
-        ctype = 'double'
 
-        a = du.generate_random_array((vlen), seed=42)
+        a = du.generate_random_array((vlen), prec='FP32', seed=42)
+        a = np.abs(a)
         b = self.golden_model(a)
 
         a_uid = 'a'
@@ -56,16 +57,16 @@ class ExpDataGen(du.DataGen):
         cfg['batch_size'] = batch_size_uid
 
         # "extern" specifier is required on declarations preceding a definition
-        header += [du.format_array_declaration(f'extern {ctype}', a_uid, a.shape)]
+        header += [du.format_array_declaration('extern float', a_uid, a.shape)]
         # "extern" specifier ensures that the variable is emitted and not mangled
         header += [du.format_scalar_definition('extern const uint32_t', len_uid, vlen)]
         header += [du.format_scalar_definition('extern const uint32_t', batch_size_uid, batch_size)]
-        header += [du.format_array_definition(ctype, a_uid, a)]
-        header += [du.format_array_declaration(f'{ctype}', b_uid, b.shape)]
+        header += [du.format_array_definition('float', a_uid, a)]
+        header += [du.format_array_declaration('double', b_uid, b.shape)]
         header = '\n\n'.join(header)
 
         return header
 
 
 if __name__ == "__main__":
-    sys.exit(ExpDataGen().main())
+    sys.exit(LogDataGen().main())

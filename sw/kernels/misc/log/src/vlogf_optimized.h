@@ -12,7 +12,7 @@ static inline void vlogf_optimized(float *a, double *b) {
 #ifdef SNRT_SUPPORTS_FREP
     // Derived parameters
     unsigned int n_stages = 4;  // DMA in, INT, FP, DMA out
-    unsigned int n_batches = LEN / BATCH_SIZE;
+    unsigned int n_batches = len / batch_size;
     unsigned int n_iterations = n_stages + n_batches - 1;
 
     // Allocate buffers (ORDER IS IMPORTANT!)
@@ -23,22 +23,22 @@ static inline void vlogf_optimized(float *a, double *b) {
     uint64_t *invc_buffers[N_BUFFERS];
     uint64_t *logc_buffers[N_BUFFERS];
     uint8_t *idx_buffers[N_BUFFERS];
-    a_buffers[0] = ALLOCATE_BUFFER(float, BATCH_SIZE);
-    a_buffers[1] = ALLOCATE_BUFFER(float, BATCH_SIZE);
-    b_buffers[0] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    b_buffers[1] = ALLOCATE_BUFFER(double, BATCH_SIZE);
-    z_buffers[0] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    z_buffers[1] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    k_buffers[0] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    k_buffers[1] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
+    a_buffers[0] = ALLOCATE_BUFFER(float, batch_size);
+    a_buffers[1] = ALLOCATE_BUFFER(float, batch_size);
+    b_buffers[0] = ALLOCATE_BUFFER(double, batch_size);
+    b_buffers[1] = ALLOCATE_BUFFER(double, batch_size);
+    z_buffers[0] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    z_buffers[1] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    k_buffers[0] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    k_buffers[1] = ALLOCATE_BUFFER(uint64_t, batch_size);
 #if IMPL == IMPL_ISSR
-    idx_buffers[0] = ALLOCATE_BUFFER(uint8_t, BATCH_SIZE * 2);
-    idx_buffers[1] = ALLOCATE_BUFFER(uint8_t, BATCH_SIZE * 2);
+    idx_buffers[0] = ALLOCATE_BUFFER(uint8_t, batch_size * 2);
+    idx_buffers[1] = ALLOCATE_BUFFER(uint8_t, batch_size * 2);
 #else
-    invc_buffers[0] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    invc_buffers[1] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    logc_buffers[0] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
-    logc_buffers[1] = ALLOCATE_BUFFER(uint64_t, BATCH_SIZE);
+    invc_buffers[0] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    invc_buffers[1] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    logc_buffers[0] = ALLOCATE_BUFFER(uint64_t, batch_size);
+    logc_buffers[1] = ALLOCATE_BUFFER(uint64_t, batch_size);
 #endif
 
     // Define buffer pointers for every phase (int and fp)
@@ -63,7 +63,7 @@ static inline void vlogf_optimized(float *a, double *b) {
     // to double-precision floating-point assumes the single-precision values
     // are NaN-boxed.
     if (snrt_cluster_core_idx() == 0)
-        for (int i = 0; i < BATCH_SIZE; i++) {
+        for (int i = 0; i < batch_size; i++) {
             z_buffers[0][i] = 0xffffffffffffffff;
             z_buffers[1][i] = 0xffffffffffffffff;
         }
@@ -82,7 +82,7 @@ static inline void vlogf_optimized(float *a, double *b) {
                 dma_a_ptr = a_buffers[dma_a_idx];
 
                 // DMA transfer
-                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, BATCH_SIZE,
+                snrt_dma_load_1d_tile(dma_a_ptr, a, iteration, batch_size,
                                       sizeof(float));
 
                 // Increment buffer index for next iteration
@@ -96,7 +96,7 @@ static inline void vlogf_optimized(float *a, double *b) {
                 dma_b_ptr = b_buffers[dma_b_idx];
 
                 // DMA transfer
-                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 3, BATCH_SIZE,
+                snrt_dma_store_1d_tile(b, dma_b_ptr, iteration - 3, batch_size,
                                        sizeof(double));
 
                 // Increment buffer index for next iteration
@@ -121,21 +121,21 @@ static inline void vlogf_optimized(float *a, double *b) {
                 int unroll_factor = 4;
                 if (iteration == 2) {
                     snrt_ssr_loop_3d(SNRT_SSR_DM0, unroll_factor, 2,
-                                     BATCH_SIZE / unroll_factor,
+                                     batch_size / unroll_factor,
                                      sizeof(uint64_t),
-                                     N_BUFFERS * BATCH_SIZE * sizeof(uint64_t),
+                                     N_BUFFERS * batch_size * sizeof(uint64_t),
                                      sizeof(uint64_t) * unroll_factor);
-                    snrt_ssr_loop_1d(SNRT_SSR_DM2, BATCH_SIZE, sizeof(double));
+                    snrt_ssr_loop_1d(SNRT_SSR_DM2, batch_size, sizeof(double));
 #if IMPL == IMPL_ISSR
                 }
                 // Load invc and logc using an ISSR
                 snrt_issr_read(SNRT_SSR_DM1, (void *)T, fp_idx_ptr,
-                               2 * BATCH_SIZE, SNRT_SSR_IDXSIZE_U8);
+                               2 * batch_size, SNRT_SSR_IDXSIZE_U8);
 #else
                     snrt_ssr_loop_3d(SNRT_SSR_DM1, unroll_factor, 2,
-                                     BATCH_SIZE / unroll_factor,
+                                     batch_size / unroll_factor,
                                      sizeof(uint64_t),
-                                     N_BUFFERS * BATCH_SIZE * sizeof(uint64_t),
+                                     N_BUFFERS * batch_size * sizeof(uint64_t),
                                      sizeof(uint64_t) * unroll_factor);
                 }
                 snrt_ssr_read(SNRT_SSR_DM1, SNRT_SSR_3D, fp_invc_ptr);
@@ -147,7 +147,7 @@ static inline void vlogf_optimized(float *a, double *b) {
                 // FP computation
                 asm volatile("frep.o %[n_frep], 36, 0, 0 \n" FP_ASM_BODY
                              :
-                             : [ n_frep ] "r"(BATCH_SIZE / unroll_factor - 1),
+                             : [ n_frep ] "r"(batch_size / unroll_factor - 1),
                                [ A0 ] "f"(A[0]), [ A1 ] "f"(A[1]),
                                [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3]),
                                [ Ln2 ] "f"(Ln2)
@@ -175,7 +175,7 @@ static inline void vlogf_optimized(float *a, double *b) {
                 // L0 cache
                 int unroll_factor = 4;
 #pragma nounroll
-                for (int i = 0; i < BATCH_SIZE; i += unroll_factor) {
+                for (int i = 0; i < batch_size; i += unroll_factor) {
                     asm volatile(INT_ASM_BODY
                                  :
                                  : [ a ] "r"(int_a_ptr + i), [ OFF ] "r"(OFF),

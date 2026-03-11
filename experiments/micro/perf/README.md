@@ -7,7 +7,7 @@ The start the experiment with the desired steps (start from hw) from the experim
 make clean-vsim
 make vsim CFG_OVERRIDE=cfg/schnizo_xl.json DEBUG=ON -j
 cd ./experiments/schnizo_frep/
-./experiments.py --actions hw sw run traces roi perf -j
+./experiments.py --actions sw run roi -j
 ```
 
 ## Power

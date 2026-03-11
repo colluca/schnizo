@@ -81,6 +81,7 @@ class ExperimentManager:
             self.run_dir = self.dir / 'runs'
         self.power_dir = self.dir / 'power'
         self.area_dir = self.dir / 'area'
+        self.schnizo_dir = next(p for p in self.dir.parents if p.name == 'experiments').parent
 
         # Get experiments
         if experiments is not None:
@@ -144,7 +145,7 @@ class ExperimentManager:
 
     def derive_hw_cfg(self, experiment):
         if 'hw' not in experiment or experiment['hw'] == 'default':
-            return self.dir.parent.parent / 'cfg/default.json' 
+            return self.schnizo_dir / 'cfg/default.json' 
         return self.dir / 'configs' / experiment['hw']
 
     def derive_hw_bin(self, experiment):
@@ -173,6 +174,7 @@ class ExperimentManager:
         dry_run = self.args.dry_run
         n_procs = self.args.n_procs
         experiments = self.experiments
+        sync = True if self.args.n_procs == 1 else False
         # We keep a dictionary of different simulators, since different hardware configs need different vsim binary paths.
         simulators = {'default': run.Simulator.QuestaSimulator(self.dir / 'hw/default/bin/snitch_cluster.vsim')}
 
@@ -233,7 +235,6 @@ class ExperimentManager:
                         'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
                         'DEBUG': 'ON'
                     }
-                    print(colored(vars, 'green'))
                     flags = ['-j']
                     common.make(bin, vars, flags=flags, dry_run=dry_run)
                     
@@ -321,6 +322,7 @@ class ExperimentManager:
         # TODO(colluca): write in more compact way
         if 'visual-trace' in self.actions or 'roi' in self.actions or 'all' in self.actions:
 
+            processes = []
             for experiment in experiments:
 
                 # Take ROI spec from experiment or default location
@@ -355,13 +357,15 @@ class ExperimentManager:
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
-                        common.make('roi', vars, dry_run=dry_run)
+                        process = common.make('roi', vars, dry_run=dry_run, sync=sync)
+                        processes.append(process)
 
                     if 'visual-trace' in self.actions:
                         # Build visual trace
                         hw_cfg = self.derive_hw_cfg(experiment)
                         build.build_visual_trace(experiment['run_dir'], rendered_spec,
                                                  hw_cfg=hw_cfg)
+            common.wait_processes(processes)
 
         # Generate joint performance dump
         if 'power' in self.actions or 'all' in self.actions:

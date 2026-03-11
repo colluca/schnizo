@@ -419,31 +419,31 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   assign op_a_lcp1 = '{
     producer:             disp_req_i.producer_op_a.producer,
-    is_produced:          disp_req_i.producer_op_a.is_produced,
-    is_from_current_iter: disp_req_i.producer_op_a.is_produced,
-    value:                disp_req_i.producer_op_a.is_produced ?
+    is_produced:          disp_req_i.producer_op_a.valid,
+    is_from_current_iter: disp_req_i.producer_op_a.valid,
+    value:                disp_req_i.producer_op_a.valid ?
                             '0 : disp_req_i.fu_data.operand_a,
-    is_valid:             !disp_req_i.producer_op_a.is_produced,
+    is_valid:             !disp_req_i.producer_op_a.valid,
     requested:            1'b0
   };
 
   assign op_b_lcp1 = '{
     producer:             disp_req_i.producer_op_b.producer,
-    is_produced:          disp_req_i.producer_op_b.is_produced,
-    is_from_current_iter: disp_req_i.producer_op_b.is_produced,
-    value:                disp_req_i.producer_op_b.is_produced ?
+    is_produced:          disp_req_i.producer_op_b.valid,
+    is_from_current_iter: disp_req_i.producer_op_b.valid,
+    value:                disp_req_i.producer_op_b.valid ?
                             '0 : disp_req_i.fu_data.operand_b,
-    is_valid:             !disp_req_i.producer_op_b.is_produced,
+    is_valid:             !disp_req_i.producer_op_b.valid,
     requested:            1'b0
   };
 
   assign op_c_lcp1 = '{
     producer:             disp_req_i.producer_op_c.producer,
-    is_produced:          disp_req_i.producer_op_c.is_produced,
-    is_from_current_iter: disp_req_i.producer_op_c.is_produced,
-    value:                disp_req_i.producer_op_c.is_produced ?
+    is_produced:          disp_req_i.producer_op_c.valid,
+    is_from_current_iter: disp_req_i.producer_op_c.valid,
+    value:                disp_req_i.producer_op_c.valid ?
                             '0 : disp_req_i.fu_data.imm,
-    is_valid:             !disp_req_i.producer_op_c.is_produced,
+    is_valid:             !disp_req_i.producer_op_c.valid,
     requested:            1'b0
   };
 
@@ -505,27 +505,30 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // Test this so we can better document it.
     if (!slot_lcp2.operands[0].is_produced) begin
       slot_lcp2.operands[0].producer    = disp_req_i.producer_op_a.producer;
-      slot_lcp2.operands[0].is_produced = disp_req_i.producer_op_a.is_produced;
-      slot_lcp2.operands[0].is_valid    = !disp_req_i.producer_op_a.is_produced;
+      slot_lcp2.operands[0].is_produced = disp_req_i.producer_op_a.valid;
+      slot_lcp2.operands[0].is_valid    = !disp_req_i.producer_op_a.valid;
       slot_lcp2.operands[0].value       = disp_req_i.fu_data.operand_a;
     end
     if (!slot_lcp2.operands[1].is_produced) begin
       slot_lcp2.operands[1].producer    = disp_req_i.producer_op_b.producer;
-      slot_lcp2.operands[1].is_produced = disp_req_i.producer_op_b.is_produced;
-      slot_lcp2.operands[1].is_valid    = !disp_req_i.producer_op_b.is_produced;
+      slot_lcp2.operands[1].is_produced = disp_req_i.producer_op_b.valid;
+      slot_lcp2.operands[1].is_valid    = !disp_req_i.producer_op_b.valid;
       slot_lcp2.operands[1].value       = disp_req_i.fu_data.operand_b;
     end
     if (NofOperands >= 3) begin
       if (!slot_lcp2.operands[2].is_produced) begin
         slot_lcp2.operands[2].producer    = disp_req_i.producer_op_c.producer;
-        slot_lcp2.operands[2].is_produced = disp_req_i.producer_op_c.is_produced;
-        slot_lcp2.operands[2].is_valid    = !disp_req_i.producer_op_c.is_produced;
+        slot_lcp2.operands[2].is_produced = disp_req_i.producer_op_c.valid;
+        slot_lcp2.operands[2].is_valid    = !disp_req_i.producer_op_c.valid;
         slot_lcp2.operands[2].value       = disp_req_i.fu_data.imm;
       end
     end
     // Set the writeback flag if we are the last RSS writing to this destination
+    // TODO(colluca): couldn't we have the dispatcher calculate `do_writeback` instead?
+    // This way we don't need to store it in the cut. It may increase the critical path
+    // if the critical path is before the cut.
     if ((own_producer_id_i == disp_req_i.current_producer_dest.producer) &&
-        disp_req_i.current_producer_dest.is_produced) begin
+        disp_req_i.current_producer_dest.valid) begin
       slot_lcp2.do_writeback = 1'b1;
     end
   end
