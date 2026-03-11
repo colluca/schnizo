@@ -31,6 +31,8 @@ module schnova_rename import schnizo_pkg::*; #(
   input  logic en_superscalar_i,
   // To controller
   output logic registers_ready_o,
+  output logic fpr_busy_o,
+  output logic gpr_busy_o,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
   input  rmt_entry_t   [PipeWidth-1:0]  dest_map_i,
@@ -260,7 +262,8 @@ module schnova_rename import schnizo_pkg::*; #(
     // clear port
     .caddr_i(rmt_int_caddr),
     .cdata_i(rmt_int_cdata),
-    .clear_i(rmt_int_clear)
+    .clear_i(rmt_int_clear),
+    .busy_o(gpr_busy_o)
   );
 
   schnova_rmt #(
@@ -285,7 +288,8 @@ module schnova_rename import schnizo_pkg::*; #(
     // clear port
     .caddr_i(rmt_fp_caddr),
     .cdata_i(rmt_fp_cdata),
-    .clear_i(rmt_fp_clear)
+    .clear_i(rmt_fp_clear),
+    .busy_o(fpr_busy_o)
   );
 
   // Update the is_renamed register that keeps track of which registers already have been

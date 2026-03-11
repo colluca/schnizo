@@ -276,7 +276,15 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   assign dispatched = instr_exec_commit_i[0] & fu_ready;
 
   // Signal back the dispatch
-  assign dispatch_ready_o[0] = dispatched;
+  always_comb begin
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (i == 0) begin
+        dispatch_ready_o[i] = dispatched;
+      end else begin
+        dispatch_ready_o[i] = 1'b0;
+      end
+    end
+  end
 
   // Asserted if the currently selected FU has no empty RSS.
   assign rs_full_o = fu_rs_full;
@@ -405,5 +413,5 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         dest_map_o[i].valid = 1'b0;
       end
     end
-  end 
+  end
 endmodule

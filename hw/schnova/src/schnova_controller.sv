@@ -33,6 +33,8 @@ module schnova_controller import schnizo_pkg::*; #(
   output logic                      flush_backend_o,
   output logic                      all_instr_dispatched_o,
   input logic                       registers_ready_i,
+  input logic                       fpr_busy_i,
+  input logic                       gpr_busy_i,
   // Interface to dispatcher & RS
   output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
   input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
@@ -46,7 +48,6 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic        interrupt_i,
   input  logic        csr_exception_raw_i,
   input  logic        lsu_empty_i,
-  input  logic        csr_inflight_i,
   input  logic        ctrl_inflight_i,
   input  logic        load_inflight_i,
   input  logic        store_inflight_i,
@@ -100,7 +101,8 @@ module schnova_controller import schnizo_pkg::*; #(
                                     (consecutive_pc_i[1:0] != 2'b0);
     // Signal to CSR when entering WFI state.
     // TODO(colluca): what to do with debug signal?
-    assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid_i[instr_idx]; // && !debug_q;
+    assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid_i[instr_idx];
+    // && !debug_q;
     // Check privileges for certain instructions
     always_comb begin : check_privileges
       privileges_violated_raw[instr_idx] = 1'b0;
@@ -121,7 +123,8 @@ module schnova_controller import schnizo_pkg::*; #(
         end
       end
     end
-    assign privileges_violated[instr_idx] = privileges_violated_raw[instr_idx] && instr_valid_i[instr_idx];
+    assign privileges_violated[instr_idx] = privileges_violated_raw[instr_idx] &&
+                                            instr_valid_i[instr_idx];
     // Only update the privilege stack if there is a valid xRET instruction.
     assign mret[instr_idx] =  instr_decoded_i[instr_idx].is_mret &&
                               instr_valid_i[instr_idx]           &&
@@ -205,7 +208,8 @@ module schnova_controller import schnizo_pkg::*; #(
       // and all older instruction have not yet finished their execution.
       assign csr_stall[instr_idx] = (instr_decoded_i[instr_idx].fu == CSR) &
                                     ~instr_dispatched[instr_idx]           &
-                                    ~all_rs_finish_i                       &
+                                    fpr_busy_i                             &
+                                    gpr_busy_i                             &
                                     instr_valid_i[instr_idx];
     end else begin: gen_propagate_csr_stall
       // We have to stall all other instructions on the same conditions, in addition
@@ -213,7 +217,8 @@ module schnova_controller import schnizo_pkg::*; #(
       // all younger instructions also have to be stalled
       assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR) &
                                     ~instr_dispatched[instr_idx]             &
-                                    ~all_rs_finish_i)                        |
+                                    fpr_busy_i                               &
+                                    gpr_busy_i                             ) |
                                     csr_stall[instr_idx-1])                  &
                                     instr_valid_i[instr_idx];
     end
