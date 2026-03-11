@@ -56,6 +56,7 @@ import signal
 import psutil
 import pandas as pd
 from prettytable import PrettyTable
+from snitch.util.sim.Simulator import Simulator
 
 
 POLL_PERIOD = 0.2
@@ -152,13 +153,14 @@ def _resolve_relative_path(base_path, s):
         return s
 
 
-def get_simulations(tests, simulator, run_dir=None, base_path=None):
+def get_simulations(tests, simulator: Simulator | dict[str, Simulator], run_dir=None, base_path=None):
     """Create simulation objects from a list of tests.
 
     Args:
         tests: A list of tests.
         simulator: The simulator to use to run the tests. A test run on
-            a specific simulator defines a simulation.
+            a specific simulator defines a simulation. Can also be a dictionary,
+            which maps the 'hw' key in a test to a specific Simulator instance.
         run_dir: A directory under which all tests should be run. If
             provided, a unique subdirectory for each test will be
             created under this directory, based on the test name.
@@ -176,7 +178,12 @@ def get_simulations(tests, simulator, run_dir=None, base_path=None):
             test['cmd'] = [_resolve_relative_path(base_path, arg) for arg in test['cmd']]
 
     # Create simulation object for every test which supports the specified simulator
-    simulations = [simulator.get_simulation(test) for test in tests if simulator.supports(test)]
+    if type(simulator) == Simulator:
+        simulations = [simulator.get_simulation(test) for test in tests if simulator.supports(test)]
+    elif type(simulator) == dict:
+        simulations = [simulator[test['hw']].get_simulation(test) for test in tests if simulator[test['hw']].supports(test)]
+    else:
+        raise TypeError("Simulations should be a Simulator or a Dict[str, Simulator] which maps 'hw' key of an experiment to a simulator.")
 
     # Set simulation run directory
     if run_dir is not None:

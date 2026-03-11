@@ -15,10 +15,11 @@ import pandas as pd
 from pathlib import Path
 from snitch.util.experiments.SimResults import SimResults
 from snitch.util.experiments import run, build, common
-from snitch.util.sim import sim_utils
+from snitch.util.sim import sim_utils, Simulator
 import sys
 from termcolor import colored
 import yaml
+import shutil
 
 # Try importing PowerResults module (not available in open-source repo)
 try:
@@ -35,6 +36,8 @@ except ImportError as e:
 
 ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
            'none']
+
+CLEAN_ACTIONS = ['sw', 'hw', 'runs', 'all', 'none']
 
 
 class ExperimentManager:
@@ -55,6 +58,14 @@ class ExperimentManager:
             self.actions = actions
         elif self.args is not None:
             self.actions = self.args.actions
+        else:
+            self.actions = ['none']
+
+        # Get clean actions
+        if self.args is not None:
+            self.clean_actions = self.args.clean
+        else:
+            self.clean_actions = ['none']
 
         # Save callbacks
         self.callbacks = callbacks
@@ -93,6 +104,8 @@ class ExperimentManager:
         parser = run.get_parser()
         parser.add_argument('--actions', nargs='+', default='none', choices=ACTIONS,
                             help='List of actions')
+        parser.add_argument('--clean', nargs='+', default='none', choices=CLEAN_ACTIONS,
+                            help='List of actions')
         return parser
 
     def derive_axes(self, experiment):
@@ -130,10 +143,27 @@ class ExperimentManager:
         return None
 
     def derive_hw_cfg(self, experiment):
-        return None
+        if 'hw' not in experiment or experiment['hw'] == 'default':
+            return self.dir.parent.parent / 'cfg/default.json' 
+        return self.dir / 'configs' / experiment['hw']
 
     def derive_hw_bin(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'bin/snitch_cluster.vsim'
+    
+    def derive_all_hw_cfgs(self) -> list[str]:
+        """This function should return a list of names of all different used hardware configs.
+        If no hw is specified in the experiments. It uses the default simulator for each.
+        If hw is specified for one experiment, it needs to be specified for each one."""
+        hardware_configs = []
+        keys = set.union(*[set(experiment.keys()) for experiment in self.experiments])
+        if 'hw' in keys:
+            assert(all(['hw' in set(e.keys()) for e in self.experiments]))
+            hardware_configs = list(set([e['hw'] for e in self.experiments]))
+        else:
+            hardware_configs = ['default']
+            for e in self.experiments:
+                e['hw'] = 'default'     # add default hw key for each experiment
+        return hardware_configs
 
     def derive_vsim_builddir(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'work-vsim'
@@ -143,52 +173,108 @@ class ExperimentManager:
         dry_run = self.args.dry_run
         n_procs = self.args.n_procs
         experiments = self.experiments
+        # We keep a dictionary of different simulators, since different hardware configs need different vsim binary paths.
+        simulators = {'default': run.Simulator.QuestaSimulator(self.dir / 'hw/default/bin/snitch_cluster.vsim')}
 
-        # Build hardware
-        if 'hw' in self.actions or 'all' in self.actions:
-            for experiment in experiments:
-                bin = self.derive_hw_bin(experiment)
-                print(colored('Generate hardware', 'black', attrs=['bold']),
-                      colored(bin, 'cyan', attrs=['bold']))
-                vars = {
-                    'SN_BIN_DIR': bin.parent,
-                    'VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
-                    'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
-                    'DEBUG': 'ON'
-                }
-                flags = ['-j']
-                common.make(bin, vars, flags=flags, dry_run=dry_run)
+        # Clean hardware
+        if 'hw' in self.clean_actions or 'all' in self.clean_actions:
+            folder_path = Path('./hw/')
+            if folder_path.exists() and folder_path.is_dir():
+                shutil.rmtree(folder_path)
+                print(colored(f"Cleaned hardware build folder: {folder_path}", 'cyan'))
+            else:
+                print(colored("Nothing to clean for hardware", 'blue'))
+            folder_path = self.dir / "../../hw/generated/"
+            if folder_path.exists() and folder_path.is_dir():
+                shutil.rmtree(folder_path)
+                print(colored(f"Cleaned generated rtl folder: {folder_path}", 'cyan'))
+            else:
+                print(colored("Nothing to clean for generated rtl", 'blue'))
+        
+        # Clean software
+        if 'sw' in self.clean_actions or 'all' in self.clean_actions:
+            folder_path = Path('./build/')
+            if folder_path.exists() and folder_path.is_dir():
+                shutil.rmtree(folder_path)
+                print(colored(f"Cleaned software build folder: {folder_path}", 'cyan'))
+            else:
+                print(colored("Nothing to clean for software", 'blue'))
 
-        # Build software
-        if 'sw' in self.actions or 'all' in self.actions:
-            processes = []
-            for experiment in experiments:
-                target = experiment['app']
-                build_dir = experiment['elf'].parent
-                defines = self.derive_cdefines(experiment)
-                data_cfg = self.derive_data_cfg(experiment)
-                hw_cfg = self.derive_hw_cfg(experiment)
-                if 'sw' in self.callbacks:
-                    func = self.callbacks['sw']
-                else:
-                    func = build.build
-                print(colored('Build app', 'black', attrs=['bold']),
-                      colored(target, 'cyan', attrs=['bold']),
-                      colored('in', 'black', attrs=['bold']),
-                      colored(build_dir, 'cyan', attrs=['bold']))
-                process = func(
-                    target=target, build_dir=build_dir, defines=defines,
-                    data_cfg=data_cfg, hw_cfg=hw_cfg, dry_run=dry_run,
-                    sync=True if self.args.n_procs == 1 else False
-                )
-                processes.append(process)
-            common.wait_processes(processes, dry_run=dry_run)
+        # Clean logs
+        if 'runs' in self.clean_actions or 'all' in self.clean_actions:
+            folder_path = Path('./runs/')
+            if folder_path.exists() and folder_path.is_dir():
+                shutil.rmtree(folder_path)
+                print(colored(f"Cleaned runs folder: {folder_path}", 'cyan'))
+            else:
+                print(colored("Nothing to run data to clean", 'blue'))
+
+        # LOOP OVER DIFFERENT HARDWARE CONFIGS
+        # Since generating the hardware depends on the generated RTL files,
+        # the hardware needs to be built sequentially. Also, since the hardware configuration
+        # can affect the software, the software also always needs to be built directly after each
+        # hardware was just built.
+        hardware_configs = self.derive_all_hw_cfgs()
+        for hardware_cfg in hardware_configs:
+
+            # Build hardware
+            if 'hw' in self.actions or 'all' in self.actions:
+                print(colored(f"Generating hw for cfg: {hardware_cfg}", "green"))
+                for experiment in experiments:
+                    if experiment['hw'] != hardware_cfg:
+                        continue
+                    bin = self.derive_hw_bin(experiment)
+                    print(colored('Generate hardware', 'black', attrs=['bold']),
+                        colored(bin, 'cyan', attrs=['bold']))
+                    vars = {
+                        'SN_BIN_DIR': bin.parent,
+                        'SN_VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
+                        'SN_WORK_DIR': bin.parent.parent / 'work',
+                        'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
+                        'DEBUG': 'ON'
+                    }
+                    print(colored(vars, 'green'))
+                    flags = ['-j']
+                    common.make(bin, vars, flags=flags, dry_run=dry_run)
+                    
+                    # Pass the binary path to the QuestaSimulator constructor and add to the list of simulators
+                    simulators[hardware_cfg] = run.Simulator.QuestaSimulator(bin)
+                    # we only need to built the hardware once. Note: make wouldn't have done anything anyways since lru_cfg is the same.
+                    break 
+
+            # Build software
+            if 'sw' in self.actions or 'all' in self.actions:
+                print(colored(f"Generating sw for cfg: {hardware_cfg}", "green"))
+                processes = []
+                for experiment in experiments:
+                    if experiment['hw'] != hardware_cfg:
+                        continue
+                    target = experiment['app']
+                    build_dir = experiment['elf'].parent
+                    defines = self.derive_cdefines(experiment)
+                    data_cfg = self.derive_data_cfg(experiment)
+                    hw_cfg = self.derive_hw_cfg(experiment)
+                    if 'sw' in self.callbacks:
+                        func = self.callbacks['sw']
+                    else:
+                        func = build.build
+                    print(colored('Build app', 'black', attrs=['bold']),
+                          colored(target, 'cyan', attrs=['bold']),
+                          colored('in', 'black', attrs=['bold']),
+                          colored(build_dir, 'cyan', attrs=['bold']))
+                    process = func(
+                        target=target, build_dir=build_dir, defines=defines,
+                        data_cfg=data_cfg, hw_cfg=hw_cfg, dry_run=dry_run,
+                        sync=True if self.args.n_procs == 1 else False
+                    )
+                    processes.append(process)
+                common.wait_processes(processes, dry_run=dry_run)
 
         # Run experiments
         if 'run' in self.actions or 'all' in self.actions:
             simulations = sim_utils.get_simulations(
                 experiments,
-                run.SIMULATORS[self.args.simulator],
+                simulators,
                 self.run_dir
             )
             for i, experiment in enumerate(experiments):
