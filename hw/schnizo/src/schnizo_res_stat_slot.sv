@@ -45,6 +45,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   output logic         res_iter_o,
   // Asserted in the cycle the instruction retires.
   output logic         retired_o,
+  input  loop_state_e               loop_state_i,
 
   // Dispatch interface
   input  disp_req_t disp_req_i,
@@ -132,10 +133,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     logic [ConsumerCountWidth-1:0]  consumer_count;
     // A counter to keep track how many times the current result has been captured.
     logic [ConsumerCountWidth-1:0]  consumed_by;
-    // If the instruction has been issued in LCP1, the flag is set and all notifications targeting
-    // this RSS are captured. When the instruction is issued for the 2nd time in LCP2, the flag is
-    // reset.
-    logic                           do_capture_consumers;
     // The instruction itself. Partially decoded. Depends on FU type.
     // TODO: Can we rely on the synthesis optimization to remove unused signals even if they are
     //       registered here?
@@ -175,24 +172,11 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     rss_operand_t [NofOperands-1:0] operands;
   } rs_slot_t;
 
-  typedef enum logic[2:0] {
-    Lcp1Init,
-    Lcp1Fetch,
-    WaitForLcp1Result,
-    Lcp2Init,
-    Lcp2Fetch,
-    WaitForLcp2Result,
-    Lep,
-    LepFinished
-  } rss_state_e;
-
   /////////////////
   // Connections //
   /////////////////
 
   logic [NofOperands-1:0] op_valid;
-  logic                   enable_op_request;
-  logic                   enforce_valid_reset;
   logic                   enforce_rf_writeback;
   logic                   enable_capture_consumers;
   logic                   all_ops_valid;
@@ -216,7 +200,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     is_occupied:          1'b0, // suppresses operand requests
     consumer_count:       '0,
     consumed_by:          '0,
-    do_capture_consumers: 1'b0,
     alu_op:               AluOpAdd,
     lsu_op:               LsuOpLoad, // avoid store because the store flag has to be 0
     fpu_op:               FpuOpFadd,
@@ -238,130 +221,64 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // State update //
   //////////////////
 
-  // TODO(colluca): If I understand correctly, LcpxInit is basically an Idle state.
-  // LcpxFetch is an optional state in which we wait for the conditions to be able to
-  // issue an instruction.
-  // WaitForLcpxResult is an optional state in which we wait for the result of the instruction.
-  // Operand requests are enabled from when the slot is selected (disp_req_valid_i)
-  // to when the instruction is issued (does it really need to be asserted for multiple
-  // cycles?).
-  // RF writeback is always enforced during LCP phase.
 
-  rss_state_e state_q, state_d;
-  `FFAR(state_q, state_d, Lcp1Init, clk_i, rst_i);
+  logic enable_op_request_q, enable_op_request_d;
+  `FFAR(enable_op_request_q, enable_op_request_d, 1'b0, clk_i, rst_i);
 
-  always_comb begin : rss_state
-    state_d = state_q;
+  // Operand requesting is enabled once the dispatch request is valid until
+  // the instruction is issued the last time in the last iteration
+  always_comb begin
+    enable_op_request_d = enable_op_request_q;
 
-    enable_op_request        = 1'b0;
-    // TODO(colluca): couldn't this be set to 1'b1 by default and only disabled in LEP?
-    enforce_rf_writeback     = 1'b0;
-    // Set the capture consumer flag when we captured the result of LCP1.
-    // Reset it when we captured the result of LCP2.
-    // TODO(colluca): to me it would make more sense to capture looking at issue rather
-    // than result capture time. Though it's probably the same, since in LCP phase dependent
-    // instructions are in order.
-    enable_capture_consumers = 1'b0;
-
-    unique case (state_q)
-      Lcp1Init: begin
-        if (disp_req_valid_i) begin
-          enable_op_request    = 1'b1;
-          enforce_rf_writeback = 1'b1;
-          state_d              = Lcp1Fetch;
-          if (issued) begin
-            state_d = WaitForLcp1Result;
-          end
-          if (retired) begin
-            state_d = Lcp2Init;
-            enable_capture_consumers = 1'b1;
-          end
-        end
-      end
-      Lcp1Fetch: begin
-        enable_op_request    = 1'b1;
-        enforce_rf_writeback = 1'b1;
-        if (issued) begin
-          state_d = WaitForLcp1Result;
-        end
-        if (retired) begin
-          state_d = Lcp2Init;
-          enable_capture_consumers = 1'b1;
-        end
-      end
-      WaitForLcp1Result: begin
-        enforce_rf_writeback = 1'b1;
-        if (retired) begin
-          state_d = Lcp2Init;
-          enable_capture_consumers = 1'b1;
-        end
-      end
-      Lcp2Init: begin
-        // Enforce the writeback for the multicycle LCP1 result. Otherwise the result is lost.
-        // TODO(colluca): do we actually need this? I would expect the WaitForLcp1Result state
-        // to exactly serve this purpose.
-        enforce_rf_writeback = 1'b1;
-        // Disable fetching because there could be a new producer for LCP2
-        // Still capture consumers until we receive the LCP2 result
-        enable_capture_consumers = 1'b1;
-        if (disp_req_valid_i) begin
-          state_d              = Lcp2Fetch;
-          enable_op_request    = 1'b1;
-          if (issued) begin
-            state_d = WaitForLcp2Result;
-          end
-          if (retired) begin
-            enable_capture_consumers = 1'b0;
-            state_d = Lep;
-          end
-        end
-      end
-      Lcp2Fetch: begin
-        enable_op_request    = 1'b1;
-        enforce_rf_writeback = 1'b1; // enabled for LCP1 and LCP2 result
-        // Still capture consumers until we receive the LCP2 result
-        enable_capture_consumers = 1'b1;
-        if (issued) begin
-          state_d = WaitForLcp2Result;
-        end
-        if (retired) begin
-          enable_capture_consumers = 1'b0;
-          state_d = Lep;
-        end
-      end
-      WaitForLcp2Result: begin
-        // we must keep the enforce rf writeback enabled until the result of LCP2 returns.
-        enable_op_request    = 1'b1;
-        enforce_rf_writeback = 1'b1; // enabled for LCP1 and LCP2 result
-        // Still capture consumers until we receive the LCP2 result
-        enable_capture_consumers = 1'b1;
-        if (retired) begin
-          state_d = Lep;
-          enable_capture_consumers = 1'b0;
-        end
-      end
-      Lep: begin
-        // Wait here. We can fetch everything.
-        enable_op_request = 1'b1;
-        if (is_last_disp_iter_i && issued) begin
-          state_d = LepFinished;
-        end
-      end
-      LepFinished: begin
-        // Do not request operands which will never be produced. This leads to deadlocks.
-        enable_op_request = 1'b0;
-        // We will only exit LEP when restarting.
-      end
-      default: ; // use default of above
-    endcase
+    if(disp_req_valid_i) begin
+      enable_op_request_d = 1'b1;
+    end else if (is_last_disp_iter_i && issued) begin
+      enable_op_request_d = 1'b0;
+    end
 
     // Initialization of the slot has highest prio
     if (restart_i) begin
-      state_d              = Lcp1Init;
-      enable_op_request    = 1'b0;
+      enable_op_request_d = 1'b0;
+    end
+  end
+
+  // We always enforce writeback if we are in LCP1 or LCP2
+  always_comb begin
+    enforce_rf_writeback = (loop_state_i inside {LoopLcp1, LoopLcp2}) ? 1'b1 : 1'b0;
+
+    // Initialization of the slot has highest prio
+    if (restart_i) begin
       enforce_rf_writeback = 1'b0;
     end
   end
+
+  logic enable_capture_consumers_q, enable_capture_consumers_d;
+  `FFAR(enable_capture_consumers_q, enable_capture_consumers_d, 1'b0, clk_i, rst_i);
+
+  // We have to start capturing the consumer count after we got the result from
+  // LCP1. We stop capturing the consumer count once we got the result from LCP2.
+  always_comb begin
+    enable_capture_consumers_d = enable_capture_consumers_q;
+
+    // set after LCP1 result
+    if (!enable_capture_consumers_q &&
+        retired &&
+        (loop_state_i == LoopLcp1)) begin
+      enable_capture_consumers_d = 1'b1;
+    end
+
+    // clear after LCP2 result
+    if (enable_capture_consumers_q && retired) begin
+      enable_capture_consumers_d = 1'b0;
+    end
+
+    // Initialization of the slot has highest prio
+    if (restart_i) begin
+      enable_capture_consumers_d = 1'b0;
+    end
+  end
+
+  assign enable_capture_consumers = enable_capture_consumers_q;
 
   // TODO(colluca): add assertion that `disp_req_valid_i` is only asserted during LCPxInit.
 
@@ -454,7 +371,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       is_occupied:          1'b1,
       consumer_count:       '0,
       consumed_by:          '0,
-      do_capture_consumers: 1'b0,
       alu_op:               disp_req_i.fu_data.alu_op,
       lsu_op:               disp_req_i.fu_data.lsu_op,
       fpu_op:               disp_req_i.fu_data.fpu_op,
@@ -529,27 +445,27 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   // Initial state-dependent slot update
   rs_slot_t selected_slot;
+
+  // INFO (soderma):
+  // We can use the regular state. The reason pascal probably did this is because of multi cycle updates.
+  // so that you don't overwrite the dispatch request. But the dispatch request valid signal is only valid for one cycle anyway in LCP1 and LCP2
+  // reason being is that all operands are ready and the instruction can be immediately issued.
   always_comb begin : slot_selection
     // Update the slot depending on the state.
     selected_slot = slot_q;
-    unique case (state_q)
-      Lcp1Init: begin
+    unique case (loop_state_i)
+      LoopLcp1: begin
         if (disp_req_valid_i) begin
           selected_slot = slot_lcp1; // Load the new instruction
         end
       end
-      Lcp2Init: begin
+      LoopLcp2: begin
         if (disp_req_valid_i) begin
           // Update producers if there is not yet one set.
           selected_slot = slot_lcp2;
         end
       end
-      Lcp1Fetch,
-      Lcp2Fetch,
-      WaitForLcp2Result,
-      Lep,
-      LepFinished: ; // Regular update
-      default: ; // TODO: Crash?
+      default: ;
     endcase
 
     // Slot initialization has highest priority
@@ -591,7 +507,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       op_reqs_valid_o[op] = slot_op.operands[op].is_produced && !slot_op.operands[op].is_valid &&
                             !slot_op.operands[op].requested &&
                             slot_op.is_occupied && // Request the operand only if slot is active
-                            enable_op_request;
+                            enable_op_request_q;
 
       // Capture request placement at handshake
       if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
@@ -665,22 +581,14 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     if (issued) begin
       // Toggle instruction state
       slot_issue.instruction_iter = ~slot_issue.instruction_iter;
+      // INFO(soderma): We don't have to manually reset the valid signals in LCP1
+      // this valid bit is completely overwritten in LCP2 anyway.
       // Reset the operands' valid flags depending on loop phase and production state
-      // In LCP1 we reset all valid flags
-      // In LCP2 and LEP we only reset produced operands' valid flags
-      // TODO(colluca): HACK! This signal has no default!!! Results in an inferred latch!!!
-      enforce_valid_reset = 1'b0;
-      unique case (state_q)
-        Lcp1Init:  if (disp_req_valid_i) enforce_valid_reset = 1'b1;
-        Lcp1Fetch: enforce_valid_reset = 1'b1;
-        default: ;
-      endcase
-
+      // We have to reset it when it is produced. Since a new value has to be produced
+      // in the next iteration.
       for (int op = 0; op < NofOperands; op++) begin
-        slot_issue.operands[op].is_valid =
-          enforce_valid_reset                 ? 1'b0 :
-          slot_issue.operands[op].is_produced ? 1'b0 :
-                                                slot_issue.operands[op].is_valid;
+        slot_issue.operands[op].is_valid =  slot_issue.operands[op].is_produced ? 1'b0 :
+                                            slot_issue.operands[op].is_valid;
       end
 
       // When we issue the instruction, the dispatch request is complete
@@ -730,9 +638,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       // count the bits in the destination mask
       slot_wb.consumed_by = slot_wb.consumed_by + num_current_consumers;
       // During LCP there may be only one request at at time.. We still count all requests.
-      // TODO(colluca): can't we use enable_capture_consumers here, and get rid of
-      // do_capture_consumers in the slot altogether?
-      if (slot_q.do_capture_consumers) begin
+      if (enable_capture_consumers) begin
         slot_wb.consumer_count = slot_wb.consumer_count + num_current_consumers;
       end
     end
@@ -800,8 +706,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       slot_wb.result.value     = slot_wb.is_store ? '0 : result_i;
       slot_wb.consumed_by      = '0;
     end
-    // This signal is generated in the main FSM.
-    slot_wb.do_capture_consumers = enable_capture_consumers;
   end
 
   // Update the slot after all manipulations

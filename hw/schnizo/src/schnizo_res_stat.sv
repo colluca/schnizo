@@ -241,6 +241,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .rst_i,
 
       .slot_id_i            (rss_idx_t'(rss)),
+      .loop_state_i         (loop_state_i),
       .restart_i            (restart_i),
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
