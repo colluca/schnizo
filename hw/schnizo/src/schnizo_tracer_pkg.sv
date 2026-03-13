@@ -121,7 +121,6 @@ package schnizo_tracer_pkg;
     logic   valid; // high if handshake happens
     string  producer;
     longint result_iter;
-    longint enable_rf_wb;
     longint rd;
     longint rd_is_fp;
     longint result;
@@ -270,7 +269,6 @@ package schnizo_tracer_pkg;
     end
     extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "result_iter", trace.result_iter);
-    extras = $sformatf("%s'%s':0x%0x, ", extras, "enable_rf_wb", trace.enable_rf_wb);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rd", trace.rd);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.rd_is_fp);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "result", trace.result);

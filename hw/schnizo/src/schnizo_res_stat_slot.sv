@@ -176,12 +176,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Connections //
   /////////////////
 
-  logic                   result_consumed;
-  logic                   issue_hs;
-  logic                   retired;
-  logic                   do_rf_writeback;
-  logic                   rss_wb_valid;
-  logic                   rss_wb_ready;
+  logic issue_hs;
+  logic retired;
 
   //////////
   // Slot //
@@ -284,10 +280,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   //         |                                    |                                                |
   //         +------------------------------------+------------------------------------------------+
 
-  ////////////////////
-  // Slot selection //
-  ////////////////////
-
   // Initial state-dependent slot update
   rs_slot_t selected_slot;
 
@@ -308,10 +300,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .slot_reset_state_i(slot_reset_value),
     .slot_o            (selected_slot)
   );
-
-  //////////////////////
-  // Operand handling //
-  //////////////////////
 
   rs_slot_t slot_op;
   rs_slot_t slot_op_rsp;
@@ -351,10 +339,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .op_rsps_ready_o(op_rsps_ready_o)
   );
 
-  ///////////////////////
-  // Issue instruction //
-  ///////////////////////
-
   rs_slot_t slot_issue;
 
   schnizo_rss_issue #(
@@ -374,9 +358,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .issue_hs_o       (issue_hs)
   );
 
-  ////////////////////////////////
-  // Result response generation //
-  ////////////////////////////////
+  /////////////////////////////////////////////////////
+  // Result request handling and response generation //
+  /////////////////////////////////////////////////////
 
   // Always answer requests using the "old" result (before result capture) as otherwise we
   // would create a loop. The loop comes from the connection back to the operand response
@@ -384,110 +368,62 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   assign res_rsp_o.dest_mask = dest_mask_i;
   assign res_rsp_o.operand   = slot_q.result.value;
   // We don't need to check the iteration here as it is already checked in the request crossbar.
-  assign res_rsp_valid_o     = dest_mask_valid_i &&
-                        slot_q.result.is_valid;
+  assign res_rsp_valid_o     = dest_mask_valid_i && slot_q.result.is_valid;
   assign dest_mask_ready_o   = res_rsp_ready_i;
 
+  // Count the bits in the destination mask to count how many times the result
+  // is being consumed
   logic [cf_math_pkg::idx_width($bits(dest_mask_i)+1)-1:0] num_current_consumers;
   popcount #(
     .INPUT_WIDTH($bits(dest_mask_i))
   ) i_consumer_popcount (
-      .data_i(dest_mask_i),
-      .popcount_o(num_current_consumers)
+    .data_i(dest_mask_i),
+    .popcount_o(num_current_consumers)
   );
-
-  instr_tag_t rf_wb_tag;
-  rs_slot_t slot_wb;
-  logic     enable_rf_writeback;
-  always_comb begin : result_wb_request_response
-    // TODO(colluca): break this block into separate blocks. 1) slot update after result response.
-    // 2) capture result. 3) slot update after result capture.
-    // 1) should be part of "Generate result responses" and 2) and 3) should be part of
-    // a separate top-level block called "Result capture"
-
-    //////////////////////////////////////////////////
-    // Update slot after result response generation //
-    //////////////////////////////////////////////////
-
-    // TODO(colluca): replace $countones with popcount module.
-    slot_wb = slot_issue;
-    // When we served a result request, update consumer counter
-    if (res_rsp_valid_o && res_rsp_ready_i) begin
-      // count the bits in the destination mask
-      slot_wb.consumed_by = slot_wb.consumed_by + num_current_consumers;
-      // During LCP there may be only one request at at time.. We still count all requests.
-      if (enable_capture_consumers_q) begin
-        slot_wb.consumer_count = slot_wb.consumer_count + num_current_consumers;
-      end
-    end
-
-    ////////////////////
-    // Result capture //
-    ////////////////////
-
-    // Capture the result:
-    // - Always if the current result is invalid
-    // - If the current result is valid, result must have been consumed by all consumers
-    //
-    // We must check also the RF writeback for LCP and last LEP.
-    // This is handled with a special stream fork.
-
-    // Compose tag
-    rf_wb_tag = '0;
-    rf_wb_tag.dest_reg       = slot_wb.dest_id;
-    rf_wb_tag.dest_reg_is_fp = slot_wb.dest_is_fp;
-    // TODO(colluca): find proper solution for this
-    // HACK:
-    // We directly pass through the branch and jump details to support jumps in LCP1
-    // (where we will fall back into regular HW loop mode). This is possible as the ALU is
-    // single cycle and the dispatch request is valid until we write back.
-    rf_wb_tag.is_branch = disp_req_i.tag.is_branch;
-    rf_wb_tag.is_jump   = disp_req_i.tag.is_jump;
-
-    // Check if we want to write back to the RF. If so, enable the RF path for the dynamic stream
-    // fork. A store has no writeback and the last result iteration is "immediately" reached.
-    enable_rf_writeback = is_last_result_iter_i && !slot_wb.is_store;
-    do_rf_writeback = (loop_state_i == LoopLep) ? (slot_wb.do_writeback && enable_rf_writeback) : 1'b1;
-
-    // The result is consumed when all consumers read the result once
-    result_consumed = (slot_wb.consumed_by == slot_wb.consumer_count) &&
-                      (slot_wb.consumer_count != '0);
-
-    rss_wb_ready = 1'b0;
-    // The ready may not be dependent on the valid. See below for more details of the handshake.
-    if ((result_consumed || !slot_wb.result.is_valid || slot_wb.consumer_count == '0) &&
-        slot_wb.is_occupied) begin
-      rss_wb_ready = 1'b1;
-    end
-
-    // We captured a new result when the stream fork signals the handshake to the FU.
-    // This includes both cases (only RSS as well as RSS and RF).
-    // A store instruction has no result. Thus we capture a dummy result at the same time
-    // we issue the store instruction.
-    retired = slot_wb.is_store ? issue_hs : (result_valid_i && result_ready_o);
-
-    //////////////////////////////////////
-    // Slot update after result capture //
-    //////////////////////////////////////
-
-    if (retired) begin
-      slot_wb.result.is_valid  = 1'b1;
-      slot_wb.result.iteration = !slot_wb.result.iteration;
-      // Don't update the result FFs for stores.
-      // TODO: Does this MUX really save power (by not updating the FFs) or will it add too much
-      //       logic?
-      // TODO(colluca): to save power we would want to avoid that it switches at all, i.e.
-      // keep the value in slot_q, not '0.
-      slot_wb.result.value     = slot_wb.is_store ? '0 : result_i;
-      slot_wb.consumed_by      = '0;
-    end
-  end
-
-  // Update the slot after all manipulations
-  assign slot_d = slot_wb;
 
   // The current result iteration state is directly passed to the output
   assign res_iter_o = slot_q.result.iteration;
+
+  //////////////////////////////////////////////////
+  // Update slot after result response generation //
+  //////////////////////////////////////////////////
+
+  rs_slot_t slot_res_rsp;
+  always_comb begin
+    slot_res_rsp = slot_issue;
+    // When we served a result request, update consumer counter
+    if (res_rsp_valid_o && res_rsp_ready_i) begin
+      slot_res_rsp.consumed_by = slot_res_rsp.consumed_by + num_current_consumers;
+      // During LCP there may be only one request at at time.. We still count all requests.
+      if (enable_capture_consumers_q) begin
+        slot_res_rsp.consumer_count = slot_res_rsp.consumer_count + num_current_consumers;
+      end
+    end
+  end
+
+  ////////////////////
+  // Result capture //
+  ////////////////////
+
+  // Capture the result:
+  // - Always if the current result is invalid
+  // - If the current result is valid, result must have been consumed by all consumers
+
+  // The result is consumed when all consumers read the result once
+  logic result_consumed;
+  assign result_consumed = (slot_res_rsp.consumed_by == slot_res_rsp.consumer_count) &&
+                           (slot_res_rsp.consumer_count != '0);
+
+  // The ready may not be dependent on the valid. Otherwise, because of the RF/RSS writeback
+  // synchronization logic, we would have a combinational loop.
+  assign result_ready_o = (result_consumed || !slot_res_rsp.result.is_valid || slot_res_rsp.consumer_count == '0) &&
+    slot_res_rsp.is_occupied;
+
+  // We captured a new result when the stream fork signals the handshake to the FU.
+  // This includes both cases (only RSS as well as RSS and RF).
+  // A store instruction has no result. Thus we capture a dummy result at the same time
+  // we issue the store instruction.
+  assign retired = slot_res_rsp.is_store ? issue_hs : (result_valid_i && result_ready_o);
 
   // Retired signal back to RS to step the result pointer.
   // For all instructions except stores, this retired signal is the same as used inside this RSS.
@@ -503,15 +439,60 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // |rss_retiring instead of rss_retiring[result_idx]. This would also be easier to extend if
   // we would at some point want to support multiple instructions retiring in the same cycle,
   // within the same RS, e.g. due to the presence of pipelines with different latencies.
-  assign retired_o = slot_wb.is_store ? 1'b1 : retired;
+  assign retired_o = slot_res_rsp.is_store ? 1'b1 : retired;
 
-  ///////////////
-  // Writeback //
-  ///////////////
+  //////////////////
+  // RF writeback //
+  //////////////////
 
-  assign rss_wb_valid = result_valid_i;
-  assign result_ready_o = rss_wb_ready;
-  assign rf_do_writeback_o = do_rf_writeback;
+  instr_tag_t rf_wb_tag;
+  always_comb begin
+    // Compose tag
+    rf_wb_tag = '0;
+    rf_wb_tag.dest_reg       = slot_res_rsp.dest_id;
+    rf_wb_tag.dest_reg_is_fp = slot_res_rsp.dest_is_fp;
+    // TODO(colluca): find proper solution for this
+    // HACK:
+    // We directly pass through the branch and jump details to support jumps in LCP1
+    // (where we will fall back into regular HW loop mode). This is possible as the ALU is
+    // single cycle and the dispatch request is valid until we write back.
+    rf_wb_tag.is_branch = disp_req_i.tag.is_branch;
+    rf_wb_tag.is_jump   = disp_req_i.tag.is_jump;
+  end
+  // TODO(colluca): Implicit cast from instr_tag_t to result_tag_t
   assign rf_wb_tag_o = rf_wb_tag;
+
+  // In LCPx we always write back to the RF. In LEP, we need to write back in the last result
+  // iteration, if we are the last instruction in program order to write to that register
+  // (i.e. if `do_writeback` was set in LCP2). Stores don't writeback.
+  // TODO(colluca): why do we need to mask the do_writeback signal in case of stores?
+  //                Doesn't the LSU simply not raise result_valid_i when it decodes a store?
+  //                And if it does, why?
+  assign rf_do_writeback_o = (loop_state_i == LoopLep) ? (is_last_result_iter_i &&
+    slot_res_rsp.do_writeback && !slot_res_rsp.is_store) : 1'b1;
+
+  //////////////////////////////////////
+  // Slot update after result capture //
+  //////////////////////////////////////
+
+  rs_slot_t slot_wb;
+
+  always_comb begin
+    slot_wb = slot_res_rsp;
+    if (retired) begin
+      slot_wb.result.is_valid  = 1'b1;
+      slot_wb.result.iteration = !slot_wb.result.iteration;
+      // Don't update the result FFs for stores.
+      // TODO: Does this MUX really save power (by not updating the FFs) or will it add too much
+      //       logic?
+      // TODO(colluca): to save power we would want to avoid that it switches at all, i.e.
+      // keep the value in slot_q, not '0.
+      slot_wb.result.value     = slot_wb.is_store ? '0 : result_i;
+      slot_wb.consumed_by      = '0;
+    end
+  end
+
+  // Update the slot after all manipulations
+  assign slot_d = slot_wb;
 
 endmodule
