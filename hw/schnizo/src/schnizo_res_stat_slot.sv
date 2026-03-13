@@ -220,27 +220,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // State update //
   //////////////////
 
-
-  logic enable_op_request_q, enable_op_request_d;
-  `FFAR(enable_op_request_q, enable_op_request_d, 1'b0, clk_i, rst_i);
-
-  // Operand requesting is enabled once the dispatch request is valid until
-  // the instruction is issued the last time in the last iteration
-  always_comb begin
-    enable_op_request_d = enable_op_request_q;
-
-    if (disp_req_valid_i) begin
-      enable_op_request_d = 1'b1;
-    end else if (is_last_disp_iter_i && issued) begin
-      enable_op_request_d = 1'b0;
-    end
-
-    // Initialization of the slot has highest prio
-    if (restart_i) begin
-      enable_op_request_d = 1'b0;
-    end
-  end
-
   // We always enforce writeback if we are in LCP1 or LCP2
   always_comb begin
     enforce_rf_writeback = (loop_state_i inside {LoopLcp1, LoopLcp2}) ? 1'b1 : 1'b0;
@@ -501,10 +480,9 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
         }
       };
 
-      op_reqs_valid_o[op] = slot_op.operands[op].is_produced && !slot_op.operands[op].is_valid &&
-                            !slot_op.operands[op].requested &&
-                            slot_op.is_occupied && // Request the operand only if slot is active
-                            enable_op_request_q;
+      op_reqs_valid_o[op] = disp_req_valid_i && slot_op.is_occupied &&
+                            slot_op.operands[op].is_produced && !slot_op.operands[op].is_valid &&
+                            !slot_op.operands[op].requested;
 
       // Capture request placement at handshake
       if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
