@@ -45,7 +45,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   output logic         res_iter_o,
   // Asserted in the cycle the instruction retires.
   output logic         retired_o,
-  input  loop_state_e               loop_state_i,
+  input  loop_state_e  loop_state_i,
 
   // Dispatch interface
   input  disp_req_t disp_req_i,
@@ -178,7 +178,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   logic [NofOperands-1:0] op_valid;
   logic                   enforce_rf_writeback;
-  logic                   enable_capture_consumers;
   logic                   all_ops_valid;
   logic                   result_consumed;
   logic                   issued;
@@ -230,7 +229,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   always_comb begin
     enable_op_request_d = enable_op_request_q;
 
-    if(disp_req_valid_i) begin
+    if (disp_req_valid_i) begin
       enable_op_request_d = 1'b1;
     end else if (is_last_disp_iter_i && issued) begin
       enable_op_request_d = 1'b0;
@@ -277,8 +276,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       enable_capture_consumers_d = 1'b0;
     end
   end
-
-  assign enable_capture_consumers = enable_capture_consumers_q;
 
   // TODO(colluca): add assertion that `disp_req_valid_i` is only asserted during LCPxInit.
 
@@ -446,7 +443,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Initial state-dependent slot update
   rs_slot_t selected_slot;
 
-  // INFO (soderma):
+  // INFO(soderma):
   // We can use the regular state. The reason pascal probably did this is because of multi cycle updates.
   // so that you don't overwrite the dispatch request. But the dispatch request valid signal is only valid for one cycle anyway in LCP1 and LCP2
   // reason being is that all operands are ready and the instruction can be immediately issued.
@@ -584,7 +581,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       // INFO(soderma): We don't have to manually reset the valid signals in LCP1
       // this valid bit is completely overwritten in LCP2 anyway.
       // Reset the operands' valid flags depending on loop phase and production state
-      // We have to reset it when it is produced. Since a new value has to be produced
+      // We have to reset it when it is produced. Since a new value has to be captured
       // in the next iteration.
       for (int op = 0; op < NofOperands; op++) begin
         slot_issue.operands[op].is_valid =  slot_issue.operands[op].is_produced ? 1'b0 :
@@ -638,7 +635,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       // count the bits in the destination mask
       slot_wb.consumed_by = slot_wb.consumed_by + num_current_consumers;
       // During LCP there may be only one request at at time.. We still count all requests.
-      if (enable_capture_consumers) begin
+      if (enable_capture_consumers_q) begin
         slot_wb.consumer_count = slot_wb.consumer_count + num_current_consumers;
       end
     end
