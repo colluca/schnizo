@@ -1181,6 +1181,9 @@ module snitch_cluster
         .NumAluRss(NumAluRss[i]),
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
+        .NumAluRspPorts(NumAluRspPorts[i]),
+        .NumLsuRspPorts(NumLsuRspPorts[i]),
+        .NumFpuRspPorts(NumFpuRspPorts[i]),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
         // TODO(colluca): add Xpulpv2 to Schnizo
         // .Xpulppostmod (Xpulppostmod[i]),
@@ -1306,8 +1309,8 @@ module snitch_cluster
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
         .NumAluRspPorts(NumAluRspPorts[i]),
-      .NumLsuRspPorts(NumLsuRspPorts[i]),
-      .NumFpuRspPorts(NumFpuRspPorts[i]),
+        .NumLsuRspPorts(NumLsuRspPorts[i]),
+        .NumFpuRspPorts(NumFpuRspPorts[i]),
       // TODO(colluca): add Xpulpv2 to Schnizo
         // .Xpulppostmod (Xpulppostmod[i]),
         // .Xpulpabs (Xpulpabs[i]),

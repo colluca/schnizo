@@ -6,7 +6,6 @@
 //
 // Produces addresses to access the RFs and packs the received data into the fu_data_t struct
 // for the FUs.
-// TODO (soderma): Only read when necessary to save energy
 // All read values are stored in OpLen bits (defined by fu_data_t) and are
 // NOT sign extended! When computing values with the operands, make sure to use
 // only the relevant bits!
