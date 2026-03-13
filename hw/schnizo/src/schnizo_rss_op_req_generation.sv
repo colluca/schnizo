@@ -7,7 +7,7 @@
 // Also updates the slot after requesting operands (operands[i].requested field) and after
 // receiving responses (operands[i].{value,is_valid,requested} fields).
 
-module schnizo_op_req_handler import schnizo_pkg::*; #(
+module schnizo_rss_op_req_generation import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 2,
   parameter type         rs_slot_t      = logic,
   parameter type         operand_req_t  = logic,
