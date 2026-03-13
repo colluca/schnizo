@@ -177,7 +177,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   /////////////////
 
   logic [NofOperands-1:0] op_valid;
-  logic                   enforce_rf_writeback;
   logic                   all_ops_valid;
   logic                   result_consumed;
   logic                   issued;
@@ -220,21 +219,14 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // State update //
   //////////////////
 
-  // We always enforce writeback if we are in LCP1 or LCP2
-  always_comb begin
-    enforce_rf_writeback = (loop_state_i inside {LoopLcp1, LoopLcp2}) ? 1'b1 : 1'b0;
-
-    // Initialization of the slot has highest prio
-    if (restart_i) begin
-      enforce_rf_writeback = 1'b0;
-    end
-  end
-
   logic enable_capture_consumers_q, enable_capture_consumers_d;
   `FFAR(enable_capture_consumers_q, enable_capture_consumers_d, 1'b0, clk_i, rst_i);
 
   // We have to start capturing the consumer count after we got the result from
   // LCP1. We stop capturing the consumer count once we got the result from LCP2.
+  // TODO(colluca): effectively the info we are tracking here is the loop state, at the result
+  // side rather than the issue side. We have to capture consumers (increment consumer count)
+  // only while we have a result produced in LCP1.
   always_comb begin
     enable_capture_consumers_d = enable_capture_consumers_q;
 
@@ -255,8 +247,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       enable_capture_consumers_d = 1'b0;
     end
   end
-
-  // TODO(colluca): add assertion that `disp_req_valid_i` is only asserted during LCPxInit.
 
   /////////////////
   // Slot Update //
@@ -644,10 +634,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // Check if we want to write back to the RF. If so, enable the RF path for the dynamic stream
     // fork. A store has no writeback and the last result iteration is "immediately" reached.
     enable_rf_writeback = is_last_result_iter_i && !slot_wb.is_store;
-    // TODO(colluca): I think the enforce_rf_writeback signal is superfluous, and this should just
-    // be directly written as:
-    // do_rf_writeback = (state_q == Lep) ? (slot_wb.do_writeback && enable_rf_writeback) : 1'b1`
-    do_rf_writeback = (slot_wb.do_writeback && enable_rf_writeback) || enforce_rf_writeback;
+    do_rf_writeback = (loop_state_i == LoopLep) ? (slot_wb.do_writeback && enable_rf_writeback) : 1'b1;
 
     // The result is consumed when all consumers read the result once
     result_consumed = (slot_wb.consumed_by == slot_wb.consumer_count) &&
