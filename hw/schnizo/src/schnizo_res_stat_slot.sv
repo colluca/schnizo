@@ -418,8 +418,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     producer:             disp_req_i.producer_op_a.producer,
     is_produced:          disp_req_i.producer_op_a.valid,
     is_from_current_iter: disp_req_i.producer_op_a.valid,
-    value:                disp_req_i.producer_op_a.valid ?
-                            '0 : disp_req_i.fu_data.operand_a,
+    value:                disp_req_i.fu_data.operand_a,
     is_valid:             !disp_req_i.producer_op_a.valid,
     requested:            1'b0
   };
@@ -428,8 +427,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     producer:             disp_req_i.producer_op_b.producer,
     is_produced:          disp_req_i.producer_op_b.valid,
     is_from_current_iter: disp_req_i.producer_op_b.valid,
-    value:                disp_req_i.producer_op_b.valid ?
-                            '0 : disp_req_i.fu_data.operand_b,
+    value:                disp_req_i.fu_data.operand_b,
     is_valid:             !disp_req_i.producer_op_b.valid,
     requested:            1'b0
   };
@@ -438,8 +436,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     producer:             disp_req_i.producer_op_c.producer,
     is_produced:          disp_req_i.producer_op_c.valid,
     is_from_current_iter: disp_req_i.producer_op_c.valid,
-    value:                disp_req_i.producer_op_c.valid ?
-                            '0 : disp_req_i.fu_data.imm,
+    value:                disp_req_i.fu_data.imm,
     is_valid:             !disp_req_i.producer_op_c.valid,
     requested:            1'b0
   };
