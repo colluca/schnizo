@@ -315,54 +315,50 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Operand handling //
   //////////////////////
 
+  rs_slot_t slot_op;
+  rs_slot_t slot_op_rsp;
+
   // Sends operand requests and accepts responses based on the state of the slot after the
   // slot selection stage.
   // Also updates the slot after requesting operands (operands[i].requested field) and after
   // receiving responses (operands[i].{value,is_valid,requested} fields).
-  // TODO(colluca): break this into two. 1) operand request generation. 2) operand response
-  // capture. 1) contains both blocks 1) and 2) below, and 2) contains block 3) below.
 
-  // TODO(colluca): break this into separate blocks. 1) Operand request generation
-  // driving op_reqs_o and op_reqs_valid_o based on selected_slot. 2) slot update
-  // depending on selected_slot, op_reqs_valid_o and op_rsps_valid_i. 3) Operand
-  // response handling driving op_rsps_ready_o based on selected_slot.
-  rs_slot_t slot_op;
-  always_comb begin : slot_operand_handling
-    slot_op = selected_slot;
-    for (int op = 0; op < NofOperands; op++) begin : gen_operand_req_op
-      // Operand request generation
-      op_reqs_o[op] = '{
-        producer: slot_op.operands[op].producer.rs_id,
-        request: res_req_t'{
-          // Invert the iteration flag if we desire the result from the previous loop iteration
-          requested_iter: slot_op.operands[op].is_from_current_iter ?  slot_op.instruction_iter :
-                                                                      ~slot_op.instruction_iter,
-          slot_id:        slot_op.operands[op].producer.slot_id
-        }
-      };
+  // We only have to send a request and update the slot for the slot that is currently
+  // being dispatched/issued.
+  schnizo_op_req_handler #(
+    .NofOperands(NofOperands),
+    .rs_slot_t(rs_slot_t),
+    .operand_req_t(operand_req_t),
+    .res_req_t(res_req_t)
+  ) i_op_req_handler (
+    // Slot data before sending the operand request
+    .slot_i(selected_slot),
+    // Slot data after sending the operand request
+    .slot_o(slot_op),
+    // Dispatch interface
+    .disp_req_valid_i(disp_req_valid_i),
+     // Operand request interface - outgoing - request a result as operand
+    .op_reqs_o(op_reqs_o),
+    .op_reqs_valid_o(op_reqs_valid_o),
+    .op_reqs_ready_i(op_reqs_ready_i)
+  );
 
-      op_reqs_valid_o[op] = disp_req_valid_i && slot_op.is_occupied &&
-                            slot_op.operands[op].is_produced && !slot_op.operands[op].is_valid &&
-                            !slot_op.operands[op].requested;
-
-      // Capture request placement at handshake
-      if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
-        slot_op.operands[op].requested = 1'b1;
-      end
-
-      // Operand response handling
-      // Handle the response after the request generation to allow same cycle responses.
-      // We won't place two requests due to the requested flag.
-      op_rsps_ready_o[op] = 1'b0;
-      if (slot_op.is_occupied && slot_op.operands[op].is_produced && op_rsps_valid_i[op]) begin
-        slot_op.operands[op].value     = op_rsps_i[op];
-        slot_op.operands[op].is_valid  = 1'b1;
-        slot_op.operands[op].requested = 1'b0;
-        // Acknowledge the response
-        op_rsps_ready_o[op] = 1'b1;
-      end
-    end
-  end
+  // This also only happens for one slot at a time, however it may not be the slot that we currently dispatch/issue
+  // so this has to be replicated for every slot.
+  schnizo_op_rsp_handler #(
+    .NofOperands(NofOperands),
+    .rs_slot_t(rs_slot_t),
+    .operand_t(operand_t)
+  ) i_op_rsp_handler (
+    // Slot data after sending operand request
+    .slot_i(slot_op),
+    // Slot data after handling responses
+    .slot_o(slot_op_rsp),
+    // Operand response interface - incoming - returning result as operand
+    .op_rsps_i(op_rsps_i),
+    .op_rsps_valid_i(op_rsps_valid_i),
+    .op_rsps_ready_o(op_rsps_ready_o)
+  );
 
   ///////////////////////
   // Issue instruction //
@@ -374,11 +370,11 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // operands[i].is_valid fields).
 
   // TODO(colluca): break this into separate blocks. 1) Issue request generation
-  // driving issue_req_o and issue_req_valid_o based on slot_op. 2) slot update
-  // depending on slot_op, issued, etc.
+  // driving issue_req_o and issue_req_valid_o based on slot_op_rsp. 2) slot update
+  // depending on slot_op_rsp, issued, etc.
   rs_slot_t slot_issue;
   always_comb begin : slot_issue_update
-    slot_issue = slot_op;
+    slot_issue = slot_op_rsp;
 
     disp_req_ready_o = 1'b0;
     // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
