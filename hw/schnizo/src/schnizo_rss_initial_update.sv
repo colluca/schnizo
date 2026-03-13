@@ -4,7 +4,7 @@
 
 // Performs the initial state-dependent slot update for the reservation station slot.
 // Based on the current loop state and dispatch request, computes the next slot value.
-module schnizo_res_stat_slot_initial_update import schnizo_pkg::*; #(
+module schnizo_rss_initial_update import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 2,
   parameter type         disp_req_t     = logic,
   parameter type         producer_id_t  = logic,
