@@ -173,22 +173,25 @@ def gen_experiments(ci=False):
     return experiments
 
 
-def results(dir=None):
-    df = ExperimentManager(gen_experiments(), dir=dir, parse_args=False).get_results()
-    roi = SimRegion('hart_0', 'compute')
-    df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
-    df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
-    return df
-
-
 def main():
-    parser = ExperimentManager.parser()
+    parser = FrepExperimentManager.parser()
     parser.add_argument('--ci', action='store_true', help='Reduce number of experiments for CI')
     args = parser.parse_args()
     experiments = gen_experiments(ci=args.ci)
-    manager = ExperimentManager(experiments=experiments, args=args, parse_args=False)
+    manager = FrepExperimentManager(experiments=experiments, args=args, parse_args=False)
 
     manager.run()
+
+    df = manager.get_results()
+    if manager.perf_results_available:
+        roi = SimRegion('hart_0', 'compute')
+        df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
+        df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
+        print(df)
+
+        # Export dataframe to CSV file
+        df.drop(columns=['results'], inplace=True)
+        df.to_csv('results.csv', index=False)
 
 
 if __name__ == '__main__':
