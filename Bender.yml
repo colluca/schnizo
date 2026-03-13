@@ -184,6 +184,8 @@ sources:
       - hw/schnizo/src/schnizo_writeback.sv
       - hw/schnizo/src/schnizo_res_stat_slot_initial_update.sv
       - hw/schnizo/src/schnizo_res_stat_slot.sv
+      - hw/schnizo/src/schnizo_op_req_handler.sv
+      - hw/schnizo/src/schnizo_op_rsp_handler.sv
       - hw/schnizo/src/schnizo_loop_controller.sv
       - hw/schnizo/src/schnizo_req_xbar.sv
       - hw/schnizo/src/schnizo_rsp_xbar.sv
