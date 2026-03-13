@@ -176,10 +176,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Connections //
   /////////////////
 
-  logic [NofOperands-1:0] op_valid;
-  logic                   all_ops_valid;
   logic                   result_consumed;
-  logic                   issued;
+  logic                   issue_hs;
   logic                   retired;
   logic                   do_rf_writeback;
   logic                   rss_wb_valid;
@@ -189,12 +187,10 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Slot //
   //////////
 
-  rs_slot_t slot_reset_state;
+  rs_slot_t slot_reset_value;
   rs_slot_t slot_q, slot_d;
 
-  `FFAR(slot_q, slot_d, slot_reset_state, clk_i, rst_i);
-
-  assign slot_reset_state = '{
+  assign slot_reset_value = '{
     is_occupied:          1'b0, // suppresses operand requests
     consumer_count:       '0,
     consumed_by:          '0,
@@ -214,6 +210,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     do_writeback:         1'b0,
     operands:             '0 // invalid operands lead to no issue requests
   };
+
+  `FFAR(slot_q, slot_d, slot_reset_value, clk_i, rst_i);
 
   //////////////////
   // State update //
@@ -258,7 +256,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   //
   //                                                              Result req / rsp can be in same or other RSS
   //             +-----------------+    +-------------------+                      +-----------------------+
-  // Disp req -->| Slot selection  |--->| OP req generation |--------------------->| Result req handling   |
+  // Disp req -->| Initial update  |--->| OP req generation |--------------------->| Result req handling   |
   //             +-----------------+    +-------------------+       via ODN        +-----------------------+
   //                  ^       ^                   |                                            | here we could add a queue / timing cut
   //                  |       |                   v                                            v
@@ -293,22 +291,22 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Initial state-dependent slot update
   rs_slot_t selected_slot;
 
-  schnizo_res_stat_slot_initial_update #(
-    .NofOperands   (NofOperands),
-    .disp_req_t    (disp_req_t),
-    .producer_id_t (producer_id_t),
-    .rs_slot_t     (rs_slot_t),
-    .rss_operand_t (rss_operand_t),
-    .rss_result_t  (rss_result_t)
+  schnizo_rss_initial_update #(
+    .NofOperands  (NofOperands),
+    .disp_req_t   (disp_req_t),
+    .producer_id_t(producer_id_t),
+    .rs_slot_t    (rs_slot_t),
+    .rss_operand_t(rss_operand_t),
+    .rss_result_t (rss_result_t)
   ) i_initial_update (
-    .restart_i          (restart_i),
-    .own_producer_id_i  (own_producer_id_i),
-    .loop_state_i       (loop_state_i),
-    .disp_req_i         (disp_req_i),
-    .disp_req_valid_i   (disp_req_valid_i),
-    .slot_i             (slot_q),
-    .slot_reset_state_i (slot_reset_state),
-    .slot_o             (selected_slot)
+    .restart_i         (restart_i),
+    .own_producer_id_i (own_producer_id_i),
+    .loop_state_i      (loop_state_i),
+    .disp_req_i        (disp_req_i),
+    .disp_req_valid_i  (disp_req_valid_i),
+    .slot_i            (slot_q),
+    .slot_reset_state_i(slot_reset_value),
+    .slot_o            (selected_slot)
   );
 
   //////////////////////
@@ -325,37 +323,30 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   // We only have to send a request and update the slot for the slot that is currently
   // being dispatched/issued.
-  schnizo_op_req_handler #(
-    .NofOperands(NofOperands),
-    .rs_slot_t(rs_slot_t),
+  schnizo_rss_op_req_generation #(
+    .NofOperands  (NofOperands),
+    .rs_slot_t    (rs_slot_t),
     .operand_req_t(operand_req_t),
-    .res_req_t(res_req_t)
+    .res_req_t    (res_req_t)
   ) i_op_req_handler (
-    // Slot data before sending the operand request
-    .slot_i(selected_slot),
-    // Slot data after sending the operand request
-    .slot_o(slot_op),
-    // Dispatch interface
+    .slot_i          (selected_slot),
+    .slot_o          (slot_op),
     .disp_req_valid_i(disp_req_valid_i),
-     // Operand request interface - outgoing - request a result as operand
-    .op_reqs_o(op_reqs_o),
-    .op_reqs_valid_o(op_reqs_valid_o),
-    .op_reqs_ready_i(op_reqs_ready_i)
+    .op_reqs_o       (op_reqs_o),
+    .op_reqs_valid_o (op_reqs_valid_o),
+    .op_reqs_ready_i (op_reqs_ready_i)
   );
 
   // This also only happens for one slot at a time, however it may not be the slot that we currently dispatch/issue
   // so this has to be replicated for every slot.
-  schnizo_op_rsp_handler #(
+  schnizo_rss_op_rsp_handling #(
     .NofOperands(NofOperands),
-    .rs_slot_t(rs_slot_t),
-    .operand_t(operand_t)
+    .rs_slot_t  (rs_slot_t),
+    .operand_t  (operand_t)
   ) i_op_rsp_handler (
-    // Slot data after sending operand request
-    .slot_i(slot_op),
-    // Slot data after handling responses
-    .slot_o(slot_op_rsp),
-    // Operand response interface - incoming - returning result as operand
-    .op_rsps_i(op_rsps_i),
+    .slot_i         (slot_op),
+    .slot_o         (slot_op_rsp),
+    .op_rsps_i      (op_rsps_i),
     .op_rsps_valid_i(op_rsps_valid_i),
     .op_rsps_ready_o(op_rsps_ready_o)
   );
@@ -364,69 +355,24 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Issue instruction //
   ///////////////////////
 
-  // Issues an instruction if all operands have been received, based on the state of the slot
-  // after the operand request stage.
-  // Also updates the slot after issuing the instruction (instruction_iter and
-  // operands[i].is_valid fields).
-
-  // TODO(colluca): break this into separate blocks. 1) Issue request generation
-  // driving issue_req_o and issue_req_valid_o based on slot_op_rsp. 2) slot update
-  // depending on slot_op_rsp, issued, etc.
   rs_slot_t slot_issue;
-  always_comb begin : slot_issue_update
-    slot_issue = slot_op_rsp;
 
-    disp_req_ready_o = 1'b0;
-    // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
-    // is full or the result cannot be written because the current result has not been consumed
-    // by all consumers yet.
-    // Tag used for the operation is the slot_id, to identify the result destination in case
-    // results can come back OoO from the FU (as is the case for the FPU).
-    issue_req_o                      = '0;
-    issue_req_o.fu_data.fu           = NONE; // Not required by FU
-    issue_req_o.fu_data.alu_op       = slot_issue.alu_op;
-    issue_req_o.fu_data.lsu_op       = slot_issue.lsu_op;
-    issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-    issue_req_o.fu_data.fpu_op       = slot_issue.fpu_op;
-    issue_req_o.fu_data.operand_a    = slot_issue.operands[0].value;
-    issue_req_o.fu_data.operand_b    = slot_issue.operands[1].value;
-    issue_req_o.fu_data.imm          = (NofOperands >= 3) ? slot_issue.operands[2].value : '0;
-    issue_req_o.fu_data.lsu_size     = slot_issue.lsu_size;
-    issue_req_o.fu_data.fpu_fmt_src  = slot_issue.fpu_fmt_src;
-    issue_req_o.fu_data.fpu_fmt_dst  = slot_issue.fpu_fmt_dst;
-    issue_req_o.fu_data.fpu_rnd_mode = slot_issue.fpu_rnd_mode;
-    issue_req_o.tag                  = slot_id_i;
-
-    for (int i = 0; i < NofOperands; i++) begin
-      op_valid[i] = slot_issue.operands[i].is_valid;
-    end
-    all_ops_valid = &op_valid;
-
-    issue_req_valid_o = 1'b0;
-    if (all_ops_valid && slot_issue.is_occupied) begin
-      // TODO(colluca): can we not just have 1'b1 here? Then we could probably remove
-      // the weird dispatch mux in the res_stat
-      issue_req_valid_o = disp_req_valid_i;
-    end
-    // Capture handshake
-    issued = issue_req_valid_o && issue_req_ready_i;
-    if (issued) begin
-      // Toggle instruction state
-      slot_issue.instruction_iter = ~slot_issue.instruction_iter;
-      // INFO(soderma): We don't have to manually reset the valid signals in LCP1
-      // this valid bit is completely overwritten in LCP2 anyway.
-      // Reset the operands' valid flags depending on loop phase and production state
-      // We have to reset it when it is produced. Since a new value has to be captured
-      // in the next iteration.
-      for (int op = 0; op < NofOperands; op++) begin
-        slot_issue.operands[op].is_valid =  slot_issue.operands[op].is_produced ? 1'b0 :
-                                            slot_issue.operands[op].is_valid;
-      end
-
-      // When we issue the instruction, the dispatch request is complete
-      disp_req_ready_o = 1'b1;
-    end
-  end
+  schnizo_rss_issue #(
+    .NofOperands(NofOperands),
+    .rss_idx_t  (rss_idx_t),
+    .rs_slot_t  (rs_slot_t),
+    .issue_req_t(issue_req_t)
+  ) i_issue (
+    .slot_i           (slot_op_rsp),
+    .slot_id_i        (slot_id_i),
+    .disp_req_valid_i (disp_req_valid_i),
+    .issue_req_ready_i(issue_req_ready_i),
+    .disp_req_ready_o (disp_req_ready_o),
+    .slot_o           (slot_issue),
+    .issue_req_o      (issue_req_o),
+    .issue_req_valid_o(issue_req_valid_o),
+    .issue_hs_o       (issue_hs)
+  );
 
   ////////////////////////////////
   // Result response generation //
@@ -518,7 +464,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // This includes both cases (only RSS as well as RSS and RF).
     // A store instruction has no result. Thus we capture a dummy result at the same time
     // we issue the store instruction.
-    retired = slot_wb.is_store ? issued : (result_valid_i && result_ready_o);
+    retired = slot_wb.is_store ? issue_hs : (result_valid_i && result_ready_o);
 
     //////////////////////////////////////
     // Slot update after result capture //

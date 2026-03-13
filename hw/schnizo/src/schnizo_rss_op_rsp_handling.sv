@@ -5,7 +5,7 @@
 // Handle the response after the request generation to allow same cycle responses.
 // We won't place two requests due to the requested flag.
 
-module schnizo_op_rsp_handler import schnizo_pkg::*; #(
+module schnizo_rss_op_rsp_handling import schnizo_pkg::*; #(
   parameter int unsigned NofOperands = 2,
   parameter type         rs_slot_t = logic,
   parameter type         operand_t = logic
