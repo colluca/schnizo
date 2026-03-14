@@ -19,7 +19,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 ) (
   // Initial update
   input  logic         restart_i,
-  input  producer_id_t own_producer_id_i,
+  input  producer_id_t producer_id_i,
   input  loop_state_e  loop_state_i,
   input  disp_req_t    disp_req_i,
   input  logic         disp_req_valid_i,
@@ -34,7 +34,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_rsps_valid_i,
   output logic         [NofOperands-1:0] op_rsps_ready_o,
   // Issue
-  input  rss_idx_t     slot_id_i,
   input  logic         issue_req_ready_i,
   output logic         disp_req_ready_o,
   output issue_req_t   issue_req_o,
@@ -191,7 +190,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     // TODO(colluca): couldn't we have the dispatcher calculate `do_writeback` instead?
     // This way we don't need to store it in the cut. It may increase the critical path
     // if the critical path is before the cut.
-    if ((own_producer_id_i == disp_req_i.current_producer_dest.producer) &&
+    if ((producer_id_i == disp_req_i.current_producer_dest.producer) &&
         disp_req_i.current_producer_dest.valid) begin
       slot_lcp2.do_writeback = 1'b1;
     end
@@ -347,7 +346,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
     issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
-    issue_req_o.tag                  = slot_id_i;
+    issue_req_o.tag                  = producer_id_i.slot_id;
   end
 
   // Check operand validity
