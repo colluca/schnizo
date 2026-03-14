@@ -185,7 +185,6 @@ sources:
       - hw/schnizo/src/schnizo_rss_dispatch_pipeline.sv
       - hw/schnizo/src/schnizo_rss_res_req_handling.sv
       - hw/schnizo/src/schnizo_rss_result_capture.sv
-      - hw/schnizo/src/schnizo_res_stat_slot.sv
       - hw/schnizo/src/schnizo_loop_controller.sv
       - hw/schnizo/src/schnizo_req_xbar.sv
       - hw/schnizo/src/schnizo_rsp_xbar.sv
