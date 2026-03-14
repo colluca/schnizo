@@ -212,7 +212,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The pointers / indexes to select the appropriate RSS.
   rss_idx_t disp_idx;
-  rss_idx_t result_idx;
 
   // loop control
   logic last_disp_instr;
@@ -283,10 +282,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic sel_rss_valid;
   assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
 
-  // In case the result index overflows, suppress the retiring signal.
-  logic sel_result_valid;
-  assign sel_result_valid = (result_idx < NofRss) ? 1'b1 : 1'b0;
-
   rs_slot_t slot_reset_value;
   assign slot_reset_value = '{
     is_occupied:          1'b0, // suppresses operand requests
@@ -316,7 +311,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       rs_id:   producer_id_i.rs_id
     };
 
-    assign slot_ds[rss] = sel_result_valid && (rss_idx_t'(rss) == result_rss_sel) ? slot_wb_capture : slot_res_rsps[rss];
+    assign slot_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ? slot_wb_capture : slot_res_rsps[rss];
     `FFAR(slot_qs[rss], slot_ds[rss], slot_reset_value, clk_i, rst_i);
 
     schnizo_rss_res_req_handling #(
@@ -330,7 +325,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .rst_i,
       .slot_q_i          (slot_qs[rss]),
       .slot_i            (sel_rss_valid && (rss_idx_t'(rss) == disp_idx) ? slot_issue : slot_qs[rss]),
-      .retired_i         (sel_result_valid && (rss_idx_t'(rss) == result_rss_sel) ? capture_retired : 1'b0),
+      .retired_i         ((rss_idx_t'(rss) == result_rss_sel) ? capture_retired : 1'b0),
       .loop_state_i      (loop_state_i),
       .restart_i         (restart_i),
       .dest_mask_i       (res_reqs_i[rss]),
@@ -343,7 +338,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .res_rsp_ready_i   (res_rsps_ready_i[rss]),
       .slot_o            (slot_res_rsps[rss])
     );
-
   end
 
   ////////////////////
@@ -359,18 +353,15 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                provide it with.
 
   logic dispatching;
-  // logic issuing;
 
   assign dispatching = disp_req_valid && disp_req_ready;
-  // assign issuing     = issue_req_valid_o && issue_req_ready_i;
 
   logic retiring;
   // An instruction retires as soon as the result is handshaked, i.e.:
-  // assign retiring    = result_valid_i && result_ready_o;
+  // assign retiring = result_valid_i && result_ready_o;
   // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
   // if the instruction is a store or any other instruction.
-  // The result pointer can point to +1 of NofRSS. We thus have to limit it inside the range.
-  assign retiring = sel_result_valid ? capture_retired_rs : 1'b0;
+  assign retiring = capture_retired_rs;
 
   // The counters for the index control logic
   // The lcp_xxx and lep_xxx counters count instructions and do count up.
@@ -486,26 +477,21 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   always_comb begin : index_selection
     disp_idx   = '0;
-    result_idx = '0;
 
     unique case (loop_state_i)
       LoopRegular,
       LoopHwLoop: begin
         disp_idx   = '0;
-        result_idx = '0;
       end
       LoopLcp1,
       LoopLcp2: begin
         disp_idx   = lcp_disp_count[NofRssWidth-1:0];
-        result_idx = lcp_result_count[NofRssWidth-1:0];
       end
       LoopLep: begin
         disp_idx   = lep_disp_count[NofRssWidth-1:0];
-        result_idx = lep_result_count[NofRssWidth-1:0];
       end
       default: begin
         disp_idx   = '0;
-        result_idx = '0;
       end
     endcase
   end
