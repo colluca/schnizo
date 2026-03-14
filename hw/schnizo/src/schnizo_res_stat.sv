@@ -363,63 +363,49 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // if the instruction is a store or any other instruction.
   assign retiring = capture_retired_rs;
 
-  // The counters for the index control logic
-  // The lcp_xxx and lep_xxx counters count instructions and do count up.
-  // The lep_xxx_iter counters count instructions and do count down.
-  logic [NofRssWidthExt-1:0] lcp_disp_count;
-  logic                      lcp_disp_inc;
-  logic                      lcp_disp_reset;
+  // Counters for the index control logic
+  logic [NofRssWidthExt-1:0] disp_count;
+  logic                      disp_inc;
+  logic                      disp_reset;
 
-  logic [NofRssWidthExt-1:0] lcp_result_count;
-  logic                      lcp_result_inc;
-  logic                      lcp_result_reset;
-
-  logic [NofRssWidthExt-1:0] lep_disp_count;
-  logic                      lep_disp_inc;
-  logic                      lep_disp_reset;
+  logic [NofRssWidthExt-1:0] result_count;
+  logic                      result_inc;
+  logic                      result_reset;
 
   logic [MaxIterationsW-1:0] lep_disp_iter_count;
   logic                      lep_disp_iter_dec;
   logic                      lep_disp_iter_load;
   logic [MaxIterationsW-1:0] lep_disp_iter_load_value;
   logic                      lep_disp_iter_clear;
-
-  logic [NofRssWidthExt-1:0] lep_result_count;
-  logic                      lep_result_inc;
-  logic                      lep_result_reset;
-
   logic [MaxIterationsW-1:0] lep_result_iter_count;
   logic                      lep_result_iter_dec;
   logic                      lep_result_iter_load;
   logic [MaxIterationsW-1:0] lep_result_iter_load_value;
   logic                      lep_result_iter_clear;
 
-  // The LCP counter serves as RSS allocated counter to know the iteration size in LEP.
-  // It is not reset when switching from LCP2 to LEP.
-  logic [NofRssWidthExt-1:0] rss_allocated_count;
-  assign rss_allocated_count = lcp_disp_count;
+  // The number of RSSs allocated during LCP is captured and used during LEP.
+  // We snapshot the dispatch counter on the transition into LEP.
+  logic [NofRssWidthExt-1:0] num_allocated_rss_d, num_allocated_rss_q;
+  assign num_allocated_rss_d = goto_lcp2_i ? disp_count + disp_inc : num_allocated_rss_q;
+  `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
-  assign last_disp_instr   = lep_disp_count == (rss_allocated_count - 1);
+  assign last_disp_instr   = disp_count == (num_allocated_rss_q - 1);
   assign last_disp_iter    = lep_disp_iter_count == 1;
-  assign last_result_instr = lep_result_count == (rss_allocated_count - 1);
+  assign last_result_instr = result_count == (num_allocated_rss_q - 1);
   assign last_result_iter  = lep_result_iter_count == 1;
 
-  assign rs_full_o = (rss_allocated_count == NofRss[NofRssWidthExt-1:0]);
+  assign rs_full_o = (disp_count == NofRss[NofRssWidthExt-1:0]);
 
   logic any_instr_captured;
-  assign any_instr_captured = (rss_allocated_count != '0);
+  assign any_instr_captured = (num_allocated_rss_q != '0);
 
   always_comb begin : counter_control
-    lcp_disp_inc          = 1'b0;
-    lcp_disp_reset        = 1'b0;
-    lcp_result_inc        = 1'b0;
-    lcp_result_reset      = 1'b0;
+    disp_inc     = 1'b0;
+    disp_reset   = 1'b0;
+    result_inc   = 1'b0;
+    result_reset = 1'b0;
     lep_disp_iter_load    = 1'b0;
     lep_result_iter_load  = 1'b0;
-    lep_disp_inc          = 1'b0;
-    lep_result_inc        = 1'b0;
-    lep_disp_reset        = 1'b0;
-    lep_result_reset      = 1'b0;
     lep_disp_iter_dec     = 1'b0;
     lep_disp_iter_clear   = 1'b0;
     lep_result_iter_dec   = 1'b0;
@@ -432,68 +418,48 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       LoopRegular,
       LoopHwLoop: ; // do nothing
       LoopLcp1: begin
-        lcp_disp_inc   = dispatching;
-        lcp_result_inc = retiring;
+        disp_inc   = dispatching;
+        result_inc = retiring;
         if (goto_lcp2_i) begin
-          lcp_disp_reset   = 1'b1;
-          lcp_result_reset = 1'b1;
+          disp_reset   = 1'b1;
+          result_reset = 1'b1;
         end
       end
       LoopLcp2: begin
-        lcp_disp_inc   = dispatching;
-        lcp_result_inc = retiring;
+        disp_inc   = dispatching;
+        result_inc = retiring;
+        // Reset has higher prio than increment
+        disp_reset   = last_disp_instr && dispatching;
+        result_reset = last_result_instr && retiring;
         // Load the iteration counters
         lep_disp_iter_load   = 1'b1;
         lep_result_iter_load = 1'b1;
       end
       LoopLep: begin
-        lep_disp_inc     = dispatching;
-        lep_result_inc   = retiring;
+        disp_inc     = dispatching;
+        result_inc   = retiring;
         // Reset has higher prio than increment
-        lep_disp_reset   = last_disp_instr && dispatching;
-        lep_result_reset = last_result_instr && retiring;
+        disp_reset   = last_disp_instr && dispatching;
+        result_reset = last_result_instr && retiring;
         // Iteration handling - iteration has finished when instr counters wrap
-        lep_disp_iter_dec   = lep_disp_reset;
+        lep_disp_iter_dec   = disp_reset;
         // Decrement the iteration counter as long as there are results to capture.
         // This counter can underflow in case we have only store instructions. Reason is that any
         // store instruction always retires because there is no result to capture. We therefore let
         // the result counter immediately count down to zero.
         // TODO(colluca): not sure what this means
-        lep_result_iter_dec = (lep_result_iter_count > '0) ? lep_result_reset : 1'b0;
+        lep_result_iter_dec = (lep_result_iter_count > '0) ? result_reset : 1'b0;
       end
       default: ; // do nothing
     endcase
 
     // Reset the RS
     if (restart_i) begin
-      lcp_disp_reset        = 1'b1;
-      lcp_result_reset      = 1'b1;
-      lep_disp_reset        = 1'b1;
+      disp_reset        = 1'b1;
+      result_reset      = 1'b1;
       lep_disp_iter_clear   = 1'b1;
-      lep_result_reset      = 1'b1;
       lep_result_iter_clear = 1'b1;
     end
-  end
-
-  always_comb begin : index_selection
-    disp_idx   = '0;
-
-    unique case (loop_state_i)
-      LoopRegular,
-      LoopHwLoop: begin
-        disp_idx   = '0;
-      end
-      LoopLcp1,
-      LoopLcp2: begin
-        disp_idx   = lcp_disp_count[NofRssWidth-1:0];
-      end
-      LoopLep: begin
-        disp_idx   = lep_disp_count[NofRssWidth-1:0];
-      end
-      default: begin
-        disp_idx   = '0;
-      end
-    endcase
   end
 
   // ---------------------------
@@ -537,7 +503,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                asserted. In other words, the RHS of the || is not useful (except maybe
   //                for "retiring"). We could test this with an assertion
   assign lcp_finish =
-    (lcp_finished || ((lcp_disp_count == lcp_result_count) && retiring)) && !disp_req_valid_i &&
+    (lcp_finished || ((disp_count == result_count) && retiring)) && !disp_req_valid_i &&
     (loop_state_i inside {LoopLcp1, LoopLcp2});
 
   // In LEP the RS has finished if:
@@ -780,45 +746,32 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   counter #(
     .WIDTH          (NofRssWidthExt),
     .STICKY_OVERFLOW(0)
-  ) i_lcp_disp_counter (
+  ) i_disp_counter (
     .clk_i,
-    .rst_ni    (~rst_i),
-    .clear_i   (lcp_disp_reset),
-    .en_i      (lcp_disp_inc),
+    .rst_ni    (!rst_i),
+    .clear_i   (disp_reset),
+    .en_i      (disp_inc),
     .load_i    ('0),
     .down_i    ('0),
     .d_i       ('0),
-    .q_o       (lcp_disp_count),
+    .q_o       (disp_count),
     .overflow_o()
   );
+
+  assign disp_idx = disp_count[NofRssWidth-1:0];
 
   counter #(
     .WIDTH          (NofRssWidthExt),
     .STICKY_OVERFLOW(0)
-  ) i_lcp_result_counter (
+  ) i_result_counter (
     .clk_i,
-    .rst_ni    (~rst_i),
-    .clear_i   (lcp_result_reset),
-    .en_i      (lcp_result_inc),
+    .rst_ni    (!rst_i),
+    .clear_i   (result_reset),
+    .en_i      (result_inc),
     .load_i    ('0),
     .down_i    ('0),
     .d_i       ('0),
-    .q_o       (lcp_result_count),
-    .overflow_o()
-  );
-
-  counter #(
-    .WIDTH          (NofRssWidthExt),
-    .STICKY_OVERFLOW(0)
-  ) i_lep_disp_counter (
-    .clk_i,
-    .rst_ni    (~rst_i),
-    .clear_i   (lep_disp_reset),
-    .en_i      (lep_disp_inc),
-    .load_i    ('0),
-    .down_i    ('0),
-    .d_i       ('0),
-    .q_o       (lep_disp_count),
+    .q_o       (result_count),
     .overflow_o()
   );
 
@@ -827,7 +780,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .STICKY_OVERFLOW(0)
   ) i_lep_disp_iter_counter (
     .clk_i,
-    .rst_ni    (~rst_i),
+    .rst_ni    (!rst_i),
     .clear_i   (lep_disp_iter_clear),
     .en_i      (lep_disp_iter_dec),
     .load_i    (lep_disp_iter_load),
@@ -838,26 +791,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   );
 
   counter #(
-    .WIDTH          (NofRssWidthExt),
-    .STICKY_OVERFLOW(0)
-  ) i_lep_result_counter (
-    .clk_i,
-    .rst_ni    (~rst_i),
-    .clear_i   (lep_result_reset),
-    .en_i      (lep_result_inc),
-    .load_i    ('0),
-    .down_i    ('0),
-    .d_i       ('0),
-    .q_o       (lep_result_count),
-    .overflow_o()
-  );
-
-  counter #(
     .WIDTH          (MaxIterationsW),
     .STICKY_OVERFLOW(0)
   ) i_lep_result_iter_counter (
     .clk_i,
-    .rst_ni    (~rst_i),
+    .rst_ni    (!rst_i),
     .clear_i   (lep_result_iter_clear),
     .en_i      (lep_result_iter_dec),
     .load_i    (lep_result_iter_load),
