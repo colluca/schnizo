@@ -1059,9 +1059,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_alu_traces[alu][rss] = '{
           valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_hs &&
                           (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.disp_idx == rss),
-          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.slot_qs[rss].instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_req_raw.fu_data.operand_a[XLEN-1:0],
           alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_req_raw.fu_data.operand_b[XLEN-1:0]
         };
@@ -1070,7 +1070,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.is_store &&
                           (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
           result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.result.iteration,
           rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.dest_is_fp,
@@ -1088,7 +1088,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
             requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
@@ -1108,9 +1108,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_lsu_traces[lsu][rss] = '{
           valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.issue_hs &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.disp_idx == rss),
-          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.slot_qs[rss].instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1126,7 +1126,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.is_store &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
           result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.result.iteration,
           rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.dest_is_fp,
@@ -1144,7 +1144,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
             requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
@@ -1164,9 +1164,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_fpu_traces[fpu][rss] = '{
           valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_hs &&
                       (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.disp_idx == rss),
-          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.slot_qs[rss].instruction_iter,
           producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_req_raw.fu_data.operand_a,
           fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_req_raw.fu_data.operand_b,
           fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_req_raw.fu_data.imm,
@@ -1181,7 +1181,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.is_store &&
                           (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
           result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.result.iteration,
           rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.slot_wb_capture.dest_is_fp,
@@ -1199,7 +1199,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
             requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
