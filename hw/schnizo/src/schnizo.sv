@@ -242,20 +242,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // - each operand of each Reservation station has an operand master (1 port)
   // - each RSS has an own result request interface but only each RS has one result response interface.
 
-  // Define how many operand request / response ports each RS has.
-  // A port includes a set of xbar in/outputs for each operand.
-  // I.e. if the ALU has 2 operands, 1 port generates 2 operand interfaces
-  localparam integer unsigned AluNofOpPorts = 1;
-  localparam integer unsigned LsuNofOpPorts = 1;
-  localparam integer unsigned FpuNofOpPorts = 1;
-
-  localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
-  localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
-  localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
-
-  localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
-                                              NofLsus * LsuNofOperandIfs +
-                                              NofFpus * FpuNofOperandIfs;
+  localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperands +
+                                              NofLsus * LsuNofOperands +
+                                              NofFpus * FpuNofOperands;
 
   // We differentiate between result requests and result responses.
   // Each reservation station has a result request crossbar output which is shared among the slots.
@@ -670,19 +659,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
-    .AluNofOpPorts      (AluNofOpPorts),
     .AluNofResReqIfs    (AluNofResReqIfs),
     .AluNofResRspPorts  (AluNofResRspPorts),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
     .LsuNofOperands     (LsuNofOperands),
-    .LsuNofOpPorts      (LsuNofOpPorts),
     .LsuNofResReqIfs    (LsuNofResReqIfs),
     .LsuNofResRspPorts  (LsuNofResRspPorts),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
     .FpuNofOperands     (FpuNofOperands),
-    .FpuNofOpPorts      (FpuNofOpPorts),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
     .FpuNofResRspPorts  (FpuNofResRspPorts),
     .NofOperandIfs      (NofOperandIfs),

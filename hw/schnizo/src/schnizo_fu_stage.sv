@@ -19,19 +19,16 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned NofAlus           = 1,
   parameter int unsigned AluNofRss         = 3,
   parameter int unsigned AluNofOperands    = 2,
-  parameter int unsigned AluNofOpPorts     = 1,
   parameter int unsigned AluNofResReqIfs   = 3,
   parameter int unsigned AluNofResRspPorts = 1,
   parameter int unsigned NofLsus           = 1,
   parameter int unsigned LsuNofRss         = 3,
   parameter int unsigned LsuNofOperands    = 4,
-  parameter int unsigned LsuNofOpPorts     = 1,
   parameter int unsigned LsuNofResReqIfs   = 3,
   parameter int unsigned LsuNofResRspPorts = 1,
   parameter int unsigned NofFpus           = 1,
   parameter int unsigned FpuNofRss         = 2,
   parameter int unsigned FpuNofOperands    = 3,
-  parameter int unsigned FpuNofOpPorts     = 1,
   parameter int unsigned FpuNofResReqIfs   = 3,
   parameter int unsigned FpuNofResRspPorts = 1,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
@@ -271,17 +268,17 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // These IDs are shared between the RSSs of a reservation station.
   localparam integer unsigned AluOpIdOffset = 0;
   localparam integer unsigned LsuOpIdOffset = AluOpIdOffset +
-                                              NofAlus * (AluNofOperands * AluNofOpPorts);
+                                              NofAlus * AluNofOperands;
   localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset +
-                                              NofLsus * (LsuNofOperands * LsuNofOpPorts);
+                                              NofLsus * LsuNofOperands;
 
   ////////////////////////////////////////
   // Operand distribution network (ODN) //
   ////////////////////////////////////////
 
-  operand_req_t [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs_valid;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_reqs_ready;
+  operand_req_t [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs;
+  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs_valid;
+  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs_ready;
   operand_req_t [NofAlus-1:0][AluNofRss-1:0]                          alu_available_results;
   dest_mask_t   [NofAlus-1:0][AluNofRss-1:0]                          alu_res_reqs;
   logic         [NofAlus-1:0][AluNofRss-1:0]                          alu_res_reqs_valid;
@@ -289,13 +286,13 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   res_rsp_t     [NofAlus-1:0][AluNofRss-1:0]                          alu_res_rsps;
   logic         [NofAlus-1:0][AluNofRss-1:0]                          alu_res_rsps_valid;
   logic         [NofAlus-1:0][AluNofRss-1:0]                          alu_res_rsps_ready;
-  operand_t     [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_rsps;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_rsps_valid;
-  logic         [NofAlus-1:0][AluNofOpPorts-1:0][AluNofOperands-1:0]  alu_op_rsps_ready;
+  operand_t     [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps;
+  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps_valid;
+  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps_ready;
 
-  operand_req_t [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
+  operand_req_t [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs;
+  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_valid;
+  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
   operand_req_t [NofLsus-1:0][LsuNofRss-1:0]                          lsu_available_results;
   dest_mask_t   [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_reqs;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_reqs_valid;
@@ -303,13 +300,13 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   res_rsp_t     [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_rsps;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_rsps_valid;
   logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_rsps_ready;
-  operand_t     [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_rsps;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_rsps_valid;
-  logic         [NofLsus-1:0][LsuNofOpPorts-1:0][LsuNofOperands-1:0]  lsu_op_rsps_ready;
+  operand_t     [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps;
+  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_valid;
+  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_ready;
 
-  operand_req_t [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs_valid;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_reqs_ready;
+  operand_req_t [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_reqs;
+  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_reqs_valid;
+  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_reqs_ready;
   operand_req_t [NofFpus-1:0][FpuNofRss-1:0]                          fpu_available_results;
   dest_mask_t   [NofFpus-1:0][FpuNofRss-1:0]                          fpu_res_reqs;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                          fpu_res_reqs_valid;
@@ -317,9 +314,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   res_rsp_t     [NofFpus-1:0][FpuNofRss-1:0]                          fpu_res_rsps;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                          fpu_res_rsps_valid;
   logic         [NofFpus-1:0][FpuNofRss-1:0]                          fpu_res_rsps_ready;
-  operand_t     [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
-  logic         [NofFpus-1:0][FpuNofOpPorts-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
+  operand_t     [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps;
+  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
+  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
   operand_req_t [NofOperandIfs-1:0] op_reqs;
   logic         [NofOperandIfs-1:0] op_reqs_valid;
@@ -365,48 +362,42 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       fpu_op_rsps_valid = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
-        for (int port = 0; port < AluNofOpPorts; port++) begin
-          for (int op = 0; op < AluNofOperands; op++) begin
-            // operand requests
-            op_reqs[ope_if]                  = alu_op_reqs[alu][port][op];
-            op_reqs_valid[ope_if]            = alu_op_reqs_valid[alu][port][op];
-            alu_op_reqs_ready[alu][port][op] = op_reqs_ready[ope_if];
-            // operand responses
-            alu_op_rsps[alu][port][op]       = op_rsps[ope_if];
-            alu_op_rsps_valid[alu][port][op] = op_rsps_valid[ope_if];
-            op_rsps_ready[ope_if]            = alu_op_rsps_ready[alu][port][op];
-            ope_if = ope_if + 1;
-          end
+        for (int op = 0; op < AluNofOperands; op++) begin
+          // operand requests
+          op_reqs[ope_if]            = alu_op_reqs[alu][op];
+          op_reqs_valid[ope_if]      = alu_op_reqs_valid[alu][op];
+          alu_op_reqs_ready[alu][op] = op_reqs_ready[ope_if];
+          // operand responses
+          alu_op_rsps[alu][op]       = op_rsps[ope_if];
+          alu_op_rsps_valid[alu][op] = op_rsps_valid[ope_if];
+          op_rsps_ready[ope_if]      = alu_op_rsps_ready[alu][op];
+          ope_if = ope_if + 1;
         end
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
-        for (int port = 0; port < LsuNofOpPorts; port++) begin
-          for (int op = 0; op < LsuNofOperands; op++) begin
-            // operand requests
-            op_reqs[ope_if]                  = lsu_op_reqs[lsu][port][op];
-            op_reqs_valid[ope_if]            = lsu_op_reqs_valid[lsu][port][op];
-            lsu_op_reqs_ready[lsu][port][op] = op_reqs_ready[ope_if];
-            // operand responses
-            lsu_op_rsps[lsu][port][op]       = op_rsps[ope_if];
-            lsu_op_rsps_valid[lsu][port][op] = op_rsps_valid[ope_if];
-            op_rsps_ready[ope_if]            = lsu_op_rsps_ready[lsu][port][op];
-            ope_if = ope_if + 1;
-          end
+        for (int op = 0; op < LsuNofOperands; op++) begin
+          // operand requests
+          op_reqs[ope_if]            = lsu_op_reqs[lsu][op];
+          op_reqs_valid[ope_if]      = lsu_op_reqs_valid[lsu][op];
+          lsu_op_reqs_ready[lsu][op] = op_reqs_ready[ope_if];
+          // operand responses
+          lsu_op_rsps[lsu][op]       = op_rsps[ope_if];
+          lsu_op_rsps_valid[lsu][op] = op_rsps_valid[ope_if];
+          op_rsps_ready[ope_if]      = lsu_op_rsps_ready[lsu][op];
+          ope_if = ope_if + 1;
         end
       end
       for (int fpu = 0; fpu < NofFpus; fpu++) begin
-        for (int port = 0; port < FpuNofOpPorts; port++) begin
-          for (int op = 0; op < FpuNofOperands; op++) begin
-            // operand requests
-            op_reqs[ope_if]                  = fpu_op_reqs[fpu][port][op];
-            op_reqs_valid[ope_if]            = fpu_op_reqs_valid[fpu][port][op];
-            fpu_op_reqs_ready[fpu][port][op] = op_reqs_ready[ope_if];
-            // operand responses
-            fpu_op_rsps[fpu][port][op]       = op_rsps[ope_if];
-            fpu_op_rsps_valid[fpu][port][op] = op_rsps_valid[ope_if];
-            op_rsps_ready[ope_if]            = fpu_op_rsps_ready[fpu][port][op];
-            ope_if = ope_if + 1;
-          end
+        for (int op = 0; op < FpuNofOperands; op++) begin
+          // operand requests
+          op_reqs[ope_if]            = fpu_op_reqs[fpu][op];
+          op_reqs_valid[ope_if]      = fpu_op_reqs_valid[fpu][op];
+          fpu_op_reqs_ready[fpu][op] = op_reqs_ready[ope_if];
+          // operand responses
+          fpu_op_rsps[fpu][op]       = op_rsps[ope_if];
+          fpu_op_rsps_valid[fpu][op] = op_rsps_valid[ope_if];
+          op_rsps_ready[ope_if]      = fpu_op_rsps_ready[fpu][op];
+          ope_if = ope_if + 1;
         end
       end
     end
@@ -644,7 +635,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .instr_tag_t   (alu_instr_tag_t),
       .NofRss        (AluNofRss),
       .NofOperands   (AluNofOperands),
-      .NofOpPorts    (AluNofOpPorts),
       .NofResRspIfs  (AluNofRss),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
@@ -856,7 +846,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .instr_tag_t   (instr_tag_t),
       .NofRss        (LsuNofRss),
       .NofOperands   (LsuNofOperands),
-      .NofOpPorts    (LsuNofOpPorts),
       .NofResRspIfs  (LsuNofRss),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
@@ -1071,7 +1060,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .instr_tag_t   (fpu_instr_tag_t),
       .NofRss        (FpuNofRss),
       .NofOperands   (FpuNofOperands),
-      .NofOpPorts    (FpuNofOpPorts),
       .NofResRspIfs  (FpuNofRss),
       .ConsumerCount (ConsumerCount),
       .RegAddrWidth  (RegAddrWidth),
@@ -1277,37 +1265,31 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   function automatic string consumer_to_string(operand_id_t consumer_id);
     int unsigned consumer = unsigned'(consumer_id);
     int unsigned num_ops;
-    int unsigned num_ports;
     int unsigned rs_id;
-    int unsigned port_id;
     int unsigned op_id;
     string fu_name;
 
     if (consumer < LsuOpIdOffset) begin
-      num_ports = AluNofOpPorts;
       num_ops = AluNofOperands;
       consumer = consumer - AluOpIdOffset;
       fu_name = "ALU";
     end else if (consumer < FpuOpIdOffset) begin
-      num_ports = LsuNofOpPorts;
       num_ops = LsuNofOperands;
       consumer = consumer - LsuOpIdOffset;
       fu_name = "LSU";
     end else begin
-      num_ports = FpuNofOpPorts;
       num_ops = FpuNofOperands;
       consumer = consumer - FpuOpIdOffset;
       fu_name = "FPU";
     end
 
-    rs_id = consumer / (num_ports * num_ops);
+    rs_id = consumer / num_ops;
     // Reduce into operand range of current RS.
-    // --> range of 0..((num_ports * num_ops) - 1)
-    consumer = consumer - (rs_id * (num_ports * num_ops));
-    port_id = consumer / num_ops;
+    // --> range of 0..(num_ops - 1)
+    consumer = consumer - (rs_id * num_ops);
     op_id = consumer % num_ops;
 
-    return $sformatf("%s%0d.%0d.%0d", fu_name, rs_id, port_id, op_id);
+    return $sformatf("%s%0d.%0d", fu_name, rs_id, op_id);
   endfunction
 
   // pragma translate_on
