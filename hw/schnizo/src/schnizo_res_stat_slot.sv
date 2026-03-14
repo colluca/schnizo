@@ -247,82 +247,41 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   //         |                                    |                                                |
   //         +------------------------------------+------------------------------------------------+
 
-  // Initial state-dependent slot update
-  rs_slot_t selected_slot;
+  rs_slot_t slot_issue;
 
-  schnizo_rss_initial_update #(
+  schnizo_rss_dispatch_pipeline #(
     .NofOperands  (NofOperands),
     .disp_req_t   (disp_req_t),
     .producer_id_t(producer_id_t),
     .rs_slot_t    (rs_slot_t),
     .rss_operand_t(rss_operand_t),
-    .rss_result_t (rss_result_t)
-  ) i_initial_update (
+    .rss_result_t (rss_result_t),
+    .operand_req_t(operand_req_t),
+    .res_req_t    (res_req_t),
+    .operand_t    (operand_t),
+    .rss_idx_t    (rss_idx_t),
+    .issue_req_t  (issue_req_t)
+  ) i_dispatch_pipeline (
     .restart_i         (restart_i),
     .own_producer_id_i (own_producer_id_i),
     .loop_state_i      (loop_state_i),
+    .slot_i            (slot_q),
     .disp_req_i        (disp_req_i),
     .disp_req_valid_i  (disp_req_valid_i),
-    .slot_i            (slot_q),
+    .disp_req_ready_o  (disp_req_ready_o),
     .slot_reset_state_i(slot_reset_value),
-    .slot_o            (selected_slot)
-  );
-
-  rs_slot_t slot_op;
-  rs_slot_t slot_op_rsp;
-
-  // Sends operand requests and accepts responses based on the state of the slot after the
-  // slot selection stage.
-  // Also updates the slot after requesting operands (operands[i].requested field) and after
-  // receiving responses (operands[i].{value,is_valid,requested} fields).
-
-  // We only have to send a request and update the slot for the slot that is currently
-  // being dispatched/issued.
-  schnizo_rss_op_req_generation #(
-    .NofOperands  (NofOperands),
-    .rs_slot_t    (rs_slot_t),
-    .operand_req_t(operand_req_t),
-    .res_req_t    (res_req_t)
-  ) i_op_req_handler (
-    .slot_i          (selected_slot),
-    .slot_o          (slot_op),
-    .disp_req_valid_i(disp_req_valid_i),
-    .op_reqs_o       (op_reqs_o),
-    .op_reqs_valid_o (op_reqs_valid_o),
-    .op_reqs_ready_i (op_reqs_ready_i)
-  );
-
-  // This also only happens for one slot at a time, however it may not be the slot that we currently dispatch/issue
-  // so this has to be replicated for every slot.
-  schnizo_rss_op_rsp_handling #(
-    .NofOperands(NofOperands),
-    .rs_slot_t  (rs_slot_t),
-    .operand_t  (operand_t)
-  ) i_op_rsp_handler (
-    .slot_i         (slot_op),
-    .slot_o         (slot_op_rsp),
-    .op_rsps_i      (op_rsps_i),
-    .op_rsps_valid_i(op_rsps_valid_i),
-    .op_rsps_ready_o(op_rsps_ready_o)
-  );
-
-  rs_slot_t slot_issue;
-
-  schnizo_rss_issue #(
-    .NofOperands(NofOperands),
-    .rss_idx_t  (rss_idx_t),
-    .rs_slot_t  (rs_slot_t),
-    .issue_req_t(issue_req_t)
-  ) i_issue (
-    .slot_i           (slot_op_rsp),
-    .slot_id_i        (slot_id_i),
-    .disp_req_valid_i (disp_req_valid_i),
-    .issue_req_ready_i(issue_req_ready_i),
-    .disp_req_ready_o (disp_req_ready_o),
-    .slot_o           (slot_issue),
-    .issue_req_o      (issue_req_o),
-    .issue_req_valid_o(issue_req_valid_o),
-    .issue_hs_o       (issue_hs)
+    .op_reqs_o         (op_reqs_o),
+    .op_reqs_valid_o   (op_reqs_valid_o),
+    .op_reqs_ready_i   (op_reqs_ready_i),
+    .op_rsps_i         (op_rsps_i),
+    .op_rsps_valid_i   (op_rsps_valid_i),
+    .op_rsps_ready_o   (op_rsps_ready_o),
+    .slot_id_i         (slot_id_i),
+    .issue_req_o       (issue_req_o),
+    .issue_req_valid_o (issue_req_valid_o),
+    .issue_req_ready_i (issue_req_ready_i),
+    .issue_hs_o        (issue_hs),
+    .slot_o            (slot_issue)
   );
 
   /////////////////////////////////////////////////////
