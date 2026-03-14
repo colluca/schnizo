@@ -337,15 +337,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Operand request mux //
   /////////////////////////
 
-  // Here we connect the RSSs to the ODN. A full crossbar where each slot has
-  // dedicated connections for each operand is infeasible. We thus only provide a certain
-  // amount of ports. One port features a connection for all operands, i.e., can serve one slot
-  // at a time. We always connect the currently active slot on port 0. Any other port can be used
-  // to "prerequest" operands but this is not implemented yet.
-  // This block therefore muxes the operand requests from the RSSs onto the operand request ports.
+  // This block muxes the operand requests from the RSSs onto the operand request ports.
   // Similarly, it demuxes the operand response ports back to the requesting RSSs.
-  // TODO(colluca): should we simplify this description by just assuming we have a single port
-  //                and leaving out all the other details, or moving them elsewhere?
 
   // TODO(colluca): Shouldn't we use "issue" instead of "dispatch" in this comment?
   // Select which RSS currently can place requests based on which RSS is scheduled to dispatch.
@@ -355,34 +348,24 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   rss_idx_t sel_rss;
   assign sel_rss = sel_rss_valid ? disp_idx : '0;
 
-  always_comb begin : op_req_mux
-    op_reqs_o        = '0;
-    op_reqs_valid_o  = '0;
-    op_reqs_ready    = '0;
-    op_rsps          = '0;
-    op_rsps_valid    = '0;
-    op_rsps_ready_o  = '0;
+  // TODO(colluca): use stream mux and demux
+  always_comb begin : operand_mux
+    op_reqs_o       = '0;
+    op_reqs_valid_o = '0;
+    op_reqs_ready   = '0;
+    op_rsps         = '0;
+    op_rsps_valid   = '0;
+    op_rsps_ready_o = '0;
 
-    for (int port = 0; port < NofOpPorts; port++) begin
-      if (port == 0) begin
-        for (int op = 0; op < NofOperands; op++) begin
-          // Request
-          op_reqs_o[port][op] = op_reqs[sel_rss][op];
-          // Tie down if RSS selection is not valid
-          op_reqs_valid_o[port][op]  = op_reqs_valid[sel_rss][op] & sel_rss_valid;
-          op_reqs_ready[sel_rss][op] = op_reqs_ready_i[port][op] & sel_rss_valid;
-          // Response
-          op_rsps[sel_rss][op]       = op_rsps_i[port][op];
-          op_rsps_valid[sel_rss][op] = op_rsps_valid_i[port][op] & sel_rss_valid;
-          op_rsps_ready_o[port][op]  = op_rsps_ready[sel_rss][op] & sel_rss_valid;
-        end
-      end else begin
-        // We only support one port currently
-        // TODO(colluca): remove ports altogether
-        op_reqs_o[port]       = '0;
-        op_reqs_valid_o[port] = '0;
-        op_rsps_ready_o[port] = '0;
-      end
+    for (int op = 0; op < NofOperands; op++) begin
+      op_reqs_o[op] = op_reqs[sel_rss][op];
+      // Tie down if RSS selection is not valid
+      op_reqs_valid_o[op]        = op_reqs_valid[sel_rss][op] && sel_rss_valid;
+      op_reqs_ready[sel_rss][op] = op_reqs_ready_i[op] && sel_rss_valid;
+
+      op_rsps[sel_rss][op]       = op_rsps_i[op];
+      op_rsps_valid[sel_rss][op] = op_rsps_valid_i[op] && sel_rss_valid;
+      op_rsps_ready_o[op]        = op_rsps_ready[sel_rss][op] && sel_rss_valid;
     end
   end
 
