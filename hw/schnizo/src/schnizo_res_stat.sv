@@ -212,7 +212,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
-  logic         [NofRss-1:0] res_iters;
 
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
     assign slot_ids[rss] = slot_id_t'(rss);
@@ -240,14 +239,13 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .clk_i,
       .rst_i,
 
-      .slot_id_i            (rss_idx_t'(rss)),
+      .producer_id_i        (rss_ids[rss]),
       .loop_state_i         (loop_state_i),
       .restart_i            (restart_i),
       .is_last_disp_iter_i  (last_disp_iter),
       .is_last_result_iter_i(last_result_iter),
-      .own_producer_id_i    (rss_ids[rss]),
-      .res_iter_o           (res_iters[rss]),
       .retired_o            (rss_retiring[rss]),
+      .available_result_o   (available_results_o[rss]),
 
       .disp_req_i      (disp_req),
       .disp_req_valid_i(disp_reqs_valid[rss]),
@@ -261,9 +259,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .dest_mask_valid_i(res_reqs_valid_i[rss]),
       .dest_mask_ready_o(res_reqs_ready_o[rss]),
 
-      .res_rsp_o      (res_rsps[rss]),
-      .res_rsp_valid_o(res_rsps_valid[rss]),
-      .res_rsp_ready_i(res_rsps_ready[rss]),
+      .res_rsp_o      (res_rsps_o[rss]),
+      .res_rsp_valid_o(res_rsps_valid_o[rss]),
+      .res_rsp_ready_i(res_rsps_ready_i[rss]),
 
       .op_rsps_i      (op_rsps[rss]),
       .op_rsps_valid_i(op_rsps_valid[rss]),
@@ -335,40 +333,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       end
     end
   end
-
-  ////////////////////////
-  // Result request mux //
-  ////////////////////////
-
-  // Each reservation station can serve only one result at a time. However, to improve performance,
-  // it can serve multiple result requests per cycle if these request the same result, in which
-  // case said requests are said to be "coalesced". The result request mux takes care of muxing and
-  // coalescing result requests.
-  // In addition, it implements a filtering mechanism such that only requests which can currently
-  // be served are handled. Otherwise, deadlocks would occur.
-
-  for (genvar i = 0; i < NofRss; i++) begin : gen_available_results
-    assign available_results_o[i].producer = producer_id_i;
-    assign available_results_o[i].request.requested_iter = res_iters[i];
-    assign available_results_o[i].request.slot_id = slot_ids[i];
-  end
-
-  // Result response:
-  // On the response side we could simplify it to one shared input to the result response crossbar.
-  // However, having an arbiter in the path drastically degrades the critical path.
-  // Therefore we keep a dedicated input for each slot.
-  // TODO(colluca): we anyways have arbiters in the schnizo_xbar_rsp. In particular, we have an
-  //                arbiter for every operand request interface (or RS), which arbitrates responses
-  //                from all RSSs (complexity of #TotalRSS x #RS). Instead, if we arbitrated the
-  //                result responses from all slots in an RS (complexity of #RSS) here, and then
-  //                had a second stage of arbiters across RSs (complexity of #RS) the overall
-  //                complexity should be #TotalRSS + #RS. This I believe should be both in terms
-  //                of routing resources and of gates (i.e. latency). Perhaps Pascal's observation
-  //                was due to subsequent stages not being optimized by the synthesizer because of
-  //                grouping? Check his report.
-  assign res_rsps_o       = res_rsps;
-  assign res_rsps_valid_o = res_rsps_valid;
-  assign res_rsps_ready   = res_rsps_ready_i;
 
   ////////////////////
   // LxP Controller //
