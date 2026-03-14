@@ -335,7 +335,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .rs_slot_t   (rs_slot_t),
     .dest_mask_t (dest_mask_t),
     .res_rsp_t   (res_rsp_t)
-  ) i_res_rsp_generation (
+  ) i_res_req_handling (
     .clk_i             (clk_i),
     .rst_i             (rst_i),
     .slot_q_i          (slot_q),
@@ -357,92 +357,28 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Result capture //
   ////////////////////
 
-  // Capture the result:
-  // - Always if the current result is invalid
-  // - If the current result is valid, result must have been consumed by all consumers
-
-  // The result is consumed when all consumers read the result once
-  logic result_consumed;
-  assign result_consumed = (slot_res_rsp.consumed_by == slot_res_rsp.consumer_count) &&
-                           (slot_res_rsp.consumer_count != '0);
-
-  // The ready may not be dependent on the valid. Otherwise, because of the RF/RSS writeback
-  // synchronization logic, we would have a combinational loop.
-  assign result_ready_o = (result_consumed || !slot_res_rsp.result.is_valid || slot_res_rsp.consumer_count == '0) &&
-    slot_res_rsp.is_occupied;
-
-  // We captured a new result when the stream fork signals the handshake to the FU.
-  // This includes both cases (only RSS as well as RSS and RF).
-  // A store instruction has no result. Thus we capture a dummy result at the same time
-  // we issue the store instruction.
-  assign retired = slot_res_rsp.is_store ? issue_hs : (result_valid_i && result_ready_o);
-
-  // Retired signal back to RS to step the result pointer.
-  // For all instructions except stores, this retired signal is the same as used inside this RSS.
-  // I.e., it is asserted in the cycle we retire the result / handshake it.
-  // For stores this is different as stores have no result and thus retire immediately.
-  // However, we must signal the retirement "in order" to the result pointer.
-  // As loads and stores can be mixed, we could miss the retired signal for a store as it is only
-  // asserted once in the cycle we issue it. But in this cycle the RS result pointer could be set
-  // to an ongoing load. Thus we signal the retired signal always and as soon as the RS result
-  // pointer steps to the store, it immediately "retires" the instruction.
-  // TODO(colluca): does the RS really need a pointer? Or is a counter sufficient? In the latter
-  // case we wouldn't need this differentiation and the RS would just set `retiring` to
-  // |rss_retiring instead of rss_retiring[result_idx]. This would also be easier to extend if
-  // we would at some point want to support multiple instructions retiring in the same cycle,
-  // within the same RS, e.g. due to the presence of pipelines with different latencies.
-  assign retired_o = slot_res_rsp.is_store ? 1'b1 : retired;
-
-  //////////////////
-  // RF writeback //
-  //////////////////
-
-  instr_tag_t rf_wb_tag;
-  always_comb begin
-    // Compose tag
-    rf_wb_tag = '0;
-    rf_wb_tag.dest_reg       = slot_res_rsp.dest_id;
-    rf_wb_tag.dest_reg_is_fp = slot_res_rsp.dest_is_fp;
-    // TODO(colluca): find proper solution for this
-    // HACK:
-    // We directly pass through the branch and jump details to support jumps in LCP1
-    // (where we will fall back into regular HW loop mode). This is possible as the ALU is
-    // single cycle and the dispatch request is valid until we write back.
-    rf_wb_tag.is_branch = disp_req_i.tag.is_branch;
-    rf_wb_tag.is_jump   = disp_req_i.tag.is_jump;
-  end
-  // TODO(colluca): Implicit cast from instr_tag_t to result_tag_t
-  assign rf_wb_tag_o = rf_wb_tag;
-
-  // In LCPx we always write back to the RF. In LEP, we need to write back in the last result
-  // iteration, if we are the last instruction in program order to write to that register
-  // (i.e. if `do_writeback` was set in LCP2). Stores don't writeback.
-  // TODO(colluca): why do we need to mask the do_writeback signal in case of stores?
-  //                Doesn't the LSU simply not raise result_valid_i when it decodes a store?
-  //                And if it does, why?
-  assign rf_do_writeback_o = (loop_state_i == LoopLep) ? (is_last_result_iter_i &&
-    slot_res_rsp.do_writeback && !slot_res_rsp.is_store) : 1'b1;
-
-  //////////////////////////////////////
-  // Slot update after result capture //
-  //////////////////////////////////////
-
   rs_slot_t slot_wb;
 
-  always_comb begin
-    slot_wb = slot_res_rsp;
-    if (retired) begin
-      slot_wb.result.is_valid  = 1'b1;
-      slot_wb.result.iteration = !slot_wb.result.iteration;
-      // Don't update the result FFs for stores.
-      // TODO: Does this MUX really save power (by not updating the FFs) or will it add too much
-      //       logic?
-      // TODO(colluca): to save power we would want to avoid that it switches at all, i.e.
-      // keep the value in slot_q, not '0.
-      slot_wb.result.value     = slot_wb.is_store ? '0 : result_i;
-      slot_wb.consumed_by      = '0;
-    end
-  end
+  schnizo_rss_result_capture #(
+    .rs_slot_t   (rs_slot_t),
+    .result_t    (result_t),
+    .result_tag_t(result_tag_t),
+    .disp_req_t  (disp_req_t)
+  ) i_result_capture (
+    .slot_i               (slot_res_rsp),
+    .issue_hs_i           (issue_hs),
+    .result_i             (result_i),
+    .result_valid_i       (result_valid_i),
+    .loop_state_i         (loop_state_i),
+    .is_last_result_iter_i(is_last_result_iter_i),
+    .disp_req_i           (disp_req_i),
+    .result_ready_o       (result_ready_o),
+    .retired_o            (retired),
+    .retired_rs_o         (retired_o),
+    .rf_wb_tag_o          (rf_wb_tag_o),
+    .rf_do_writeback_o    (rf_do_writeback_o),
+    .slot_o               (slot_wb)
+  );
 
   // Update the slot after all manipulations
   assign slot_d = slot_wb;
