@@ -151,94 +151,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     logic    iteration;
   } rss_result_t;
 
-  // Result metadata and counters — updated by res_req_handling and result_capture.
-  typedef struct packed {
-    // How many consumers use the result of this instruction.
-    logic [ConsumerCountWidth-1:0]  consumer_count;
-    // A counter to keep track how many times the current result has been captured.
-    logic [ConsumerCountWidth-1:0]  consumed_by;
-    // The most recent result.
-    rss_result_t                    result;
-    // TODO(colluca): it should be possible to get rid of this
-    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
-    // Thus, we immediately retire the instruction when it's issued.
-    logic                           no_dest;
-    // The register ID where this instruction does commit into during regular execution.
-    logic [RegAddrWidth-1:0]        dest_id;
-    // Whether the destination register is a floating point or integer register.
-    logic                           dest_is_fp;
-    // Specifying whether the last result of the loop is written into the register defined by
-    // destination id. This flag is defined during LCP and ensures that at the end of the loop
-    // only the last writing instruction does perform a writeback to the RF.
-    logic                           do_writeback;
-  } rs_slot_result_t;
-
-  // Issue-side state — updated by the dispatch pipeline only.
-  // TODO(colluca): put all FU-specific fields into a separate struct that is passed
-  // as a parameter, and instantiated as a “user” field. Otherwise, only mandatory fields used
-  // for control logic should be hardcoded here.
-  typedef struct packed {
-    // Whether the RSS contains an active instruction.
-    logic                           is_occupied;
-    // The instruction itself. Partially decoded. Depends on FU type.
-    // TODO: Can we rely on the synthesis optimization to remove unused signals even if they are
-    //       registered here?
-    alu_op_e                        alu_op;
-    lsu_op_e                        lsu_op;
-    fpu_op_e                        fpu_op;
-    lsu_size_e                      lsu_size;
-    fpnew_pkg::fp_format_e          fpu_fmt_src;
-    fpnew_pkg::fp_format_e          fpu_fmt_dst;
-    fpnew_pkg::roundmode_e          fpu_rnd_mode;
-    // This flag signals to which iteration (“current” or “next”) the currently
-    // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
-    // each time the instruction is issued.
-    logic                           instruction_iter;
-    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
-    // Thus, we immediately retire the instruction when it's issued.
-    logic                           no_dest;
-    // All operands
-    // TODO(colluca): optimize by pulling out of RS. Only one RSS per RS will anyways fetch
-    // operands at any time. One exception is for immediate values, those need to be always
-    // stored, but don't need any of the fields in rss_operand_t beyond `value`.
-    // The other exception is actually for operands that are not produced by other FUs, e.g.
-    // operands that just keep the value from the RF at the time of dispatch.
-    // If we don't buffer these, then we have to be able to fetch them from the RF. Probably
-    // a good compromise would be to have a few registers (less than #operands x #slots) in the
-    // RS to buffer these "non-produced" operands, and fallback to HW loop mode if we run out.
-    rss_operand_t [NofOperands-1:0] operands;
-  } rs_slot_issue_t;
-
-  localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
-
-  typedef struct packed {
-    // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
-    // constant and fetched during LCP1 and LCP2.
-    producer_id_t producer;
-    // Signaling whether this operand is produced or not. If set, the value has to be fetched from
-    // the producer defined by producer_id. If reset, this operand is constant and is fetched in
-    // LCP1 and again in LCP2 and kept for the rest of the loop execution. A constant value can
-    // either be a value read once from a register or an immediate of the instruction.
-    logic         is_produced;
-    // Specifying in which iteration the producer generated the value. If set, the producer is in
-    // the same iteration. If reset, this is a loop-carried dependency.
-    logic         is_from_current_iter;
-    operand_t     value;
-    logic         is_valid;
-    // Set if we placed a request to the producer
-    logic         requested;
-  } rss_operand_t;
-
-  typedef struct packed {
-    result_t value;
-    // If set, the result is valid.
-    logic    is_valid;
-    // This flag signals to which iteration (“current” or “next”) the currently stored value in
-    // the Result buffer belongs to. It is toggled each time a new value is written into the
-    // buffer.
-    logic    iteration;
-  } rss_result_t;
-
   // TODO(colluca): put all FU-specific fields into a separate struct that is passed
   // as a parameter, and instantiated as a "user" field. Otherwise, only mandatory fields used
   // for control logic should be hardcoded here. `is_store` is one of these, so it should be
@@ -304,9 +216,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   rss_idx_t disp_idx;
 
   // loop control
-  logic last_disp_instr;
-  logic last_disp_iter;
-  logic last_result_instr;
   logic last_result_iter;
 
   // Slot states
@@ -452,100 +361,26 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // if the instruction is a store or any other instruction.
   assign retiring = capture_retired_rs;
 
-  // Counters for the index control logic
-  logic [NofRssWidthExt-1:0] disp_count;
-  logic                      disp_inc;
-  logic                      disp_reset;
-
-  logic [NofRssWidthExt-1:0] result_count;
-  logic                      result_inc;
-  logic                      result_reset;
+  // Dispatch and result trip counter outputs
+  rss_cnt_t disp_cnt, result_cnt;
+  logic     last_disp, trip_disp;
+  logic     last_result, trip_result;
 
   logic [MaxIterationsW-1:0] lep_disp_iter_count;
-  logic                      lep_disp_iter_dec;
-  logic                      lep_disp_iter_load;
-  logic [MaxIterationsW-1:0] lep_disp_iter_load_value;
-  logic                      lep_disp_iter_clear;
   logic [MaxIterationsW-1:0] lep_result_iter_count;
 
-  // The number of RSSs allocated during LCP is captured and used during LEP.
-  // We snapshot the dispatch counter on the transition into LEP.
-  logic [NofRssWidthExt-1:0] num_allocated_rss_d, num_allocated_rss_q;
-  assign num_allocated_rss_d = goto_lcp2_i ? disp_count + disp_inc : num_allocated_rss_q;
+  // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
+  // We snapshot the dispatch counter on the LCP1->LCP2 transition.
+  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
+  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + dispatching : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
-  assign last_disp_instr   = disp_count == (num_allocated_rss_q - 1);
-  assign last_disp_iter    = lep_disp_iter_count == 1;
-  assign last_result_instr = result_count == (num_allocated_rss_q - 1);
-  assign last_result_iter  = lep_result_iter_count == 1;
+  assign last_result_iter = lep_result_iter_count == 1;
 
-  assign rs_full_o = (disp_count == NofRss[NofRssWidthExt-1:0]);
+  assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
 
   logic any_instr_captured;
   assign any_instr_captured = (num_allocated_rss_q != '0);
-
-  always_comb begin : counter_control
-    disp_inc     = 1'b0;
-    disp_reset   = 1'b0;
-    result_inc   = 1'b0;
-    result_reset = 1'b0;
-    lep_disp_iter_load    = 1'b0;
-    lep_result_iter_load  = 1'b0;
-    lep_disp_iter_dec     = 1'b0;
-    lep_disp_iter_clear   = 1'b0;
-    lep_result_iter_dec   = 1'b0;
-    lep_result_iter_clear = 1'b0;
-
-    lep_disp_iter_load_value   = lep_iterations_i;
-    lep_result_iter_load_value = lep_iterations_i;
-
-    unique case (loop_state_i)
-      LoopRegular,
-      LoopHwLoop: ; // do nothing
-      LoopLcp1: begin
-        disp_inc   = dispatching;
-        result_inc = retiring;
-        if (goto_lcp2_i) begin
-          disp_reset   = 1'b1;
-          result_reset = 1'b1;
-        end
-      end
-      LoopLcp2: begin
-        disp_inc   = dispatching;
-        result_inc = retiring;
-        // Reset has higher prio than increment
-        disp_reset   = last_disp_instr && dispatching;
-        result_reset = last_result_instr && retiring;
-        // Load the iteration counters
-        lep_disp_iter_load   = 1'b1;
-        lep_result_iter_load = 1'b1;
-      end
-      LoopLep: begin
-        disp_inc     = dispatching;
-        result_inc   = retiring;
-        // Reset has higher prio than increment
-        disp_reset   = last_disp_instr && dispatching;
-        result_reset = last_result_instr && retiring;
-        // Iteration handling - iteration has finished when instr counters wrap
-        lep_disp_iter_dec   = disp_reset;
-        // Decrement the iteration counter as long as there are results to capture.
-        // This counter can underflow in case we have only store instructions. Reason is that any
-        // store instruction always retires because there is no result to capture. We therefore let
-        // the result counter immediately count down to zero.
-        // TODO(colluca): not sure what this means
-        lep_result_iter_dec = (lep_result_iter_count > '0) ? result_reset : 1'b0;
-      end
-      default: ; // do nothing
-    endcase
-
-    // Reset the RS
-    if (restart_i) begin
-      disp_reset        = 1'b1;
-      result_reset      = 1'b1;
-      lep_disp_iter_clear   = 1'b1;
-      lep_result_iter_clear = 1'b1;
-    end
-  end
 
   // ---------------------------
   // Finish detection
@@ -558,8 +393,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                driving lcp_finish_o. What does the schnizo_controller really need to know?
 
   logic lcp_finished, lcp_finish;
-  logic lep_finished, lep_finished_result, lep_finished_alternatively;
-  logic lep_finish, lep_finish_disp, lep_finish_result;
+  logic lep_finished, lep_finished_result;
+  logic lep_finish, lep_finish_result;
   logic lep_finished_disp;
 
   // In LCP1 and LCP2 the RS has finished all instructions if:
@@ -588,18 +423,31 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                asserted. In other words, the RHS of the || is not useful (except maybe
   //                for "retiring"). We could test this with an assertion
   assign lcp_finish =
-    (lcp_finished || ((disp_count == result_count) && retiring)) && !disp_req_valid_i &&
+    (lcp_finished || ((disp_cnt == result_cnt) && retiring)) && !disp_req_valid_i &&
     (loop_state_i inside {LoopLcp1, LoopLcp2});
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
   // AND
-  // - The FUs are not busy, i.e. all results have been captured
-  assign lep_finished_issue = lep_issue_iter_count == '0;
-  assign lep_finished = ((loop_state_i == LoopLep) && lep_finished_issue && !fu_busy_i)
-                        || !any_instr_captured;
+  // - All results are captured
+  assign lep_finished_disp   = lep_disp_iter_count == '0;
+  assign lep_finished_result = lep_result_iter_count == '0;
+  // Stores will immediately finish the result iterations. Thus we need to factor in the dispatch
+  // pointer.
+  // TODO(colluca): why would the dispatch pointer not be incremented if the result pointer is?
+  //                By definition, dispatch happens strictly before, or in the same cycle, as
+  //                result capture
+  assign lep_finished        = (lep_finished_result && lep_finished_disp) || !any_instr_captured;
+  // This should be equivalent to:
+  // - There is no instruction in flight & no dispatch request is pending
+  // This approach could make the result iteration counter obsolete. But we must ensure that there
+  // is always a valid dispatch request during the whole LEP. However, the finish detection anyway
+  // requires the result iteration counter.
+  // TODO(colluca): since we settled for using this, clean up all the legacy logic
+  assign lep_finish = ((loop_state_i == LoopLep) && lep_finished_disp && !fu_busy_i)
+                                      || !any_instr_captured;
 
-  always_comb begin : loop_finish
+  always_comb begin : finish_selection
     loop_finish_o = 1'b0;
     unique case (loop_state_i)
       LoopRegular,
@@ -780,55 +628,53 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .result_tag_t(result_tag_t),
     .disp_req_t  (disp_req_t)
   ) i_result_capture (
-    .slot_i              (slot_res_rsps[result_rss_sel]),
-    .issue_hs_i          (issue_hs && (disp_idx == result_rss_sel)),
-    .result_i            (result_i),
-    .result_valid_i      (rss_wb_valid_sync),
-    .loop_state_i        (loop_state_i),
+    .slot_i               (slot_res_rsps[result_rss_sel]),
+    .issue_hs_i           (issue_hs && (disp_idx == result_rss_sel)),
+    .result_i             (result_i),
+    .result_valid_i       (rss_wb_valid_sync),
+    .loop_state_i         (loop_state_i),
     .is_last_result_iter_i(last_result_iter),
-    .disp_req_i          (disp_req),
-    .result_ready_o      (rss_wb_ready_sync),
-    .retired_o           (capture_retired),
-    .retired_rs_o        (capture_retired_rs),
-    .rf_wb_tag_o         (capture_rf_wb_tag),
-    .rf_do_writeback_o   (capture_rf_do_writeback),
-    .slot_o              (slot_wb_capture)
+    .disp_req_i           (disp_req),
+    .result_ready_o       (rss_wb_ready_sync),
+    .retired_o            (capture_retired),
+    .retired_rs_o         (capture_retired_rs),
+    .rf_wb_tag_o          (capture_rf_wb_tag),
+    .rf_do_writeback_o    (capture_rf_do_writeback),
+    .slot_o               (slot_wb_capture)
   );
 
   //////////////
   // Counters //
   //////////////
 
-  counter #(
-    .WIDTH          (NofRssWidthExt),
-    .STICKY_OVERFLOW(0)
+  trip_counter #(
+    .WIDTH(NofRssWidthExt)
   ) i_disp_counter (
     .clk_i,
-    .rst_ni    (!rst_i),
-    .clear_i   (disp_reset),
-    .en_i      (disp_inc),
-    .load_i    ('0),
-    .down_i    ('0),
-    .d_i       ('0),
-    .q_o       (disp_count),
-    .overflow_o()
+    .rst_ni  (!rst_i),
+    .clear_i (goto_lcp2_i || restart_i),
+    .en_i    (dispatching),
+    .delta_i (rss_cnt_t'(1)),
+    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .q_o     (disp_cnt),
+    .last_o  (last_disp),
+    .trip_o  (trip_disp)
   );
 
-  assign disp_idx = disp_count[NofRssWidth-1:0];
+  assign disp_idx = disp_cnt[NofRssWidth-1:0];
 
-  counter #(
-    .WIDTH          (NofRssWidthExt),
-    .STICKY_OVERFLOW(0)
+  trip_counter #(
+    .WIDTH(NofRssWidthExt)
   ) i_result_counter (
     .clk_i,
-    .rst_ni    (!rst_i),
-    .clear_i   (result_reset),
-    .en_i      (result_inc),
-    .load_i    ('0),
-    .down_i    ('0),
-    .d_i       ('0),
-    .q_o       (result_count),
-    .overflow_o()
+    .rst_ni  (!rst_i),
+    .clear_i (goto_lcp2_i || restart_i),
+    .en_i    (retiring),
+    .delta_i (rss_cnt_t'(1)),
+    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .q_o     (result_cnt),
+    .last_o  (last_result),
+    .trip_o  (trip_result)
   );
 
   counter #(
@@ -837,11 +683,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   ) i_lep_issue_iter_counter (
     .clk_i,
     .rst_ni    (!rst_i),
-    .clear_i   (lep_disp_iter_clear),
-    .en_i      (lep_disp_iter_dec),
-    .load_i    (lep_disp_iter_load),
+    .clear_i   (restart_i),
+    .en_i      ((loop_state_i == LoopLep) && trip_disp),
+    .load_i    (loop_state_i == LoopLcp2),
     .down_i    (1'b1),
-    .d_i       (lep_disp_iter_load_value),
+    .d_i       (lep_iterations_i),
     .q_o       (lep_disp_iter_count),
     .overflow_o()
   );
@@ -852,9 +698,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   ) i_lep_result_iter_counter (
     .clk_i,
     .rst_ni    (!rst_i),
-    .clear_i   (lep_result_iter_clear),
-    .en_i      (lep_result_iter_dec),
-    .load_i    (lep_result_iter_load),
+    .clear_i   (restart_i),
+    .en_i      ((loop_state_i == LoopLep) && trip_result && (lep_result_iter_count > '0)),
+    .load_i    (loop_state_i == LoopLcp2),
     .down_i    (1'b1),
     .d_i       (lep_iterations_i),
     .q_o       (lep_result_iter_count),
