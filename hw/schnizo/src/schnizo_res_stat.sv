@@ -215,9 +215,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // The pointers / indexes to select the appropriate RSS.
   rss_idx_t disp_idx;
 
-  // loop control
-  logic last_result_iter;
-
   // Slot states
   rs_slot_t [NofRss-1:0] slot_qs;         // registered state from each slot
   rs_slot_t [NofRss-1:0] slot_ds;         // next state for each slot
@@ -350,15 +347,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                already has these, and if it needs other information this is all we should
   //                provide it with.
 
-  logic dispatching;
+  logic dispatch_hs;
+  assign dispatch_hs = disp_req_valid && disp_req_ready;
 
-  assign dispatching = disp_req_valid && disp_req_ready;
-
-  logic retiring;
   // An instruction retires as soon as the result is handshaked, i.e.:
   // assign retiring = result_valid_i && result_ready_o;
   // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
   // if the instruction is a store or any other instruction.
+  logic retiring;
   assign retiring = capture_retired_rs;
 
   // Dispatch and result trip counter outputs
@@ -372,9 +368,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
   rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
-  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + dispatching : num_allocated_rss_q;
+  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + dispatch_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
+  logic last_result_iter;
   assign last_result_iter = lep_result_iter_count == 1;
 
   assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
@@ -387,67 +384,25 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // ---------------------------
 
   logic lcp_finished;
-  logic lep_finished_issue, lep_finished;
+  logic lep_finished_disp, lep_finished;
 
-  // TODO(colluca): lcp finish signals seem overly complex to me. They are only used in
-  //                driving lcp_finish_o. What does the schnizo_controller really need to know?
-
-  logic lcp_finished, lcp_finish;
-  logic lep_finished, lep_finished_result;
-  logic lep_finish, lep_finish_result;
-  logic lep_finished_disp;
-
-  // In LCP1 and LCP2 the RS has finished all instructions if:
-  // - No dispatch request is pending
-  // - There is no instruction in flight
-  // The FU's busy flag is asserted as long as there is valid data in the path. This includes
-  // valid data at the output and thus the FU is busy also in the cycle in which we retire
-  // the instruction.
-  // TODO(colluca): why do we need disp_req_valid_i?
-  // TODO(colluca): this signal doesn't really tell us that we're finished with LCP,
-  //                just that we are idle. It is probably additionally masked in the controller
-  //                to determine if we are actually finished. Update description comment.
-  assign lcp_finished = !fu_busy_i && !disp_req_valid_i && !disp_req_valid_i_q &&
-                        (loop_state_i inside {LoopLcp1, LoopLcp2});
-
-  // In LCP1 and LCP2 we finish in this cycle if:
-  // - We have already finished
-  // OR
-  // - The result index is at the dispatch index and we retire in this cycle.
-  // In LCP the dispatch index can never overtake the result pointer as we only increment the
-  // index and never have a wrap around. A wrap around would only occur if we run out of slots.
-  // But this can never happen as we would revert to regular loop execution if there are not
-  // enough slots.
-  // TODO(colluca): clarify what "overtake" means
-  // TODO(colluca): my impression is that if this signal is asserted, lcp_finished is also
-  //                asserted. In other words, the RHS of the || is not useful (except maybe
-  //                for "retiring"). We could test this with an assertion
-  assign lcp_finish =
-    (lcp_finished || ((disp_cnt == result_cnt) && retiring)) && !disp_req_valid_i &&
-    (loop_state_i inside {LoopLcp1, LoopLcp2});
+  // In LCP the loop controller knows when we are in the last loop iteration.
+  // All it needs to know from the RS is if the FU has retired all instructions.
+  // `fu_busy_i` is asserted also when the output of the FU is valid, but in this cycle
+  // the instruction may already be retiring, so to not waste a cycle we separately
+  // include this condition.
+  assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
+                        ((disp_cnt == result_cnt) && retiring));
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
   // AND
-  // - All results are captured
-  assign lep_finished_disp   = lep_disp_iter_count == '0;
-  assign lep_finished_result = lep_result_iter_count == '0;
-  // Stores will immediately finish the result iterations. Thus we need to factor in the dispatch
-  // pointer.
-  // TODO(colluca): why would the dispatch pointer not be incremented if the result pointer is?
-  //                By definition, dispatch happens strictly before, or in the same cycle, as
-  //                result capture
-  assign lep_finished        = (lep_finished_result && lep_finished_disp) || !any_instr_captured;
-  // This should be equivalent to:
-  // - There is no instruction in flight & no dispatch request is pending
-  // This approach could make the result iteration counter obsolete. But we must ensure that there
-  // is always a valid dispatch request during the whole LEP. However, the finish detection anyway
-  // requires the result iteration counter.
-  // TODO(colluca): since we settled for using this, clean up all the legacy logic
-  assign lep_finish = ((loop_state_i == LoopLep) && lep_finished_disp && !fu_busy_i)
-                                      || !any_instr_captured;
+  // - The FUs are not busy, i.e. all results have been captured
+  assign lep_finished_disp = lep_disp_iter_count == '0;
+  assign lep_finished = ((loop_state_i == LoopLep) && lep_finished_disp && !fu_busy_i)
+                        || !any_instr_captured;
 
-  always_comb begin : finish_selection
+  always_comb begin : loop_finish
     loop_finish_o = 1'b0;
     unique case (loop_state_i)
       LoopRegular,
@@ -653,7 +608,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
-    .en_i    (dispatching),
+    .en_i    (dispatch_hs),
     .delta_i (rss_cnt_t'(1)),
     .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
