@@ -13,13 +13,10 @@
 //      information for the superscalar execution.
 module schnizo_res_stat_slot import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 2,
-  parameter type         disp_req_t     = logic,
   parameter type         producer_id_t  = logic,
   parameter type         operand_req_t  = logic,
   parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic,
-  parameter type         result_t       = logic,
-  parameter type         result_tag_t   = logic,
   parameter type         rs_slot_t      = logic
 ) (
   input  logic clk_i,
@@ -31,10 +28,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic         restart_i,
   // Asserted for last LEP dispatch iteration to end the operand fetching.
   input  logic         is_last_disp_iter_i,
-  // Asserted for last LEP result iteration to perform the possible writeback (based on result iteration).
-  input  logic         is_last_result_iter_i,
-  // Asserted in the cycle the instruction retires.
-  output logic         retired_o,
   input  loop_state_e  loop_state_i,
   // Info on the result stored in the slot.
   output operand_req_t available_result_o,
@@ -43,11 +36,12 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   output rs_slot_t     slot_q_o,
   // Post-dispatch-pipeline slot state (from the shared dispatch pipeline at RS level)
   input  rs_slot_t     slot_issue_i,
-  // Issue handshake from the shared dispatch pipeline
-  input  logic         issue_hs_i,
-
-  // Dispatch interface
-  input  disp_req_t disp_req_i,
+  // Post-res_req_handling slot state (input to the shared result capture at RS level)
+  output rs_slot_t     slot_res_rsp_o,
+  // Post-result-capture slot state (from the shared result capture at RS level)
+  input  rs_slot_t     slot_wb_i,
+  // Retired signal from the shared result capture (for the res_req_handling state machine)
+  input  logic         retired_i,
 
   // Result request interface - incoming - translated operand request
   // Result requests are converted to destination masks (where to send the result to) at RS level.
@@ -58,23 +52,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Result response interface - outgoing - result as operand response
   output res_rsp_t res_rsp_o,
   output logic     res_rsp_valid_o,
-  input  logic     res_rsp_ready_i,
-
-  // FU result interface
-  input  result_t result_i,
-  input  logic    result_valid_i,
-  output logic    result_ready_o,
-
-  // RF writeback interface
-  output result_tag_t rf_wb_tag_o,
-  output logic        rf_do_writeback_o
+  input  logic     res_rsp_ready_i
 );
-
-  /////////////////
-  // Connections //
-  /////////////////
-
-  logic retired;
 
   //////////
   // Slot //
@@ -107,6 +86,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   `FFAR(slot_q, slot_d, slot_reset_value, clk_i, rst_i);
 
   assign slot_q_o = slot_q;
+  assign slot_d   = slot_wb_i;
 
   /////////////////////////////////////////////////////
   // Result request handling and response generation //
@@ -125,7 +105,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .rst_i             (rst_i),
     .slot_q_i          (slot_q),
     .slot_i            (slot_issue_i),
-    .retired_i         (retired),
+    .retired_i         (retired_i),
     .loop_state_i      (loop_state_i),
     .restart_i         (restart_i),
     .dest_mask_i       (dest_mask_i),
@@ -139,34 +119,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .slot_o            (slot_res_rsp)
   );
 
-  ////////////////////
-  // Result capture //
-  ////////////////////
-
-  rs_slot_t slot_wb;
-
-  schnizo_rss_result_capture #(
-    .rs_slot_t   (rs_slot_t),
-    .result_t    (result_t),
-    .result_tag_t(result_tag_t),
-    .disp_req_t  (disp_req_t)
-  ) i_result_capture (
-    .slot_i               (slot_res_rsp),
-    .issue_hs_i           (issue_hs_i),
-    .result_i             (result_i),
-    .result_valid_i       (result_valid_i),
-    .loop_state_i         (loop_state_i),
-    .is_last_result_iter_i(is_last_result_iter_i),
-    .disp_req_i           (disp_req_i),
-    .result_ready_o       (result_ready_o),
-    .retired_o            (retired),
-    .retired_rs_o         (retired_o),
-    .rf_wb_tag_o          (rf_wb_tag_o),
-    .rf_do_writeback_o    (rf_do_writeback_o),
-    .slot_o               (slot_wb)
-  );
-
-  // Update the slot after all manipulations
-  assign slot_d = slot_wb;
+  assign slot_res_rsp_o = slot_res_rsp;
 
 endmodule

@@ -300,18 +300,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic                   disp_req_ready;
   logic                   disp_req_internal_valid;
   logic                   disp_req_internal_ready; // unused, internal disp logic is always valid
-  logic      [NofRss-1:0] rss_retiring;
 
   // The pointers / indexes to select the appropriate RSS.
   rss_idx_t disp_idx;
   rss_idx_t result_idx;
-
-  // To / from FU and RF writeback
-  result_t     [NofRss-1:0] results;
-  logic        [NofRss-1:0] results_valid;
-  logic        [NofRss-1:0] results_ready;
-  result_tag_t [NofRss-1:0] rf_wb_tags;
-  logic        [NofRss-1:0] rf_do_writebacks;
 
   // loop control
   logic last_disp_instr;
@@ -320,9 +312,18 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic last_result_iter;
 
   // Slot states
-  rs_slot_t [NofRss-1:0] slot_qs;    // registered state from each slot
-  rs_slot_t              slot_issue; // post-dispatch-pipeline state for the selected slot
-  logic                  issue_hs;   // issue handshake from the shared dispatch pipeline
+  rs_slot_t [NofRss-1:0] slot_qs;         // registered state from each slot
+  rs_slot_t              slot_issue;      // post-dispatch-pipeline state for the selected slot
+  logic                  issue_hs;        // issue handshake from the shared dispatch pipeline
+  rs_slot_t [NofRss-1:0] slot_res_rsps;   // post-res_req_handling state from each slot
+  rs_slot_t              slot_wb_capture; // post-result-capture state for the selected slot
+  logic                  capture_retired;         // retired signal for the selected slot
+  logic                  capture_retired_rs;      // retired_rs signal for RS result pointer
+  result_tag_t           capture_rf_wb_tag;       // RF writeback tag from result capture
+  logic                  capture_rf_do_writeback; // RF writeback enable from result capture
+
+  rss_idx_t result_rss_sel;
+  assign result_rss_sel = rss_idx_t'(result_tag_i);
 
   //////////////////////////
   // Cut dispatch request //
@@ -373,6 +374,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic sel_rss_valid;
   assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
 
+  // In case the result index overflows, suppress the retiring signal.
+  logic sel_result_valid;
+  assign sel_result_valid = (result_idx < NofRss) ? 1'b1 : 1'b0;
+
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
     assign slot_ids[rss] = slot_id_t'(rss);
     assign rss_ids[rss] = producer_id_t'{
@@ -382,31 +387,26 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
     schnizo_res_stat_slot #(
       .NofOperands  (NofOperands),
-      .disp_req_t   (disp_req_t),
       .producer_id_t(producer_id_t),
       .operand_req_t(operand_req_t),
       .dest_mask_t  (dest_mask_t),
       .res_rsp_t    (res_rsp_t),
-      .result_t     (result_t),
-      .result_tag_t (result_tag_t),
       .rs_slot_t    (rs_slot_t)
     ) i_rss (
       .clk_i,
       .rst_i,
 
-      .producer_id_i        (rss_ids[rss]),
-      .loop_state_i         (loop_state_i),
-      .restart_i            (restart_i),
-      .is_last_disp_iter_i  (last_disp_iter),
-      .is_last_result_iter_i(last_result_iter),
-      .retired_o            (rss_retiring[rss]),
-      .available_result_o   (available_results_o[rss]),
+      .producer_id_i      (rss_ids[rss]),
+      .loop_state_i       (loop_state_i),
+      .restart_i          (restart_i),
+      .is_last_disp_iter_i(last_disp_iter),
+      .available_result_o (available_results_o[rss]),
 
       .slot_q_o    (slot_qs[rss]),
       .slot_issue_i(sel_rss_valid && (rss_idx_t'(rss) == disp_idx) ? slot_issue : slot_qs[rss]),
-      .issue_hs_i  (sel_rss_valid && (rss_idx_t'(rss) == disp_idx) ? issue_hs : 1'b0),
-
-      .disp_req_i(disp_req),
+      .slot_res_rsp_o(slot_res_rsps[rss]),
+      .slot_wb_i   (sel_result_valid && (rss_idx_t'(rss) == result_rss_sel) ? slot_wb_capture : slot_res_rsps[rss]),
+      .retired_i   (sel_result_valid && (rss_idx_t'(rss) == result_rss_sel) ? capture_retired : 1'b0),
 
       .dest_mask_i      (res_reqs_i[rss]),
       .dest_mask_valid_i(res_reqs_valid_i[rss]),
@@ -414,14 +414,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
       .res_rsp_o      (res_rsps_o[rss]),
       .res_rsp_valid_o(res_rsps_valid_o[rss]),
-      .res_rsp_ready_i(res_rsps_ready_i[rss]),
-
-      .result_i      (results[rss]),
-      .result_valid_i(results_valid[rss]),
-      .result_ready_o(results_ready[rss]),
-
-      .rf_wb_tag_o      (rf_wb_tags[rss]),
-      .rf_do_writeback_o(rf_do_writebacks[rss])
+      .res_rsp_ready_i(res_rsps_ready_i[rss])
     );
 
   end
@@ -443,8 +436,13 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic issue_hs;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
 
-  logic result_hs;
-  assign result_hs = result_valid_i && result_ready_o;
+  logic retiring;
+  // An instruction retires as soon as the result is handshaked, i.e.:
+  // assign retiring    = result_valid_i && result_ready_o;
+  // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
+  // if the instruction is a store or any other instruction.
+  // The result pointer can point to +1 of NofRSS. We thus have to limit it inside the range.
+  assign retiring = sel_result_valid ? capture_retired_rs : 1'b0;
 
   logic retire_at_issue;
 
@@ -646,44 +644,73 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .N_OUP(32'd2)
   ) i_result_fork (
     .clk_i,
-    .rst_i,
-    .producer_id_i     (producer_id_i),
-    .restart_i         (restart_i),
-    .loop_state_i      (loop_state_i),
-    .disp_idx_i        (disp_idx),
-    .issue_idx_i       (issue_idx),
-    .last_issue_iter_i (lep_issue_iter_count == 1),
-    .last_result_iter_i(last_result_iter),
-    .retire_at_issue_o (retire_at_issue),
-    .disp_req_i        (disp_req_i_q),
-    .disp_req_valid_i  (disp_req_valid),
-    .disp_req_ready_o  (disp_req_ready),
-    .disp_rsp_o        (disp_rsp_o),
-    .issue_req_o,
-    .issue_req_valid_o,
-    .issue_req_ready_i,
-    .instr_exec_commit_o,
-    .result_i,
-    .result_tag_i,
-    .result_valid_i,
-    .result_ready_o,
-    .rf_wb_result_o,
-    .rf_wb_tag_o,
-    .rf_wb_valid_o,
-    .rf_wb_ready_i,
-    .available_results_o,
-    .op_reqs_o,
-    .op_reqs_valid_o,
-    .op_reqs_ready_i,
-    .res_reqs_i,
-    .res_reqs_valid_i,
-    .res_reqs_ready_o,
-    .res_rsps_o,
-    .res_rsps_valid_o,
-    .res_rsps_ready_i,
-    .op_rsps_i,
-    .op_rsps_valid_i,
-    .op_rsps_ready_o
+    .rst_ni (!rst_i),
+    .valid_i(result_valid_i),
+    .ready_o(result_ready_o),
+    .valid_o({rf_wb_valid, rss_wb_valid}),
+    .ready_i({rf_wb_ready, rss_wb_ready})
+  );
+
+  ///////////////////////////////////////
+  // Synchronize RF and RSS writebacks //
+  ///////////////////////////////////////
+
+  logic rf_do_writeback;
+
+  logic rss_wb_valid_sync, rss_wb_ready_sync;
+  logic rf_wb_valid_sync, rf_wb_ready_sync;
+  logic rss_wb_enable;
+
+  assign rf_do_writeback = capture_rf_do_writeback;
+
+  // Synchronize the two streams, otherwise it may occur that a result
+  // capture event preceeds an issue event, with single-cycle FUs.
+  // While this does not seem to compromise correctness, it does complicate the
+  // tracer design, and it does go against the expectation that issue
+  // precedes result capture.
+  assign rf_wb_valid_sync = rf_wb_valid && rss_wb_ready_sync;
+  assign rf_wb_ready = rf_wb_ready_sync && rss_wb_ready_sync;
+  assign rss_wb_enable = rf_do_writeback ? rf_wb_valid_sync && rf_wb_ready_sync : 1'b1;
+  assign rss_wb_valid_sync = rss_wb_valid && rss_wb_enable;
+  assign rss_wb_ready = rss_wb_ready_sync && rss_wb_enable;
+
+  //////////////////
+  // RF writeback //
+  //////////////////
+
+  stream_filter i_filter_rf_writeback (
+    .valid_i(rf_wb_valid_sync),
+    .ready_o(rf_wb_ready_sync),
+    .drop_i (!rf_do_writeback),
+    .valid_o(rf_wb_valid_o),
+    .ready_i(rf_wb_ready_i)
+  );
+  assign rf_wb_result_o = result_i;
+  assign rf_wb_tag_o    = capture_rf_wb_tag;
+
+  /////////////////////
+  // Result capture  //
+  /////////////////////
+
+  schnizo_rss_result_capture #(
+    .rs_slot_t   (rs_slot_t),
+    .result_t    (result_t),
+    .result_tag_t(result_tag_t),
+    .disp_req_t  (disp_req_t)
+  ) i_result_capture (
+    .slot_i              (slot_res_rsps[result_rss_sel]),
+    .issue_hs_i          (issue_hs && (disp_idx == result_rss_sel)),
+    .result_i            (result_i),
+    .result_valid_i      (rss_wb_valid_sync),
+    .loop_state_i        (loop_state_i),
+    .is_last_result_iter_i(last_result_iter),
+    .disp_req_i          (disp_req),
+    .result_ready_o      (rss_wb_ready_sync),
+    .retired_o           (capture_retired),
+    .retired_rs_o        (capture_retired_rs),
+    .rf_wb_tag_o         (capture_rf_wb_tag),
+    .rf_do_writeback_o   (capture_rf_do_writeback),
+    .slot_o              (slot_wb_capture)
   );
 
   //////////////
