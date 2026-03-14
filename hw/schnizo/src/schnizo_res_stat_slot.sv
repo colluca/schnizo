@@ -13,20 +13,14 @@
 //      information for the superscalar execution.
 module schnizo_res_stat_slot import schnizo_pkg::*; #(
   parameter int unsigned NofOperands    = 2,
-  parameter int unsigned ConsumerCount  = 16,
-  // The bits to address all registers
-  parameter int unsigned RegAddrWidth   = 5,
-  parameter type         rss_idx_t      = logic,
   parameter type         disp_req_t     = logic,
   parameter type         producer_id_t  = logic,
   parameter type         operand_req_t  = logic,
-  parameter type         operand_t      = logic,
-  parameter type         res_req_t      = logic,
   parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic,
-  parameter type         issue_req_t    = logic,
   parameter type         result_t       = logic,
-  parameter type         result_tag_t   = logic
+  parameter type         result_tag_t   = logic,
+  parameter type         rs_slot_t      = logic
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -45,15 +39,15 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // Info on the result stored in the slot.
   output operand_req_t available_result_o,
 
+  // Registered slot state (for the shared dispatch pipeline input mux at RS level)
+  output rs_slot_t     slot_q_o,
+  // Post-dispatch-pipeline slot state (from the shared dispatch pipeline at RS level)
+  input  rs_slot_t     slot_issue_i,
+  // Issue handshake from the shared dispatch pipeline
+  input  logic         issue_hs_i,
+
   // Dispatch interface
   input  disp_req_t disp_req_i,
-  input  logic      disp_req_valid_i,
-  output logic      disp_req_ready_o,
-
-  // Operand request interface - outgoing - request a result as operand
-  output operand_req_t [NofOperands-1:0] op_reqs_o,
-  output logic         [NofOperands-1:0] op_reqs_valid_o,
-  input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - translated operand request
   // Result requests are converted to destination masks (where to send the result to) at RS level.
@@ -66,16 +60,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   output logic     res_rsp_valid_o,
   input  logic     res_rsp_ready_i,
 
-  // Operand response interface - incoming - returning result as operand
-  input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i,
-  output logic     [NofOperands-1:0] op_rsps_ready_o,
-
-  // Issue interface
-  output issue_req_t issue_req_o,
-  output logic       issue_req_valid_o,
-  input  logic       issue_req_ready_i,
-
   // FU result interface
   input  result_t result_i,
   input  logic    result_valid_i,
@@ -86,95 +70,10 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   output logic        rf_do_writeback_o
 );
 
-  /////////////////////////////////////
-  // Parameters and type definitions //
-  /////////////////////////////////////
-
-  localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
-
-  typedef struct packed {
-    // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
-    // constant and fetched during LCP1 and LCP2.
-    producer_id_t producer;
-    // Signaling whether this operand is produced or not. If set, the value has to be fetched from
-    // the producer defined by producer_id. If reset, this operand is constant and is fetched in
-    // LCP1 and again in LCP2 and kept for the rest of the loop execution. A constant value can
-    // either be a value read once from a register or an immediate of the instruction.
-    logic         is_produced;
-    // Specifying in which iteration the producer generated the value. If set, the producer is in
-    // the same iteration. If reset, this is a loop-carried dependency.
-    logic         is_from_current_iter;
-    operand_t     value;
-    logic         is_valid;
-    // Set if we placed a request to the producer
-    logic         requested;
-  } rss_operand_t;
-
-  typedef struct packed {
-    result_t value;
-    // If set, the result is valid.
-    logic    is_valid;
-    // This flag signals to which iteration (“current” or “next”) the currently stored value in
-    // the Result buffer belongs to. It is toggled each time a new value is written into the
-    // buffer.
-    logic    iteration;
-  } rss_result_t;
-
-  // TODO(colluca): put all FU-specific fields into a separate struct that is passed
-  // as a parameter, and instantiated as a "user" field. Otherwise, only mandatory fields used
-  // for control logic should be hardcoded here. `is_store` is one of these, so it should be
-  // renamed to reflect its FU-independent function.
-  typedef struct packed  {
-    // Whether the RSS contains an active instruction.
-    logic                           is_occupied;
-    // How many consumer use the result of this instruction.
-    logic [ConsumerCountWidth-1:0]  consumer_count;
-    // A counter to keep track how many times the current result has been captured.
-    logic [ConsumerCountWidth-1:0]  consumed_by;
-    // The instruction itself. Partially decoded. Depends on FU type.
-    // TODO: Can we rely on the synthesis optimization to remove unused signals even if they are
-    //       registered here?
-    alu_op_e                        alu_op;
-    lsu_op_e                        lsu_op;
-    fpu_op_e                        fpu_op;
-    lsu_size_e                      lsu_size;
-    // A store instruction never generates a result. Thus we immediately accept a result when
-    // issuing the instruction.
-    logic                           is_store;
-    fpnew_pkg::fp_format_e          fpu_fmt_src;
-    fpnew_pkg::fp_format_e          fpu_fmt_dst;
-    fpnew_pkg::roundmode_e          fpu_rnd_mode;
-    // The most recent result
-    rss_result_t                    result;
-    // This flag signals to which iteration (“current” or “next”) the currently
-    // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
-    // each time the instruction is issued.
-    logic                           instruction_iter;
-    // The register ID where this instruction does commit into during regular execution.
-    logic [RegAddrWidth-1:0]        dest_id;
-    // Whether the destination register is a floating point or integer register.
-    logic                           dest_is_fp;
-    // Specifying whether the last result of the loop is written into the register defined by
-    // destination id. This flag is defined during LCP and ensures that at the end of the loop
-    // only the last writing instruction does perform a writeback to the RF.
-    logic                           do_writeback;
-    // All operands
-    // TODO(colluca): optimize by pulling out of RS. Only one RSS per RS will anyways fetch
-    // operands at any time. One exception is for immediate values, those need to be always
-    // stored, but don't need any of the fields in rss_operand_t beyond `value`.
-    // The other exception is actually for operands that are not produced by other FUs, e.g.
-    // operands that just keep the value from the RF at the time of dispatch.
-    // If we don't buffer these, then we have to be able to fetch them from the RF. Probably
-    // a good compromise would be to have a few registers (less than #operands x #slots) in the
-    // RS to buffer these "non-produced" operands, and fallback to HW loop mode if we run out.
-    rss_operand_t [NofOperands-1:0] operands;
-  } rs_slot_t;
-
   /////////////////
   // Connections //
   /////////////////
 
-  logic issue_hs;
   logic retired;
 
   //////////
@@ -207,79 +106,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
 
   `FFAR(slot_q, slot_d, slot_reset_value, clk_i, rst_i);
 
-  /////////////////
-  // Slot Update //
-  /////////////////
-
-  // The slot FF is updated in multiple steps depending on the current slot state.
-  // The update logic dependencies are shown below.
-  // The operand requests pass via the Operand Distribution Network (ODN).
-  //
-  //                                                              Result req / rsp can be in same or other RSS
-  //             +-----------------+    +-------------------+                      +-----------------------+
-  // Disp req -->| Initial update  |--->| OP req generation |--------------------->| Result req handling   |
-  //             +-----------------+    +-------------------+       via ODN        +-----------------------+
-  //                  ^       ^                   |                                            | here we could add a queue / timing cut
-  //                  |       |                   v                                            v
-  // LxP state -------+       |         +-------------------+                      +-----------------------+
-  //                          |         | Op rsp handling   |<---------------------| Result rsp generation |
-  //         +----------------+         +-------------------+       via ODN        +-----------------------+
-  //         |                                    |                                       |        ^
-  //         |                                    v                                       |        |
-  //         |                          +-------------------+                             |        |
-  //         |            +-------------| Issue             |                             |        |
-  //         |            |             +-------------------+                             |        |
-  //         |            |                       |                                       |        |
-  //         |   +-----------------+              v                                       |        |
-  //         |   | Functional Unit |              o<--------------------------------------+        |
-  //         |   +-----------------+              |  Merge the updates                             |
-  //         |            |                       v                                                |
-  //         |            |             +-------------------+                                      |
-  //         |            +------------>| Result capture    |                                      |
-  //         |                          +-------------------+                                      |
-  //         |                                    |                                                |
-  //         |                                    v                                                |
-  //         |                          +-------------------+                                      |
-  //         |                          |> Slot FF          |                                      |
-  //         |                          +-------------------+                                      |
-  //         |                                    |                                                |
-  //         +------------------------------------+------------------------------------------------+
-
-  rs_slot_t slot_issue;
-
-  schnizo_rss_dispatch_pipeline #(
-    .NofOperands  (NofOperands),
-    .disp_req_t   (disp_req_t),
-    .producer_id_t(producer_id_t),
-    .rs_slot_t    (rs_slot_t),
-    .rss_operand_t(rss_operand_t),
-    .rss_result_t (rss_result_t),
-    .operand_req_t(operand_req_t),
-    .res_req_t    (res_req_t),
-    .operand_t    (operand_t),
-    .rss_idx_t    (rss_idx_t),
-    .issue_req_t  (issue_req_t)
-  ) i_dispatch_pipeline (
-    .restart_i         (restart_i),
-    .producer_id_i     (producer_id_i),
-    .loop_state_i      (loop_state_i),
-    .slot_i            (slot_q),
-    .disp_req_i        (disp_req_i),
-    .disp_req_valid_i  (disp_req_valid_i),
-    .disp_req_ready_o  (disp_req_ready_o),
-    .slot_reset_state_i(slot_reset_value),
-    .op_reqs_o         (op_reqs_o),
-    .op_reqs_valid_o   (op_reqs_valid_o),
-    .op_reqs_ready_i   (op_reqs_ready_i),
-    .op_rsps_i         (op_rsps_i),
-    .op_rsps_valid_i   (op_rsps_valid_i),
-    .op_rsps_ready_o   (op_rsps_ready_o),
-    .issue_req_o       (issue_req_o),
-    .issue_req_valid_o (issue_req_valid_o),
-    .issue_req_ready_i (issue_req_ready_i),
-    .issue_hs_o        (issue_hs),
-    .slot_o            (slot_issue)
-  );
+  assign slot_q_o = slot_q;
 
   /////////////////////////////////////////////////////
   // Result request handling and response generation //
@@ -297,7 +124,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .clk_i             (clk_i),
     .rst_i             (rst_i),
     .slot_q_i          (slot_q),
-    .slot_i            (slot_issue),
+    .slot_i            (slot_issue_i),
     .retired_i         (retired),
     .loop_state_i      (loop_state_i),
     .restart_i         (restart_i),
@@ -325,7 +152,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .disp_req_t  (disp_req_t)
   ) i_result_capture (
     .slot_i               (slot_res_rsp),
-    .issue_hs_i           (issue_hs),
+    .issue_hs_i           (issue_hs_i),
     .result_i             (result_i),
     .result_valid_i       (result_valid_i),
     .loop_state_i         (loop_state_i),

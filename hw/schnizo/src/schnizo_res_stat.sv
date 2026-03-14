@@ -210,15 +210,119 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     rss_operand_t [NofOperands-1:0] operands;
   } rs_slot_issue_t;
 
+  localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
+
+  typedef struct packed {
+    // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
+    // constant and fetched during LCP1 and LCP2.
+    producer_id_t producer;
+    // Signaling whether this operand is produced or not. If set, the value has to be fetched from
+    // the producer defined by producer_id. If reset, this operand is constant and is fetched in
+    // LCP1 and again in LCP2 and kept for the rest of the loop execution. A constant value can
+    // either be a value read once from a register or an immediate of the instruction.
+    logic         is_produced;
+    // Specifying in which iteration the producer generated the value. If set, the producer is in
+    // the same iteration. If reset, this is a loop-carried dependency.
+    logic         is_from_current_iter;
+    operand_t     value;
+    logic         is_valid;
+    // Set if we placed a request to the producer
+    logic         requested;
+  } rss_operand_t;
+
+  typedef struct packed {
+    result_t value;
+    // If set, the result is valid.
+    logic    is_valid;
+    // This flag signals to which iteration (“current” or “next”) the currently stored value in
+    // the Result buffer belongs to. It is toggled each time a new value is written into the
+    // buffer.
+    logic    iteration;
+  } rss_result_t;
+
+  // TODO(colluca): put all FU-specific fields into a separate struct that is passed
+  // as a parameter, and instantiated as a "user" field. Otherwise, only mandatory fields used
+  // for control logic should be hardcoded here. `is_store` is one of these, so it should be
+  // renamed to reflect its FU-independent function.
+  typedef struct packed {
+    // Whether the RSS contains an active instruction.
+    logic                           is_occupied;
+    // How many consumer use the result of this instruction.
+    logic [ConsumerCountWidth-1:0]  consumer_count;
+    // A counter to keep track how many times the current result has been captured.
+    logic [ConsumerCountWidth-1:0]  consumed_by;
+    // The instruction itself. Partially decoded. Depends on FU type.
+    // TODO: Can we rely on the synthesis optimization to remove unused signals even if they are
+    //       registered here?
+    alu_op_e                        alu_op;
+    lsu_op_e                        lsu_op;
+    fpu_op_e                        fpu_op;
+    lsu_size_e                      lsu_size;
+    // A store instruction never generates a result. Thus we immediately accept a result when
+    // issuing the instruction.
+    logic                           is_store;
+    fpnew_pkg::fp_format_e          fpu_fmt_src;
+    fpnew_pkg::fp_format_e          fpu_fmt_dst;
+    fpnew_pkg::roundmode_e          fpu_rnd_mode;
+    // The most recent result
+    rss_result_t                    result;
+    // This flag signals to which iteration (“current” or “next”) the currently
+    // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
+    // each time the instruction is issued.
+    logic                           instruction_iter;
+    // The register ID where this instruction does commit into during regular execution.
+    logic [RegAddrWidth-1:0]        dest_id;
+    // Whether the destination register is a floating point or integer register.
+    logic                           dest_is_fp;
+    // Specifying whether the last result of the loop is written into the register defined by
+    // destination id. This flag is defined during LCP and ensures that at the end of the loop
+    // only the last writing instruction does perform a writeback to the RF.
+    logic                           do_writeback;
+    // All operands
+    // TODO(colluca): optimize by pulling out of RS. Only one RSS per RS will anyways fetch
+    // operands at any time. One exception is for immediate values, those need to be always
+    // stored, but don't need any of the fields in rss_operand_t beyond `value`.
+    // The other exception is actually for operands that are not produced by other FUs, e.g.
+    // operands that just keep the value from the RF at the time of dispatch.
+    // If we don't buffer these, then we have to be able to fetch them from the RF. Probably
+    // a good compromise would be to have a few registers (less than #operands x #slots) in the
+    // RS to buffer these "non-produced" operands, and fallback to HW loop mode if we run out.
+    rss_operand_t [NofOperands-1:0] operands;
+  } rs_slot_t;
+
   /////////////////
   // Connections //
   /////////////////
 
-  // Post-mux dispatch handshake (valid produced by mux, ready returned by slots)
-  logic disp_req_valid;
-  logic disp_req_ready;
-  logic disp_req_internal_valid;
-  logic disp_req_internal_ready; // unused, internal disp logic is always valid
+  // Reservation Station Slots
+  disp_req_t              disp_req;
+  logic                   disp_req_valid;
+  logic                   disp_req_ready;
+  logic                   disp_req_internal_valid;
+  logic                   disp_req_internal_ready; // unused, internal disp logic is always valid
+  logic      [NofRss-1:0] rss_retiring;
+
+  // The pointers / indexes to select the appropriate RSS.
+  rss_idx_t disp_idx;
+  rss_idx_t result_idx;
+
+  // To / from FU and RF writeback
+  result_t     [NofRss-1:0] results;
+  logic        [NofRss-1:0] results_valid;
+  logic        [NofRss-1:0] results_ready;
+  result_tag_t [NofRss-1:0] rf_wb_tags;
+  logic        [NofRss-1:0] rf_do_writebacks;
+
+  // loop control
+  logic last_disp_instr;
+  logic last_disp_iter;
+  logic last_result_instr;
+  logic last_result_iter;
+
+  // Slot states
+  rs_slot_t [NofRss-1:0] slot_qs;    // registered state from each slot
+  rs_slot_t              slot_issue; // post-dispatch-pipeline state for the selected slot
+  logic                  issue_hs;   // issue handshake from the shared dispatch pipeline
 
   //////////////////////////
   // Cut dispatch request //
@@ -265,6 +369,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
 
+  // In case the dispatch index overflows (we are full), tie down any signals to a default value.
+  logic sel_rss_valid;
+  assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
+
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
     assign slot_ids[rss] = slot_id_t'(rss);
     assign rss_ids[rss] = producer_id_t'{
@@ -274,19 +382,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
     schnizo_res_stat_slot #(
       .NofOperands  (NofOperands),
-      .ConsumerCount(ConsumerCount),
-      .RegAddrWidth (RegAddrWidth),
-      .rss_idx_t    (rss_idx_t),
       .disp_req_t   (disp_req_t),
       .producer_id_t(producer_id_t),
       .operand_req_t(operand_req_t),
-      .operand_t    (operand_t),
-      .res_req_t    (res_req_t),
       .dest_mask_t  (dest_mask_t),
       .res_rsp_t    (res_rsp_t),
-      .issue_req_t  (issue_req_t),
       .result_t     (result_t),
-      .result_tag_t (result_tag_t)
+      .result_tag_t (result_tag_t),
+      .rs_slot_t    (rs_slot_t)
     ) i_rss (
       .clk_i,
       .rst_i,
@@ -299,13 +402,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .retired_o            (rss_retiring[rss]),
       .available_result_o   (available_results_o[rss]),
 
-      .disp_req_i      (disp_req),
-      .disp_req_valid_i(disp_reqs_valid[rss]),
-      .disp_req_ready_o(disp_reqs_ready[rss]),
+      .slot_q_o    (slot_qs[rss]),
+      .slot_issue_i(sel_rss_valid && (rss_idx_t'(rss) == disp_idx) ? slot_issue : slot_qs[rss]),
+      .issue_hs_i  (sel_rss_valid && (rss_idx_t'(rss) == disp_idx) ? issue_hs : 1'b0),
 
-      .op_reqs_o      (op_reqs[rss]),
-      .op_reqs_valid_o(op_reqs_valid[rss]),
-      .op_reqs_ready_i(op_reqs_ready[rss]),
+      .disp_req_i(disp_req),
 
       .dest_mask_i      (res_reqs_i[rss]),
       .dest_mask_valid_i(res_reqs_valid_i[rss]),
@@ -315,14 +416,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .res_rsp_valid_o(res_rsps_valid_o[rss]),
       .res_rsp_ready_i(res_rsps_ready_i[rss]),
 
-      .op_rsps_i      (op_rsps[rss]),
-      .op_rsps_valid_i(op_rsps_valid[rss]),
-      .op_rsps_ready_o(op_rsps_ready[rss]),
-
-      .issue_req_o      (issue_reqs[rss]),
-      .issue_req_valid_o(issue_reqs_valid[rss]),
-      .issue_req_ready_i(issue_reqs_ready[rss]),
-
       .result_i      (results[rss]),
       .result_valid_i(results_valid[rss]),
       .result_ready_o(results_ready[rss]),
@@ -331,42 +424,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
       .rf_do_writeback_o(rf_do_writebacks[rss])
     );
 
-  end
-
-  /////////////////////////
-  // Operand request mux //
-  /////////////////////////
-
-  // This block muxes the operand requests from the RSSs onto the operand request ports.
-  // Similarly, it demuxes the operand response ports back to the requesting RSSs.
-
-  // TODO(colluca): Shouldn't we use "issue" instead of "dispatch" in this comment?
-  // Select which RSS currently can place requests based on which RSS is scheduled to dispatch.
-  // In case the dispatch index overflows (we are full), tie down any signals to a default value.
-  logic sel_rss_valid;
-  assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
-  rss_idx_t sel_rss;
-  assign sel_rss = sel_rss_valid ? disp_idx : '0;
-
-  // TODO(colluca): use stream mux and demux
-  always_comb begin : operand_mux
-    op_reqs_o       = '0;
-    op_reqs_valid_o = '0;
-    op_reqs_ready   = '0;
-    op_rsps         = '0;
-    op_rsps_valid   = '0;
-    op_rsps_ready_o = '0;
-
-    for (int op = 0; op < NofOperands; op++) begin
-      op_reqs_o[op] = op_reqs[sel_rss][op];
-      // Tie down if RSS selection is not valid
-      op_reqs_valid_o[op]        = op_reqs_valid[sel_rss][op] && sel_rss_valid;
-      op_reqs_ready[sel_rss][op] = op_reqs_ready_i[op] && sel_rss_valid;
-
-      op_rsps[sel_rss][op]       = op_rsps_i[op];
-      op_rsps_valid[sel_rss][op] = op_rsps_valid_i[op] && sel_rss_valid;
-      op_rsps_ready_o[op]        = op_rsps_ready[sel_rss][op] && sel_rss_valid;
-    end
   end
 
   ////////////////////
@@ -498,36 +555,96 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .oup_ready_i(disp_req_ready)
   );
 
-  //////////////////////////////
-  // Slots datapath           //
-  //////////////////////////////
+  ///////////////////////
+  // Dispatch pipeline //
+  ///////////////////////
 
-  schnizo_res_stat_slots #(
-    .NofRss          (NofRss),
-    .NofConstants    (NofConstants),
-    .NofOperands     (NofOperands),
-    .NofResRspIfs    (NofResRspIfs),
-    .ConsumerCount   (ConsumerCount),
-    .RegAddrWidth    (RegAddrWidth),
-    .UseSram         (UseSram),
-    .rs_slot_issue_t (rs_slot_issue_t),
-    .rs_slot_result_t(rs_slot_result_t),
-    .rss_operand_t   (rss_operand_t),
-    .rss_result_t    (rss_result_t),
-    .disp_req_t      (disp_req_t),
-    .issue_req_t     (issue_req_t),
-    .result_t        (result_t),
-    .result_tag_t    (result_tag_t),
-    .producer_id_t   (producer_id_t),
-    .slot_id_t       (slot_id_t),
-    .operand_req_t   (operand_req_t),
-    .operand_t       (operand_t),
-    .res_req_t       (res_req_t),
-    .ext_res_req_t   (ext_res_req_t),
-    .available_result_t   (available_result_t),
-    .dest_mask_t     (dest_mask_t),
-    .res_rsp_t       (res_rsp_t)
-  ) i_res_stat_slots (
+  logic disp_req_ready_pipeline;
+  assign disp_req_ready = sel_rss_valid ? disp_req_ready_pipeline : 1'b0;
+
+  rs_slot_t slot_reset_value;
+  assign slot_reset_value = '{
+    is_occupied:          1'b0, // suppresses operand requests
+    consumer_count:       '0,
+    consumed_by:          '0,
+    alu_op:               AluOpAdd,
+    lsu_op:               LsuOpLoad, // avoid store because the store flag has to be 0
+    fpu_op:               FpuOpFadd,
+    is_store:             1'b0,
+    lsu_size:             Byte,
+    fpu_fmt_src:          fpnew_pkg::FP32,
+    fpu_fmt_dst:          fpnew_pkg::FP32,
+    fpu_rnd_mode:         fpnew_pkg::RNE,
+    // We ignore the result part - the iteration flag could be X.
+    result:               '0,
+    instruction_iter:     1'b0,
+    dest_id:              '0,
+    dest_is_fp:           '0,
+    do_writeback:         1'b0,
+    operands:             '0 // invalid operands lead to no issue requests
+  };
+
+  logic       issue_req_valid_raw;
+  issue_req_t issue_req_raw;
+
+  schnizo_rss_dispatch_pipeline #(
+    .NofOperands  (NofOperands),
+    .disp_req_t   (disp_req_t),
+    .producer_id_t(producer_id_t),
+    .rs_slot_t    (rs_slot_t),
+    .rss_operand_t(rss_operand_t),
+    .rss_result_t (rss_result_t),
+    .operand_req_t(operand_req_t),
+    .res_req_t    (res_req_t),
+    .operand_t    (operand_t),
+    .issue_req_t  (issue_req_t)
+  ) i_dispatch_pipeline (
+    .restart_i         (restart_i),
+    .producer_id_i     (sel_rss_valid ? rss_ids[disp_idx] : '0),
+    .loop_state_i      (loop_state_i),
+    .disp_req_i        (disp_req),
+    .disp_req_valid_i  (disp_req_valid && sel_rss_valid),
+    .disp_req_ready_o  (disp_req_ready_pipeline),
+    .slot_i            (sel_rss_valid ? slot_qs[disp_idx] : '0),
+    .slot_reset_state_i(slot_reset_value),
+    .op_reqs_o         (op_reqs_o),
+    .op_reqs_valid_o   (op_reqs_valid_o),
+    .op_reqs_ready_i   (op_reqs_ready_i),
+    .op_rsps_i         (op_rsps_i),
+    .op_rsps_valid_i   (op_rsps_valid_i),
+    .op_rsps_ready_o   (op_rsps_ready_o),
+    .issue_req_o       (issue_req_raw),
+    .issue_req_valid_o (issue_req_valid_raw),
+    .issue_req_ready_i (issue_req_ready_i),
+    .issue_hs_o        (issue_hs),
+    .slot_o            (slot_issue)
+  );
+
+  // TODO(colluca): use rss_ids
+  assign disp_rsp_o = producer_id_t'{
+    // Here we can go out of bounds because this response is only valid if we use a existing slot.slot_id
+    slot_id: (disp_idx >= NofRss) ? 1'b0 : slot_ids[disp_idx],
+    rs_id:   producer_id_i.rs_id
+  };
+
+  // issue_req_raw and issue_req_valid_raw come directly from i_dispatch_pipeline above.
+  // Tie down if dispatch index is out of range.
+  assign issue_req_valid_o   = sel_rss_valid ? issue_req_valid_raw : 1'b0;
+  assign issue_req_o         = sel_rss_valid ? issue_req_raw       : '0;
+
+  // Each accepted dispatch request was committed so we also commit to each issue request
+  assign instr_exec_commit_o = issue_req_valid_o;
+
+  /////////////////////////
+  // Result RF/RSS demux //
+  /////////////////////////
+
+  logic rss_wb_valid, rss_wb_ready;
+  logic rf_wb_valid, rf_wb_ready;
+
+  stream_fork #(
+    .N_OUP(32'd2)
+  ) i_result_fork (
     .clk_i,
     .rst_i,
     .producer_id_i     (producer_id_i),
