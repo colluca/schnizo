@@ -256,6 +256,134 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .data_o (disp_req_i_q)
   );
 
+  ///////////
+  // Slots //
+  ///////////
+
+  slot_id_t     [NofRss-1:0] slot_ids;
+  producer_id_t [NofRss-1:0] rss_ids;
+
+  for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
+    assign slot_ids[rss] = slot_id_t'(rss);
+    assign rss_ids[rss] = producer_id_t'{
+      slot_id: slot_ids[rss],
+      rs_id:   producer_id_i.rs_id
+    };
+
+    schnizo_res_stat_slot #(
+      .NofOperands  (NofOperands),
+      .ConsumerCount(ConsumerCount),
+      .RegAddrWidth (RegAddrWidth),
+      .rss_idx_t    (rss_idx_t),
+      .disp_req_t   (disp_req_t),
+      .producer_id_t(producer_id_t),
+      .operand_req_t(operand_req_t),
+      .operand_t    (operand_t),
+      .res_req_t    (res_req_t),
+      .dest_mask_t  (dest_mask_t),
+      .res_rsp_t    (res_rsp_t),
+      .issue_req_t  (issue_req_t),
+      .result_t     (result_t),
+      .result_tag_t (result_tag_t)
+    ) i_rss (
+      .clk_i,
+      .rst_i,
+
+      .producer_id_i        (rss_ids[rss]),
+      .loop_state_i         (loop_state_i),
+      .restart_i            (restart_i),
+      .is_last_disp_iter_i  (last_disp_iter),
+      .is_last_result_iter_i(last_result_iter),
+      .retired_o            (rss_retiring[rss]),
+      .available_result_o   (available_results_o[rss]),
+
+      .disp_req_i      (disp_req),
+      .disp_req_valid_i(disp_reqs_valid[rss]),
+      .disp_req_ready_o(disp_reqs_ready[rss]),
+
+      .op_reqs_o      (op_reqs[rss]),
+      .op_reqs_valid_o(op_reqs_valid[rss]),
+      .op_reqs_ready_i(op_reqs_ready[rss]),
+
+      .dest_mask_i      (res_reqs_i[rss]),
+      .dest_mask_valid_i(res_reqs_valid_i[rss]),
+      .dest_mask_ready_o(res_reqs_ready_o[rss]),
+
+      .res_rsp_o      (res_rsps_o[rss]),
+      .res_rsp_valid_o(res_rsps_valid_o[rss]),
+      .res_rsp_ready_i(res_rsps_ready_i[rss]),
+
+      .op_rsps_i      (op_rsps[rss]),
+      .op_rsps_valid_i(op_rsps_valid[rss]),
+      .op_rsps_ready_o(op_rsps_ready[rss]),
+
+      .issue_req_o      (issue_reqs[rss]),
+      .issue_req_valid_o(issue_reqs_valid[rss]),
+      .issue_req_ready_i(issue_reqs_ready[rss]),
+
+      .result_i      (results[rss]),
+      .result_valid_i(results_valid[rss]),
+      .result_ready_o(results_ready[rss]),
+
+      .rf_wb_tag_o      (rf_wb_tags[rss]),
+      .rf_do_writeback_o(rf_do_writebacks[rss])
+    );
+
+  end
+
+  /////////////////////////
+  // Operand request mux //
+  /////////////////////////
+
+  // Here we connect the RSSs to the ODN. A full crossbar where each slot has
+  // dedicated connections for each operand is infeasible. We thus only provide a certain
+  // amount of ports. One port features a connection for all operands, i.e., can serve one slot
+  // at a time. We always connect the currently active slot on port 0. Any other port can be used
+  // to "prerequest" operands but this is not implemented yet.
+  // This block therefore muxes the operand requests from the RSSs onto the operand request ports.
+  // Similarly, it demuxes the operand response ports back to the requesting RSSs.
+  // TODO(colluca): should we simplify this description by just assuming we have a single port
+  //                and leaving out all the other details, or moving them elsewhere?
+
+  // TODO(colluca): Shouldn't we use "issue" instead of "dispatch" in this comment?
+  // Select which RSS currently can place requests based on which RSS is scheduled to dispatch.
+  // In case the dispatch index overflows (we are full), tie down any signals to a default value.
+  logic sel_rss_valid;
+  assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
+  rss_idx_t sel_rss;
+  assign sel_rss = sel_rss_valid ? disp_idx : '0;
+
+  always_comb begin : op_req_mux
+    op_reqs_o        = '0;
+    op_reqs_valid_o  = '0;
+    op_reqs_ready    = '0;
+    op_rsps          = '0;
+    op_rsps_valid    = '0;
+    op_rsps_ready_o  = '0;
+
+    for (int port = 0; port < NofOpPorts; port++) begin
+      if (port == 0) begin
+        for (int op = 0; op < NofOperands; op++) begin
+          // Request
+          op_reqs_o[port][op] = op_reqs[sel_rss][op];
+          // Tie down if RSS selection is not valid
+          op_reqs_valid_o[port][op]  = op_reqs_valid[sel_rss][op] & sel_rss_valid;
+          op_reqs_ready[sel_rss][op] = op_reqs_ready_i[port][op] & sel_rss_valid;
+          // Response
+          op_rsps[sel_rss][op]       = op_rsps_i[port][op];
+          op_rsps_valid[sel_rss][op] = op_rsps_valid_i[port][op] & sel_rss_valid;
+          op_rsps_ready_o[port][op]  = op_rsps_ready[sel_rss][op] & sel_rss_valid;
+        end
+      end else begin
+        // We only support one port currently
+        // TODO(colluca): remove ports altogether
+        op_reqs_o[port]       = '0;
+        op_reqs_valid_o[port] = '0;
+        op_rsps_ready_o[port] = '0;
+      end
+    end
+  end
+
   ////////////////////
   // LxP Controller //
   ////////////////////

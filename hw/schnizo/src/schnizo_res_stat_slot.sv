@@ -31,21 +31,19 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   input  logic clk_i,
   input  logic rst_i,
 
-  // Index of this slot in the reservation station.
-  input  rss_idx_t     slot_id_i,
+  // Index of the reservation station and this slot.
+  input  producer_id_t producer_id_i,
   // If restart is asserted, we initialize the slot. THERE MAY NOT BE ANY instruction in flight!
   input  logic         restart_i,
   // Asserted for last LEP dispatch iteration to end the operand fetching.
   input  logic         is_last_disp_iter_i,
   // Asserted for last LEP result iteration to perform the possible writeback (based on result iteration).
   input  logic         is_last_result_iter_i,
-  // ID of RSS to place operand requests. This ID must be static.
-  input  producer_id_t own_producer_id_i,
-  // The current result iteration state
-  output logic         res_iter_o,
   // Asserted in the cycle the instruction retires.
   output logic         retired_o,
   input  loop_state_e  loop_state_i,
+  // Info on the result stored in the slot.
+  output operand_req_t available_result_o,
 
   // Dispatch interface
   input  disp_req_t disp_req_i,
@@ -263,7 +261,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .issue_req_t  (issue_req_t)
   ) i_dispatch_pipeline (
     .restart_i         (restart_i),
-    .own_producer_id_i (own_producer_id_i),
+    .producer_id_i     (producer_id_i),
     .loop_state_i      (loop_state_i),
     .slot_i            (slot_q),
     .disp_req_i        (disp_req_i),
@@ -276,7 +274,6 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .op_rsps_i         (op_rsps_i),
     .op_rsps_valid_i   (op_rsps_valid_i),
     .op_rsps_ready_o   (op_rsps_ready_o),
-    .slot_id_i         (slot_id_i),
     .issue_req_o       (issue_req_o),
     .issue_req_valid_o (issue_req_valid_o),
     .issue_req_ready_i (issue_req_ready_i),
@@ -291,9 +288,11 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   rs_slot_t slot_res_rsp;
 
   schnizo_rss_res_req_handling #(
-    .rs_slot_t   (rs_slot_t),
-    .dest_mask_t (dest_mask_t),
-    .res_rsp_t   (res_rsp_t)
+    .rs_slot_t    (rs_slot_t),
+    .operand_req_t(operand_req_t),
+    .producer_id_t(producer_id_t),
+    .dest_mask_t  (dest_mask_t),
+    .res_rsp_t    (res_rsp_t)
   ) i_res_req_handling (
     .clk_i             (clk_i),
     .rst_i             (rst_i),
@@ -305,10 +304,11 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     .dest_mask_i       (dest_mask_i),
     .dest_mask_valid_i (dest_mask_valid_i),
     .dest_mask_ready_o (dest_mask_ready_o),
+    .producer_id_i     (producer_id_i),
+    .available_result_o(available_result_o),
     .res_rsp_o         (res_rsp_o),
     .res_rsp_valid_o   (res_rsp_valid_o),
     .res_rsp_ready_i   (res_rsp_ready_i),
-    .res_iter_o        (res_iter_o),
     .slot_o            (slot_res_rsp)
   );
 

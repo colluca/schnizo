@@ -1064,16 +1064,22 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           // after porting issue slots to SRAM
           instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_rdata.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
+<<<<<<< HEAD
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
           alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
+=======
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b[XLEN-1:0]
+>>>>>>> 08f2104 (hw: Move `available_results` inside RSS)
         };
         assign alu_rescap_traces[alu][rss] = '{
           valid:          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.result_valid_i &&
                           i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.result_ready_o) &&
                           !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
           result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
           rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
           rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
@@ -1091,7 +1097,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
+<<<<<<< HEAD
                               i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+=======
+                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+>>>>>>> 08f2104 (hw: Move `available_results` inside RSS)
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
             requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
@@ -1114,7 +1124,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
           instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_rdata.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
+<<<<<<< HEAD
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+=======
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+>>>>>>> 08f2104 (hw: Move `available_results` inside RSS)
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1130,7 +1144,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.result_ready_o) &&
                           !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
           result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
           rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
           rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
@@ -1148,7 +1162,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
+<<<<<<< HEAD
                               i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+=======
+                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+>>>>>>> 08f2104 (hw: Move `available_results` inside RSS)
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
             requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
@@ -1171,12 +1189,21 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                       (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
           instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_rdata.instruction_iter,
           producer:    i_fu_stage.producer_to_string(
+<<<<<<< HEAD
                         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
           fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b,
           fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.imm,
           fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
           fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
+=======
+                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_dst,
+>>>>>>> 08f2104 (hw: Move `available_results` inside RSS)
           // Directly access the FPU because theses signals are decoded in the FPU. This requires
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
@@ -1186,7 +1213,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.result_ready_o) &&
                           !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
           result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
           rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
           rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
@@ -1204,7 +1231,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
+<<<<<<< HEAD
                               i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+=======
+                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.producer_id_i),
+>>>>>>> 08f2104 (hw: Move `available_results` inside RSS)
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
             requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
