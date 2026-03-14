@@ -182,10 +182,7 @@ sources:
       - hw/schnizo/src/schnizo_fpu.sv
       - hw/schnizo/src/schnizo_lsu.sv
       - hw/schnizo/src/schnizo_writeback.sv
-      - hw/schnizo/src/schnizo_rss_initial_update.sv
-      - hw/schnizo/src/schnizo_rss_op_req_generation.sv
-      - hw/schnizo/src/schnizo_rss_op_rsp_handling.sv
-      - hw/schnizo/src/schnizo_rss_issue.sv
+      - hw/schnizo/src/schnizo_rss_dispatch_pipeline.sv
       - hw/schnizo/src/schnizo_rss_res_req_handling.sv
       - hw/schnizo/src/schnizo_rss_result_capture.sv
       - hw/schnizo/src/schnizo_res_stat_slot.sv

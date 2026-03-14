@@ -2,79 +2,46 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-`include "common_cells/assertions.svh"
-`include "common_cells/registers.svh"
-
 // Combines initial slot update, operand request generation, operand response handling,
 // and issue logic into a single module.
 module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
-  parameter int unsigned NofOperands      = 2,
-  parameter int unsigned NofConstantPorts = 2,
-  parameter type         disp_req_t       = logic,
-  parameter type         producer_id_t    = logic,
-  parameter type         rs_slot_issue_t  = logic,
-  parameter type         rs_slot_result_t = logic,
-  parameter type         rss_operand_t    = logic,
-  parameter type         rss_result_t     = logic,
-  parameter type         operand_req_t    = logic,
-  parameter type         const_op_addr_t  = logic,
-  parameter type         res_req_t        = logic,
-  parameter type         operand_t        = logic,
-  parameter type         rss_idx_t        = logic,
-  parameter type         issue_req_t      = logic
+  parameter int unsigned NofOperands   = 2,
+  parameter type         disp_req_t    = logic,
+  parameter type         producer_id_t = logic,
+  parameter type         rs_slot_t     = logic,
+  parameter type         rss_operand_t = logic,
+  parameter type         rss_result_t  = logic,
+  parameter type         operand_req_t = logic,
+  parameter type         res_req_t     = logic,
+  parameter type         operand_t     = logic,
+  parameter type         rss_idx_t     = logic,
+  parameter type         issue_req_t   = logic
 ) (
-  input  logic            clk_i,
-  input  logic            rst_ni,
-
-  // Control
-  input  logic            restart_i,
-  input  producer_id_t    disp_producer_id_i,
-  input  producer_id_t    issue_producer_id_i,
-  input  loop_state_e     loop_state_i,
-  input  logic            last_issue_iter_i,
-  output logic            retire_at_issue_o,
-
-  // Issue slot interface
-  input  rs_slot_issue_t  slot_issue_i,
-  output rs_slot_issue_t  slot_issue_o,
-  output logic            slot_issue_wen_o,
-
-  // Constant memory interface
-  output logic           [NofConstantPorts-1:0] alloc_const_op_valid_o,
-  output operand_t       [NofConstantPorts-1:0] alloc_const_op_data_o,
-  input  const_op_addr_t [NofConstantPorts-1:0] alloc_const_op_addr_i,
-
-  // Result slot interface
-  input  rs_slot_result_t slot_result_i,
-  input  rs_slot_result_t slot_result_reset_val_i,
-  output rs_slot_result_t slot_result_o,
-
-  // Dispatch
-  input  disp_req_t disp_req_i,
-  input  logic      disp_req_valid_i,
-  output logic      disp_req_ready_o,
-
-  // Operand request
-  // To ODN
-  output operand_req_t [NofOperands-1:0] odn_op_reqs_o,
-  output logic         [NofOperands-1:0] odn_op_reqs_valid_o,
-  input  logic         [NofOperands-1:0] odn_op_reqs_ready_i,
-  // To constant memory
-  output const_op_addr_t [NofConstantPorts-1:0] const_op_reqs_o,
-  output logic           [NofConstantPorts-1:0] const_op_reqs_valid_o,
-
-  // Operand response
-  // From ODN
-  input  operand_t [NofOperands-1:0] odn_op_rsps_i,
-  input  logic     [NofOperands-1:0] odn_op_rsps_valid_i,
-  output logic     [NofOperands-1:0] odn_op_rsps_ready_o,
-  // From constant memory
-  input  operand_t [NofConstantPorts-1:0] const_op_rsps_i,
-
+  // Initial update
+  input  logic         restart_i,
+  input  producer_id_t own_producer_id_i,
+  input  loop_state_e  loop_state_i,
+  input  disp_req_t    disp_req_i,
+  input  logic         disp_req_valid_i,
+  input  rs_slot_t     slot_i,
+  input  rs_slot_t     slot_reset_state_i,
+  // Operand request interface - outgoing
+  output operand_req_t [NofOperands-1:0] op_reqs_o,
+  output logic         [NofOperands-1:0] op_reqs_valid_o,
+  input  logic         [NofOperands-1:0] op_reqs_ready_i,
+  // Operand response interface - incoming
+  input  operand_t     [NofOperands-1:0] op_rsps_i,
+  input  logic         [NofOperands-1:0] op_rsps_valid_i,
+  output logic         [NofOperands-1:0] op_rsps_ready_o,
   // Issue
-  output issue_req_t issue_req_o,
-  output logic       issue_req_valid_o,
-  input  logic       issue_req_ready_i
+  input  rss_idx_t     slot_id_i,
+  input  logic         issue_req_ready_i,
+  output logic         disp_req_ready_o,
+  output issue_req_t   issue_req_o,
+  output logic         issue_req_valid_o,
+  output logic         issue_hs_o,
+  // Updated slot
+  output rs_slot_t     slot_o
 );
 
   //////////////////////
@@ -101,21 +68,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   /////////////////////////
 
   // This stage performs an initial state-dependent slot update.
-
-  rs_slot_issue_t slot_issue_reset_val;
-  assign slot_issue_reset_val = '{
-    is_occupied:      1'b0, // suppresses operand requests
-    alu_op:           AluOpAdd,
-    lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
-    fpu_op:           FpuOpFadd,
-    lsu_size:         Byte,
-    fpu_fmt_src:      fpnew_pkg::FP32,
-    fpu_fmt_dst:      fpnew_pkg::FP32,
-    fpu_rnd_mode:     fpnew_pkg::RNE,
-    instruction_iter: 1'b0,
-    no_dest:          1'b0,
-    operands:         '0 // invalid operands lead to no issue requests
-  };
 
   // The initial operand values when accepting a new instruction
   rss_operand_t op_a_lcp1;
@@ -162,24 +114,34 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   };
 
   // Initial value of the slot upon accepting a new instruction
-  rs_slot_issue_t slot_lcp1;
-  operand_slots_t op_slots_lcp1;
+  rs_slot_t slot_lcp1;
   always_comb begin
-    slot_lcp1 = slot_issue_i;
-
     slot_lcp1 = '{
-      is_occupied:      1'b1,
-      alu_op:           disp_req_i.fu_data.alu_op,
-      lsu_op:           disp_req_i.fu_data.lsu_op,
-      fpu_op:           disp_req_i.fu_data.fpu_op,
-      lsu_size:         disp_req_i.fu_data.lsu_size,
-      fpu_fmt_src:      disp_req_i.fu_data.fpu_fmt_src,
-      fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
-      fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
-      instruction_iter: 1'b0,
-      no_dest:          (disp_req_i.fu_data.fu == STORE) &&
-                        (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
-      operands:         '0
+      is_occupied:          1'b1,
+      consumer_count:       '0,
+      consumed_by:          '0,
+      alu_op:               disp_req_i.fu_data.alu_op,
+      lsu_op:               disp_req_i.fu_data.lsu_op,
+      fpu_op:               disp_req_i.fu_data.fpu_op,
+      // Duplicate logic for is_store. Once in LSU and once here.
+      // TODO: Optimize by passing this to the LSU instead of regenerating it inside the LSU?
+      is_store:             (disp_req_i.fu_data.fu == STORE) &&
+                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
+      lsu_size:             disp_req_i.fu_data.lsu_size,
+      fpu_fmt_src:          disp_req_i.fu_data.fpu_fmt_src,
+      fpu_fmt_dst:          disp_req_i.fu_data.fpu_fmt_dst,
+      fpu_rnd_mode:         disp_req_i.fu_data.fpu_rnd_mode,
+      // We must set the result iteration flag to 1. It gets toggled when writing the first result.
+      result:               rss_result_t '{
+        value:     '0,
+        is_valid:  1'b0,
+        iteration: 1'b1
+      },
+      instruction_iter:     1'b0,
+      dest_id:              disp_req_i.tag.dest_reg,
+      dest_is_fp:           disp_req_i.tag.dest_reg_is_fp,
+      do_writeback:         1'b0,
+      operands:             '0
     };
 
     // Operands must be assigned depending on the number we have
@@ -195,11 +157,11 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // Initial value of the slot upon accepting an instruction in LCP2.
   // Now all operand producers should be known, so we can update the missing producer information.
-  rs_slot_issue_t slot_lcp2;
-  operand_slots_t op_slots_lcp2;
+  // We also now know which instruction is the last in the loop to write to a certain register.
+  // We can therefore also update the `do_writeback` flag.
+  rs_slot_t slot_lcp2;
   always_comb begin
-    slot_lcp2 = slot_issue_i;
-    op_slots_lcp2 = op_slots_q;
+    slot_lcp2 = slot_i;
 
     // Update producers if there is not yet one set.
     // TODO(colluca): could we also update the producer for operands which already
@@ -225,18 +187,24 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         op_slots_lcp2[2].value            = disp_req_i.fu_data.imm;
       end
     end
+    // Set the writeback flag if we are the last RSS writing to this destination
+    // TODO(colluca): couldn't we have the dispatcher calculate `do_writeback` instead?
+    // This way we don't need to store it in the cut. It may increase the critical path
+    // if the critical path is before the cut.
+    if ((own_producer_id_i == disp_req_i.current_producer_dest.producer) &&
+        disp_req_i.current_producer_dest.valid) begin
+      slot_lcp2.do_writeback = 1'b1;
+    end
   end
 
   // INFO(soderma):
   // We can use the regular state. The reason pascal probably did this is because of multi cycle updates.
   // so that you don't overwrite the dispatch request. But the dispatch request valid signal is only valid for one cycle anyway in LCP1 and LCP2
   // reason being is that all operands are ready and the instruction can be immediately issued.
-  rs_slot_issue_t selected_slot;
-  operand_slots_t selected_op_slots;
+  rs_slot_t selected_slot;
   always_comb begin : slot_selection
     // Update the slot depending on the state.
-    selected_slot = slot_issue_i;
-    selected_op_slots = op_slots_q;
+    selected_slot = slot_i;
     unique case (loop_state_i)
       LoopLcp1: begin
         if (disp_req_valid_i) begin
@@ -256,46 +224,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
     // Slot initialization has highest priority
     if (restart_i) begin
-      selected_slot = slot_issue_reset_val;
-      selected_op_slots = '0;
-    end
-  end
-
-  // Compute the updated result slot state depending on loop phase:
-  // - LCP1: full initialization for a newly dispatched instruction.
-  //         We must set the result iteration flag to 1 — it gets toggled when writing the first result.
-  //         TODO(colluca): is this the right place for the no_dest logic? Perhaps move it to the decoder.
-  // - LCP2: pass through the current result state, only updating `do_writeback` if needed.
-  // This output is fed into res_req_handling as slot_i (instead of slot_result_qs) when dispatching,
-  // so any concurrent consumer reads are applied on top of the dispatch update — no bypass needed.
-  always_comb begin
-    slot_result_o = slot_result_i;
-    unique case (loop_state_i)
-      LoopLcp1: begin
-        slot_result_o = '{
-          consumer_count: '0,
-          consumed_by:    '0,
-          result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
-          // TODO(colluca): can't we just use dest x0 to communicate this info?
-          no_dest:        (disp_req_i.fu_data.fu == STORE) &&
-                          (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
-          dest_id:        disp_req_i.tag.dest_reg,
-          dest_is_fp:     disp_req_i.tag.dest_reg_is_fp,
-          do_writeback:   1'b0
-        };
-      end
-      LoopLcp2: begin
-        // TODO(colluca): this could be provided by the dispatcher directly
-        if ((disp_producer_id_i == disp_req_i.current_producer_dest.producer) &&
-            disp_req_i.current_producer_dest.valid) begin
-          slot_result_o.do_writeback = 1'b1;
-        end
-      end
-      default: ;
-    endcase
-
-    if (restart_i) begin
-      slot_result_o = slot_result_reset_val_i;
+      selected_slot = slot_reset_state_i;
     end
   end
 
@@ -303,87 +232,32 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Constant memory allocation //
   ////////////////////////////////
 
-  rs_slot_issue_t alloc_const_op_slot;
-
-  always_comb begin: const_op_allocation
-    automatic int unsigned port = 0;
-
-    alloc_const_op_slot = selected_slot;
-    alloc_const_op_valid_o = '0;
-    alloc_const_op_data_o = '0;
+  rs_slot_t slot_op;
 
     for (int op = 0; op < NofOperands; op++) begin
-      if (selected_slot.operands[op].is_used && !selected_slot.operands[op].is_produced) begin
-        alloc_const_op_data_o[port] = selected_op_slots[op].value;
-        // Dispatch handshake ensures operand is only allocated once
-        if ((loop_state_i == LoopLcp2) && disp_hs) begin
-          alloc_const_op_valid_o[port] = 1'b1;
-          alloc_const_op_slot.operands[op].producer = alloc_const_op_addr_i[port];
-        end
-        port++;
-        if (port == NofConstantPorts) break;
-      end
-    end
-  end
-
-  ////////////////////////////
-  // Operand req generation //
-  ////////////////////////////
-
-  operand_slots_t request_op_slots;
-
-  // ODN operand request generation
-  always_comb begin: odn_op_req_generation
-    for (int op = 0; op < NofOperands; op++) begin
-      odn_op_reqs_o[op] = '{
-        producer: alloc_const_op_slot.operands[op].producer.rs_id,
+      op_reqs_o[op] = '{
+        producer: selected_slot.operands[op].producer.rs_id,
         request: res_req_t'{
           // Invert the iteration flag if we desire the result from the previous loop iteration
-          requested_iter: alloc_const_op_slot.operands[op].is_from_current_iter ?
-                          alloc_const_op_slot.instruction_iter :
-                          ~alloc_const_op_slot.instruction_iter,
-          slot_id:        alloc_const_op_slot.operands[op].producer.slot_id
+          requested_iter: selected_slot.operands[op].is_from_current_iter ?  selected_slot.instruction_iter :
+                                                                             ~selected_slot.instruction_iter,
+          slot_id:        selected_slot.operands[op].producer.slot_id
         }
       };
 
-      odn_op_reqs_valid_o[op] = alloc_const_op_slot.is_occupied &&
-        !(loop_state_i == LoopLcp1 && alloc_const_op_slot.instruction_iter == 1'b1) &&
-        alloc_const_op_slot.operands[op].is_used &&
-        alloc_const_op_slot.operands[op].is_produced &&
-        !selected_op_slots[op].is_valid &&
-        !selected_op_slots[op].requested;
+      op_reqs_valid_o[op] = disp_req_valid_i && selected_slot.is_occupied &&
+                            selected_slot.operands[op].is_produced &&
+                            !selected_slot.operands[op].is_valid &&
+                            !selected_slot.operands[op].requested;
     end
   end
-
-  // Constant memory request generation
-  always_comb begin: const_op_req_generation
-    automatic int unsigned port = 0;
-
-    const_op_reqs_o = '0;
-    const_op_reqs_valid_o = '0;
-
-    for (int op = 0; op < NofOperands; op++) begin
-      if (alloc_const_op_slot.operands[op].is_used &&
-          !alloc_const_op_slot.operands[op].is_produced && (loop_state_i == LoopLep)) begin
-        const_op_reqs_o[port] = const_op_addr_t'(alloc_const_op_slot.operands[op].producer);
-        const_op_reqs_valid_o[port] = !selected_op_slots[op].is_valid;
-        port++;
-        if (port == NofConstantPorts) break;
-      end
-    end
-  end
-
-  logic [NofOperands-1:0] odn_op_reqs_hs;
-  assign odn_op_reqs_hs = odn_op_reqs_valid_o & odn_op_reqs_ready_i;
 
   // Capture request placement at handshake
   always_comb begin : slot_requested_update
     request_op_slots = selected_op_slots;
     for (int op = 0; op < NofOperands; op++) begin
-      // Operands requested from the constant memory are immediately valid, no need
-      // to toggle the intermediate `requested` state.
-      if (alloc_const_op_slot.operands[op].is_produced && odn_op_reqs_hs[op]) begin
-        request_op_slots[op].requested = 1'b1;
+      if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
+        slot_op.operands[op].requested = 1'b1;
       end
     end
   end
@@ -392,27 +266,16 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Operand rsp handling //
   //////////////////////////
 
-  operand_slots_t response_op_slots;
-
-  logic [NofOperands-1:0] odn_op_rsps_hs;
-  assign odn_op_rsps_hs = odn_op_rsps_valid_i & odn_op_rsps_ready_o;
-
-  // Always ready to accept a response after placing an operand request
-  assign odn_op_rsps_ready_o = '1;
-
-  // Direct the operand responses from the constant memory ports to the respective operands
-  operand_t [NofOperands-1:0] const_mem_rsp_operands;
-  always_comb begin : redirect_const_mem_responses
-    automatic int unsigned port = 0;
-
-    const_mem_rsp_operands = '0;
+  rs_slot_t slot_op_rsp;
 
     for (int op = 0; op < NofOperands; op++) begin
-      if (alloc_const_op_slot.operands[op].is_used &&
-          !alloc_const_op_slot.operands[op].is_produced) begin
-        const_mem_rsp_operands[op] = const_op_rsps_i[port];
-        port++;
-        if (port == NofConstantPorts) break;
+      op_rsps_ready_o[op] = 1'b0;
+      if (slot_op.is_occupied && slot_op.operands[op].is_produced && op_rsps_valid_i[op]) begin
+        slot_op_rsp.operands[op].value     = op_rsps_i[op];
+        slot_op_rsp.operands[op].is_valid  = 1'b1;
+        slot_op_rsp.operands[op].requested = 1'b0;
+        // Acknowledge the response
+        op_rsps_ready_o[op] = 1'b1;
       end
     end
   end
@@ -476,15 +339,15 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     issue_req_o.fu_data.alu_op       = alloc_const_op_slot.alu_op;
     issue_req_o.fu_data.lsu_op       = alloc_const_op_slot.lsu_op;
     issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-    issue_req_o.fu_data.fpu_op       = alloc_const_op_slot.fpu_op;
-    issue_req_o.fu_data.operand_a    = response_op_slots[0].value;
-    issue_req_o.fu_data.operand_b    = response_op_slots[1].value;
-    issue_req_o.fu_data.imm          = (NofOperands >= 3) ? response_op_slots[2].value : '0;
-    issue_req_o.fu_data.lsu_size     = alloc_const_op_slot.lsu_size;
-    issue_req_o.fu_data.fpu_fmt_src  = alloc_const_op_slot.fpu_fmt_src;
-    issue_req_o.fu_data.fpu_fmt_dst  = alloc_const_op_slot.fpu_fmt_dst;
-    issue_req_o.fu_data.fpu_rnd_mode = alloc_const_op_slot.fpu_rnd_mode;
-    issue_req_o.tag                  = issue_producer_id_i.slot_id;
+    issue_req_o.fu_data.fpu_op       = slot_op_rsp.fpu_op;
+    issue_req_o.fu_data.operand_a    = slot_op_rsp.operands[0].value;
+    issue_req_o.fu_data.operand_b    = slot_op_rsp.operands[1].value;
+    issue_req_o.fu_data.imm          = (NofOperands >= 3) ? slot_op_rsp.operands[2].value : '0;
+    issue_req_o.fu_data.lsu_size     = slot_op_rsp.lsu_size;
+    issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
+    issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
+    issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
+    issue_req_o.tag                  = slot_id_i;
   end
 
   // Check operand validity
@@ -493,68 +356,30 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
                               response_op_slots[i].is_valid;
   end
   assign all_operands_valid = &operand_valid;
-
-  // Issue when instruction has been dispatched (previously or in current cycle), the slot is
-  // occupied, all operands are valid and the current slot hasn't been already issued
-  assign issue_req_valid_o = (dispatched_q || disp_hs) && alloc_const_op_slot.is_occupied &&
-                             all_operands_valid;  // && !already_issued;
+  assign issue_req_valid_o = disp_req_valid_i && slot_op_rsp.is_occupied && all_operands_valid;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
-  assign retire_at_issue_o = issue_hs && alloc_const_op_slot.no_dest;
+  // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
+  assign disp_req_ready_o = issue_hs;
+  assign issue_hs_o = issue_hs;
+
+  // Update the slot after issuing the instruction (instruction_iter and
+  // operands[i].is_valid fields).
 
   // Update slot after issue
   operand_slots_t op_slots_d;
   always_comb begin : slot_issue_update
-    slot_issue_o = alloc_const_op_slot;
-    op_slots_d = response_op_slots;
-    // We can update the slot upon dispatch (new instruction) or when issuing
-    // (toggle iteration and invalidate operands)
-    slot_issue_wen_o = disp_hs || issue_hs;
+    slot_o = slot_op_rsp;
 
     if (issue_hs) begin
       // Toggle instruction state
-      slot_issue_o.instruction_iter = ~slot_issue_o.instruction_iter;
-      // We have to reset the `is_valid` flag when the operand is consumed (upon issue),
-      // since a new value will have to be captured in the next iteration.
-      // Similarly, we have to clear the `requested` flag, since the operand will
-      // have to be requested again.
+      slot_o.instruction_iter = ~slot_o.instruction_iter;
+      // If an operand is produced, we have to reset the is_valid flag when the operand is
+      // consumed (upon issue), since a new value will have to be captured in the next iteration.
       for (int i = 0; i < NofOperands; i++) begin
-        op_slots_d[i].is_valid = 1'b0;
-        op_slots_d[i].requested = 1'b0;
+        slot_o.operands[i].is_valid = slot_o.operands[i].is_produced ? 1'b0 :
+                                      slot_o.operands[i].is_valid;
       end
-      // Free the slot on the last issue iteration so it can be reused in the next LCP1.
-      if (last_issue_iter_i) slot_issue_o.is_occupied = 1'b0;
     end
   end
-
-  // Operand slots for instruction currently being issued
-  `FF(op_slots_q, op_slots_d, '0)
-
-  ////////////////
-  // Assertions //
-  ////////////////
-
-  // A dispatch request cannot be accepted in LCP2 and LEP if the slot is not occupied
-  `ASSERT(DispLcp2LepSlotOccupied,
-    (disp_hs && loop_state_i inside {LoopLcp2, LoopLep}) |-> slot_issue_i.is_occupied)
-
-  // A response can only arrive if a request was placed, which requires is_occupied, is_produced
-  // and requested
-  for (genvar op = 0; op < NofOperands; op++) begin : gen_op_rsp_assertions
-    `ASSERT(OpRspImpliesOccupied,  odn_op_rsps_valid_i[op] |-> alloc_const_op_slot.is_occupied)
-    `ASSERT(OpRspImpliesProduced,  odn_op_rsps_valid_i[op] |->
-            alloc_const_op_slot.operands[op].is_produced)
-    `ASSERT(OpRspImpliesRequested, odn_op_rsps_valid_i[op] |-> request_op_slots[op].requested) 
-  end
-
-  // There can't be more than NofConstantPorts constants per instruction
-  // TODO(colluca): replace with fallback to HWLOOP mode
-  logic [cf_math_pkg::idx_width(NofOperands+1)-1:0] num_constants;
-  always_comb begin
-    num_constants = 0;
-    for (int unsigned op = 0; op < NofOperands; op++) begin
-      num_constants += selected_slot.operands[op].is_used && !selected_slot.operands[op].is_produced;
-    end
-  end
-  `ASSERT(MaxConstantsPerInsn, ((loop_state_i == LoopLcp2) && disp_hs) |-> (num_constants <= NofConstantPorts))
 
 endmodule
