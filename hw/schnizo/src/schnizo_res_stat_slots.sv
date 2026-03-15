@@ -132,7 +132,6 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     alu_op:               AluOpAdd,
     lsu_op:               LsuOpLoad, // avoid store because the store flag has to be 0
     fpu_op:               FpuOpFadd,
-    is_store:             1'b0,
     lsu_size:             Byte,
     fpu_fmt_src:          fpnew_pkg::FP32,
     fpu_fmt_dst:          fpnew_pkg::FP32,
@@ -140,6 +139,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     // We ignore the result part - the iteration flag could be X.
     result:               '0,
     instruction_iter:     1'b0,
+    has_dest:             1'b0,
     dest_id:              '0,
     dest_is_fp:           '0,
     do_writeback:         1'b0,
