@@ -1078,7 +1078,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_alu_traces[alu][rss] = '{
           valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
                           (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_qs[rss].instruction_iter,
+                          // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
+                          // after porting issue slots to SRAM
+          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
@@ -1136,7 +1138,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_lsu_traces[lsu][rss] = '{
           valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_qs[rss].instruction_iter,
+          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
@@ -1199,7 +1201,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_fpu_traces[fpu][rss] = '{
           valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
                       (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_qs[rss].instruction_iter,
+          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
           producer:    i_fu_stage.producer_to_string(
                         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,

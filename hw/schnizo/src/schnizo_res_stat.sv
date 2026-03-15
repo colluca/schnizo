@@ -388,6 +388,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .NofResRspIfs    (NofResRspIfs),
     .ConsumerCount   (ConsumerCount),
     .RegAddrWidth    (RegAddrWidth),
+    .UseSram         (UseSram),
     .rs_slot_issue_t (rs_slot_issue_t),
     .rs_slot_result_t(rs_slot_result_t),
     .rss_operand_t   (rss_operand_t),
