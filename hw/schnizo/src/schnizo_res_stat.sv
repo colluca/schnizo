@@ -205,30 +205,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Connections //
   /////////////////
 
-  // Reservation Station Slots
-  disp_req_t              disp_req;
-  logic                   disp_req_valid;
-  logic                   disp_req_ready;
-  logic                   disp_req_internal_valid;
-  logic                   disp_req_internal_ready; // unused, internal disp logic is always valid
-
-  // The pointers / indexes to select the appropriate RSS.
-  rss_idx_t disp_idx;
-
-  // Slot states
-  rs_slot_t [NofRss-1:0] slot_qs;         // registered state from each slot
-  rs_slot_t [NofRss-1:0] slot_ds;         // next state for each slot
-  rs_slot_t              slot_issue;      // post-dispatch-pipeline state for the selected slot
-  logic                  issue_hs;        // issue handshake from the shared dispatch pipeline
-  rs_slot_t [NofRss-1:0] slot_res_rsps;   // post-res_req_handling state from each slot
-  rs_slot_t              slot_wb_capture; // post-result-capture state for the selected slot
-  logic                  capture_retired;         // retired signal for the selected slot
-  logic                  capture_retired_rs;      // retired_rs signal for RS result pointer
-  result_tag_t           capture_rf_wb_tag;       // RF writeback tag from result capture
-  logic                  capture_rf_do_writeback; // RF writeback enable from result capture
-
-  rss_idx_t result_rss_sel;
-  assign result_rss_sel = rss_idx_t'(result_tag_i);
+  // Post-mux dispatch handshake (valid produced by mux, ready returned by slots)
+  logic disp_req_valid;
+  logic disp_req_ready;
+  logic disp_req_internal_valid;
+  logic disp_req_internal_ready; // unused, internal disp logic is always valid
 
   //////////////////////////
   // Cut dispatch request //
@@ -267,75 +248,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .data_o (disp_req_i_q)
   );
 
-  ///////////
-  // Slots //
-  ///////////
-
-  slot_id_t     [NofRss-1:0] slot_ids;
-  producer_id_t [NofRss-1:0] rss_ids;
-
-  // In case the dispatch index overflows (we are full), tie down any signals to a default value.
-  logic sel_rss_valid;
-  assign sel_rss_valid = (disp_idx >= NofRss) ? 1'b0 : 1'b1;
-
-  rs_slot_t slot_reset_value;
-  assign slot_reset_value = '{
-    is_occupied:          1'b0, // suppresses operand requests
-    consumer_count:       '0,
-    consumed_by:          '0,
-    alu_op:               AluOpAdd,
-    lsu_op:               LsuOpLoad, // avoid store because the store flag has to be 0
-    fpu_op:               FpuOpFadd,
-    is_store:             1'b0,
-    lsu_size:             Byte,
-    fpu_fmt_src:          fpnew_pkg::FP32,
-    fpu_fmt_dst:          fpnew_pkg::FP32,
-    fpu_rnd_mode:         fpnew_pkg::RNE,
-    // We ignore the result part - the iteration flag could be X.
-    result:               '0,
-    instruction_iter:     1'b0,
-    dest_id:              '0,
-    dest_is_fp:           '0,
-    do_writeback:         1'b0,
-    operands:             '0 // invalid operands lead to no issue requests
-  };
-
-  for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
-    assign slot_ids[rss] = slot_id_t'(rss);
-    assign rss_ids[rss] = producer_id_t'{
-      slot_id: slot_ids[rss],
-      rs_id:   producer_id_i.rs_id
-    };
-
-    assign slot_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ? slot_wb_capture : slot_res_rsps[rss];
-    `FFAR(slot_qs[rss], slot_ds[rss], slot_reset_value, clk_i, rst_i);
-
-    schnizo_rss_res_req_handling #(
-      .rs_slot_t    (rs_slot_t),
-      .operand_req_t(operand_req_t),
-      .producer_id_t(producer_id_t),
-      .dest_mask_t  (dest_mask_t),
-      .res_rsp_t    (res_rsp_t)
-    ) i_res_req_handling (
-      .clk_i,
-      .rst_i,
-      .slot_q_i          (slot_qs[rss]),
-      .slot_i            (sel_rss_valid && (rss_idx_t'(rss) == disp_idx) ? slot_issue : slot_qs[rss]),
-      .retired_i         ((rss_idx_t'(rss) == result_rss_sel) ? capture_retired : 1'b0),
-      .loop_state_i      (loop_state_i),
-      .restart_i         (restart_i),
-      .dest_mask_i       (res_reqs_i[rss]),
-      .dest_mask_valid_i (res_reqs_valid_i[rss]),
-      .dest_mask_ready_o (res_reqs_ready_o[rss]),
-      .producer_id_i     (rss_ids[rss]),
-      .available_result_o(available_results_o[rss]),
-      .res_rsp_o         (res_rsps_o[rss]),
-      .res_rsp_valid_o   (res_rsps_valid_o[rss]),
-      .res_rsp_ready_i   (res_rsps_ready_i[rss]),
-      .slot_o            (slot_res_rsps[rss])
-    );
-  end
-
   ////////////////////
   // LxP Controller //
   ////////////////////
@@ -355,7 +267,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
   // if the instruction is a store or any other instruction.
   logic retiring;
-  assign retiring = capture_retired_rs;
 
   // Dispatch and result trip counter outputs
   rss_cnt_t disp_cnt, result_cnt;
@@ -460,142 +371,68 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .oup_ready_i(disp_req_ready)
   );
 
-  ///////////////////////
-  // Dispatch pipeline //
-  ///////////////////////
+  //////////////////////////////
+  // Slots datapath           //
+  //////////////////////////////
 
-  logic disp_req_ready_pipeline;
-  assign disp_req_ready = sel_rss_valid ? disp_req_ready_pipeline : 1'b0;
-
-  logic       issue_req_valid_raw;
-  issue_req_t issue_req_raw;
-
-  schnizo_rss_dispatch_pipeline #(
-    .NofOperands  (NofOperands),
-    .disp_req_t   (disp_req_t),
-    .producer_id_t(producer_id_t),
-    .rs_slot_t    (rs_slot_t),
-    .rss_operand_t(rss_operand_t),
-    .rss_result_t (rss_result_t),
-    .operand_req_t(operand_req_t),
-    .res_req_t    (res_req_t),
-    .operand_t    (operand_t),
-    .issue_req_t  (issue_req_t)
-  ) i_dispatch_pipeline (
-    .restart_i         (restart_i),
-    .producer_id_i     (sel_rss_valid ? rss_ids[disp_idx] : '0),
-    .loop_state_i      (loop_state_i),
-    .disp_req_i        (disp_req),
-    .disp_req_valid_i  (disp_req_valid && sel_rss_valid),
-    .disp_req_ready_o  (disp_req_ready_pipeline),
-    .slot_i            (sel_rss_valid ? slot_qs[disp_idx] : '0),
-    .slot_reset_state_i(slot_reset_value),
-    .op_reqs_o         (op_reqs_o),
-    .op_reqs_valid_o   (op_reqs_valid_o),
-    .op_reqs_ready_i   (op_reqs_ready_i),
-    .op_rsps_i         (op_rsps_i),
-    .op_rsps_valid_i   (op_rsps_valid_i),
-    .op_rsps_ready_o   (op_rsps_ready_o),
-    .issue_req_o       (issue_req_raw),
-    .issue_req_valid_o (issue_req_valid_raw),
-    .issue_req_ready_i (issue_req_ready_i),
-    .issue_hs_o        (issue_hs),
-    .slot_o            (slot_issue)
-  );
-
-  // TODO(colluca): use rss_ids
-  assign disp_rsp_o = producer_id_t'{
-    // Here we can go out of bounds because this response is only valid if we use a existing slot.slot_id
-    slot_id: (disp_idx >= NofRss) ? 1'b0 : slot_ids[disp_idx],
-    rs_id:   producer_id_i.rs_id
-  };
-
-  // issue_req_raw and issue_req_valid_raw come directly from i_dispatch_pipeline above.
-  // Tie down if dispatch index is out of range.
-  assign issue_req_valid_o   = sel_rss_valid ? issue_req_valid_raw : 1'b0;
-  assign issue_req_o         = sel_rss_valid ? issue_req_raw       : '0;
-
-  // Each accepted dispatch request was committed so we also commit to each issue request
-  assign instr_exec_commit_o = issue_req_valid_o;
-
-  /////////////////////////
-  // Result RF/RSS demux //
-  /////////////////////////
-
-  logic rss_wb_valid, rss_wb_ready;
-  logic rf_wb_valid, rf_wb_ready;
-
-  stream_fork #(
-    .N_OUP(32'd2)
-  ) i_result_fork (
+  schnizo_res_stat_slots #(
+    .NofRss        (NofRss),
+    .NofOperands   (NofOperands),
+    .NofResRspIfs  (NofResRspIfs),
+    .ConsumerCount (ConsumerCount),
+    .RegAddrWidth  (RegAddrWidth),
+    .rs_slot_t     (rs_slot_t),
+    .rss_operand_t (rss_operand_t),
+    .rss_result_t  (rss_result_t),
+    .disp_req_t    (disp_req_t),
+    .issue_req_t   (issue_req_t),
+    .result_t      (result_t),
+    .result_tag_t  (result_tag_t),
+    .producer_id_t (producer_id_t),
+    .slot_id_t     (slot_id_t),
+    .operand_req_t (operand_req_t),
+    .operand_t     (operand_t),
+    .res_req_t     (res_req_t),
+    .dest_mask_t   (dest_mask_t),
+    .res_rsp_t     (res_rsp_t)
+  ) i_slots (
     .clk_i,
-    .rst_ni (!rst_i),
-    .valid_i(result_valid_i),
-    .ready_o(result_ready_o),
-    .valid_o({rf_wb_valid, rss_wb_valid}),
-    .ready_i({rf_wb_ready, rss_wb_ready})
-  );
-
-  ///////////////////////////////////////
-  // Synchronize RF and RSS writebacks //
-  ///////////////////////////////////////
-
-  logic rf_do_writeback;
-
-  logic rss_wb_valid_sync, rss_wb_ready_sync;
-  logic rf_wb_valid_sync, rf_wb_ready_sync;
-  logic rss_wb_enable;
-
-  assign rf_do_writeback = capture_rf_do_writeback;
-
-  // Synchronize the two streams, otherwise it may occur that a result
-  // capture event preceeds an issue event, with single-cycle FUs.
-  // While this does not seem to compromise correctness, it does complicate the
-  // tracer design, and it does go against the expectation that issue
-  // precedes result capture.
-  assign rf_wb_valid_sync = rf_wb_valid && rss_wb_ready_sync;
-  assign rf_wb_ready = rf_wb_ready_sync && rss_wb_ready_sync;
-  assign rss_wb_enable = rf_do_writeback ? rf_wb_valid_sync && rf_wb_ready_sync : 1'b1;
-  assign rss_wb_valid_sync = rss_wb_valid && rss_wb_enable;
-  assign rss_wb_ready = rss_wb_ready_sync && rss_wb_enable;
-
-  //////////////////
-  // RF writeback //
-  //////////////////
-
-  stream_filter i_filter_rf_writeback (
-    .valid_i(rf_wb_valid_sync),
-    .ready_o(rf_wb_ready_sync),
-    .drop_i (!rf_do_writeback),
-    .valid_o(rf_wb_valid_o),
-    .ready_i(rf_wb_ready_i)
-  );
-  assign rf_wb_result_o = result_i;
-  assign rf_wb_tag_o    = capture_rf_wb_tag;
-
-  /////////////////////
-  // Result capture  //
-  /////////////////////
-
-  schnizo_rss_result_capture #(
-    .rs_slot_t   (rs_slot_t),
-    .result_t    (result_t),
-    .result_tag_t(result_tag_t),
-    .disp_req_t  (disp_req_t)
-  ) i_result_capture (
-    .slot_i               (slot_res_rsps[result_rss_sel]),
-    .issue_hs_i           (issue_hs && (disp_idx == result_rss_sel)),
-    .result_i             (result_i),
-    .result_valid_i       (rss_wb_valid_sync),
-    .loop_state_i         (loop_state_i),
-    .is_last_result_iter_i(last_result_iter),
-    .disp_req_i           (disp_req),
-    .result_ready_o       (rss_wb_ready_sync),
-    .retired_o            (capture_retired),
-    .retired_rs_o         (capture_retired_rs),
-    .rf_wb_tag_o          (capture_rf_wb_tag),
-    .rf_do_writeback_o    (capture_rf_do_writeback),
-    .slot_o               (slot_wb_capture)
+    .rst_i,
+    .producer_id_i     (producer_id_i),
+    .restart_i         (restart_i),
+    .loop_state_i      (loop_state_i),
+    .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
+    .last_result_iter_i(last_result_iter),
+    .retiring_o        (retiring),
+    .disp_req_i        (disp_req_i_q),
+    .disp_req_valid_i  (disp_req_valid),
+    .disp_req_ready_o  (disp_req_ready),
+    .disp_rsp_o        (disp_rsp_o),
+    .issue_req_o,
+    .issue_req_valid_o,
+    .issue_req_ready_i,
+    .instr_exec_commit_o,
+    .result_i,
+    .result_tag_i,
+    .result_valid_i,
+    .result_ready_o,
+    .rf_wb_result_o,
+    .rf_wb_tag_o,
+    .rf_wb_valid_o,
+    .rf_wb_ready_i,
+    .available_results_o,
+    .op_reqs_o,
+    .op_reqs_valid_o,
+    .op_reqs_ready_i,
+    .res_reqs_i,
+    .res_reqs_valid_i,
+    .res_reqs_ready_o,
+    .res_rsps_o,
+    .res_rsps_valid_o,
+    .res_rsps_ready_i,
+    .op_rsps_i,
+    .op_rsps_valid_i,
+    .op_rsps_ready_o
   );
 
   //////////////
@@ -615,8 +452,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .last_o  (last_disp),
     .trip_o  (trip_disp)
   );
-
-  assign disp_idx = disp_cnt[NofRssWidth-1:0];
 
   trip_counter #(
     .WIDTH(NofRssWidthExt)

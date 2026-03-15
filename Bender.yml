@@ -193,7 +193,6 @@ sources:
       - hw/schnizo/src/schnizo_res_req_mux.sv
       - hw/schnizo/src/schnizo_controller.sv
       # Level 3
-      - hw/schnizo/src/schnizo_res_stat_issue_memory.sv
       - hw/schnizo/src/schnizo_res_stat_slots.sv
       - hw/schnizo/src/schnizo_res_stat.sv
       - hw/schnizo/src/schnizo_fu_block.sv
