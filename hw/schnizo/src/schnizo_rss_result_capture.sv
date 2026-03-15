@@ -2,6 +2,8 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "common_cells/assertions.svh"
+
 // Captures FU results into the slot, handles RF writeback, and updates the slot accordingly.
 module schnizo_rss_result_capture import schnizo_pkg::*; #(
   parameter type rs_slot_t    = logic,
@@ -9,6 +11,10 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
   parameter type result_tag_t = logic,
   parameter type disp_req_t   = logic
 ) (
+  // Used only for assertions
+  input  logic        clk_i,
+  input  logic        rst_i,
+
   input  rs_slot_t    slot_i,
   input  logic        issue_hs_i,
   input  result_t     result_i,
@@ -44,8 +50,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
 
   // The ready may not be dependent on the valid. Otherwise, because of the RF/RSS writeback
   // synchronization logic, we would have a combinational loop.
-  assign result_ready_o = (result_consumed || !slot_i.result.is_valid || slot_i.consumer_count == '0) &&
-    slot_i.is_occupied;
+  assign result_ready_o = result_consumed || !slot_i.result.is_valid || slot_i.consumer_count == '0;
 
   // We captured a new result when the stream fork signals the handshake to the FU.
   // This includes both cases (only RSS as well as RSS and RF).
@@ -117,5 +122,12 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
       slot_o.consumed_by      = '0;
     end
   end
+
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  `ASSERT(ResultForOccupiedSlotOnly, result_valid_i |-> slot_i.is_occupied, clk_i, rst_i,
+          "Unoccupied slot should not receive result")
 
 endmodule
