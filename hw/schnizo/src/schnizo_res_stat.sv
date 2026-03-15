@@ -152,8 +152,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // TODO(colluca): put all FU-specific fields into a separate struct that is passed
   // as a parameter, and instantiated as a "user" field. Otherwise, only mandatory fields used
-  // for control logic should be hardcoded here. `is_store` is one of these, so it should be
-  // renamed to reflect its FU-independent function.
+  // for control logic should be hardcoded here.
   typedef struct packed {
     // Whether the RSS contains an active instruction.
     logic                           is_occupied;
@@ -168,9 +167,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     lsu_op_e                        lsu_op;
     fpu_op_e                        fpu_op;
     lsu_size_e                      lsu_size;
-    // A store instruction never generates a result. Thus we immediately accept a result when
-    // issuing the instruction.
-    logic                           is_store;
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
@@ -180,6 +176,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
     // each time the instruction is issued.
     logic                           instruction_iter;
+    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
+    // Thus, we immediately retire the instruction when it's issued.
+    logic                           has_dest;
     // The register ID where this instruction does commit into during regular execution.
     logic [RegAddrWidth-1:0]        dest_id;
     // Whether the destination register is a floating point or integer register.
