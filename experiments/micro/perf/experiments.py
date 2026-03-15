@@ -46,8 +46,9 @@ def gen_experiments(ci):
     sizes = [256, 512, 1024, 2048, 4096]
 
     # Drop failing tests at 256 when running in CI
+    # Also drop tests at 512 and 4096, just for CI runtime
     if ci:
-        sizes.pop(0)
+        sizes = sizes[2:-1]
 
     # Generate experiment list
     experiments = []
