@@ -5,7 +5,8 @@
 module schnizo_res_stat_synth #(
   parameter int unsigned NofRss = 4,
   parameter int unsigned NofOperands = 2,
-  parameter int unsigned ConsumerCount = 32
+  parameter int unsigned ConsumerCount = 32,
+  parameter bit          UseSram = 1'b0
 ) (
   input  logic                                              clk_i,
   input  logic                                              rst_ni,
@@ -61,6 +62,7 @@ module schnizo_res_stat_synth #(
     .ConsumerCount(ConsumerCount),
     .RegAddrWidth(schnizo_pkg::RegAddrSize),
     .MaxIterationsW(schnizo_synth_pkg::MaxIterationsW),
+    .UseSram(UseSram),
     .disp_req_t(schnizo_synth_pkg::disp_req_t),
     .disp_rsp_t(schnizo_synth_pkg::disp_rsp_t),
     .issue_req_t(schnizo_synth_pkg::issue_req_t),

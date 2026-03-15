@@ -23,6 +23,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
+  parameter bit          UseSram        = 1'b0,
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
@@ -384,6 +385,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .NofResRspIfs    (NofResRspIfs),
     .ConsumerCount   (ConsumerCount),
     .RegAddrWidth    (RegAddrWidth),
+    .UseSram         (UseSram),
     .rs_slot_issue_t (rs_slot_issue_t),
     .rs_slot_result_t(rs_slot_result_t),
     .rss_operand_t   (rss_operand_t),
