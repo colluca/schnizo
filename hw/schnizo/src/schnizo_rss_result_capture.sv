@@ -6,33 +6,27 @@
 
 // Captures FU results into the slot, handles RF writeback, and updates the slot accordingly.
 module schnizo_rss_result_capture import schnizo_pkg::*; #(
-  parameter type rs_slot_t    = logic,
-  parameter type result_t     = logic,
-  parameter type result_tag_t = logic,
-  parameter type disp_req_t   = logic
+  parameter type rs_slot_result_t = logic,
+  parameter type result_t         = logic,
+  parameter type result_tag_t     = logic,
+  parameter type disp_req_t       = logic
 ) (
-  // Used only for assertions
-  input  logic        clk_i,
-  input  logic        rst_i,
+  // Control
+  input  rs_slot_result_t slot_i,
+  input  logic            issue_hs_i,
+  input  result_t         result_i,
+  input  logic            result_valid_i,
+  input  loop_state_e     loop_state_i,
+  input  logic            is_last_result_iter_i,
+  input  disp_req_t       disp_req_i,
+  output logic            result_ready_o,
+  output logic            retired_o,
+  output logic            retired_rs_o,
+  output rs_slot_result_t slot_o,
 
-  input  rs_slot_t    slot_i,
-  input  logic        issue_hs_i,
-  input  result_t     result_i,
-  input  logic        result_valid_i,
-  input  loop_state_e loop_state_i,
-  input  logic        is_last_result_iter_i,
-  input  disp_req_t   disp_req_i,
-
-  output logic        result_ready_o,
-  // Asserted in the cycle the instruction retires (internal handshake)
-  output logic        retired_o,
-  // Retired signal back to RS to step the result pointer
-  output logic        retired_rs_o,
-
+  // Writeback
   output result_tag_t rf_wb_tag_o,
-  output logic        rf_do_writeback_o,
-
-  output rs_slot_t    slot_o
+  output logic        rf_do_writeback_o
 );
 
   ////////////////////
@@ -123,12 +117,5 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
       slot_o.consumed_by      = '0;
     end
   end
-
-  ////////////////
-  // Assertions //
-  ////////////////
-
-  `ASSERT(ResultForOccupiedSlotOnly, result_valid_i |-> slot_i.is_occupied, clk_i, rst_i,
-          "Unoccupied slot should not receive result")
 
 endmodule

@@ -8,27 +8,28 @@
 // Datapath of the Reservation Station.
 // Contains the slot registers, dispatch pipeline, result capture, and RF writeback path.
 module schnizo_res_stat_slots import schnizo_pkg::*; #(
-  parameter  int unsigned     NofRss        = 4,
-  parameter  int unsigned     NofOperands   = 3,
-  parameter  int unsigned     NofResRspIfs  = 1,
-  parameter  int unsigned     ConsumerCount = 4,
-  parameter  int unsigned     RegAddrWidth  = 5,
-  parameter  type             rs_slot_t     = logic,
-  parameter  type             rss_operand_t = logic,
-  parameter  type             rss_result_t  = logic,
-  parameter  type             disp_req_t    = logic,
-  parameter  type             issue_req_t   = logic,
-  parameter  type             result_t      = logic,
-  parameter  type             result_tag_t  = logic,
-  parameter  type             producer_id_t = logic,
-  parameter  type             slot_id_t     = logic,
-  parameter  type             operand_req_t = logic,
-  parameter  type             operand_t     = logic,
-  parameter  type             res_req_t     = logic,
-  parameter  type             dest_mask_t   = logic,
-  parameter  type             res_rsp_t     = logic,
-  localparam integer unsigned NofRssWidth   = cf_math_pkg::idx_width(NofRss),
-  localparam type             rss_idx_t     = logic [NofRssWidth-1:0]
+  parameter  int unsigned     NofRss           = 4,
+  parameter  int unsigned     NofOperands      = 3,
+  parameter  int unsigned     NofResRspIfs     = 1,
+  parameter  int unsigned     ConsumerCount    = 4,
+  parameter  int unsigned     RegAddrWidth     = 5,
+  parameter  type             rs_slot_issue_t  = logic,
+  parameter  type             rs_slot_result_t = logic,
+  parameter  type             rss_operand_t    = logic,
+  parameter  type             rss_result_t     = logic,
+  parameter  type             disp_req_t       = logic,
+  parameter  type             issue_req_t      = logic,
+  parameter  type             result_t         = logic,
+  parameter  type             result_tag_t     = logic,
+  parameter  type             producer_id_t    = logic,
+  parameter  type             slot_id_t        = logic,
+  parameter  type             operand_req_t    = logic,
+  parameter  type             operand_t        = logic,
+  parameter  type             res_req_t        = logic,
+  parameter  type             dest_mask_t      = logic,
+  parameter  type             res_rsp_t        = logic,
+  localparam integer unsigned NofRssWidth      = cf_math_pkg::idx_width(NofRss),
+  localparam type             rss_idx_t        = logic [NofRssWidth-1:0]
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -104,16 +105,19 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   rss_idx_t result_rss_sel;
   assign result_rss_sel = rss_idx_t'(result_tag_i);
 
-  rs_slot_t [NofRss-1:0] slot_qs;          // registered state of each slot
-  rs_slot_t [NofRss-1:0] slot_ds;          // next state for each slot
-  rs_slot_t              slot_issue;       // post-dispatch-pipeline state for the selected slot
-  logic                  issue_hs;         // issue handshake from the dispatch pipeline
-  rs_slot_t [NofRss-1:0] slot_res_rsps;    // post-res-req-handling state from each slot
-  rs_slot_t              slot_wb_capture;  // post-result-capture state for the selected slot
-  logic                  capture_retired;
-  logic                  capture_retired_rs;
-  result_tag_t           capture_rf_wb_tag;
-  logic                  capture_rf_do_writeback;
+  rs_slot_issue_t  [NofRss-1:0] slot_issue_qs;     // registered issue state of each slot
+  rs_slot_issue_t  [NofRss-1:0] slot_issue_ds;     // next issue state for each slot
+  rs_slot_result_t [NofRss-1:0] slot_result_qs;    // registered result state of each slot
+  rs_slot_result_t [NofRss-1:0] slot_result_ds;    // next result state for each slot
+  rs_slot_issue_t               slot_issue;        // post-dispatch-pipeline issue state for the selected slot
+  rs_slot_result_t              slot_result_init;  // initial result state from dispatch pipeline (LCP1)
+  logic                         issue_hs;          // issue handshake from the dispatch pipeline
+  rs_slot_result_t [NofRss-1:0] slot_res_rsps;     // post-res-req-handling result state from each slot
+  rs_slot_result_t              slot_wb_capture;   // post-result-capture result state for the selected slot
+  logic                         capture_retired;
+  logic                         capture_retired_rs;
+  result_tag_t                  capture_rf_wb_tag;
+  logic                         capture_rf_do_writeback;
 
   assign retiring_o = capture_retired_rs;
 
@@ -124,26 +128,30 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
 
-  rs_slot_t slot_reset_value;
-  assign slot_reset_value = '{
-    is_occupied:          1'b0, // suppresses operand requests
-    consumer_count:       '0,
-    consumed_by:          '0,
-    alu_op:               AluOpAdd,
-    lsu_op:               LsuOpLoad, // avoid store because the store flag has to be 0
-    fpu_op:               FpuOpFadd,
-    lsu_size:             Byte,
-    fpu_fmt_src:          fpnew_pkg::FP32,
-    fpu_fmt_dst:          fpnew_pkg::FP32,
-    fpu_rnd_mode:         fpnew_pkg::RNE,
+  rs_slot_issue_t slot_issue_reset;
+  assign slot_issue_reset = '{
+    is_occupied:      1'b0, // suppresses operand requests
+    alu_op:           AluOpAdd,
+    lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
+    fpu_op:           FpuOpFadd,
+    lsu_size:         Byte,
+    fpu_fmt_src:      fpnew_pkg::FP32,
+    fpu_fmt_dst:      fpnew_pkg::FP32,
+    fpu_rnd_mode:     fpnew_pkg::RNE,
+    instruction_iter: 1'b0,
+    operands:         '0 // invalid operands lead to no issue requests
+  };
+
+  rs_slot_result_t slot_result_reset;
+  assign slot_result_reset = '{
+    consumer_count: '0,
+    consumed_by:    '0,
     // We ignore the result part - the iteration flag could be X.
-    result:               '0,
-    instruction_iter:     1'b0,
-    has_dest:             1'b0,
-    dest_id:              '0,
-    dest_is_fp:           '0,
-    do_writeback:         1'b0,
-    operands:             '0 // invalid operands lead to no issue requests
+    result:         '0,
+    has_dest:       1'b0,
+    dest_id:        '0,
+    dest_is_fp:     '0,
+    do_writeback:   1'b0
   };
 
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
@@ -153,32 +161,41 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
       rs_id:   producer_id_i.rs_id
     };
 
-    assign slot_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ? slot_wb_capture : slot_res_rsps[rss];
-    `FFAR(slot_qs[rss], slot_ds[rss], slot_reset_value, clk_i, rst_i);
+    // Demux to update only selected issue slot
+    assign slot_issue_ds[rss] = disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
+                                slot_issue : slot_issue_qs[rss];
+    // Issue slot
+    `FFAR(slot_issue_qs[rss], slot_issue_ds[rss], slot_issue_reset, clk_i, rst_i);
+
+    // Demux to update only selected result slot (if any)
+    assign slot_result_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ?
+                                 slot_wb_capture : slot_res_rsps[rss];
+    // Result slot
+    `FFAR(slot_result_qs[rss], slot_result_ds[rss], slot_result_reset, clk_i, rst_i);
 
     schnizo_rss_res_req_handling #(
-      .rs_slot_t    (rs_slot_t),
-      .operand_req_t(operand_req_t),
-      .producer_id_t(producer_id_t),
-      .dest_mask_t  (dest_mask_t),
-      .res_rsp_t    (res_rsp_t)
+      .rs_slot_result_t(rs_slot_result_t),
+      .operand_req_t   (operand_req_t),
+      .producer_id_t   (producer_id_t),
+      .dest_mask_t     (dest_mask_t),
+      .res_rsp_t       (res_rsp_t)
     ) i_res_req_handling (
       .clk_i,
       .rst_i,
-      .slot_q_i          (slot_qs[rss]),
-      .slot_i            (disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ? slot_issue : slot_qs[rss]),
+      .slot_i            (disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
+                          slot_result_init : slot_result_qs[rss]),
       .retired_i         (capture_retired && (rss_idx_t'(rss) == result_rss_sel)),
       .loop_state_i      (loop_state_i),
       .restart_i         (restart_i),
+      .producer_id_i     (rss_ids[rss]),
+      .slot_o            (slot_res_rsps[rss]),
       .dest_mask_i       (res_reqs_i[rss]),
       .dest_mask_valid_i (res_reqs_valid_i[rss]),
       .dest_mask_ready_o (res_reqs_ready_o[rss]),
-      .producer_id_i     (rss_ids[rss]),
       .available_result_o(available_results_o[rss]),
       .res_rsp_o         (res_rsps_o[rss]),
       .res_rsp_valid_o   (res_rsps_valid_o[rss]),
-      .res_rsp_ready_i   (res_rsps_ready_i[rss]),
-      .slot_o            (slot_res_rsps[rss])
+      .res_rsp_ready_i   (res_rsps_ready_i[rss])
     );
   end
 
@@ -200,36 +217,40 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   assign disp_req_ready_o = disp_req_ready_raw && (disp_idx_i == issue_idx_i);
 
   schnizo_rss_dispatch_pipeline #(
-    .NofOperands  (NofOperands),
-    .disp_req_t   (disp_req_t),
-    .producer_id_t(producer_id_t),
-    .rs_slot_t    (rs_slot_t),
-    .rss_operand_t(rss_operand_t),
-    .rss_result_t (rss_result_t),
-    .operand_req_t(operand_req_t),
-    .res_req_t    (res_req_t),
-    .operand_t    (operand_t),
-    .issue_req_t  (issue_req_t)
+    .NofOperands     (NofOperands),
+    .disp_req_t      (disp_req_t),
+    .producer_id_t   (producer_id_t),
+    .rs_slot_issue_t (rs_slot_issue_t),
+    .rs_slot_result_t(rs_slot_result_t),
+    .rss_operand_t   (rss_operand_t),
+    .rss_result_t    (rss_result_t),
+    .operand_req_t   (operand_req_t),
+    .res_req_t       (res_req_t),
+    .operand_t       (operand_t),
+    .issue_req_t     (issue_req_t)
   ) i_dispatch_pipeline (
-    .restart_i         (restart_i),
-    .producer_id_i     (rss_ids[disp_idx_i]),
-    .loop_state_i      (loop_state_i),
-    .disp_req_i        (disp_req_i),
-    .disp_req_valid_i  (disp_req_valid_i),
-    .disp_req_ready_o  (disp_req_ready_pipeline),
-    .slot_i            (slot_qs[disp_idx_i]),
-    .slot_reset_state_i(slot_reset_value),
-    .op_reqs_o         (op_reqs_o),
-    .op_reqs_valid_o   (op_reqs_valid_o),
-    .op_reqs_ready_i   (op_reqs_ready_i),
-    .op_rsps_i         (op_rsps_i),
-    .op_rsps_valid_i   (op_rsps_valid_i),
-    .op_rsps_ready_o   (op_rsps_ready_o),
-    .issue_req_o       (issue_req_raw),
-    .issue_req_valid_o (issue_req_valid_raw),
-    .issue_req_ready_i (issue_req_ready_i),
-    .issue_hs_o        (issue_hs),
-    .slot_o            (slot_issue)
+    .restart_i              (restart_i),
+    .producer_id_i          (rss_ids[disp_idx_i]),
+    .loop_state_i           (loop_state_i),
+    .disp_req_i             (disp_req_i),
+    .disp_req_valid_i       (disp_req_valid_i),
+    .disp_req_ready_o       (disp_req_ready_pipeline),
+    .slot_issue_i           (slot_issue_qs[disp_idx_i]),
+    .slot_result_i          (slot_result_qs[disp_idx_i]),
+    .slot_issue_reset_val_i (slot_issue_reset),
+    .slot_result_reset_val_i(slot_result_reset),
+    .slot_issue_o           (slot_issue),
+    .slot_result_o          (slot_result_init),
+    .op_reqs_o              (op_reqs_o),
+    .op_reqs_valid_o        (op_reqs_valid_o),
+    .op_reqs_ready_i        (op_reqs_ready_i),
+    .op_rsps_i              (op_rsps_i),
+    .op_rsps_valid_i        (op_rsps_valid_i),
+    .op_rsps_ready_o        (op_rsps_ready_o),
+    .issue_req_o            (issue_req_raw),
+    .issue_req_valid_o      (issue_req_valid_raw),
+    .issue_req_ready_i      (issue_req_ready_i),
+    .issue_hs_o             (issue_hs)
   );
 
   // TODO(colluca): use rss_ids
@@ -304,13 +325,11 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   /////////////////////
 
   schnizo_rss_result_capture #(
-    .rs_slot_t   (rs_slot_t),
-    .result_t    (result_t),
-    .result_tag_t(result_tag_t),
-    .disp_req_t  (disp_req_t)
+    .rs_slot_result_t(rs_slot_result_t),
+    .result_t        (result_t),
+    .result_tag_t    (result_tag_t),
+    .disp_req_t      (disp_req_t)
   ) i_result_capture (
-    .clk_i,
-    .rst_i,
     .slot_i               (slot_res_rsps[result_rss_sel]),
     .issue_hs_i           (issue_hs && (disp_idx_i == result_rss_sel)),
     .result_i             (result_i),
@@ -321,9 +340,9 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .result_ready_o       (rss_wb_ready_sync),
     .retired_o            (capture_retired),
     .retired_rs_o         (capture_retired_rs),
+    .slot_o               (slot_wb_capture),
     .rf_wb_tag_o          (capture_rf_wb_tag),
-    .rf_do_writeback_o    (capture_rf_do_writeback),
-    .slot_o               (slot_wb_capture)
+    .rf_do_writeback_o    (capture_rf_do_writeback)
   );
 
   ////////////////
