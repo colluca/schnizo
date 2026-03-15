@@ -299,6 +299,8 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .result_tag_t(result_tag_t),
     .disp_req_t  (disp_req_t)
   ) i_result_capture (
+    .clk_i,
+    .rst_i,
     .slot_i               (slot_res_rsps[result_rss_sel]),
     .issue_hs_i           (issue_hs && (disp_idx_i == result_rss_sel)),
     .result_i             (result_i),
