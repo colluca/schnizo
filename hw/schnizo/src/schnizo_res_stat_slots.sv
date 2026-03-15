@@ -12,6 +12,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   parameter  int unsigned     NofResRspIfs     = 1,
   parameter  int unsigned     ConsumerCount    = 4,
   parameter  int unsigned     RegAddrWidth     = 5,
+  parameter  bit              UseSram          = 1'b0,
   parameter  type             rs_slot_issue_t  = logic,
   parameter  type             rs_slot_result_t = logic,
   parameter  type             rss_operand_t    = logic,
@@ -102,11 +103,10 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   rss_idx_t result_rss_sel;
   assign result_rss_sel = rss_idx_t'(result_tag_i);
 
-  rs_slot_issue_t  [NofRss-1:0] slot_issue_qs;     // registered issue state of each slot
-  rs_slot_issue_t  [NofRss-1:0] slot_issue_ds;     // next issue state for each slot
+  rs_slot_issue_t               slot_issue_q;      // registered issue state for the selected slot
+  rs_slot_issue_t               slot_issue_d;      // post-dispatch-pipeline issue state for the selected slot
   rs_slot_result_t [NofRss-1:0] slot_result_qs;    // registered result state of each slot
   rs_slot_result_t [NofRss-1:0] slot_result_ds;    // next result state for each slot
-  rs_slot_issue_t               slot_issue;        // post-dispatch-pipeline issue state for the selected slot
   rs_slot_result_t              slot_result_init;  // initial result state from dispatch pipeline (LCP1)
   logic                         issue_hs;          // issue handshake from the dispatch pipeline
   rs_slot_result_t [NofRss-1:0] slot_res_rsps;     // post-res-req-handling result state from each slot
@@ -125,20 +125,6 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
 
-  rs_slot_issue_t slot_issue_reset;
-  assign slot_issue_reset = '{
-    is_occupied:      1'b0, // suppresses operand requests
-    alu_op:           AluOpAdd,
-    lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
-    fpu_op:           FpuOpFadd,
-    lsu_size:         Byte,
-    fpu_fmt_src:      fpnew_pkg::FP32,
-    fpu_fmt_dst:      fpnew_pkg::FP32,
-    fpu_rnd_mode:     fpnew_pkg::RNE,
-    instruction_iter: 1'b0,
-    operands:         '0 // invalid operands lead to no issue requests
-  };
-
   rs_slot_result_t slot_result_reset;
   assign slot_result_reset = '{
     consumer_count: '0,
@@ -151,18 +137,27 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     do_writeback:   1'b0
   };
 
+  // Issue slots
+  schnizo_res_stat_issue_memory #(
+    .NofRss         (NofRss),
+    .UseSram        (UseSram),
+    .rs_slot_issue_t(rs_slot_issue_t)
+  ) i_issue_slots (
+    .clk_i,
+    .rst_i,
+    .raddr_i(disp_idx_i),
+    .rdata_o(slot_issue_q),
+    .wen_i  (disp_req_valid_i),
+    .waddr_i(disp_idx_i),
+    .wdata_i(slot_issue_d)
+  );
+
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
     assign slot_ids[rss] = slot_id_t'(rss);
     assign rss_ids[rss] = producer_id_t'{
       slot_id: slot_ids[rss],
       rs_id:   producer_id_i.rs_id
     };
-
-    // Demux to update only selected issue slot
-    assign slot_issue_ds[rss] = disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
-                                slot_issue : slot_issue_qs[rss];
-    // Issue slot
-    `FFAR(slot_issue_qs[rss], slot_issue_ds[rss], slot_issue_reset, clk_i, rst_i);
 
     // Demux to update only selected result slot (if any)
     assign slot_result_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ?
@@ -225,11 +220,10 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .disp_req_i             (disp_req_i),
     .disp_req_valid_i       (disp_req_valid_i),
     .disp_req_ready_o       (disp_req_ready_pipeline),
-    .slot_issue_i           (slot_issue_qs[disp_idx_i]),
+    .slot_issue_i           (slot_issue_q),
     .slot_result_i          (slot_result_qs[disp_idx_i]),
-    .slot_issue_reset_val_i (slot_issue_reset),
     .slot_result_reset_val_i(slot_result_reset),
-    .slot_issue_o           (slot_issue),
+    .slot_issue_o           (slot_issue_d),
     .slot_result_o          (slot_result_init),
     .op_reqs_o              (op_reqs_o),
     .op_reqs_valid_o        (op_reqs_valid_o),

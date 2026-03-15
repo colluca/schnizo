@@ -26,7 +26,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  logic            disp_req_valid_i,
   input  rs_slot_issue_t  slot_issue_i,
   input  rs_slot_result_t slot_result_i,
-  input  rs_slot_issue_t  slot_issue_reset_val_i,
   input  rs_slot_result_t slot_result_reset_val_i,
   output rs_slot_issue_t  slot_issue_o,
   output rs_slot_result_t slot_result_o,
@@ -54,6 +53,20 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   /////////////////////////
 
   // This stage performs an initial state-dependent slot update.
+
+  rs_slot_issue_t slot_issue_reset_val;
+  assign slot_issue_reset_val = '{
+    is_occupied:      1'b0, // suppresses operand requests
+    alu_op:           AluOpAdd,
+    lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
+    fpu_op:           FpuOpFadd,
+    lsu_size:         Byte,
+    fpu_fmt_src:      fpnew_pkg::FP32,
+    fpu_fmt_dst:      fpnew_pkg::FP32,
+    fpu_rnd_mode:     fpnew_pkg::RNE,
+    instruction_iter: 1'b0,
+    operands:         '0 // invalid operands lead to no issue requests
+  };
 
   // The initial operand values when accepting a new instruction
   rss_operand_t op_a_lcp1;
@@ -174,7 +187,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
     // Slot initialization has highest priority
     if (restart_i) begin
-      selected_slot = slot_issue_reset_val_i;
+      selected_slot = slot_issue_reset_val;
     end
   end
 
