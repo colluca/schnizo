@@ -56,7 +56,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
   // This includes both cases (only RSS as well as RSS and RF).
   // A store instruction has no result. Thus we capture a dummy result at the same time
   // we issue the store instruction.
-  assign retired_o = slot_i.is_store ? issue_hs_i : (result_valid_i && result_ready_o);
+  assign retired_o = slot_i.has_dest ? issue_hs_i : (result_valid_i && result_ready_o);
 
   // Retired signal back to RS to step the result pointer.
   // For all instructions except stores, this retired signal is the same as used inside this RSS.
@@ -72,7 +72,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
   // |rss_retiring instead of rss_retiring[result_idx]. This would also be easier to extend if
   // we would at some point want to support multiple instructions retiring in the same cycle,
   // within the same RS, e.g. due to the presence of pipelines with different latencies.
-  assign retired_rs_o = slot_i.is_store ? 1'b1 : retired_o;
+  assign retired_rs_o = slot_i.has_dest ? 1'b1 : retired_o;
 
   //////////////////
   // RF writeback //
@@ -97,12 +97,13 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
 
   // In LCPx we always write back to the RF. In LEP, we need to write back in the last result
   // iteration, if we are the last instruction in program order to write to that register
-  // (i.e. if `do_writeback` was set in LCP2). Stores don't writeback.
+  // (i.e. if `do_writeback` was set in LCP2). Instructions (e.g. stores) that don't have a
+  // destination register don't writeback.
   // TODO(colluca): why do we need to mask the do_writeback signal in case of stores?
   //                Doesn't the LSU simply not raise result_valid_i when it decodes a store?
   //                And if it does, why?
   assign rf_do_writeback_o = (loop_state_i == LoopLep) ? (is_last_result_iter_i &&
-    slot_i.do_writeback && !slot_i.is_store) : 1'b1;
+    slot_i.do_writeback && !slot_i.has_dest) : 1'b1;
 
   //////////////////////////////////////
   // Slot update after result capture //
@@ -118,7 +119,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
       //       logic?
       // TODO(colluca): to save power we would want to avoid that it switches at all, i.e.
       // keep the value in slot_q, not '0.
-      slot_o.result.value     = slot_o.is_store ? '0 : result_i;
+      slot_o.result.value     = slot_o.has_dest ? '0 : result_i;
       slot_o.consumed_by      = '0;
     end
   end

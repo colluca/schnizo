@@ -97,10 +97,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       alu_op:               disp_req_i.fu_data.alu_op,
       lsu_op:               disp_req_i.fu_data.lsu_op,
       fpu_op:               disp_req_i.fu_data.fpu_op,
-      // Duplicate logic for is_store. Once in LSU and once here.
-      // TODO: Optimize by passing this to the LSU instead of regenerating it inside the LSU?
-      is_store:             (disp_req_i.fu_data.fu == STORE) &&
-                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
       lsu_size:             disp_req_i.fu_data.lsu_size,
       fpu_fmt_src:          disp_req_i.fu_data.fpu_fmt_src,
       fpu_fmt_dst:          disp_req_i.fu_data.fpu_fmt_dst,
@@ -112,6 +108,9 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         iteration: 1'b1
       },
       instruction_iter:     1'b0,
+      // TODO(colluca): is this the right place for this logic? Perhaps we should move it to the decoder
+      has_dest:             (disp_req_i.fu_data.fu == STORE) &&
+                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
       dest_id:              disp_req_i.tag.dest_reg,
       dest_is_fp:           disp_req_i.tag.dest_reg_is_fp,
       do_writeback:         1'b0,
