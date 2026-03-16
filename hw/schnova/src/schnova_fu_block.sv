@@ -47,11 +47,9 @@ module schnova_fu_block import schnizo_pkg::*; #(
   // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
   // handling logic.
   input  logic                      restart_i,
-  input  logic                      fu_busy_i,
-  // Asserted when all RSS finish execution (in this cycle) or have already finished.
-  // LCP: No instructions in flight. LEP: All iterations done
-  output logic                      loop_finish_o,
+
   output logic                      rs_full_o,
+  output logic                      rs_empty_o,
 
   /// Instruction Stream
   // TODO(colluca): use generic_reqrsp interfaces for all of these. Would then reduce to four signals:
@@ -290,9 +288,9 @@ module schnova_fu_block import schnizo_pkg::*; #(
       // Control signals
       .producer_id_i      (producer_id_i),
       .restart_i          (restart_i),
-      .loop_finish_o      (loop_finish_o),
+      .en_superscalar_i   (en_superscalar_i),
       .rs_full_o          (rs_full_o),
-      .fu_busy_i          (fu_busy_i),
+      .rs_empty_o         (rs_empty_o),
       // The dispatched instruction - from Dispatcher
       .disp_req_i         (rs_disp_req),
       .disp_req_valid_i   (rs_disp_req_valid),
@@ -356,9 +354,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
     assign wb_result_valid_o = result_valid_i;
     assign result_ready_o    = wb_result_ready_i;
 
-    /// Superscalar specific signals
-    // The "RS" has always finished
-    assign loop_finish_o = 1'b1;
     // The "RS" is never full
     assign rs_full_o = 1'b0;
 
