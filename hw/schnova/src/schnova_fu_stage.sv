@@ -583,7 +583,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                [NofAlus-1:0] alu_wbs_result_valid;
   logic                [NofAlus-1:0] alu_wbs_result_ready;
 
-  logic [NofAlus-1:0] alu_loop_finish;
+  logic [NofAlus-1:0] alu_rs_empty;
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
     // Helper signals to merge the result and tag
@@ -640,9 +640,8 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
       .en_superscalar_i   (en_superscalar_i),
-      .fu_busy_i          (alu_busy),
-      .loop_finish_o      (alu_loop_finish[alu]),
       .rs_full_o          (alu_rs_full_o[alu]),
+      .rs_empty_o         (alu_rs_empty[alu]),
       /// Instruction stream
       // From dispatcher
       .disp_req_i         (disp_req_i),
@@ -792,7 +791,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                [NofLsus-1:0] lsu_wbs_result_valid;
   logic                [NofLsus-1:0] lsu_wbs_result_ready;
 
-  logic [NofLsus-1:0] lsu_loop_finish;
+  logic [NofLsus-1:0] lsu_rs_empty;
 
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsus
     // Helper signals to merge the result and tag
@@ -848,9 +847,8 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
       .en_superscalar_i   (en_superscalar_i),
-      .fu_busy_i          (lsu_busy),
-      .loop_finish_o      (lsu_loop_finish[lsu]),
       .rs_full_o          (lsu_rs_full_o[lsu]),
+      .rs_empty_o         (lsu_rs_empty[lsu]),
       /// Instruction stream
       // From dispatcher
       .disp_req_i         (disp_req_i),
@@ -1007,7 +1005,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic                [NofFpus-1:0] fpu_wbs_result_valid;
   logic                [NofFpus-1:0] fpu_wbs_result_ready;
 
-  logic [NofFpus-1:0] fpu_loop_finish;
+  logic [NofFpus-1:0] fpu_rs_empty;
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpus
     // Helper signals to merge the result and tag
@@ -1060,9 +1058,8 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
       .en_superscalar_i   (en_superscalar_i),
-      .fu_busy_i          (fpu_busy),
-      .loop_finish_o      (fpu_loop_finish[fpu]),
       .rs_full_o          (fpu_rs_full_o[fpu]),
+      .rs_empty_o         (fpu_rs_empty[fpu]),
       /// Instruction stream
       // From dispatcher
       .disp_req_i         (disp_req_i),
@@ -1199,7 +1196,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish};
+  assign all_rs_finish_o = &{&alu_rs_empty, &lsu_rs_empty, &fpu_rs_empty};
 
   ////////////////////
   // Tracer helpers //

@@ -46,16 +46,10 @@ module schnova_res_stat import schnizo_pkg::*; #(
   // handling logic. THERE MAY NOT BE ANY instruction in flight!
   // TODO(colluca): add assertion
   input  logic                      restart_i,
-  input  loop_state_e               loop_state_i,
-  input  logic [MaxIterationsW-1:0] lep_iterations_i,
-  // Asserted in the last LCP1 cycle (the cycle before we start LCP2)
-  input  logic                      goto_lcp2_i,
-  // Asserted when all RSS have finish execution (in this cycle).
-  // LCP: No instructions in flight. LEP: All iterations done
-  output logic                      loop_finish_o,
+  input  logic                      en_superscalar_i,
+  // Whether the RS if full or empty
+  output logic                      rs_empty_o,
   output logic                      rs_full_o,
-  // FU busy state. Asserted if valid data is in flight.
-  input  logic                      fu_busy_i,
 
   // The dispatched instruction - from Dispatcher
   input  disp_req_t disp_req_i,
@@ -205,16 +199,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     rss_operand_t [NofOperands-1:0] operands;
   } rs_slot_issue_t;
 
-  /////////////////
-  // Connections //
-  /////////////////
-
-  // Post-mux dispatch handshake (valid produced by mux, ready returned by slots)
-  logic disp_req_valid;
-  logic disp_req_ready;
-  logic disp_req_internal_valid;
-  logic disp_req_internal_ready; // unused, internal disp logic is always valid
-
   //////////////////////////
   // Cut dispatch request //
   //////////////////////////
@@ -252,9 +236,9 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .data_o (disp_req_i_q)
   );
 
-  ////////////////////
-  // LxP Controller //
-  ////////////////////
+  //////////////////////////////
+  // RS allocation controller //
+  //////////////////////////////
 
   // Generates the instruction dispatch, issue, retire & writeback control signals and handles
   // the LEP iterations.
@@ -264,7 +248,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
   //                provide it with.
 
   logic dispatch_hs;
-  assign dispatch_hs = disp_req_valid && disp_req_ready;
+  assign dispatch_hs = disp_req_valid_i_q && disp_req_ready_o_q;
 
   // An instruction retires as soon as the result is handshaked, i.e.:
   // assign retiring = result_valid_i && result_ready_o;
@@ -272,114 +256,34 @@ module schnova_res_stat import schnizo_pkg::*; #(
   // if the instruction is a store or any other instruction.
   logic retiring;
 
-  // Dispatch and result trip counter outputs
-  rss_cnt_t disp_cnt, result_cnt;
-  logic     last_disp, trip_disp;
-  logic     last_result, trip_result;
+  // Dispatch index, points to the RSS we currently can  dispatch an instruction to
+  rss_cnt_t disp_cnt;
 
-  logic [MaxIterationsW-1:0] lep_disp_iter_count;
-  logic [MaxIterationsW-1:0] lep_result_iter_count;
-
-  // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
-  // We snapshot the dispatch counter on the LCP1->LCP2 transition.
+  // Number of allocated RSS
   rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
-  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + dispatch_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
-  logic last_result_iter;
-  assign last_result_iter = lep_result_iter_count == 1;
-
-  assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
-
-  logic any_instr_captured;
-  assign any_instr_captured = (num_allocated_rss_q != '0);
-
-  // ---------------------------
-  // Finish detection
-  // ---------------------------
-
-  logic lcp_finished;
-  logic lep_finished_disp, lep_finished;
-
-  // In LCP the loop controller knows when we are in the last loop iteration.
-  // All it needs to know from the RS is if the FU has retired all instructions.
-  // `fu_busy_i` is asserted also when the output of the FU is valid, but in this cycle
-  // the instruction may already be retiring, so to not waste a cycle we separately
-  // include this condition.
-  assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
-                        ((disp_cnt == result_cnt) && retiring));
-
-  // In LEP the RS has finished if:
-  // - All instructions for all iterations have been dispatched
-  // AND
-  // - The FUs are not busy, i.e. all results have been captured
-  assign lep_finished_disp = lep_disp_iter_count == '0;
-  assign lep_finished = ((loop_state_i == LoopLep) && lep_finished_disp && !fu_busy_i)
-                        || !any_instr_captured;
-
-  always_comb begin : loop_finish
-    loop_finish_o = 1'b0;
-    unique case (loop_state_i)
-      LoopRegular,
-      LoopHwLoop: loop_finish_o = 1'b0;
-      LoopLcp1,
-      LoopLcp2: loop_finish_o = lcp_finished;
-      LoopLep: loop_finish_o = lep_finished;
-      default: loop_finish_o = 1'b0;
-    endcase
+  always_comb begin : num_aloc_rss_handler
+    num_allocated_rss_d = num_allocated_rss_q;
+    if(dispatch_hs && !retiring) begin
+      // If we are dispatching but not retiering in this cycle, we have one more
+      // instruction allocated in the RSS
+      num_allocated_rss_d = num_allocated_rss_q + 1'b1;
+    end else if (!dispatch_hs && retiring) begin
+      // If we are retireing but not dispatching, we have one less instruction
+      // allocated in the RSS
+      num_allocated_rss_d = num_allocated_rss_q - 1'b1;
+    end
   end
 
-  ////////////////////
-  // LEP Dispatcher //
-  ////////////////////
-  // TODO(colluca): according to the previous terminology shouldn't this be called issue?
-
-  // In LEP we can dispatch the RSSs if we have a instruction captured until we reached the amount
-  // of iterations. The actual dispatch request data is irrelevant as the instruction is captured
-  // in the RSS.
-
-  logic lep_do_dispatch;
-  assign lep_do_dispatch         = !lep_finished_disp && (loop_state_i inside {LoopLep}) &&
-                                   any_instr_captured;
-  assign disp_req_internal_valid = lep_do_dispatch;
-
-  //////////////////
-  // Dispatch MUX //
-  //////////////////
-
-  // The dispatch request selection. Either select request from outside or from LEP engine.
-  // TODO(colluca): this to me sounds like a repetition of the bypass path we have in the
-  //                FU block, which is used for regular execution. Do we really need both?
-  //                Can we at that point not just pass regular execution requests into the
-  //                res_stat and bypass everything internally?
-  //                Well, maybe not, because of the cut.
-
-  logic sel_disp_req_internal;
-  assign sel_disp_req_internal = loop_state_i == LoopLep;
-
-  // Select between external (LCP) and internal dispatch request (LEP). The internal dispatch
-  // request has no actual data as the instruction is already captured in the RSS. Thus we can
-  // simplify the MUX to only mux the valid/ready handshake.
-  // TODO(colluca): do we need a mux at all here? I would think we would only need to OR the valids
-  //                and broadcast the ready.
-  stream_mux #(
-    .DATA_T(logic),
-    .N_INP (2)
-  ) i_disp_req_mux (
-    .inp_data_i ('0), // dummy data
-    .inp_valid_i({disp_req_internal_valid, disp_req_valid_i_q}),
-    .inp_ready_o({disp_req_internal_ready, disp_req_ready_o_q}),
-    .inp_sel_i  (sel_disp_req_internal),
-    .oup_data_o (), // don't use the MUX output data
-    .oup_valid_o(disp_req_valid),
-    .oup_ready_i(disp_req_ready)
-  );
+  assign rs_full_o = (num_allocated_rss_q == rss_cnt_t'(NofRss));
+  assign rs_empty_o = (num_allocated_rss_q != '0);
 
   //////////////////////////////
   // Slots datapath           //
   //////////////////////////////
 
-  schnizo_res_stat_slots #(
+  schnova_res_stat_slots #(
     .NofRss          (NofRss),
     .NofOperands     (NofOperands),
     .NofResRspIfs    (NofResRspIfs),
@@ -406,13 +310,11 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
-    .loop_state_i      (loop_state_i),
     .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
-    .last_result_iter_i(last_result_iter),
     .retiring_o        (retiring),
     .disp_req_i        (disp_req_i_q),
-    .disp_req_valid_i  (disp_req_valid),
-    .disp_req_ready_o  (disp_req_ready),
+    .disp_req_valid_i  (disp_req_valid_i_q),
+    .disp_req_ready_o  (disp_req_ready_o_q),
     .disp_rsp_o        (disp_rsp_o),
     .issue_req_o,
     .issue_req_valid_o,
@@ -445,62 +347,18 @@ module schnova_res_stat import schnizo_pkg::*; #(
   // Counters //
   //////////////
 
-  trip_counter #(
+  delta_counter #(
     .WIDTH(NofRssWidthExt)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
-    .clear_i (goto_lcp2_i || restart_i),
+    .clear_i (restart_i),
     .en_i    (dispatch_hs),
+    .load_i  (1'b0),
+    .down_i  (1'b0),
     .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
-    .last_o  (last_disp),
-    .trip_o  (trip_disp)
-  );
-
-  trip_counter #(
-    .WIDTH(NofRssWidthExt)
-  ) i_result_counter (
-    .clk_i,
-    .rst_ni  (!rst_i),
-    .clear_i (goto_lcp2_i || restart_i),
-    .en_i    (retiring),
-    .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
-    .q_o     (result_cnt),
-    .last_o  (last_result),
-    .trip_o  (trip_result)
-  );
-
-  counter #(
-    .WIDTH          (MaxIterationsW),
-    .STICKY_OVERFLOW(0)
-  ) i_lep_disp_iter_counter (
-    .clk_i,
-    .rst_ni    (!rst_i),
-    .clear_i   (restart_i),
-    .en_i      ((loop_state_i == LoopLep) && trip_disp),
-    .load_i    (loop_state_i == LoopLcp2),
-    .down_i    (1'b1),
-    .d_i       (lep_iterations_i),
-    .q_o       (lep_disp_iter_count),
-    .overflow_o()
-  );
-
-  counter #(
-    .WIDTH          (MaxIterationsW),
-    .STICKY_OVERFLOW(0)
-  ) i_lep_result_iter_counter (
-    .clk_i,
-    .rst_ni    (!rst_i),
-    .clear_i   (restart_i),
-    .en_i      ((loop_state_i == LoopLep) && trip_result && (lep_result_iter_count > '0)),
-    .load_i    (loop_state_i == LoopLcp2),
-    .down_i    (1'b1),
-    .d_i       (lep_iterations_i),
-    .q_o       (lep_result_iter_count),
-    .overflow_o()
+    .overflow_o ()
   );
 
 endmodule
