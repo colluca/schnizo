@@ -1031,7 +1031,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     issue_fpu_trace_t fpu_trace_int;
     // pragma translate_on
 
-    schnizo_fu_block #(
+    schnova_fu_block #(
       .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
