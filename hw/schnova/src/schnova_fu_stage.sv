@@ -613,7 +613,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     issue_alu_trace_t alu_trace_int;
     // pragma translate_on
 
-    schnizo_fu_block #(
+    schnova_fu_block #(
       .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
@@ -639,6 +639,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       /// RS control signals
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
+      .en_superscalar_i   (en_superscalar_i),
       .fu_busy_i          (alu_busy),
       .loop_finish_o      (alu_loop_finish[alu]),
       .rs_full_o          (alu_rs_full_o[alu]),
@@ -820,7 +821,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     issue_lsu_trace_t lsu_trace_int;
     // pragma translate_on
 
-    schnizo_fu_block #(
+    schnova_fu_block #(
       .Xfrep         (Xfrep),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
@@ -846,6 +847,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       /// RS control signals
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
+      .en_superscalar_i   (en_superscalar_i),
       .fu_busy_i          (lsu_busy),
       .loop_finish_o      (lsu_loop_finish[lsu]),
       .rs_full_o          (lsu_rs_full_o[lsu]),
@@ -1057,6 +1059,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       /// RS control signals
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
+      .en_superscalar_i   (en_superscalar_i),
       .fu_busy_i          (fpu_busy),
       .loop_finish_o      (fpu_loop_finish[fpu]),
       .rs_full_o          (fpu_rs_full_o[fpu]),
