@@ -163,7 +163,7 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
     // Result slot
     `FFAR(slot_result_qs[rss], slot_result_ds[rss], slot_result_reset, clk_i, rst_i);
 
-    schnizo_rss_res_req_handling #(
+    schnova_rss_res_req_handling #(
       .rs_slot_result_t(rs_slot_result_t),
       .operand_req_t   (operand_req_t),
       .producer_id_t   (producer_id_t),
