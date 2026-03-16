@@ -774,7 +774,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   retire_fu_trace_t  fpu_retirements [NofFpus];
   // pragma translate_on
 
-  schnizo_fu_stage #(
+  schnova_fu_stage #(
     .Xfrep              (Xfrep),
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
@@ -833,9 +833,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     // TODO(colluca): typo
     .hard_id_i            (hart_id_i),
     .restart_i            (lxp_restart),
-    .loop_state_i         (loop_state),
-    .lep_iterations_i     (lep_iterations),
-    .goto_lcp2_i          (goto_lcp2),
+    .en_superscalar_i     (en_superscalar),
     .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
     // Global commit signal

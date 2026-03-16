@@ -99,9 +99,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   /// RS control signals
   input  logic                      restart_i,
-  input  loop_state_e               loop_state_i,
-  input  logic [MaxIterationsW-1:0] lep_iterations_i,
-  input  logic                      goto_lcp2_i,
+  input  logic                      en_superscalar_i,
   // Asserted if all RS are either finishing in this cycle or have already finished
   output logic                      all_rs_finish_o,
 
@@ -563,17 +561,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign op_rsps_valid  = '0;
   end
 
-  // ---------------------------
-  // LxP data path selection
-  // ---------------------------
-  // We generate one global signal which then controls all request/issue/result/wb MUXs.
-  // This should enable the timing separation for the branch result.
-  logic in_lxp;
-  assign in_lxp = Xfrep ? loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep} : 1'b0;
-
-  logic in_lcp;
-  assign in_lcp = Xfrep ? loop_state_i inside {LoopLcp1, LoopLcp2} : 1'b0;
-
   //////////
   // ALUs //
   //////////
@@ -652,10 +639,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       /// RS control signals
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
-      .loop_state_i       (loop_state_i),
-      .in_lxp_i           (in_lxp),
-      .lep_iterations_i   (lep_iterations_i),
-      .goto_lcp2_i        (goto_lcp2_i),
       .fu_busy_i          (alu_busy),
       .loop_finish_o      (alu_loop_finish[alu]),
       .rs_full_o          (alu_rs_full_o[alu]),
@@ -863,10 +846,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       /// RS control signals
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
-      .loop_state_i       (loop_state_i),
-      .in_lxp_i           (in_lxp),
-      .lep_iterations_i   (lep_iterations_i),
-      .goto_lcp2_i        (goto_lcp2_i),
       .fu_busy_i          (lsu_busy),
       .loop_finish_o      (lsu_loop_finish[lsu]),
       .rs_full_o          (lsu_rs_full_o[lsu]),
@@ -953,8 +932,9 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .caq_rsp_valid_o  (caq_rsp_valid_o[lsu])
     );
 
-    // Suppress exceptions in LCP and LEP because we anyway don't handle them one cycle later.
-    assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw & !in_lxp;
+    // TODO (soderma): Handler exceptions correctly in superscalar
+    // Suppress exceptions in superscalar mode for now because we anyway don't handle them one cycle later.
+    assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw & !en_superscalar_i;
 
     // Populate the producer and instr_iter fields of the trace
     // pragma translate_off
@@ -1077,10 +1057,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       /// RS control signals
       .producer_id_i      (producer_start_id),
       .restart_i          (restart_i),
-      .loop_state_i       (loop_state_i),
-      .in_lxp_i           (in_lxp),
-      .lep_iterations_i   (lep_iterations_i),
-      .goto_lcp2_i        (goto_lcp2_i),
       .fu_busy_i          (fpu_busy),
       .loop_finish_o      (fpu_loop_finish[fpu]),
       .rs_full_o          (fpu_rs_full_o[fpu]),
