@@ -115,8 +115,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
   typedef logic [NofRssWidth-1:0] rss_idx_t;
   typedef logic [NofRssWidthExt-1:0] rss_cnt_t;
 
-  localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
-
   typedef struct packed {
     // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
     // constant and fetched during LCP1 and LCP2.
@@ -126,9 +124,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     // LCP1 and again in LCP2 and kept for the rest of the loop execution. A constant value can
     // either be a value read once from a register or an immediate of the instruction.
     logic         is_produced;
-    // Specifying in which iteration the producer generated the value. If set, the producer is in
-    // the same iteration. If reset, this is a loop-carried dependency.
-    logic         is_from_current_iter;
     operand_t     value;
     logic         is_valid;
     // Set if we placed a request to the producer
@@ -139,18 +134,10 @@ module schnova_res_stat import schnizo_pkg::*; #(
     result_t value;
     // If set, the result is valid.
     logic    is_valid;
-    // This flag signals to which iteration (“current” or “next”) the currently stored value in
-    // the Result buffer belongs to. It is toggled each time a new value is written into the
-    // buffer.
-    logic    iteration;
   } rss_result_t;
 
   // Result metadata and counters — updated by res_req_handling and result_capture.
   typedef struct packed {
-    // How many consumers use the result of this instruction.
-    logic [ConsumerCountWidth-1:0]  consumer_count;
-    // A counter to keep track how many times the current result has been captured.
-    logic [ConsumerCountWidth-1:0]  consumed_by;
     // The most recent result.
     rss_result_t                    result;
     // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
@@ -160,10 +147,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     logic [RegAddrWidth-1:0]        dest_id;
     // Whether the destination register is a floating point or integer register.
     logic                           dest_is_fp;
-    // Specifying whether the last result of the loop is written into the register defined by
-    // destination id. This flag is defined during LCP and ensures that at the end of the loop
-    // only the last writing instruction does perform a writeback to the RF.
-    logic                           do_writeback;
   } rs_slot_result_t;
 
   // Issue-side state — updated by the dispatch pipeline only.
@@ -183,10 +166,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
-    // This flag signals to which iteration (“current” or “next”) the currently
-    // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
-    // each time the instruction is issued.
-    logic                           instruction_iter;
     // All operands
     // TODO(colluca): optimize by pulling out of RS. Only one RSS per RS will anyways fetch
     // operands at any time. One exception is for immediate values, those need to be always

@@ -223,7 +223,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // mask inside the crossbar output logic. This mask is used to send the result to multiple
   // operands at once.
   typedef struct packed {
-    logic        requested_iter;
     slot_id_t    slot_id;
   } res_req_t;
 
