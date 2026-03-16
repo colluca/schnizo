@@ -220,6 +220,7 @@ sources:
       - hw/schnova/src/schnova_controller.sv
       # Level 3
       # Level 4
+      - hw/schnova/src/schnova_fu_stage.sv
       # Level 5
       - hw/schnova/src/schnova.sv
 
