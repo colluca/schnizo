@@ -43,14 +43,10 @@ module schnova_fu_block import schnizo_pkg::*; #(
   /// RS control signals
   // The producer id of the RS and thus the first RSS. Must be static.
   input  producer_id_t              producer_id_i,
+  input  logic                      en_superscalar_i,
   // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
   // handling logic.
   input  logic                      restart_i,
-  input  loop_state_e               loop_state_i,
-  input  logic                      in_lxp_i,
-  input  logic [MaxIterationsW-1:0] lep_iterations_i,
-  // Asserted in the last LCP1 cycle (the cycle before we start LCP2)
-  input  logic                      goto_lcp2_i,
   input  logic                      fu_busy_i,
   // Asserted when all RSS finish execution (in this cycle) or have already finished.
   // LCP: No instructions in flight. LEP: All iterations done
@@ -116,8 +112,8 @@ module schnova_fu_block import schnizo_pkg::*; #(
 
   if (Xfrep) begin : gen_superscalar
     // Module global switch between regular execution and superscalar path
-    logic sel_lxp_path;
-    assign sel_lxp_path = in_lxp_i;
+    logic sel_superscalar_path;
+    assign sel_superscalar_path = en_superscalar_i;
 
     ////////////////////////
     // Datapath selection //
@@ -182,7 +178,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
     ) i_disp_demux (
       .inp_valid_i(disp_req_valid_i),
       .inp_ready_o(disp_req_ready_o),
-      .oup_sel_i  (sel_lxp_path),
+      .oup_sel_i  (sel_superscalar_path),
       .oup_valid_o({rs_disp_req_valid, si_disp_req_valid}),
       .oup_ready_i({rs_disp_req_ready, si_disp_req_ready})
     );
@@ -207,13 +203,13 @@ module schnova_fu_block import schnizo_pkg::*; #(
       .inp_data_i ({rs_issue_req,       si_issue_req}),
       .inp_valid_i({rs_issue_req_valid, si_issue_req_valid}),
       .inp_ready_o({rs_issue_req_ready, si_issue_req_ready}),
-      .inp_sel_i  (sel_lxp_path),
+      .inp_sel_i  (sel_superscalar_path),
       .oup_data_o (issue_req_o),
       .oup_valid_o(issue_req_valid_o),
       .oup_ready_i(issue_req_ready_i)
     );
 
-    assign instr_exec_commit_o = sel_lxp_path ? rs_instr_exec_commit : instr_exec_commit_i;
+    assign instr_exec_commit_o = sel_superscalar_path ? rs_instr_exec_commit : instr_exec_commit_i;
 
     // Result DEMUX
     assign rs_result        = result_i;
@@ -225,7 +221,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
     ) i_fu_result_demux (
       .inp_valid_i(result_valid_i),
       .inp_ready_o(result_ready_o),
-      .oup_sel_i  (sel_lxp_path),
+      .oup_sel_i  (sel_superscalar_path),
       .oup_valid_o({rs_result_valid, si_wb_result_valid}),
       .oup_ready_i({rs_result_ready, si_wb_result_ready})
     );
@@ -255,7 +251,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
       .inp_data_i ({rs_wb_result_and_tag, si_wb_result_and_tag}),
       .inp_valid_i({rs_wb_result_valid,   si_wb_result_valid}),
       .inp_ready_o({rs_wb_result_ready,   si_wb_result_ready}),
-      .inp_sel_i  (sel_lxp_path),
+      .inp_sel_i  (sel_superscalar_path),
       .oup_data_o (wb_result_and_tag),
       .oup_valid_o(wb_result_valid_o),
       .oup_ready_i(wb_result_ready_i)
@@ -294,9 +290,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
       // Control signals
       .producer_id_i      (producer_id_i),
       .restart_i          (restart_i),
-      .loop_state_i       (loop_state_i),
-      .lep_iterations_i   (lep_iterations_i),
-      .goto_lcp2_i        (goto_lcp2_i),
       .loop_finish_o      (loop_finish_o),
       .rs_full_o          (rs_full_o),
       .fu_busy_i          (fu_busy_i),
