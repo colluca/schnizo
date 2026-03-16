@@ -87,12 +87,6 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   output logic     [NofOperands-1:0] op_rsps_ready_o
 );
 
-  /////////////////////////////////////
-  // Parameters and type definitions //
-  /////////////////////////////////////
-
-  localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
-
   /////////////////
   // Connections //
   /////////////////
@@ -125,8 +119,6 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
 
   rs_slot_result_t slot_result_reset;
   assign slot_result_reset = '{
-    consumer_count: '0,
-    consumed_by:    '0,
     // We ignore the result part - the iteration flag could be X.
     result:         '0,
     has_dest:       1'b0,
@@ -159,7 +151,7 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
 
     // Demux to update only selected result slot (if any)
     assign slot_result_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ?
-                                 slot_wb_capture : slot_res_rsps[rss];
+                                slot_wb_capture : slot_res_rsps[rss];
     // Result slot
     `FFAR(slot_result_qs[rss], slot_result_ds[rss], slot_result_reset, clk_i, rst_i);
 
@@ -175,7 +167,6 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
       .slot_i            (disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
                           slot_result_init : slot_result_qs[rss]),
       .retired_i         (capture_retired && (rss_idx_t'(rss) == result_rss_sel)),
-      .loop_state_i      (loop_state_i),
       .restart_i         (restart_i),
       .producer_id_i     (rss_ids[rss]),
       .slot_o            (slot_res_rsps[rss]),
