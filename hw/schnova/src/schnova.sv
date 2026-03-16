@@ -256,20 +256,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // - each operand of each Reservation station has an operand master (1 port)
   // - each RSS has an own result request interface but only each RS has one result response interface.
 
-  // Define how many operand request / response ports each RS has.
-  // A port includes a set of xbar in/outputs for each operand.
-  // I.e. if the ALU has 2 operands, 1 port generates 2 operand interfaces
-  localparam integer unsigned AluNofOpPorts = 1;
-  localparam integer unsigned LsuNofOpPorts = 1;
-  localparam integer unsigned FpuNofOpPorts = 1;
-
-  localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
-  localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
-  localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
-
-  localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperandIfs +
-                                              NofLsus * LsuNofOperandIfs +
-                                              NofFpus * FpuNofOperandIfs;
+  localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperands +
+                                              NofLsus * LsuNofOperands +
+                                              NofFpus * FpuNofOperands;
 
   // We differentiate between result requests and result responses.
   // Each reservation station has a result request crossbar output which is shared among the slots.
@@ -791,19 +780,16 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
-    .AluNofOpPorts      (AluNofOpPorts),
     .AluNofResReqIfs    (AluNofResReqIfs),
     .AluNofResRspPorts  (AluNofResRspPorts),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
     .LsuNofOperands     (LsuNofOperands),
-    .LsuNofOpPorts      (LsuNofOpPorts),
     .LsuNofResReqIfs    (LsuNofResReqIfs),
     .LsuNofResRspPorts  (LsuNofResRspPorts),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
     .FpuNofOperands     (FpuNofOperands),
-    .FpuNofOpPorts      (FpuNofOpPorts),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
     .FpuNofResRspPorts  (FpuNofResRspPorts),
     .NofOperandIfs      (NofOperandIfs),
@@ -836,7 +822,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
     .fu_data_t          (fu_data_t),
-    .instr_tag_t        (schnova_instr_tag_t),
+    .instr_tag_t        (instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
@@ -844,7 +830,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   ) i_fu_stage (
     .clk_i,
     .rst_i,
-    // TODO(collca): typo
+    // TODO(colluca): typo
     .hard_id_i            (hart_id_i),
     .restart_i            (lxp_restart),
     .loop_state_i         (loop_state),
@@ -853,7 +839,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
     // Global commit signal
-    .instr_exec_commit_i  (instr_exec_commit[0]),
+    .instr_exec_commit_i  (instr_exec_commit),
     // Trace
     // pragma translate_off
     .alu_trace_o          (alu_trace),
@@ -1180,7 +1166,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   };
 
   assign dispatch_trace = '{
-    valid:        i_controller.instr_dispatched,
+    valid:        i_controller.instr_dispatched || exception,
     pc_q:         i_frontend.pc_q,
     pc_d:         i_frontend.pc_d,
     instr_data:   instr_fetch_data[0],
@@ -1204,25 +1190,28 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace_resreq
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
-          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
+                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+                          // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
+                          // after porting issue slots to SRAM
+          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a[XLEN-1:0],
-          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b[XLEN-1:0]
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
         };
         assign alu_rescap_traces[alu][rss] = '{
-          valid:          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                          !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+          // TODO(colluca): this combined signal should be derived inside the slot, not here. Do the same for other logic
+          // sparse here in the tracer.
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.capture_retired &&
+                          !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.has_dest &&
+                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-          enable_rf_wb:   i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-          rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-          rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-          result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+          result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.iteration,
+          rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
+          rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
+          result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
         };
       end else begin : gen_alu_traces_rss_no_trace_resreq
         assign rss_alu_traces[alu][rss]    = '{default: '0};
@@ -1236,10 +1225,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_iters[rss]
+            requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
           };
         end else begin : gen_alu_traces_rss_no_resreq
           assign alu_resreq_traces[alu][rss][con] = '{default: '0};
@@ -1254,11 +1243,11 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace_resreq
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
-          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1270,16 +1259,15 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
           lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
         };
         assign lsu_rescap_traces[lsu][rss] = '{
-          valid:          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                          !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.capture_retired &&
+                          !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.has_dest &&
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-          enable_rf_wb:   i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-          rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-          rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-          result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+          result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.iteration,
+          rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
+          rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
+          result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
         };
       end else begin : gen_lsu_traces_rss_no_trace_resreq
         assign rss_lsu_traces[lsu][rss]    = '{default: '0};
@@ -1293,10 +1281,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_iters[rss]
+            requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
           };
         end else begin : gen_lsu_traces_rss_no_resreq
           assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
@@ -1311,31 +1299,30 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs_valid[rss] &&
-                      i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs_ready[rss],
-          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_q.instruction_iter,
+          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
+                      (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
           producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_a,
-          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.operand_b,
-          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.imm,
-          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_src,
-          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.issue_reqs[rss].fu_data.fpu_fmt_dst,
+                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
           // Directly access the FPU because theses signals are decoded in the FPU. This requires
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
         };
         assign fpu_rescap_traces[fpu][rss] = '{
-          valid:          (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_valid &&
-                           i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.rss_wb_ready) &&
-                          !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.is_store,
+          valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.capture_retired &&
+                          !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.has_dest &&
+                          (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
-          result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.iteration,
-          enable_rf_wb:   i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-          rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_id,
-          rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.dest_is_fp,
-          result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.slot_wb.result.value
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+          result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.iteration,
+          rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
+          rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
+          result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
         };
       end else begin : gen_fpu_traces_no_rss
         assign rss_fpu_traces[fpu][rss]    = '{default: '0};
@@ -1349,10 +1336,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
+                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_iters[rss]
+            requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
           };
         end else begin : gen_fpu_traces_no_resreq
           assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
