@@ -265,7 +265,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
     // ---------------------------
     // TODO(colluca): does the reservation station even need an instr_tag_t type that
     // is calculated as max(wb_tag_t, rs_tag_t)? If not, just pass rs_tag_t here
-    schnizo_res_stat #(
+    schnova_res_stat #(
       .NofRss        (NofRss),
       .NofOperands   (NofOperands),
       .NofResRspIfs  (NofResRspIfs),
