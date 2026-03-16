@@ -35,6 +35,8 @@ module schnova_controller import schnizo_pkg::*; #(
   input logic                       registers_ready_i,
   input logic                       fpr_busy_i,
   input logic                       gpr_busy_i,
+  // Writeback interface
+  input logic ctrl_instr_retired_i,
   // Interface to dispatcher & RS
   output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
   input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
@@ -48,7 +50,6 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic        interrupt_i,
   input  logic        csr_exception_raw_i,
   input  logic        lsu_empty_i,
-  input  logic        ctrl_inflight_i,
   input  logic        load_inflight_i,
   input  logic        store_inflight_i,
   input  logic        lsu_addr_misaligned_i,
@@ -101,6 +102,8 @@ module schnova_controller import schnizo_pkg::*; #(
                                     (consecutive_pc_i[1:0] != 2'b0);
     // Signal to CSR when entering WFI state.
     // TODO(colluca): what to do with debug signal?
+    // TODO(soderma): WFI not allowed in superscalar mode at this point. Because to be correct,
+    // we would have to disable all other instructions.
     assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid_i[instr_idx];
     // && !debug_q;
     // Check privileges for certain instructions
@@ -140,6 +143,7 @@ module schnova_controller import schnizo_pkg::*; #(
   assign instr_addr_misaligned_o = |instr_addr_misaligned_ex;
   // Load and store address are missaligned if LSU assert address misaligned
   // and a load/store operation is currently being processed.
+  // TODO: Act correctly on an exception, maybe we can do this similar to schnizo now with our scalar mode.
   assign load_addr_misaligned_o  = lsu_addr_misaligned_i & load_inflight_i;
   assign store_addr_misaligned_o = lsu_addr_misaligned_i & store_inflight_i;
   assign enter_wfi_o = |enter_wfi;
@@ -238,7 +242,26 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
   logic ctrl_stall;
-  assign ctrl_stall = blk_ctrl_info_i.is_ctrl & ~ctrl_inflight_i;
+  logic process_ctrl_instr_d, process_ctrl_instr_q;
+  `FFAR(process_ctrl_instr_q, process_ctrl_instr_d, 1'b0, clk_i, rst_i);
+
+  always_comb begin : ctrl_instr_state_logic
+    process_ctrl_instr_d = process_ctrl_instr_q;
+    if (blk_ctrl_info_i.is_ctrl) begin
+      // If we decode a control instruction, we enter process ctrl_instruction
+      process_ctrl_instr_d = 1'b1;
+    end
+    // With higher priority, if we retire a control instruction this cycle, we leave
+    if (ctrl_instr_retired_i) begin
+      process_ctrl_instr_d = 1'b0;
+    end
+  end
+
+  // We stall due to control instructions if we are currently processing one
+  // and not retireing a control instruction this cycle.
+  // This works, since there only ever can be one control instruction
+  // that is being processed (no speculation) simultaneously.
+  assign ctrl_stall = process_ctrl_instr_q & ~ctrl_instr_retired_i;
 
   // Check if there is any valid instruction in the block in the first place, otherwise we are still waiting
   // on the fetch to return valid instructions for the current PC

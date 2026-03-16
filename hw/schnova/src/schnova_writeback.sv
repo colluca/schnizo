@@ -80,6 +80,9 @@ module schnova_writeback import schnizo_pkg::*; #(
   output rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_int_clear_req_o,
   output rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_fp_clear_req_o,
 
+  // Control instruction retirement
+  output logic ctrl_instr_retired_o,
+
   // Core Events
   output logic retired_single_cycle_o,
   output logic retired_load_o,
@@ -276,6 +279,16 @@ module schnova_writeback import schnizo_pkg::*; #(
       rmt_fp_clear_req_o[0].dest_reg = fpu_result_tag_i.dest_reg;
       rmt_fp_clear_req_o[0].producer_dest.producer = fpu_result_tag_i.producer_id;
       rmt_fp_clear_req_o[0].producer_dest.valid    = 1'b1;
+    end
+  end
+
+  always_comb begin : ctr_instr_retirement
+    // Per default no control instruction is being retired
+    ctrl_instr_retired_o = 1'b0;
+    if (alu_gpr_valid && (alu_result_tag_i.is_jump || alu_result_tag_i.is_branch)) begin
+      // If we have a valid result and the tag hints to a jump or branch instruction
+      // we have retired a ctrl instruction this cycle.
+      ctrl_instr_retired_o = 1'b1;
     end
   end
 

@@ -441,6 +441,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_int_clear_req;
   rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_fp_clear_req;
 
+  logic ctrl_instr_retired;
+
   logic en_superscalar;
   logic registers_ready;
   logic fpr_busy;
@@ -618,11 +620,12 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .instr_exec_commit_o    (instr_exec_commit),
     .stall_o                (stall),
+    // Writeback interface
+    .ctrl_instr_retired_i(ctrl_instr_retired),
     // Exception source interface
     .interrupt_i            (interrupt),
     .csr_exception_raw_i    (csr_exception_raw),
     .lsu_empty_i            (lsu_empty),
-    .ctrl_inflight_i        (1'b0),
     .load_inflight_i        (1'b0),
     .store_inflight_i       (1'b0),
     .lsu_addr_misaligned_i  (lsu_addr_misaligned),
@@ -1042,6 +1045,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .retired_single_cycle_o(instr_retired_single_cycle),
     .retired_load_o        (instr_retired_load),
     .retired_acc_o         (instr_retired_acc),
+    // Control instruction retirement
+    .ctrl_instr_retired_o(ctrl_instr_retired),
     // To rename
     .rmt_int_clear_req_o       (rmt_int_clear_req),
     .rmt_fp_clear_req_o       (rmt_fp_clear_req)
