@@ -283,10 +283,13 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
                                              NofFpus * FpuNofResReqIfs;
+  // Since we use the RMT as a scoreboard, CSR, MULDIV, DMA also have to have a virtual
+  // reservation station entry. We just rename them to the same slot.
+  localparam integer unsigned NofVirtRs = 3;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
-  localparam integer unsigned NofResReqIfsW  = cf_math_pkg::idx_width(NofResReqIfs);
+  localparam integer unsigned NofResReqIfsW  = cf_math_pkg::idx_width(NofResReqIfs+NofVirtRs);
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
 
@@ -701,6 +704,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .rename_data_t(rename_data_t),
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
+    .producer_id_t(producer_id_t),
+    .rs_id_t(rs_id_t),
     .fu_data_t  (fu_data_t),
     .acc_req_t  (acc_req_t)
   ) i_dispatcher (
@@ -741,9 +746,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .acc_disp_req_valid_o(acc_qvalid_o),
     .acc_disp_req_ready_i(acc_qready_i),
     // RS control signals
-    .restart_i           (lxp_restart),
-    .loop_state_i        (loop_state),
-    .goto_lcp2_i         (goto_lcp2),
+    .restart_i           (flush_backend),
     .frep_mem_cons_mode_i(frep_mem_cons_mode),
     .rs_full_o           (rs_full)
   );

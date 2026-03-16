@@ -166,6 +166,7 @@ module schnova_controller import schnizo_pkg::*; #(
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
   // In case of an exception we flush the entire backend
+  // TODO(sorderma): When to restart controllably
   assign flush_backend_o = exception_o;
   assign rs_restart_o = exception_o;
 

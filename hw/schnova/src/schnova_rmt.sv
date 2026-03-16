@@ -19,6 +19,7 @@ module schnova_rmt #(
   input  logic                                        clk_i,
   input  logic                                        rst_ni,
   input  logic                                        flush_i,
+  input  logic                                        en_superscalar_i,
   // read port
   input  logic       [NrReadPorts-1:0][AddrWidth-1:0]  raddr_i,
   output rmt_entry_t [NrReadPorts-1:0]                 rdata_o,
@@ -79,17 +80,18 @@ module schnova_rmt #(
       end else begin
         for (int unsigned j = 0; j < NrWritePorts; j++) begin
           for (int unsigned i = 0; i < NumWords; i++) begin
+            // Write first
             if (we_dec[j][i]) begin
               mem[i] <= wdata_i[j];
             end
-          end
-        end
-
-        for (int unsigned j = 0; j < NrClearPorts; j++) begin
-          for (int unsigned i = 0; i < NumWords; i++) begin
+            // Then clear
             if (clear_dec[j][i]) begin
-              if (mem[i].producer == cdata_i[j].producer)
+              if ((mem[i].producer == cdata_i[j].producer) || (!en_superscalar_i))
               // We only clear this mapping if the producer is still the same
+              // This does only work if the clear and write are 1 cycle apart
+              // this is not necessarily the case in scalar mode. Hence we always clear in scalar mode.
+              // This is possible, since this condition is anyway only important when we can overwrite
+              // RMT entries with new producers. But in scalar mode we don't allow this in the first place.
               mem[i] <= no_mapping;
             end
           end

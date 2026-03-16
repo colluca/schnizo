@@ -25,6 +25,8 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   parameter type         rmt_entry_t = logic,
   parameter type         disp_req_t  = logic,
   parameter type         disp_rsp_t  = logic,
+  parameter type         producer_id_t = logic,
+  parameter type         rs_id_t       = logic,
   parameter type         rename_data_t = logic,
   parameter type         fu_data_t   = logic,
   parameter type         acc_req_t   = logic
@@ -78,9 +80,6 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // RS control signals
   // Asserted if the RSS are cleared synchronously.
   input  logic        restart_i,
-  input  loop_state_e loop_state_i,
-  // Asserted in the last LCP1 cycle (the cycle before we start LCP2)
-  input  logic        goto_lcp2_i,
   // Memory consistency mode during FREP loop
   input frep_mem_cons_mode_e frep_mem_cons_mode_i,
   // Asserted if the currently selected FU for the instruction does not have an empty RSS.
@@ -89,6 +88,38 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
+
+  // ---------------------------
+  // Virtual RS ID generation
+  // ---------------------------
+  // We assume the CSR, MULDIV and DMA to have a virtual reservation station
+  // with one slot for not. This is needed, since we use the RMT as a
+  // scoreboard in scalar mode.
+  localparam integer unsigned RsIdOffset = NofAlus + NofLsus + NofFpus;
+  localparam integer unsigned RsCsrId = RsIdOffset;
+  localparam integer unsigned RsMuldivId = RsCsrId + 1;
+  localparam integer unsigned RsDmaId = RsMuldivId + 1;
+
+  // CSR producer id
+  producer_id_t csr_producer;
+  assign csr_producer = producer_id_t'{
+    slot_id: '0, // We only have one
+    rs_id:   rs_id_t'(RsCsrId)
+  };
+
+  // MULDIV producer id
+  producer_id_t muldiv_producer;
+  assign muldiv_producer = producer_id_t'{
+    slot_id: '0, // We only have one
+    rs_id:   rs_id_t'(RsMuldivId)
+  };
+
+  // DMA producer id
+  producer_id_t dma_producer;
+  assign dma_producer = producer_id_t'{
+    slot_id: '0, // We only have one
+    rs_id:   rs_id_t'(RsDmaId)
+  };
 
   ////////////////////////
   // Request generation //
@@ -122,7 +153,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     disp_req_o.current_producer_dest = current_dest_entry;
 
     // generate the tag
-    disp_req_o.tag.producer_id  = fu_response.producer;
+    disp_req_o.tag.producer_id    = fu_response.producer;
     disp_req_o.tag.dest_reg       = instr_dec_i[0].rd;
     disp_req_o.tag.dest_reg_is_fp = instr_dec_i[0].rd_is_fp;
     disp_req_o.tag.is_branch      = instr_dec_i[0].is_branch;
@@ -210,10 +241,6 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     endcase
   end
 
-  // We may not dispatch any None-FU instruction during LEP
-  logic in_lep;
-  assign in_lep = loop_state_i inside {LoopLep};
-
   // Mux the response from the selected FU
   always_comb begin : fu_selection_rsp
     fu_response = '0;
@@ -241,7 +268,12 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         fu_rs_full  = lsu_rs_full_i[lsu_idx];
       end
       schnizo_pkg::CSR : begin
-        // There is no response because there is no reservation station.
+        // We can map the virtual producer here
+        // this is only needed for the scalar mode
+        // so that the RMT can work as a scoreboard
+        fu_response = disp_rsp_t'{
+          producer: csr_producer
+        };
         fu_ready = csr_disp_req_ready_i;
       end
       schnizo_pkg::FPU: begin
@@ -250,17 +282,28 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         fu_rs_full  = fpu_rs_full_i[fpu_idx];
       end
       schnizo_pkg::MULDIV: begin
-        // no dispatch response
+        // We can map the virtual producer here
+        // this is only needed for the scalar mode
+        // so that the RMT can work as a scoreboard
+        fu_response = disp_rsp_t'{
+          producer: muldiv_producer
+        };
         fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::DMA: begin
-        // no dispatch response
+        // We can map the virtual producer here
+        // this is only needed for the scalar mode
+        // so that the RMT can work as a scoreboard
+        fu_response = disp_rsp_t'{
+          producer: dma_producer
+        };
         fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         // But we must stall if there is an ongoing FREP loop.
-        fu_ready = in_lep ? 1'b0 : 1'b1;
+        // TODO (sorderma): Why do we have to stall in that case
+        fu_ready = ~en_superscalar_i;
       end
       default: begin
         // CRASH - should never happen as long as decoder returns valid decoding.
@@ -305,44 +348,33 @@ module schnova_dispatcher import schnizo_pkg::*; #(
 
     // Only select the counters during FREP. Without this the first instruction after LEP would be
     // executed on the "next" FU instead of the zero-th.
-    assign alu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? alu_idx_raw : '0;
-    assign lsu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? lsu_idx_raw : '0;
-    assign fpu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? fpu_idx_raw : '0;
+    assign alu_idx = (en_superscalar_i) ? alu_idx_raw : '0;
+    assign lsu_idx = (en_superscalar_i) ? lsu_idx_raw : '0;
+    assign fpu_idx = (en_superscalar_i) ? fpu_idx_raw : '0;
 
     // Reset at wrap around at dispatch or when switching to LCP2 or when restarting LxP
     assign alu_idx_reset = ((alu_idx_raw == ((NofAlus[NofAlusW-1:0])-1)) && alu_idx_inc)
-                          || goto_lcp2_i || restart_i;
+                          || restart_i;
     assign lsu_idx_reset = ((lsu_idx_raw == ((NofLsus[NofLsusW-1:0])-1)) && lsu_idx_inc)
-                          || goto_lcp2_i || restart_i;
+                          || restart_i;
     assign fpu_idx_reset = ((fpu_idx_raw == ((NofFpus[NofFpusW-1:0])-1)) && fpu_idx_inc)
-                          || goto_lcp2_i || restart_i;
+                          || restart_i;
 
     always_comb begin : dispatch_fu_selection
       alu_idx_inc = 1'b0;
       lsu_idx_inc = 1'b0;
       fpu_idx_inc = 1'b0;
 
-      unique case (loop_state_i)
-        LoopRegular,
-        LoopHwLoop: begin
-          alu_idx_inc = 1'b0;
+      if (en_superscalar_i) begin
+        // Increment the counter if we dispatched into the FU during LCP
+        alu_idx_inc = |(alu_disp_req_valid_o & alu_disp_req_ready_i);
+        lsu_idx_inc = |(lsu_disp_req_valid_o & lsu_disp_req_ready_i);
+        // Do not increment index if we want serialized memory accesses
+        if (frep_mem_cons_mode_i inside {FrepMemSerialized}) begin
           lsu_idx_inc = 1'b0;
-          fpu_idx_inc = 1'b0;
         end
-        LoopLcp1,
-        LoopLcp2: begin
-          // Increment the counter if we dispatched into the FU during LCP
-          alu_idx_inc = |(alu_disp_req_valid_o & alu_disp_req_ready_i);
-          lsu_idx_inc = |(lsu_disp_req_valid_o & lsu_disp_req_ready_i);
-          // Do not increment index if we want serialized memory accesses
-          if (frep_mem_cons_mode_i inside {FrepMemSerialized}) begin
-            lsu_idx_inc = 1'b0;
-          end
-          fpu_idx_inc = |(fpu_disp_req_valid_o & fpu_disp_req_ready_i);
-        end
-        LoopLep: ; // do nothing
-        default: ; // do nothing
-      endcase
+        fpu_idx_inc = |(fpu_disp_req_valid_o & fpu_disp_req_ready_i);
+      end
     end
 
     counter #(
