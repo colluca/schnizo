@@ -37,9 +37,7 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   // Control
   input  producer_id_t producer_id_i,
   input  logic         restart_i,
-  input  loop_state_e  loop_state_i,
   input  rss_idx_t     disp_idx_i,
-  input  logic         last_result_iter_i,
   output logic         retiring_o,
 
   // Dispatch
@@ -201,7 +199,7 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   logic       issue_req_valid_raw;
   issue_req_t issue_req_raw;
 
-  schnizo_rss_dispatch_pipeline #(
+  schnova_rss_dispatch_pipeline #(
     .NofOperands     (NofOperands),
     .disp_req_t      (disp_req_t),
     .producer_id_t   (producer_id_t),
@@ -216,7 +214,6 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   ) i_dispatch_pipeline (
     .restart_i              (restart_i),
     .producer_id_i          (rss_ids[disp_idx_i]),
-    .loop_state_i           (loop_state_i),
     .disp_req_i             (disp_req_i),
     .disp_req_valid_i       (disp_req_valid_i),
     .disp_req_ready_o       (disp_req_ready_pipeline),
