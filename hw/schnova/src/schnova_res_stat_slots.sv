@@ -296,7 +296,7 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   // Result capture  //
   /////////////////////
 
-  schnizo_rss_result_capture #(
+  schnova_rss_result_capture #(
     .rs_slot_result_t(rs_slot_result_t),
     .result_t        (result_t),
     .result_tag_t    (result_tag_t),

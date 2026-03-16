@@ -217,6 +217,7 @@ sources:
       - hw/schnova/src/schnova_dispatcher.sv
       - hw/schnova/src/schnova_rss_dispatch_pipeline.sv
       - hw/schnova/src/schnova_rss_res_req_handling.sv
+      - hw/schnova/src/schnova_rss_result_capture.sv
       - hw/schnova/src/schnova_writeback.sv
       # Level 2
       - hw/schnova/src/schnova_controller.sv
