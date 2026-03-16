@@ -252,6 +252,7 @@ module schnova_rename import schnizo_pkg::*; #(
     .clk_i,
     .rst_ni (~rst_i),
     .flush_i(flush_i),
+    .en_superscalar_i(en_superscalar_i),
     // read port
     .raddr_i(rmt_int_raddr),
     .rdata_o(rmt_int_rdata),
@@ -278,6 +279,7 @@ module schnova_rename import schnizo_pkg::*; #(
     .clk_i,
     .rst_ni (~rst_i),
     .flush_i(flush_i),
+    .en_superscalar_i(en_superscalar_i),
     // read port
     .raddr_i(rmt_fp_raddr),
     .rdata_o(rmt_fp_rdata),
