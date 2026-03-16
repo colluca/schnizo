@@ -219,6 +219,7 @@ sources:
       # Level 2
       - hw/schnova/src/schnova_controller.sv
       # Level 3
+      - hw/schnova/src/schnova_res_stat_slots.sv
       - hw/schnova/src/schnova_res_stat.sv
       - hw/schnova/src/schnova_fu_block.sv
       # Level 4
