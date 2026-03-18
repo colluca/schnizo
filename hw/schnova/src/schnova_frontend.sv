@@ -36,6 +36,7 @@ module schnova_frontend # (
     /// From controller
     input  logic                              exception_i,
     input  logic                              stall_i,
+    input  logic                              ctrl_stall_i,
     input  logic                              mret_i,
     input  logic                              sret_i,
     input  logic                              en_superscalar_i,
@@ -184,7 +185,7 @@ module schnova_frontend # (
 
       if (exception_i) begin
         pc_d = mtvec_i;
-      end else if (!stall_i && !stall_fetch) begin
+      end else if (!stall_i && !stall_fetch && !ctrl_stall_i) begin
         // If we don't stall, step the PC unless we are waiting for an event or are stalled by the
         // cluster hw barrier.
         if (mret_i) begin

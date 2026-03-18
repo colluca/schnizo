@@ -106,8 +106,6 @@ module schnova_decoder import schnizo_pkg::*; #(
     for (int unsigned instr_idx=0; instr_idx < PipeWidth; instr_idx++) begin
       is_ctrl_instr[instr_idx] = (instr_dec_o[instr_idx].is_branch |
                               instr_dec_o[instr_idx].is_jal    |
-                              instr_dec_o[instr_idx].is_mret   |
-                              instr_dec_o[instr_idx].is_sret   |
                               instr_dec_o[instr_idx].is_jalr)  &
                               instr_valid[instr_idx];
       is_fence_i_instr[instr_idx] = instr_dec_o[instr_idx].is_fence_i & instr_valid[instr_idx];
@@ -168,8 +166,6 @@ module schnova_decoder import schnizo_pkg::*; #(
     is_fence_i: instr_dec_o[blk_ctrl_instr_idx].is_fence_i,
     is_ctrl:    instr_dec_o[blk_ctrl_instr_idx].is_branch |
                 instr_dec_o[blk_ctrl_instr_idx].is_jal    |
-                instr_dec_o[blk_ctrl_instr_idx].is_mret   |
-                instr_dec_o[blk_ctrl_instr_idx].is_sret   |
                 instr_dec_o[blk_ctrl_instr_idx].is_jalr,
     instr_idx:  blk_ctrl_instr_idx
   };

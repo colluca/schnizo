@@ -35,7 +35,6 @@ module schnova_writeback import schnizo_pkg::*; #(
   parameter int unsigned RegAddrSize     = 5,
   parameter type         instr_tag_t     = logic,
   parameter type         alu_result_t    = logic,
-  parameter type         rmt_clear_req_t = logic,
   parameter type         data_t          = logic
 ) (
   // ALU interface
@@ -75,10 +74,6 @@ module schnova_writeback import schnizo_pkg::*; #(
   output logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_o,
   output logic [NrFpWritePorts-1:0][FLEN-1:0]         fpr_wdata_o,
   output logic [NrFpWritePorts-1:0]                   fpr_we_o,
-
-  // RMT clear signals
-  output rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_int_clear_req_o,
-  output rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_fp_clear_req_o,
 
   // Control instruction retirement
   output logic ctrl_instr_retired_o,
@@ -218,67 +213,6 @@ module schnova_writeback import schnizo_pkg::*; #(
       fpr_wdata_o = fpu_result_i[FLEN-1:0];
 
       fpu_fpr_ready = 1'b1;
-    end
-  end
-
-  always_comb begin : rmt_clear
-    // Similar to the writebacks above, here we just have to convert the writebacks
-    // to clear signals for the RMT. Essentially, whenever a valid writeback to the RF
-    // happens, we have to send a RMT clear request for that same register.
-    rmt_int_clear_req_o[0] = '{default: '0};
-    rmt_fp_clear_req_o[0] = '{default: '0};
-
-    // Check integer RF writes
-    if (alu_gpr_valid && alu_result_tag_i.dest_reg != '0) begin
-      rmt_int_clear_req_o[0].valid = 1'b1;
-      // Request to gpr RF
-      rmt_int_clear_req_o[0].dest_reg = alu_result_tag_i.dest_reg;
-      rmt_int_clear_req_o[0].producer_dest.producer = alu_result_tag_i.producer_id;
-      rmt_int_clear_req_o[0].producer_dest.valid    = 1'b1;
-    end else begin
-      // The CSR writeback is similar to the ALU write back. Handle actual write requests and
-      // always acknowledge all other requests.
-      if (csr_gpr_valid && csr_result_tag_i.dest_reg != '0) begin
-        rmt_int_clear_req_o[0].valid = 1'b1;
-        // Request to gpr RF
-        rmt_int_clear_req_o[0].dest_reg = csr_result_tag_i.dest_reg;
-        rmt_int_clear_req_o[0].producer_dest.producer = csr_result_tag_i.producer_id;
-        rmt_int_clear_req_o[0].producer_dest.valid    = 1'b1;
-      end else begin
-        if (lsu_gpr_valid) begin
-          rmt_int_clear_req_o[0].valid = 1'b1;
-          // Request to gpr RF
-          rmt_int_clear_req_o[0].dest_reg = lsu_result_tag_i.dest_reg;
-          rmt_int_clear_req_o[0].producer_dest.producer = lsu_result_tag_i.producer_id;
-          rmt_int_clear_req_o[0].producer_dest.valid    = 1'b1;
-        end else if (fpu_gpr_valid) begin
-          rmt_int_clear_req_o[0].valid = 1'b1;
-          // Request to gpr RF
-          rmt_int_clear_req_o[0].dest_reg = fpu_result_tag_i.dest_reg;
-          rmt_int_clear_req_o[0].producer_dest.producer = fpu_result_tag_i.producer_id;
-          rmt_int_clear_req_o[0].producer_dest.valid    = 1'b1;
-        end else if (acc_gpr_valid) begin
-          rmt_int_clear_req_o[0].valid = 1'b1;
-          // Request to gpr RF
-          rmt_int_clear_req_o[0].dest_reg = acc_result_tag_i.dest_reg;
-          rmt_int_clear_req_o[0].producer_dest.producer = acc_result_tag_i.producer_id;
-          rmt_int_clear_req_o[0].producer_dest.valid    = 1'b1;
-        end
-      end
-    end
-    // Check fp RF writes
-    if (lsu_fpr_valid) begin
-      rmt_fp_clear_req_o[0].valid = 1'b1;
-      // Request to fpr RF
-      rmt_fp_clear_req_o[0].dest_reg = lsu_result_tag_i.dest_reg;
-      rmt_fp_clear_req_o[0].producer_dest.producer = lsu_result_tag_i.producer_id;
-      rmt_fp_clear_req_o[0].producer_dest.valid    = 1'b1;
-    end else if (fpu_fpr_valid) begin
-      rmt_fp_clear_req_o[0].valid = 1'b1;
-      // Request to fpr RF
-      rmt_fp_clear_req_o[0].dest_reg = fpu_result_tag_i.dest_reg;
-      rmt_fp_clear_req_o[0].producer_dest.producer = fpu_result_tag_i.producer_id;
-      rmt_fp_clear_req_o[0].producer_dest.valid    = 1'b1;
     end
   end
 
