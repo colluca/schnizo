@@ -12,6 +12,9 @@
 module schnova_controller import schnizo_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
   parameter int unsigned XLEN            = 32,
+  parameter int unsigned NrIntWritePorts = 1,
+  parameter int unsigned NrFpWritePorts  = 1,
+  parameter int unsigned RegAddrSize     = 5,
   parameter type         instr_dec_t     = logic,
   parameter type         block_ctrl_info_t = logic,
   parameter type         priv_lvl_t      = logic
@@ -32,9 +35,6 @@ module schnova_controller import schnizo_pkg::*; #(
   // To backend
   output logic                      flush_backend_o,
   output logic                      all_instr_dispatched_o,
-  input logic                       registers_ready_i,
-  input logic                       fpr_busy_i,
-  input logic                       gpr_busy_i,
   // Writeback interface
   input logic ctrl_instr_retired_i,
   // Interface to dispatcher & RS
@@ -42,6 +42,7 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
   output logic [PipeWidth-1:0]      instr_exec_commit_o,
   output logic                      stall_o,
+  output logic                      ctrl_stall_o,
    // Asserted if all reservation stations have no instructions in flight.
   input  logic all_rs_finish_i,
   output logic rs_restart_o,
@@ -68,11 +69,55 @@ module schnova_controller import schnizo_pkg::*; #(
   output logic            sret_o,
 
   // Superscalar features enabled
-  output logic en_superscalar_o
+  output logic en_superscalar_o,
+
+  // GPR & FPR Write back snooping for Scoreboard
+  input  logic                                        gpr_we_i,
+  input  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_i,
+  input  logic                                        fpr_we_i,
+  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i
 );
 
   logic [PipeWidth-1:0] instr_dispatched;
   logic            csr_exception;
+
+  logic en_superscalar_d, en_superscalar_q;
+  // Per default the core starts in scalar mode
+  `FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
+
+  ////////////////
+  // Scoreboard //
+  ////////////////
+  // The scoreboard is only used in scalar operation mode
+  // there the instruction we consider is the first instruction in the fetch block
+
+  logic operands_ready;
+  logic destination_ready;
+  logic registers_ready;
+  logic fpr_busy;
+  logic gpr_busy;
+
+  schnizo_scoreboard #(
+    .RegAddrSize(RegAddrSize),
+    .instr_dec_t(instr_dec_t)
+  ) i_scoreboard (
+    .clk_i,
+    .rst_i,
+    .instr_dec_i        (instr_decoded_i[0]),
+    .operands_ready_o   (operands_ready),
+    .destination_ready_o(destination_ready),
+    .fpr_busy_o         (fpr_busy),
+    .gpr_busy_o         (gpr_busy),
+    .dispatched_i       (instr_dispatched[0]),
+    // The write back is snooped to place the reservations and
+    // enable same cycle WAW conflict detection / resolution
+    .write_enable_gpr_i (gpr_we_i),
+    .waddr_gpr_i        (gpr_waddr_i),
+    .write_enable_fpr_i (fpr_we_i),
+    .waddr_fpr_i        (fpr_waddr_i)
+  );
+
+  assign registers_ready = operands_ready & destination_ready;
 
   ////////////////
   // Exceptions //
@@ -172,7 +217,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // In case of an exception we flush the entire backend
   // TODO(sorderma): When to restart controllably
   assign flush_backend_o = exception_o;
-  assign rs_restart_o = exception_o;
+  assign rs_restart_o = exception_o || !en_superscalar_q;
 
   ////////////
   // Stalls //
@@ -213,8 +258,8 @@ module schnova_controller import schnizo_pkg::*; #(
       // and all older instruction have not yet finished their execution.
       assign csr_stall[instr_idx] = (instr_decoded_i[instr_idx].fu == CSR) &
                                     ~instr_dispatched[instr_idx]           &
-                                    fpr_busy_i                             &
-                                    gpr_busy_i                             &
+                                    fpr_busy                               &
+                                    gpr_busy                               &
                                     instr_valid_i[instr_idx];
     end else begin: gen_propagate_csr_stall
       // We have to stall all other instructions on the same conditions, in addition
@@ -222,8 +267,8 @@ module schnova_controller import schnizo_pkg::*; #(
       // all younger instructions also have to be stalled
       assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR) &
                                     ~instr_dispatched[instr_idx]             &
-                                    fpr_busy_i                               &
-                                    gpr_busy_i                             ) |
+                                    fpr_busy                                 &
+                                    gpr_busy                               ) |
                                     csr_stall[instr_idx-1])                  &
                                     instr_valid_i[instr_idx];
     end
@@ -242,26 +287,53 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
   logic ctrl_stall;
-  logic process_ctrl_instr_d, process_ctrl_instr_q;
-  `FFAR(process_ctrl_instr_q, process_ctrl_instr_d, 1'b0, clk_i, rst_i);
+  typedef enum logic {
+    IDLE,
+    WAIT_CTRL
+  } ctrl_state_t;
 
-  always_comb begin : ctrl_instr_state_logic
-    process_ctrl_instr_d = process_ctrl_instr_q;
-    if (blk_ctrl_info_i.is_ctrl) begin
-      // If we decode a control instruction, we enter process ctrl_instruction
-      process_ctrl_instr_d = 1'b1;
-    end
-    // With higher priority, if we retire a control instruction this cycle, we leave
-    if (ctrl_instr_retired_i) begin
-      process_ctrl_instr_d = 1'b0;
+  ctrl_state_t ctrl_state_q, ctrl_state_d;
+  logic stall_disp_ctrl;
+
+  `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
+
+  always_comb begin : ctrl_next_state_logic
+    ctrl_state_d = ctrl_state_q;
+    unique case (ctrl_state_q)
+      IDLE: begin
+        // If we have a ctrl instruction which is not retired this same cycle
+        // we have to wait for it to retire and stall the pipeline.
+        if (blk_ctrl_info_i.is_ctrl && !ctrl_instr_retired_i) begin
+          ctrl_state_d = WAIT_CTRL;
+        end
+      end
+      WAIT_CTRL: begin
+        // As soon as we retire the control instruction we go back to idle
+        if(ctrl_instr_retired_i) begin
+          ctrl_state_d = IDLE;
+        end
+      end
+    endcase
+  end
+
+  // We stall depending on a mealy fsm
+  always_comb begin : ctrl_stall_handler
+    ctrl_stall = 1'b0;
+    if(ctrl_state_q == IDLE) begin
+      if (blk_ctrl_info_i.is_ctrl && !ctrl_instr_retired_i) begin
+        ctrl_stall = 1'b1;
+      end
+    end else if(ctrl_state_q == WAIT_CTRL) begin
+      ctrl_stall = 1'b1;
+      if (ctrl_instr_retired_i) begin
+        ctrl_stall = 1'b0;
+      end
     end
   end
 
-  // We stall due to control instructions if we are currently processing one
-  // and not retireing a control instruction this cycle.
-  // This works, since there only ever can be one control instruction
-  // that is being processed (no speculation) simultaneously.
-  assign ctrl_stall = process_ctrl_instr_q & ~ctrl_instr_retired_i;
+  assign ctrl_stall_o = ctrl_stall;
+
+  assign stall_disp_ctrl = (ctrl_state_q == WAIT_CTRL) ? 1'b1 : 1'b0;
 
   // Check if there is any valid instruction in the block in the first place, otherwise we are still waiting
   // on the fetch to return valid instructions for the current PC
@@ -294,8 +366,13 @@ module schnova_controller import schnizo_pkg::*; #(
   for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_dispatch_sig
     assign stall_raw[instr_idx] =   fence_stall[instr_idx]   |
                                     csr_stall[instr_idx];
-    assign dispatch_instr_valid_o[instr_idx] =  instr_valid_i[instr_idx] &
-                                                registers_ready_i        &
+    assign dispatch_instr_valid_o[instr_idx] =  instr_valid_i[instr_idx]                &
+    // If we are in scalar mode, we can't dispatch instructions when not all registers are ready
+                                                (en_superscalar_q || registers_ready) &
+    // If we are in superscalar mode, we have to invalidate the dispatch request when we are waiting
+    // on the control instruction to  finish, otherwise it would generate another dispatch request
+    // for the same instruction since the RS is build in a fire and forget manner.
+                                                (!en_superscalar_q || !stall_disp_ctrl) &
                                                 !stall_raw[instr_idx];
     // The instruction may only execute if there are no errors/exceptions.
     // TODO(colluca): clarify "multi-cycle issues" in following comment
@@ -333,11 +410,7 @@ module schnova_controller import schnizo_pkg::*; #(
 // Superscalar enable logic //
 //////////////////////////////
 
-logic en_superscalar_d, en_superscalar_q;
 logic [PipeWidth-1:0] is_valid_frep_instr;
-
-// Per default the core starts in scalar mode
-`FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
 
 always_comb begin
   en_superscalar_d = en_superscalar_q;

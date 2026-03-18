@@ -153,8 +153,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                                               3*PipeWidth + 1*PipeWidth);
   // We have to write the new mapping for every destination register
   localparam int unsigned RmtNrWritePorts = 1*PipeWidth;
-  // We have to potentially clear a map for every instruction each cycle
-  localparam int unsigned RmtNrClearPorts = 1;
 
   // The bit width of an operand. This is simply the maximal bit width such that we can have a
   // common data type for all FUs.
@@ -322,12 +320,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   } rmt_entry_t;
 
   typedef struct packed {
-    rmt_entry_t producer_dest; // info about the producer for the value of the destination register
-    logic [RegAddrSize-1:0] dest_reg; // the idx of the destination register
-    logic       valid;      // If the request is valid
-  } rmt_clear_req_t;
-
-  typedef struct packed {
     rmt_entry_t producer_op_a;
     rmt_entry_t producer_op_b;
     rmt_entry_t producer_op_c;
@@ -388,6 +380,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   logic [PipeWidth-1:0] instr_decoded_illegal;
   logic            instr_illegal;
   logic            stall;
+  logic            ctrl_stall;
   logic            enter_wfi;
   logic            ebreak;
   logic            ecall;
@@ -427,15 +420,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   logic all_instr_dispatched;
   rmt_entry_t   [PipeWidth-1:0]  dest_map;
   rename_data_t [PipeWidth-1:0]  rename_info;
-  rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_int_clear_req;
-  rmt_clear_req_t [RmtNrClearPorts-1:0] rmt_fp_clear_req;
 
   logic ctrl_instr_retired;
 
   logic en_superscalar;
-  logic registers_ready;
-  logic fpr_busy;
-  logic gpr_busy;
 
   // ---------------------------
   // Core Events
@@ -488,6 +476,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     // From controller
     .exception_i              (exception),
     .stall_i                  (stall),
+    .ctrl_stall_i             (ctrl_stall),
     .mret_i                   (mret),
     .sret_i                   (sret),
     .en_superscalar_i         (en_superscalar),
@@ -571,16 +560,15 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   ////////////////
 
   logic                         rs_full;
-  logic                         lxp_restart = 1'b1;
-  logic                         goto_lcp2 = 1'b0;
-  loop_state_e                  loop_state = LoopRegular;
-  logic [FrepMaxItersWidth-1:0] loop_iteration = '0;
-  logic [FrepMaxItersWidth-1:0] lep_iterations = '0;
   logic                         all_rs_finish;
+  logic                         rs_restart;
 
   schnova_controller #(
     .PipeWidth          (PipeWidth),
     .XLEN               (XLEN),
+    .NrIntWritePorts(NrIntWritePorts),
+    .NrFpWritePorts (NrFpWritePorts),
+    .RegAddrSize    (RegAddrSize),
     .instr_dec_t        (instr_dec_t),
     .block_ctrl_info_t  (block_ctrl_info_t),
     .priv_lvl_t         (priv_lvl_t)
@@ -599,16 +587,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     // To rename stage
     .flush_backend_o (flush_backend),
     .all_instr_dispatched_o(all_instr_dispatched),
-    .all_rs_finish_i(1'b1), // TODO (soderma): Have to correctly assign this, currently it is loop dependent
-    .rs_restart_o(/* TODO (soderma) */),
-    .registers_ready_i(registers_ready),
-    .fpr_busy_i(fpr_busy),
-    .gpr_busy_i(gpr_busy),
+    .all_rs_finish_i(all_rs_finish),
+    .rs_restart_o(rs_restart),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .instr_exec_commit_o    (instr_exec_commit),
     .stall_o                (stall),
+    .ctrl_stall_o           (ctrl_stall),
     // Writeback interface
     .ctrl_instr_retired_i(ctrl_instr_retired),
     // Exception source interface
@@ -630,7 +616,12 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .ebreak_o               (ebreak),
     .mret_o                 (mret),
     .sret_o                 (sret),
-    .en_superscalar_o       (en_superscalar)
+    .en_superscalar_o       (en_superscalar),
+    // GPR & FPR Write back snooping for Scoreboard
+    .gpr_we_i               (gpr_we),
+    .gpr_waddr_i            (gpr_waddr),
+    .fpr_we_i               (fpr_we),
+    .fpr_waddr_i            (fpr_waddr)
   );
 
   ////////////
@@ -642,12 +633,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .RmtNrIntReadPorts(RmtNrIntReadPorts),
     .RmtNrFpReadPorts(RmtNrFpReadPorts),
     .RmtNrWritePorts(RmtNrWritePorts),
-    .RmtNrClearPorts(RmtNrClearPorts),
     .RegAddrSize(RegAddrSize),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
-    .rename_data_t(rename_data_t),
-    .rmt_clear_req_t(rmt_clear_req_t)
+    .rename_data_t(rename_data_t)
   ) i_rename (
     .clk_i,
     .rst_i,
@@ -656,12 +645,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .dest_map_i(dest_map),
     .instr_dec_i(instr_decoded),
     .en_superscalar_i(en_superscalar),
-    .registers_ready_o(registers_ready),
-    .fpr_busy_o(fpr_busy),
-    .gpr_busy_o(gpr_busy),
-    .rename_info_o(rename_info),
-    .rmt_int_clear_req_i(rmt_int_clear_req),
-    .rmt_fp_clear_req_i(rmt_fp_clear_req)
+    .rename_info_o(rename_info)
 );
 
   //////////////
@@ -822,7 +806,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
     .fu_data_t          (fu_data_t),
-    .instr_tag_t        (instr_tag_t),
+    .instr_tag_t        (schnova_instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
@@ -832,7 +816,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .rst_i,
     // TODO(colluca): typo
     .hard_id_i            (hart_id_i),
-    .restart_i            (lxp_restart),
+    .restart_i            (rs_restart),
     .en_superscalar_i     (en_superscalar),
     .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
@@ -980,7 +964,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // See module for details and specialities!
   schnova_writeback #(
     .PipeWidth      (PipeWidth),
-    .RmtNrClearPorts(RmtNrClearPorts),
     .XLEN           (XLEN),
     .FLEN           (FLEN),
     .NrIntWritePorts(NrIntWritePorts),
@@ -988,7 +971,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .RegAddrSize    (RegAddrSize),
     .instr_tag_t    (schnova_instr_tag_t),
     .alu_result_t   (alu_result_t),
-    .rmt_clear_req_t(rmt_clear_req_t),
     .data_t         (data_t)
   ) i_writeback (
     // ALU interface
@@ -1030,10 +1012,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .retired_load_o        (instr_retired_load),
     .retired_acc_o         (instr_retired_acc),
     // Control instruction retirement
-    .ctrl_instr_retired_o(ctrl_instr_retired),
-    // To rename
-    .rmt_int_clear_req_o       (rmt_int_clear_req),
-    .rmt_fp_clear_req_o       (rmt_fp_clear_req)
+    .ctrl_instr_retired_o(ctrl_instr_retired)
   );
 
   /////////////////
@@ -1155,6 +1134,16 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   rescap_trace_t lsu_rescap_traces [NofLsus][LsuNofRss];
   rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
 
+  loop_state_e                  loop_state;
+  logic [FrepMaxItersWidth-1:0] loop_iteration = '0;
+
+  always_comb begin
+    loop_state = LoopRegular;
+    if (en_superscalar) begin
+      loop_state = LoopLcp1;
+    end
+  end
+
   assign core_trace = '{
     priv_level: priv_lvl,
     state:      loop_state,
@@ -1192,7 +1181,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                           (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
                           // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
                           // after porting issue slots to SRAM
-          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
+          instr_iter:     1'b0,
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
@@ -1206,7 +1195,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                           (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.iteration,
+          result_iter:    1'b0,
           rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
           result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
@@ -1226,7 +1215,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                               i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
+            requested_iter: 1'b0
           };
         end else begin : gen_alu_traces_rss_no_resreq
           assign alu_resreq_traces[alu][rss][con] = '{default: '0};
@@ -1243,7 +1232,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_lsu_traces[lsu][rss] = '{
           valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
+          instr_iter:     1'b0,
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
@@ -1262,7 +1251,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.iteration,
+          result_iter:    1'b0,
           rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
           result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
@@ -1282,7 +1271,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                               i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
+            requested_iter: 1'b0
           };
         end else begin : gen_lsu_traces_rss_no_resreq
           assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
@@ -1299,7 +1288,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
         assign rss_fpu_traces[fpu][rss] = '{
           valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
                       (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_issue_q.instruction_iter,
+          instr_iter:  1'b0,
           producer:    i_fu_stage.producer_to_string(
                         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
@@ -1317,7 +1306,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                           (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.iteration,
+          result_iter:    1'b0,
           rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
           result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
@@ -1337,7 +1326,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
                               i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
+            requested_iter: 1'b0
           };
         end else begin : gen_fpu_traces_no_resreq
           assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
