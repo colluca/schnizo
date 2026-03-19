@@ -151,6 +151,9 @@ module schnova_rename import schnizo_pkg::*; #(
       rename_info_o[instr_idx].phy_reg_op_a = mapping_rs1[instr_idx];
       rename_info_o[instr_idx].phy_reg_op_b = mapping_rs2[instr_idx];
       rename_info_o[instr_idx].phy_reg_op_c = mapping_rs3[instr_idx];
+      // TODO(soderma): Assign correct values s
+      rename_info_o[instr_idx].phy_reg_dest_new = mapping_rd[instr_idx];
+      rename_info_o[instr_idx].phy_reg_dest_old = mapping_rd[instr_idx];
 
       // Check against all older instructions in same bundle
       for (int unsigned older_idx = 0; older_idx < instr_idx; older_idx++) begin

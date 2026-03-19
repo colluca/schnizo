@@ -30,7 +30,8 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   parameter type         rs_id_t       = logic,
   parameter type         rename_data_t = logic,
   parameter type         fu_data_t   = logic,
-  parameter type         acc_req_t   = logic
+  parameter type         acc_req_t   = logic,
+  parameter type         sb_disp_data_t = logic
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
@@ -45,7 +46,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
 
   // From rename stage
   input  rename_data_t [PipeWidth-1:0] rename_info_i,
-  output rmt_entry_t   [PipeWidth-1:0] dest_map_o,
+  output sb_disp_data_t [PipeWidth-1:0] sb_disp_data_o,
 
   // Handshake to all possible FUs. Each FU has own ready/valid interface.
   output disp_req_t disp_req_o,
@@ -432,19 +433,20 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     assign fpu_idx_raw = '0;
   end
 
-  //////////////////////////////////
-  // Register Mapping Table (RMT) //
-  //////////////////////////////////
+  //////////////////////////////////////////
+  // Generate the scroboard dispatch data //
+  //////////////////////////////////////////
   always_comb begin : write_rmt
     // Forward the new destination mappings to the rename stage
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (i == 0) begin
-        dest_map_o[i].producer = fu_response.producer;
-        dest_map_o[i].valid = dispatched;
-      end else begin
-        dest_map_o[i].producer = '0;
-        dest_map_o[i].valid = 1'b0;
-      end
+        sb_disp_data_o[i].rd             = rename_info_i[i].phy_reg_dest_new;        
+        sb_disp_data_o[i].rd_is_fp       = instr_dec_i[i].rd_is_fp;
+        sb_disp_data_o[i].rs1            = rename_info_i[i].phy_reg_op_a; 
+        sb_disp_data_o[i].rs1_is_fp      = instr_dec_i[i].rs1_is_fp;
+        sb_disp_data_o[i].rs2            = rename_info_i[i].phy_reg_op_b; 
+        sb_disp_data_o[i].rs2_is_fp      = instr_dec_i[i].rs2_is_fp;
+        sb_disp_data_o[i].rs3            = rename_info_i[i].phy_reg_op_c;
+        sb_disp_data_o[i].use_imm_as_rs3 = instr_dec_i[i].use_imm_as_rs3;
     end
   end
 endmodule
