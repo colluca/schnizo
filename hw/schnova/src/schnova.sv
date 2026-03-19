@@ -658,6 +658,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .RmtNrIntReadPorts(RmtNrIntReadPorts),
     .RmtNrFpReadPorts(RmtNrFpReadPorts),
     .RmtNrWritePorts(RmtNrWritePorts),
+    .PhysRegAddrSize(PhysRegAddrSize),
     .RegAddrSize(RegAddrSize),
     .instr_dec_t(instr_dec_t),
     .phy_id_t(phy_id_t),
