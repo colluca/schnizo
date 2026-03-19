@@ -23,6 +23,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   parameter int unsigned NofFpus     = 1,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
+  parameter type         phy_id_t    = logic,
   parameter type         disp_req_t  = logic,
   parameter type         disp_rsp_t  = logic,
   parameter type         producer_id_t = logic,
@@ -35,12 +36,12 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   input  logic         rst_i,
   input  logic         en_superscalar_i,
   // Handshake to dispatch instruction consisting of instr_dec_i and instr_fu_data_i
-  input  instr_dec_t [PipeWidth-1:0]   instr_dec_i,
-  input  fu_data_t   [PipeWidth-1:0]   instr_fu_data_i,
+  input  instr_dec_t [PipeWidth-1:0] instr_dec_i,
+  input  fu_data_t   [PipeWidth-1:0] instr_fu_data_i,
   input  logic [32*PipeWidth-1:0]  instr_fetch_data_i,
-  input  logic [PipeWidth-1:0]        dispatch_valid_i,
-  output logic [PipeWidth-1:0]        dispatch_ready_o,
-  input  logic [PipeWidth-1:0]        instr_exec_commit_i,
+  input  logic [PipeWidth-1:0]     dispatch_valid_i,
+  output logic [PipeWidth-1:0]     dispatch_ready_o,
+  input  logic [PipeWidth-1:0]     instr_exec_commit_i,
 
   // From rename stage
   input  rename_data_t [PipeWidth-1:0] rename_info_i,
@@ -142,10 +143,10 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     disp_req_o = '0;
     disp_req_o.fu_data = instr_fu_data_i[0];
 
-    // Operand A
-    disp_req_o.producer_op_a = rename_info_i[0].producer_op_a;
-    disp_req_o.producer_op_b = rename_info_i[0].producer_op_b;
-    disp_req_o.producer_op_c = rename_info_i[0].producer_op_c;
+    // Operand indfo
+    disp_req_o.producer_op_a = no_mapping;
+    disp_req_o.producer_op_b = no_mapping;
+    disp_req_o.producer_op_c = no_mapping;
 
     // current destination producer
     // TODO(colluca): the comment correctly calls it "current destination producer".

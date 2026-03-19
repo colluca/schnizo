@@ -5,4 +5,11 @@
 // Schnova core-wide constants and types.
 package schnova_pkg;
 
+  //---------------------------
+  // Core global constants
+  //---------------------------
+  // We use double the amount of physical registers as the amount of
+  // of architectural registers.
+  localparam int unsigned PhysRegAddrSize = 6;
+
 endpackage

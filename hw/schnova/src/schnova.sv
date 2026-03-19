@@ -291,6 +291,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [SlotIdWidth-1:0]   slot_id_t;
   typedef logic [NofResReqIfsW-1:0] rs_id_t;
+  typedef logic [PhysRegAddrSize-1:0] phy_id_t;
 
   // TODO(colluca): review these comments
   typedef struct packed {
@@ -320,9 +321,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   } rmt_entry_t;
 
   typedef struct packed {
-    rmt_entry_t producer_op_a;
-    rmt_entry_t producer_op_b;
-    rmt_entry_t producer_op_c;
+    phy_id_t phy_reg_op_a;
+    phy_id_t phy_reg_op_b;
+    phy_id_t phy_reg_op_c;
     logic       valid; // set if this instruction renaming is valid
   } rename_data_t;
 
@@ -635,18 +636,18 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .RmtNrWritePorts(RmtNrWritePorts),
     .RegAddrSize(RegAddrSize),
     .instr_dec_t(instr_dec_t),
-    .rmt_entry_t(rmt_entry_t),
+    .phy_id_t(phy_id_t),
     .rename_data_t(rename_data_t)
   ) i_rename (
     .clk_i,
     .rst_i,
+    .en_superscalar_i(en_superscalar),
     .flush_i(flush_backend),
     .all_instr_dispatched_i(all_instr_dispatched),
-    .dest_map_i(dest_map),
+    .dispatch_valid_i(dispatch_instr_valid),
     .instr_dec_i(instr_decoded),
-    .en_superscalar_i(en_superscalar),
     .rename_info_o(rename_info)
-);
+  );
 
   //////////////
   // Dispatch //
@@ -677,6 +678,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .NofFpus    (NofFpus),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
+    .phy_id_t(phy_id_t),
     .rename_data_t(rename_data_t),
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
@@ -1056,9 +1058,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
   assign core_events_o.issue_fpu_seq     = '0;
 
-  ////////////////////
-  // Register Files //
-  ////////////////////
+  /////////////////////////////
+  // Physical Register Files //
+  /////////////////////////////
 
   snitch_regfile #(
     .DataWidth   (XLEN),
