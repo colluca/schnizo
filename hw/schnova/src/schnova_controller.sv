@@ -71,11 +71,9 @@ module schnova_controller import schnizo_pkg::*; #(
   // Superscalar features enabled
   output logic en_superscalar_o,
 
-  // GPR & FPR Write back snooping for Scoreboard
-  input  logic                                        gpr_we_i,
-  input  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_i,
-  input  logic                                        fpr_we_i,
-  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i
+  // From scoreboard
+  input logic             registers_ready_i,
+  input logic             sb_busy_i
 );
 
   logic [PipeWidth-1:0] instr_dispatched;
@@ -84,40 +82,6 @@ module schnova_controller import schnizo_pkg::*; #(
   logic en_superscalar_d, en_superscalar_q;
   // Per default the core starts in scalar mode
   `FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
-
-  ////////////////
-  // Scoreboard //
-  ////////////////
-  // The scoreboard is only used in scalar operation mode
-  // there the instruction we consider is the first instruction in the fetch block
-
-  logic operands_ready;
-  logic destination_ready;
-  logic registers_ready;
-  logic fpr_busy;
-  logic gpr_busy;
-
-  schnizo_scoreboard #(
-    .RegAddrSize(RegAddrSize),
-    .instr_dec_t(instr_dec_t)
-  ) i_scoreboard (
-    .clk_i,
-    .rst_i,
-    .instr_dec_i        (instr_decoded_i[0]),
-    .operands_ready_o   (operands_ready),
-    .destination_ready_o(destination_ready),
-    .fpr_busy_o         (fpr_busy),
-    .gpr_busy_o         (gpr_busy),
-    .dispatched_i       (instr_dispatched[0]),
-    // The write back is snooped to place the reservations and
-    // enable same cycle WAW conflict detection / resolution
-    .write_enable_gpr_i (gpr_we_i),
-    .waddr_gpr_i        (gpr_waddr_i),
-    .write_enable_fpr_i (fpr_we_i),
-    .waddr_fpr_i        (fpr_waddr_i)
-  );
-
-  assign registers_ready = operands_ready & destination_ready;
 
   ////////////////
   // Exceptions //
@@ -258,8 +222,7 @@ module schnova_controller import schnizo_pkg::*; #(
       // and all older instruction have not yet finished their execution.
       assign csr_stall[instr_idx] = (instr_decoded_i[instr_idx].fu == CSR) &
                                     ~instr_dispatched[instr_idx]           &
-                                    fpr_busy                               &
-                                    gpr_busy                               &
+                                    sb_busy_i                              &
                                     instr_valid_i[instr_idx];
     end else begin: gen_propagate_csr_stall
       // We have to stall all other instructions on the same conditions, in addition
@@ -267,8 +230,7 @@ module schnova_controller import schnizo_pkg::*; #(
       // all younger instructions also have to be stalled
       assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR) &
                                     ~instr_dispatched[instr_idx]             &
-                                    fpr_busy                                 &
-                                    gpr_busy                               ) |
+                                    sb_busy_i                              ) |
                                     csr_stall[instr_idx-1])                  &
                                     instr_valid_i[instr_idx];
     end
@@ -368,7 +330,7 @@ module schnova_controller import schnizo_pkg::*; #(
                                     csr_stall[instr_idx];
     assign dispatch_instr_valid_o[instr_idx] =  instr_valid_i[instr_idx]                &
     // If we are in scalar mode, we can't dispatch instructions when not all registers are ready
-                                                (en_superscalar_q || registers_ready) &
+                                                registers_ready_i &
     // If we are in superscalar mode, we have to invalidate the dispatch request when we are waiting
     // on the control instruction to  finish, otherwise it would generate another dispatch request
     // for the same instruction since the RS is build in a fire and forget manner.

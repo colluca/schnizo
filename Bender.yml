@@ -212,6 +212,7 @@ sources:
       - hw/schnova/src/schnova_frontend.sv
       - hw/schnova/src/schnova_decoder.sv
       - hw/schnova/src/schnova_read_operands.sv
+      - hw/schnova/src/schnova_scoreboard.sv
       - hw/schnova/src/schnova_rmt.sv
       - hw/schnova/src/schnova_rename.sv
       - hw/schnova/src/schnova_dispatcher.sv

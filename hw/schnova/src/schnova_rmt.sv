@@ -10,43 +10,27 @@
 module schnova_rmt #(
   parameter int unsigned NrReadPorts  = 2,
   parameter int unsigned NrWritePorts = 1,
-  parameter int unsigned NrClearPorts = 1,
   parameter bit          ZeroRegZero  = 0,
   parameter int unsigned AddrWidth    = 4,
-  parameter type         rmt_entry_t = logic
+  parameter type         phy_id_t = logic
 ) (
   // clock and reset
   input  logic                                        clk_i,
   input  logic                                        rst_ni,
-  input  logic                                        flush_i,
-  input  logic                                        en_superscalar_i,
+  input  logic                                        clear_i,
   // read port
   input  logic       [NrReadPorts-1:0][AddrWidth-1:0]  raddr_i,
-  output rmt_entry_t [NrReadPorts-1:0]                 rdata_o,
+  output phy_id_t [NrReadPorts-1:0]                 rdata_o,
   // write port
   input  logic       [NrWritePorts-1:0][AddrWidth-1:0] waddr_i,
-  input  rmt_entry_t [NrWritePorts-1:0]                wdata_i,
-  input  logic       [NrWritePorts-1:0]                we_i,
-  // clear ports
-  input  logic       [NrClearPorts-1:0][AddrWidth-1:0] caddr_i,
-  input  rmt_entry_t [NrClearPorts-1:0]                cdata_i,
-  input  logic       [NrClearPorts-1:0]                clear_i,
-  // busy flag
-  output logic                                         busy_o
+  input  phy_id_t [NrWritePorts-1:0]                wdata_i,
+  input  logic       [NrWritePorts-1:0]                we_i
 );
 
   localparam int unsigned NumWords  = 2**AddrWidth;
 
-  rmt_entry_t [NumWords-1:0] mem;
+  phy_id_t [NumWords-1:0] mem;
   logic [NrWritePorts-1:0][NumWords-1:0] we_dec;
-  logic [NrClearPorts-1:0][NumWords-1:0] clear_dec;
-  logic [NumWords-1:0] busy;
-
-  rmt_entry_t no_mapping;
-  assign no_mapping = '{
-    producer:    '0,
-    valid: 1'b0
-  };
 
   always_comb begin : we_decoder
     for (int unsigned j = 0; j < NrWritePorts; j++) begin
@@ -57,25 +41,16 @@ module schnova_rmt #(
     end
   end
 
-  always_comb begin : clear_decoder
-    for (int unsigned j = 0; j < NrClearPorts; j++) begin
-      for (int unsigned i = 0; i < NumWords; i++) begin
-        if (caddr_i[j] == i) clear_dec[j][i] = clear_i[j];
-        else clear_dec[j][i] = 1'b0;
-      end
-    end
-  end
-
   // loop from 1 to NumWords-1 as R0 is nil
   always_ff @(posedge clk_i, negedge rst_ni) begin : register_write_behavioral
     if (~rst_ni) begin
       for (int unsigned i = 0; i < NumWords; i++) begin
-        mem[i] <= no_mapping;
+        mem[i] <= phy_id_t'(i);
       end
     end else begin
-      if (flush_i) begin
+      if (clear_i) begin
         for (int unsigned i = 0; i < NumWords; i++) begin
-        mem[i] <= no_mapping;
+        mem[i] <= phy_id_t'(i);
         end
       end else begin
         for (int unsigned j = 0; j < NrWritePorts; j++) begin
@@ -84,21 +59,11 @@ module schnova_rmt #(
             if (we_dec[j][i]) begin
               mem[i] <= wdata_i[j];
             end
-            // Then clear
-            if (clear_dec[j][i]) begin
-              if ((mem[i].producer == cdata_i[j].producer) || (!en_superscalar_i))
-              // We only clear this mapping if the producer is still the same
-              // This does only work if the clear and write are 1 cycle apart
-              // this is not necessarily the case in scalar mode. Hence we always clear in scalar mode.
-              // This is possible, since this condition is anyway only important when we can overwrite
-              // RMT entries with new producers. But in scalar mode we don't allow this in the first place.
-              mem[i] <= no_mapping;
-            end
           end
         end
 
         if (ZeroRegZero) begin
-          mem[0] <= no_mapping;
+          mem[0] <= phy_id_t'(0);
         end
       end
     end
@@ -109,15 +74,5 @@ module schnova_rmt #(
       rdata_o[i] = mem[raddr_i[i]];
     end
   end
-
-  // The RMT is busy, meaning an insturction is inflight if any of the
-  // entries are valid
-  always_comb begin: gen_busy_flag
-    for (int unsigned i = 0; i < NumWords; i++) begin
-      busy[i] = mem[i].valid;
-    end
-  end
-
-  assign busy_o = |busy;
 
 endmodule

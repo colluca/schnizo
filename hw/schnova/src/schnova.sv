@@ -203,6 +203,17 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     frep_mode_e                   frep_mode;
   } instr_dec_t;
 
+  typedef logic [PhysRegAddrSize-1:0] phy_id_t;
+
+  // The micro operation that is forwarded by the dispatcher
+  typedef struct packed {
+    fu_t                          fu; // 4 bit
+    alu_op_e                      alu_op; // 5 bit
+    lsu_op_e                      lsu_op; // 4 bit
+    csr_op_e                      csr_op; // 3 bit
+    fpu_op_e                      fpu_op; // 5 bit
+  } uop_t;
+
   // Fetch block level info needed by the controller and frontend
   typedef struct packed {
     logic [XLEN-1:0]              imm;
@@ -291,7 +302,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [SlotIdWidth-1:0]   slot_id_t;
   typedef logic [NofResReqIfsW-1:0] rs_id_t;
-  typedef logic [PhysRegAddrSize-1:0] phy_id_t;
+  
 
   // TODO(colluca): review these comments
   typedef struct packed {
@@ -305,7 +316,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef struct packed {
     producer_id_t           producer_id;
-    logic [RegAddrSize-1:0] dest_reg;
+    logic [PhysRegAddrSize-1:0] dest_reg;
     logic                   dest_reg_is_fp;
     logic                   is_branch;
     logic                   is_jump;
@@ -316,6 +327,17 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   } disp_rsp_t;
 
   typedef struct packed {
+    phy_id_t         rd;
+    logic            rd_is_fp;
+    phy_id_t         rs1;
+    logic            rs1_is_fp;
+    phy_id_t         rs2;
+    logic            rs2_is_fp;
+    phy_id_t         rs3;
+    logic            use_imm_as_rs3;
+  } sb_disp_data_t;
+
+  typedef struct packed {
     producer_id_t producer;
     logic         valid; // set if producer is a valid mapping
   } rmt_entry_t;
@@ -324,6 +346,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     phy_id_t phy_reg_op_a;
     phy_id_t phy_reg_op_b;
     phy_id_t phy_reg_op_c;
+    phy_id_t phy_reg_dest_new;
+    phy_id_t phy_reg_dest_old;
     logic       valid; // set if this instruction renaming is valid
   } rename_data_t;
 
@@ -360,15 +384,15 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   logic [31:0]                     loop_jump_addr;
 
 
-  logic [NrIntReadPorts-1:0][RegAddrSize-1:0]  gpr_raddr;
+  logic [NrIntReadPorts-1:0][PhysRegAddrSize-1:0]  gpr_raddr;
   logic [NrIntReadPorts-1:0][XLEN-1:0]         gpr_rdata;
-  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr;
+  logic [NrIntWritePorts-1:0][PhysRegAddrSize-1:0] gpr_waddr;
   logic [NrIntWritePorts-1:0][XLEN-1:0]        gpr_wdata;
   logic [NrIntWritePorts-1:0]                  gpr_we;
 
-  logic [NrFpReadPorts-1:0][RegAddrSize-1:0]  fpr_raddr;
+  logic [NrFpReadPorts-1:0][PhysRegAddrSize-1:0]  fpr_raddr;
   logic [NrFpReadPorts-1:0][FLEN-1:0]         fpr_rdata;
-  logic [NrFpWritePorts-1:0][RegAddrSize-1:0] fpr_waddr;
+  logic [NrFpWritePorts-1:0][PhysRegAddrSize-1:0] fpr_waddr;
   logic [NrFpWritePorts-1:0][FLEN-1:0]        fpr_wdata;
   logic [NrFpWritePorts-1:0]                  fpr_we;
 
@@ -419,12 +443,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   logic flush_backend;
   logic all_instr_dispatched;
-  rmt_entry_t   [PipeWidth-1:0]  dest_map;
+  sb_disp_data_t [PipeWidth-1:0] sb_disp_data;
   rename_data_t [PipeWidth-1:0]  rename_info;
 
   logic ctrl_instr_retired;
 
   logic en_superscalar;
+  logic registers_ready;
+  logic sb_busy;
 
   // ---------------------------
   // Core Events
@@ -541,7 +567,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .PipeWidth     (PipeWidth),
     .XLEN          (XLEN),
     .FLEN          (FLEN),
-    .RegAddrSize   (RegAddrSize),
+    .RegAddrSize   (PhysRegAddrSize),
     .NrIntReadPorts(NrIntReadPorts),
     .NrFpReadPorts (NrFpReadPorts),
     .instr_dec_t   (instr_dec_t),
@@ -619,10 +645,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .sret_o                 (sret),
     .en_superscalar_o       (en_superscalar),
     // GPR & FPR Write back snooping for Scoreboard
-    .gpr_we_i               (gpr_we),
-    .gpr_waddr_i            (gpr_waddr),
-    .fpr_we_i               (fpr_we),
-    .fpr_waddr_i            (fpr_waddr)
+    .registers_ready_i      (registers_ready),
+    .sb_busy_i              (sb_busy)
   );
 
   ////////////
@@ -685,13 +709,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .producer_id_t(producer_id_t),
     .rs_id_t(rs_id_t),
     .fu_data_t  (fu_data_t),
-    .acc_req_t  (acc_req_t)
+    .acc_req_t  (acc_req_t),
+    .sb_disp_data_t(sb_disp_data_t)
   ) i_dispatcher (
     .clk_i,
     .rst_i,
     // Rename interface
     .rename_info_i(rename_info),
-    .dest_map_o(dest_map),
+    .sb_disp_data_o(sb_disp_data),
     .en_superscalar_i    (en_superscalar),
     .instr_dec_i         (instr_decoded),
     .instr_fu_data_i     (fu_data),
@@ -970,7 +995,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .FLEN           (FLEN),
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
-    .RegAddrSize    (RegAddrSize),
+    .RegAddrSize    (PhysRegAddrSize),
     .instr_tag_t    (schnova_instr_tag_t),
     .alu_result_t   (alu_result_t),
     .data_t         (data_t)
@@ -1058,6 +1083,34 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
   assign core_events_o.issue_fpu_seq     = '0;
 
+  ////////////////
+  // Scoreboard //
+  ////////////////
+
+  schnova_scoreboard #(
+    .PipeWidth(PipeWidth),
+    .NrReadPorts(/* TODO(soderma)*/),
+    .NrWritePorts(1),
+    .AddrWidth(PhysRegAddrSize),
+    .sb_disp_data_t(sb_disp_data_t)
+  ) i_scoreboard (
+    // clock and reset
+    .clk_i,
+    .rst_i,
+    .en_superscalar_i(en_superscalar),
+    // Dispatched instruction
+    .dispatched_i(dispatch_instr_ready),
+    .disp_data_i(sb_disp_data),
+    // Register writeback snooping
+    .wb_gpr_addr_i(gpr_waddr),
+    .wb_gpr_en_i(gpr_we),
+    .wb_fpr_addr_i(fpr_waddr),
+    .wb_fpr_en_i(fpr_we),
+    // To controller
+    .registers_ready_o(registers_ready),
+    .sb_busy_o(sb_busy)
+);
+
   /////////////////////////////
   // Physical Register Files //
   /////////////////////////////
@@ -1067,7 +1120,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .NrReadPorts (NrIntReadPorts),
     .NrWritePorts(NrIntWritePorts),
     .ZeroRegZero (1),
-    .AddrWidth   (RegAddrSize)
+    .AddrWidth   (PhysRegAddrSize)
   ) i_int_regfile (
     .clk_i,
     .rst_ni (~rst_i),
@@ -1084,7 +1137,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       .NrReadPorts  (NrFpReadPorts),
       .NrWritePorts (NrFpWritePorts),
       .ZeroRegZero  (0),
-      .AddrWidth    (RegAddrSize)
+      .AddrWidth    (PhysRegAddrSize)
     ) i_fp_regfile (
       .clk_i,
       .rst_ni (~rst_i),
