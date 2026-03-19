@@ -59,7 +59,7 @@ module schnova_read_operands import schnizo_pkg::*; #(
       // - JAL and JALR use the PC as operand A.
       // - CSRRxI use the rs1 address as operand A.
       if (instr_dec_i[instr_idx].use_pc_as_op_a) begin
-        // In case we have a JAL or JALR instruction, the blk_ctrl_info will point to that instruction
+        // In case we have a JAL or JALR instruction, the blk_ctrl_info will point to that isnstruction
         // we can use this information to calculate the pc/address of the JAL instruction.
         fu_data_o[instr_idx].operand_a[XLEN-1:0] = jump_pc_i;
       end else if (instr_dec_i[instr_idx].use_rs1addr_as_op_a) begin
