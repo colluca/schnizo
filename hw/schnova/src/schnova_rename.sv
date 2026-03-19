@@ -15,6 +15,7 @@ module schnova_rename import schnizo_pkg::*; #(
   parameter int unsigned RmtNrFpReadPorts = 4,
   parameter int unsigned RmtNrWritePorts = 1,
   /// Size of both int and fp register file
+  parameter int unsigned PhysRegAddrSize = 6,
   parameter int unsigned RegAddrSize = 5,
   parameter type         instr_dec_t = logic,
   parameter type         phy_id_t = logic,
@@ -55,9 +56,9 @@ module schnova_rename import schnizo_pkg::*; #(
   // Whether the instruction was already renamed in a previous cycle
   logic [PipeWidth-1:0] is_renamed_d, is_renamed_q;
 
-  // Free list read handshake
-  logic [PipeWidth-1:0] free_list_hs;
-  logic [PipeWidth-1:0] free_list_ready;
+  // Physical register allocation signals
+  logic alloc_pr_hs;
+  logic alloc_pr_ready;
 
   /////////////////
   // RMT readout //
@@ -105,20 +106,27 @@ module schnova_rename import schnizo_pkg::*; #(
   // Reading the Free List //
   ///////////////////////////
 
+  logic alloc_valid = 1'b0;
+  logic [$clog2(PipeWidth):0] alloc_count;
+
   schnova_free_list #(
     .PipeWidth(PipeWidth),
+    .PhysAddrWidth(PhysRegAddrSize),
+    .AddrWidth(RegAddrSize),
     .phy_id_t(phy_id_t)
   ) i_free_list (
     .clk_i,
     .rst_i,
-    .clear_i(flush_i),
-    .valid_i(dispatch_valid_i),
-    .en_superscalar_i(en_superscalar_i),
-    .phy_reg_id_o(dest_map),
-    .ready_o(free_list_ready)
+    .alloc_valid_i(alloc_valid),
+    .alloc_ready_o(alloc_pr_ready),
+    .alloc_count_i(alloc_count),
+    .alloc_regs_o(dest_map),
+    .retire_valid_i(),
+    .retire_count_i(),
+    .retire_regs_i()
   );
 
-  assign free_list_hs = dispatch_valid_i & free_list_ready;
+  assign alloc_pr_hs= dispatch_valid_i & alloc_pr_ready;
 
   ////////////////
   // RMT update //
@@ -134,7 +142,7 @@ module schnova_rename import schnizo_pkg::*; #(
       // Only update the RMT if the destination mapping sent by the dispatcher is valid
       // Dispatching will happen in order, because we have to update the renaming in order
       // to not break any dependencies.
-      if (free_list_hs[instr_idx] && en_superscalar_i) begin
+      if (alloc_pr_hs && en_superscalar_i) begin
         rmt_fp_we[instr_idx] = instr_dec_i[instr_idx].rd_is_fp;
         rmt_int_we[instr_idx] = ~instr_dec_i[instr_idx].rd_is_fp;
       end
@@ -273,7 +281,7 @@ module schnova_rename import schnizo_pkg::*; #(
       if(flush_i | all_instr_dispatched_i) begin
         // We have to restart renaming in the next cycle in that case
         is_renamed_d[instr_idx] = 1'b0;
-      end else if (free_list_hs[instr_idx]) begin
+      end else if (alloc_pr_hs) begin
         // The destination register was renamed in this cycle
         // hence the renaming can be read out from the RMT in the next cycle
         is_renamed_d[instr_idx] = 1'b1;

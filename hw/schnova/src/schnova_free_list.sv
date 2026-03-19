@@ -2,27 +2,76 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+// Note: The physical register size has to be a power of two, for the math to work
+
 // Author: Stefan Odermatt <soderma@ethz.ch>
 module schnova_free_list import schnizo_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
+  parameter int unsigned PhysAddrWidth = 6,
+  parameter int unsigned AddrWidth = 5,
   parameter type         phy_id_t = logic
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
-  input  logic         clear_i,
-  input  logic [PipeWidth-1:0] valid_i,
-  input  logic en_superscalar_i,
-  // From dispatcher, contains the desination register mappings, that the dispatcher
-  // was able to allocate.
-  output  phy_id_t      [PipeWidth-1:0]  phy_reg_id_o,
-  output logic   [PipeWidth-1:0] ready_o
+  // Allocation Interface (Rename Stage)
+  input logic alloc_valid_i,
+  output logic alloc_ready_o,
+  input logic [$clog2(PipeWidth):0] alloc_count_i,
+  output phy_id_t [PipeWidth-1:0]  alloc_regs_o,
+  // Deallocation Interface (Retire/Commit Stage)
+  input logic retire_valid_i,
+  input logic retire_count_i,
+  input phy_id_t [PipeWidth-1:0] retire_regs_i
 );
-  // TODO (simple mapping for now)
+  // Connections and registers
+  localparam int unsigned NumPhysRegs  = 2**PhysAddrWidth;
+  localparam int unsigned NumRegs  = 2**AddrWidth;
+
+  phy_id_t [NumPhysRegs-1:0] free_list;
+  logic [AddrWidth:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
+
+  // Calculate the current number of free physical registers
+  logic [AddrWidth:0] free_count;
+  
+  assign free_count = tail_ptr - head_ptr;
+  assign alloc_ready_o = (free_count >= alloc_count_i);
+
+  // Allocation, we pop free entries from the free list
   always_comb begin
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      phy_reg_id_o[i] = phy_id_t'(0);
-      ready_o[i] = 1'b1;
+    alloc_regs_o = '0;
+    for (int i = 0; i < PipeWidth; i++) begin
+      if (i < alloc_count_i) begin
+        alloc_regs_o[i] = free_list[(head_ptr+i)];
+      end
     end
   end
+
+  // Sequential updates, that includes pointer calculations and retirements
+  always_ff @(posedge clk_i or posedge rst_i) begin 
+    if (rst_i) begin
+      head_ptr <= '0;
+      // At the beginning all architectural registers are mapped
+      // that means 32 registers are mapped
+      tail_ptr <= NumPhysRegs - NumRegs;                                    
+      for (int unsigned i = 0; i < (NumPhysRegs-NumRegs); i++) begin
+        free_list[i] <= phy_id_t'(i + 32);
+      end                          
+    end else begin                                       
+      // Update the head pointer on allocation
+      if(alloc_valid_i && alloc_ready_o) begin
+        head_ptr = head_ptr + alloc_count_i;
+      end
+
+      // Update tail on retirement
+      if (retire_valid_i) begin
+        for (int i = 0; i < PipeWidth; i++) begin
+          if (i < retire_count_i) begin
+            free_list[(tail_ptr+i)] <= retire_regs_i[i];
+          end
+        end
+        tail_ptr <= tail_ptr + retire_count_i;
+      end
+      end
+  end                                                  
 
 endmodule
