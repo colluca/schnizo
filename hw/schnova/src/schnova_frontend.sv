@@ -144,28 +144,23 @@ module schnova_frontend # (
     // would lose performance, basically once the PC would not be aligned to a fetch block,
     // we would always have invalid instructions per fetch purely because of that.
     // If we have a JAL or JALR, we store the regular consecutive PC (PC+4) in rd.
-    // and in case of FENCE_I we use PC+4 to fetch the instruction after the FENCE_I instruction
     if (PipeWidth > 1) begin: gen_superscalar_cons_pc
       assign consecutive_pc = pc_q +
           ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
           // In case of a branch, we just add the immediate
                                         blk_ctrl_info_i.imm :
-                                        ((blk_ctrl_info_i.is_fence_i)    ?
-          // We fetch the next instruction after the instruction the blk control info points to
-                                        (blk_ctrl_info_i.instr_idx + 1'b1) << 2:
                                         (en_superscalar_i ?
           // Next PC is now PC + #instructions used in the last fetch block
                                         (PipeWidth-instr_index) << 2 :
           // In scalar mode we just have to calculate PC+4 since the PC and the instruction we
           // use is the one the PC points to.
-                                                            4'd4)));
+                                                            4'd4));
 
       // The PC of the JAL/JALR instructions is needed for the relative
       // address calculation
       assign jump_pc_o = pc_q + (blk_ctrl_info_i.instr_idx << 2);
     end else begin: gen_scalar_cons_pc
       // There is only one instruction, so things are simpler
-      // The instruction after fence_i is just PC + 4, similarily for jal and jalr we can also just use PC + 4
       assign consecutive_pc = pc_q +
           ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
           // In case of a branch, we just add the immediate

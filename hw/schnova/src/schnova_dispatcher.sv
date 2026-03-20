@@ -40,9 +40,9 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   input  instr_dec_t [PipeWidth-1:0] instr_dec_i,
   input  fu_data_t   [PipeWidth-1:0] instr_fu_data_i,
   input  logic [32*PipeWidth-1:0]  instr_fetch_data_i,
-  input  logic [PipeWidth-1:0]     dispatch_valid_i,
-  output logic [PipeWidth-1:0]     dispatch_ready_o,
-  input  logic [PipeWidth-1:0]     instr_exec_commit_i,
+  input  logic                     dispatch_valid_i,
+  output logic                     dispatch_ready_o,
+  input  logic                     instr_exec_commit_i,
 
   // From rename stage
   input  rename_data_t [PipeWidth-1:0] rename_info_i,
@@ -204,30 +204,30 @@ module schnova_dispatcher import schnizo_pkg::*; #(
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
-        alu_disp_req_valid_o[0] = dispatch_valid_i[0];
+        alu_disp_req_valid_o[0] = dispatch_valid_i;
       end
       schnizo_pkg::ALU: begin
-        alu_disp_req_valid_o[alu_idx] = dispatch_valid_i[0];
+        alu_disp_req_valid_o[alu_idx] = dispatch_valid_i;
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
-        lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i[0];
+        lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i;
       end
       schnizo_pkg::CSR : begin
-        csr_disp_req_valid_o = dispatch_valid_i[0];
+        csr_disp_req_valid_o = dispatch_valid_i;
       end
       schnizo_pkg::FPU: begin
-        fpu_disp_req_valid_o[fpu_idx] = dispatch_valid_i[0];
+        fpu_disp_req_valid_o[fpu_idx] = dispatch_valid_i;
       end
       schnizo_pkg::MULDIV: begin
-        acc_disp_req_valid_o = dispatch_valid_i[0];
+        acc_disp_req_valid_o = dispatch_valid_i;
         acc_req_o.addr         = snitch_pkg::IPU; // TODO: use schnizo defined address.
         acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
         acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
         acc_req_o.data_argc    = '0; // unused for shared muldiv
       end
       schnizo_pkg::DMA: begin
-        acc_disp_req_valid_o = dispatch_valid_i[0];
+        acc_disp_req_valid_o = dispatch_valid_i;
         acc_req_o.addr         = snitch_pkg::DMA_SS; // TODO: use schnizo defined address.
         acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
         acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
@@ -318,18 +318,10 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // Dispatch logic //
   ////////////////////
 
-  assign dispatched = instr_exec_commit_i[0] & fu_ready;
+  assign dispatched = instr_exec_commit_i & fu_ready;
 
   // Signal back the dispatch
-  always_comb begin
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (i == 0) begin
-        dispatch_ready_o[i] = dispatched;
-      end else begin
-        dispatch_ready_o[i] = 1'b0;
-      end
-    end
-  end
+  assign dispatch_ready_o = dispatched;
 
   // Asserted if the currently selected FU has no empty RSS.
   assign rs_full_o = fu_rs_full;

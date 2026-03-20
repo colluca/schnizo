@@ -23,7 +23,7 @@ module schnova_decoder import schnizo_pkg::*; #(
   // For assertions only.
   input logic                          clk_i,
   input logic                          rst_i,
-
+  input logic                          en_superscalar_i,
   input  logic [PipeWidth-1:0][31:0]   instr_fetch_data_i,
   input  logic [PipeWidth-1:0]         instr_fetch_data_valid_i,
   input  fpnew_pkg::roundmode_e        fpu_round_mode_i,
@@ -31,6 +31,7 @@ module schnova_decoder import schnizo_pkg::*; #(
   output logic [PipeWidth-1:0]         instr_valid_o,
   output logic [PipeWidth-1:0]         instr_illegal_o,
   output block_ctrl_info_t             blk_ctrl_info_o,
+  output logic                         exit_superscalar_o,
   output instr_dec_t [PipeWidth-1:0]   instr_dec_o
 );
 
@@ -39,14 +40,12 @@ module schnova_decoder import schnizo_pkg::*; #(
   logic [PipeWidth-1:0] instr_valid;
   // Per instruction signal, whether the instruction is a control instruction
   logic [PipeWidth-1:0] is_ctrl_instr;
-  // Per instruction signal, whether the instruction is a fence_i instruction
-  logic [PipeWidth-1:0] is_fence_i_instr;
+  // Per instruction signal, whether the instruction is unsuported during
+  // superscalar execution
+  logic [PipeWidth-1:0] is_usupported_instr;
   // Valid mask, that mask all the instruction that have to be invalidated
   // due to a fence_i or control instruction
   logic [PipeWidth-1:0] valid_mask;
-  // If this instruction is a critical instrucation that has to be considered
-  // when generating the valid mask
-  logic [PipeWidth-1:0] is_crit_instr;
   // One hot encoded signal of the only valid critical instruction after masking
   logic [PipeWidth-1:0] one_hot_crit_instr;
   // The idx of the instruction that is relevant for the block control info
@@ -101,19 +100,23 @@ module schnova_decoder import schnizo_pkg::*; #(
   // they have to be refetched after the fence_i (and thus I-cache flush) has been
   // executed.
 
-  // Compute per instruction indicator whether it is a valid control or fence_i instruction
+  // Compute per instruction indicator whether it is a valid control instruction
   always_comb begin: gen_per_instr_info
     for (int unsigned instr_idx=0; instr_idx < PipeWidth; instr_idx++) begin
       is_ctrl_instr[instr_idx] = (instr_dec_o[instr_idx].is_branch |
                               instr_dec_o[instr_idx].is_jal    |
                               instr_dec_o[instr_idx].is_jalr)  &
                               instr_valid[instr_idx];
-      is_fence_i_instr[instr_idx] = instr_dec_o[instr_idx].is_fence_i & instr_valid[instr_idx];
-      // The instruction is a critical instruction, if it is either a fence_i
-      // or a control instruction.
-      is_crit_instr[instr_idx] = is_ctrl_instr[instr_idx] | is_fence_i_instr[instr_idx];
+      // All these instructions except for frep are unsuported during superscalar execution
+      is_usupported_instr[instr_idx] = (instr_dec_o[instr_idx].fu inside {NONE, MULDIV, CSR, DMA}) &
+                                        !instr_dec_o[instr_idx].is_frep                            &
+                                        en_superscalar_i                                           &
+                                        instr_valid[instr_idx];
     end
   end
+
+  // We have to exit superscalar mode as soon as we observe an unsupported instruction
+  assign exit_superscalar_o = |is_usupported_instr;
 
   // Generate the valid mask
   always_comb begin: gen_valid_mask
@@ -125,8 +128,16 @@ module schnova_decoder import schnizo_pkg::*; #(
         valid_mask[instr_idx] = 1'b1;
       end else begin
         // We have to mask this signal, if an older instruction was masked or if the previous
-        // instruction was a ctrl or fence_i instruction (critical instruction)
-        valid_mask[instr_idx] = (is_crit_instr[instr_idx-1] | ~valid_mask[instr_idx-1])
+        // instruction was a ctrl instruction or if the current instruction is an frep instruction
+        // the instruction is an unsupported instruction
+        // that way we guarante three things
+        // 1) We don't speculate, since all instruction after the ctrl instructions are invalidated
+        // 2) An frep instruction will always be at the beginning of the fetch block
+        // 3) We don't execute any unsuported instruction in superscalar mode
+        valid_mask[instr_idx] = (is_ctrl_instr[instr_idx-1] |
+                                ~valid_mask[instr_idx-1]    |
+                                instr_dec_o[instr_idx].is_frep |
+                                is_usupported_instr[instr_idx])
                                 ? 1'b0 : 1'b1;
       end
     end
@@ -139,7 +150,7 @@ module schnova_decoder import schnizo_pkg::*; #(
   // There should only be one valid critical instruction per fetch block
   // after masking.
   // Note it is also possible that no bit is set if there was no critical instruction
-  assign one_hot_crit_instr = is_crit_instr & instr_valid_o;
+  assign one_hot_crit_instr = is_ctrl_instr & instr_valid_o;
 
   // To find the index we can no just use a one hot encoder
   if (PipeWidth > 1) begin : gen_idx_superscalar
@@ -163,7 +174,6 @@ module schnova_decoder import schnizo_pkg::*; #(
     is_branch:  instr_dec_o[blk_ctrl_instr_idx].is_branch,
     is_jal:     instr_dec_o[blk_ctrl_instr_idx].is_jal,
     is_jalr:    instr_dec_o[blk_ctrl_instr_idx].is_jalr,
-    is_fence_i: instr_dec_o[blk_ctrl_instr_idx].is_fence_i,
     is_ctrl:    instr_dec_o[blk_ctrl_instr_idx].is_branch |
                 instr_dec_o[blk_ctrl_instr_idx].is_jal    |
                 instr_dec_o[blk_ctrl_instr_idx].is_jalr,
