@@ -220,7 +220,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     logic                         is_branch; // set if instruction is a branch
     logic                         is_jal; // set if JAL
     logic                         is_jalr; // set if JALR
-    logic                         is_fence_i; // set if FENCE.I
     logic                         is_ctrl;
     logic [$clog2(PipeWidth)-1:0] instr_idx;
   } block_ctrl_info_t;
@@ -424,9 +423,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   logic            interrupt;
   logic            exception;
   logic            wfi; // asserted if we are waiting for an interrupt
-  logic [PipeWidth-1:0] dispatch_instr_valid;
-  logic [PipeWidth-1:0] dispatch_instr_ready;
-  logic [PipeWidth-1:0] instr_exec_commit;
+  logic dispatch_instr_valid;
+  logic dispatch_instr_ready;
+  logic instr_exec_commit;
 
   fpnew_pkg::roundmode_e fpu_rnd_mode;
   fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
@@ -442,13 +441,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   frep_mem_cons_mode_e frep_mem_cons_mode;
 
   logic flush_backend;
-  logic all_instr_dispatched;
+  logic dispatched;
   sb_disp_data_t [PipeWidth-1:0] sb_disp_data;
   rename_data_t [PipeWidth-1:0]  rename_info;
 
   logic ctrl_instr_retired;
 
   logic en_superscalar;
+  logic exit_superscalar;
   logic registers_ready;
   logic sb_busy;
 
@@ -551,6 +551,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   ) i_decoder (
     .clk_i,
     .rst_i,
+    .en_superscalar_i        (en_superscalar),
+    .exit_superscalar_o      (exit_superscalar),
     .instr_fetch_data_i      (instr_fetch_data),
     .instr_fetch_data_valid_i(instr_fetch_data_valid),
     .fpu_round_mode_i        (fpu_rnd_mode),
@@ -613,7 +615,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .blk_ctrl_info_i        (blk_ctrl_info),
     // To rename stage
     .flush_backend_o (flush_backend),
-    .all_instr_dispatched_o(all_instr_dispatched),
+    .dispatched_o(dispatched),
     .all_rs_finish_i(all_rs_finish),
     .rs_restart_o(rs_restart),
     // Interface to dispatcher
@@ -644,6 +646,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .mret_o                 (mret),
     .sret_o                 (sret),
     .en_superscalar_o       (en_superscalar),
+    .exit_superscalar_i     (exit_superscalar),
     // GPR & FPR Write back snooping for Scoreboard
     .registers_ready_i      (registers_ready),
     .sb_busy_i              (sb_busy)
@@ -668,7 +671,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .rst_i,
     .en_superscalar_i(en_superscalar),
     .flush_i(flush_backend),
-    .all_instr_dispatched_i(all_instr_dispatched),
+    .dispatched_i(dispatched),
     .dispatch_valid_i(dispatch_instr_valid),
     .instr_dec_i(instr_decoded),
     .rename_info_o(rename_info)
@@ -1067,13 +1070,13 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     assign all_issue_fpu_handshakes[i] = fpu_disp_req_valid[i] & fpu_disp_req_ready[i];
   end
   // TODO (soderma): This was just written to compile
-  assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit[0];
+  assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
   // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
   // also FP loads as the FP register is in the subsystem. Schnizo cannot distinguish this case as
   // we handle all instructions in the core. We thus set the same signal.
   // TODO: rework the core events
   // TODO (soderma): This was just written to compile
-  assign issue_core_to_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit[0];
+  assign issue_core_to_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
 
   assign core_events_o.retired_instr = instr_retired_q;
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
@@ -1100,7 +1103,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .rst_i,
     .en_superscalar_i(en_superscalar),
     // Dispatched instruction
-    .dispatched_i(dispatch_instr_ready),
+    .dispatched_i(dispatched),
+    .instr_valid_i(instr_valid),
     .disp_data_i(sb_disp_data),
     // Register writeback snooping
     .wb_gpr_addr_i(gpr_waddr),

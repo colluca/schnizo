@@ -22,7 +22,8 @@ module schnova_scoreboard #(
   input  logic                                    rst_i,
   input  logic                                    en_superscalar_i,
   // Dispatched instruction
-  input  logic [PipeWidth-1:0]                    dispatched_i,
+  input  logic                                    dispatched_i,
+  input  logic [PipeWidth-1:0]                    instr_valid_i,
   input  sb_disp_data_t [PipeWidth-1:0]           disp_data_i,
   // Register writeback snooping
   input  logic [NrWritePorts-1:0][AddrWidth-1:0]  wb_gpr_addr_i,
@@ -47,7 +48,7 @@ module schnova_scoreboard #(
   always_comb begin : disp_decoder
     for (int unsigned j = 0; j < PipeWidth; j++) begin
       for (int unsigned i = 0; i < NumRegs; i++) begin
-        if (disp_data_i[j].rd == i) disp_dec[j][i] = dispatched_i[j];
+        if (disp_data_i[j].rd == i) disp_dec[j][i] = instr_valid_i[j] & dispatched_i;
         else disp_dec[j][i] = 1'b0;
       end
     end

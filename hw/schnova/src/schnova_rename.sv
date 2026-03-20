@@ -23,11 +23,8 @@ module schnova_rename import schnizo_pkg::*; #(
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
-  // From controller, the rename state should be cleared once we have an exception
-  // to start from a clean slate
-  input  logic flush_i,
-  input  logic all_instr_dispatched_i,
-  input  logic [PipeWidth-1:0] dispatch_valid_i,
+  input  logic dispatched_i,
+  input  logic dispatch_valid_i,
   input  logic en_superscalar_i,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
@@ -213,10 +210,10 @@ module schnova_rename import schnizo_pkg::*; #(
       // older instruction renamings are valid
       if(instr_idx == 0) begin
         // The first instruction does not have to wait on older instructions to complete renaming
-        rename_info_o[instr_idx].valid = dispatch_valid_i[instr_idx] | is_renamed_q[instr_idx];
+        rename_info_o[instr_idx].valid = dispatch_valid_i | is_renamed_q[instr_idx];
       end else begin
         rename_info_o[instr_idx].valid = rename_info_o[instr_idx-1].valid                       ?
-                                          dispatch_valid_i[instr_idx] | is_renamed_q[instr_idx] :
+                                          dispatch_valid_i | is_renamed_q[instr_idx] :
                                           1'b0;
       end
     end
@@ -241,7 +238,6 @@ module schnova_rename import schnizo_pkg::*; #(
     // clock and reset
     .clk_i,
     .rst_ni (~rst_i),
-    .clear_i(flush_i),
     // read port
     .raddr_i(rmt_int_raddr),
     .rdata_o(rmt_int_rdata),
@@ -261,7 +257,6 @@ module schnova_rename import schnizo_pkg::*; #(
     // clock and reset
     .clk_i,
     .rst_ni (~rst_i),
-    .clear_i(flush_i),
     // read port
     .raddr_i(rmt_fp_raddr),
     .rdata_o(rmt_fp_rdata),
@@ -278,7 +273,7 @@ module schnova_rename import schnizo_pkg::*; #(
   always_comb begin: rename_state_update
     is_renamed_d = is_renamed_q;
     for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-      if(flush_i | all_instr_dispatched_i) begin
+      if(dispatched_i) begin
         // We have to restart renaming in the next cycle in that case
         is_renamed_d[instr_idx] = 1'b0;
       end else if (alloc_pr_hs) begin

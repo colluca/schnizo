@@ -34,15 +34,15 @@ module schnova_controller import schnizo_pkg::*; #(
   input  block_ctrl_info_t           blk_ctrl_info_i,
   // To backend
   output logic                      flush_backend_o,
-  output logic                      all_instr_dispatched_o,
+  output logic                      dispatched_o,
   // Writeback interface
   input logic ctrl_instr_retired_i,
   // Interface to dispatcher & RS
-  output logic [PipeWidth-1:0]      dispatch_instr_valid_o,
-  input  logic [PipeWidth-1:0]      dispatch_instr_ready_i,
-  output logic [PipeWidth-1:0]      instr_exec_commit_o,
-  output logic                      stall_o,
-  output logic                      ctrl_stall_o,
+  output logic dispatch_instr_valid_o,
+  input  logic dispatch_instr_ready_i,
+  output logic instr_exec_commit_o,
+  output logic stall_o,
+  output logic ctrl_stall_o,
    // Asserted if all reservation stations have no instructions in flight.
   input  logic all_rs_finish_i,
   output logic rs_restart_o,
@@ -70,18 +70,23 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // Superscalar features enabled
   output logic en_superscalar_o,
+  input logic  exit_superscalar_i,
 
   // From scoreboard
   input logic             registers_ready_i,
   input logic             sb_busy_i
 );
 
-  logic [PipeWidth-1:0] instr_dispatched;
+  logic instr_dispatched;
   logic            csr_exception;
 
   logic en_superscalar_d, en_superscalar_q;
   // Per default the core starts in scalar mode
   `FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
+
+  logic ignore_toggle_d, ignore_toggle_q;
+  // Per default we don't ignore toggling between the execution modes
+  `FFAR(ignore_toggle_q, ignore_toggle_d, 1'b0, clk_i, rst_i);
 
   ////////////////
   // Exceptions //
@@ -188,64 +193,51 @@ module schnova_controller import schnizo_pkg::*; #(
   ////////////
 
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
+  // FENCE is only allowed in scalar mode, we can thus only consider the first
+  // decoded instruction.
   logic all_lsus_empty;
-  logic [PipeWidth-1:0] fence_stall;
+  logic fence_stall;
   // The lsu_empty_i signal already declares whether all LSUs are empty
   assign all_lsus_empty = lsu_empty_i;
-  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_fence_stall
-    if (instr_idx == 0) begin: gen_fence_stall
-      // We stall if the instruction is a fence, and not all LSU are empty and it was not
-      // yet dispatched. If it was dispatched, it can be that there still is some fence instruction
-      // in the same fetch block.
-      assign fence_stall[instr_idx] = (instr_decoded_i[instr_idx].is_fence &
-                                      ~all_lsus_empty                      &
-                                      ~instr_dispatched[instr_idx])        &
-                                      instr_valid_i[instr_idx];
-    end else begin: gen_propagate_fence_stall
-      // If a previous instruction is a fence, we also have to stall the current instruction
-      // if it is valid
-      assign fence_stall[instr_idx] = ((instr_decoded_i[instr_idx].is_fence &
-                                      ~all_lsus_empty                       &
-                                      ~instr_dispatched[instr_idx])         |
-                                      fence_stall[instr_idx-1])             &
-                                      instr_valid_i[instr_idx];
-    end
-  end
-
-  // If we observe a CSR instruction, all younger instructions
-  // can only start executing once the CSR instruction was commited.
-  logic [PipeWidth-1:0] csr_stall;
-  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_csr_stall
-    if (instr_idx == 0) begin: gen_no_csr_stall
-      // We have to stall the first instruction
-      // if it is a CSR instruction and was not yet dispatched
-      // and all older instruction have not yet finished their execution.
-      assign csr_stall[instr_idx] = (instr_decoded_i[instr_idx].fu == CSR) &
-                                    ~instr_dispatched[instr_idx]           &
-                                    sb_busy_i                              &
-                                    instr_valid_i[instr_idx];
-    end else begin: gen_propagate_csr_stall
-      // We have to stall all other instructions on the same conditions, in addition
-      // if in this cycle a previous instruction was stalled because of a CSR stall
-      // all younger instructions also have to be stalled
-      assign csr_stall[instr_idx] = (((instr_decoded_i[instr_idx].fu == CSR) &
-                                    ~instr_dispatched[instr_idx]             &
-                                    sb_busy_i                              ) |
-                                    csr_stall[instr_idx-1])                  &
-                                    instr_valid_i[instr_idx];
-    end
-  end
+  assign fence_stall = (instr_decoded_i[0].is_fence & ~all_lsus_empty) & instr_valid_i[0];
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
-  // Discard all the instructions after the fence_i instruction and update the PC to point
-  // to the next instruction after the FENCE_I. Then only fetch that once all the instructions
-  // before the FENCE_I are retired.
-  // This is already done by invalidating all the instructions after the fence_i instruction.
+  // We can continue as soon as the cache responds
+  // FENCE_I is only allowed in scalar mode, we can thus only consider the first
+  // decoded instruction.
   logic fence_i_stall;
-  // We flush once we have one valid fence_i instruction in the block
-  assign flush_i_valid_o = blk_ctrl_info_i.is_fence_i;
-  // We stall fetching until the flush was performed
+  assign flush_i_valid_o = instr_decoded_i[0].is_fence_i & instr_valid_i[0];
   assign fence_i_stall = flush_i_valid_o & ~flush_i_ready_i;
+
+  // Check if the current instruction wants to read or write the FCSR. If so, stall until no FPU
+  // instructions are ongoing. This ensures that any FCSR access is ordered.
+  // CSR is only allowed in scalar mode, we can thus only consider the first
+  // decoded instruction.
+  logic [11:0] csr_addr;
+  logic        is_fcsr_instr;
+  logic        fcsr_stall;
+
+  assign csr_addr = instr_decoded_i[0].imm[11:0];
+  assign is_fcsr_instr = (csr_addr inside {riscv_instr::CSR_FFLAGS, riscv_instr::CSR_FRM,
+                                           riscv_instr::CSR_FMODE,  riscv_instr::CSR_FCSR})
+                         && (instr_decoded_i[0].fu == CSR);
+  // We must stall on both register file scoreboards as certain FPU instructions (FEQ etc.) do also
+  // write back into the integer register file.
+  // TODO(colluca): we should probably use a separate register in the scoreboard to track if there
+  // are any ongoing FPU instructions instead of checking both scoreboards indiscriminately.
+  assign fcsr_stall = sb_busy_i & is_fcsr_instr & instr_valid_i[0];
+
+  // Before toggling between scalar and superscalar mode all writebacks must be completed.
+  // There are two situations when we toggle
+  // 1) When we observe an frep instruction as the first valid instruction
+  // 2) When we are forced to leave the superscalar mode due to an unsupported instruction
+  // Reason is that during superscalar execution the
+  // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
+  // Note the decoder and frontend guarantes, that frep is always the first valid instruction.
+  logic frep_toggle_stall;
+  assign frep_toggle_stall = ((instr_decoded_i[0].is_frep & instr_valid_i[0]) ||
+                               exit_superscalar_i) ? sb_busy_i :
+                                                                        1'b0;
 
   // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
   logic ctrl_stall;
@@ -295,12 +287,9 @@ module schnova_controller import schnizo_pkg::*; #(
 
   assign ctrl_stall_o = ctrl_stall;
 
-  assign stall_disp_ctrl = (ctrl_state_q == WAIT_CTRL) ? 1'b1 : 1'b0;
-
-  // Check if there is any valid instruction in the block in the first place, otherwise we are still waiting
-  // on the fetch to return valid instructions for the current PC
-  logic all_instr_invalid;
-  assign all_instr_invalid = ~(|instr_valid_i);
+  // If we are waiting for a control instruction, we have to stall dispatching. Otherwise the
+  // core would think that it should dispatch this instruction again in the meantime.
+  assign stall_disp_ctrl = (ctrl_state_q == WAIT_CTRL) ? en_superscalar_q : 1'b0;
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
@@ -310,7 +299,10 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // We can dispatch the current instruction if:
   // - it is valid
-  // - no stall due to a FENCE or CSR
+  // - all registers are ready
+  // - no stall due to a FENCE or FCSR
+  // - no stall due to unsuported instructions
+  // - no exception occured
   // - TODO: the Consistency Address Queue (CAQ) between all LSUs are ready
   //
   // TODO(colluca): is this the case also in Snitch?
@@ -322,70 +314,57 @@ module schnova_controller import schnizo_pkg::*; #(
   // from the desired FU. The FU then can raise an exception and the commit signal will prevent
   // any stateful update / blocks the execution.
 
-  logic [PipeWidth-1:0] stall_raw;
-  logic [PipeWidth-1:0] instr_dispatched_mask;
+  logic stall_raw;
 
-  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_dispatch_sig
-    assign stall_raw[instr_idx] =   fence_stall[instr_idx]   |
-                                    csr_stall[instr_idx];
-    assign dispatch_instr_valid_o[instr_idx] =  instr_valid_i[instr_idx]                &
-    // If we are in scalar mode, we can't dispatch instructions when not all registers are ready
-                                                registers_ready_i &
-    // If we are in superscalar mode, we have to invalidate the dispatch request when we are waiting
-    // on the control instruction to  finish, otherwise it would generate another dispatch request
-    // for the same instruction since the RS is build in a fire and forget manner.
-                                                (!en_superscalar_q || !stall_disp_ctrl) &
-                                                !stall_raw[instr_idx];
-    // The instruction may only execute if there are no errors/exceptions.
-    // TODO(colluca): clarify "multi-cycle issues" in following comment
-    // This signal controls all stateful updates like RF writes or multi-cycle issues.
-    assign instr_exec_commit_o[instr_idx] = dispatch_instr_valid_o[instr_idx] & !exception_o;
-    // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
-    // performed successfully. The signal instr_dispatched signals that the current instruction has
-    // been dispatched successfully and the scoreboard can update its state.
-    assign instr_dispatched[instr_idx] =  instr_exec_commit_o[instr_idx] &
-                                          dispatch_instr_ready_i[instr_idx];
-  end
+  assign stall_raw = fence_stall      |
+                    fence_i_stall     |
+                    fcsr_stall        |
+                    frep_toggle_stall |
+                    stall_disp_ctrl;
 
-  // Stall fetching new instructions when we have
-  // to stall because of a FENCE_I instruction
-  // have to wait until a branch/jump is resolved
-  // not all the instructions that were valid
-  // were yet dispatched
+  // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched
+  // in one go. Hence we only need a valid signal per block not for all instructions separately.
+  assign dispatch_instr_valid_o = (|instr_valid_i) & registers_ready_i & ~stall_raw;
 
-  for (genvar instr_idx =0; instr_idx < PipeWidth; instr_idx++) begin: gen_instr_disp_mask
-    // If the instruction was not valid, we don't have to dispatch it in the first place
-    // in that case we treat it as if it successfully dispatched
-    assign instr_dispatched_mask[instr_idx] = (instr_valid_i[instr_idx])  ?
-                                              instr_dispatched[instr_idx] :
-                                              1'b1;
-  end
+  // The instruction may only execute if there are no errors/exceptions.
+  // TODO(colluca): clarify "multi-cycle issues" in following comment
+  // This signal controls all stateful updates like RF writes or multi-cycle issues.
+  logic instr_exec_commit;
+  assign instr_exec_commit = dispatch_instr_valid_o & !exception_o;
+  assign instr_exec_commit_o = instr_exec_commit;
+
+  // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
+  // performed successfully. The signal instr_dispatched signals that the current instruction has
+  // been dispatched successfully and the scoreboard can update its state.
+  assign instr_dispatched = instr_exec_commit_o & dispatch_instr_ready_i;
+
   // We have to tell the renaming stage when all instructions are successfully dispatched
   // that way it can restart the renaming process
-  assign all_instr_dispatched_o = &instr_dispatched_mask;
+  assign dispatched_o = instr_dispatched;
 
-  assign stall_o =  fence_i_stall |
-                    all_instr_invalid |
-                    ~all_instr_dispatched_o;
+  assign stall_o =  !instr_dispatched;
 
-//////////////////////////////
-// Superscalar enable logic //
-//////////////////////////////
+  //////////////////////////////
+  // Superscalar enable logic //
+  //////////////////////////////
 
-logic [PipeWidth-1:0] is_valid_frep_instr;
+  always_comb begin
+    en_superscalar_d = en_superscalar_q;
+    ignore_toggle_d = ignore_toggle_q;
+    // We toggle the mode whenever a valid frep instruction was decoded as the first
+    // valid instruction and we don't ignore it
+    if (instr_decoded_i[0].is_frep && instr_valid_i[0] && !ignore_toggle_q) begin
+      en_superscalar_d = ~en_superscalar_q;
+      // Whenever we successfully toggle, we can reset the ignore toggle state
+      ignore_toggle_d = 1'b0;
+    end
 
-always_comb begin
-  en_superscalar_d = en_superscalar_q;
-
-  for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-    is_valid_frep_instr[instr_idx] = instr_decoded_i[instr_idx].is_frep & instr_valid_i[instr_idx];
+    // We have to ignore the next toggle, when we forcefully exit superscalar mode
+    if (en_superscalar_q && exit_superscalar_i) begin
+      ignore_toggle_d = 1'b1;
+      en_superscalar_d = 1'b0;
+    end
   end
 
-  // We toggle the mode whenever a valid frep instruction was decoded
-  if (|is_valid_frep_instr) begin
-    en_superscalar_d = ~en_superscalar_q;
-  end
-end
-
-assign en_superscalar_o = en_superscalar_q;
+  assign en_superscalar_o = en_superscalar_q;
 endmodule

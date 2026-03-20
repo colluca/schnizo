@@ -17,7 +17,6 @@ module schnova_rmt #(
   // clock and reset
   input  logic                                        clk_i,
   input  logic                                        rst_ni,
-  input  logic                                        clear_i,
   // read port
   input  logic       [NrReadPorts-1:0][AddrWidth-1:0]  raddr_i,
   output phy_id_t [NrReadPorts-1:0]                 rdata_o,
@@ -48,23 +47,17 @@ module schnova_rmt #(
         mem[i] <= phy_id_t'(i);
       end
     end else begin
-      if (clear_i) begin
+      for (int unsigned j = 0; j < NrWritePorts; j++) begin
         for (int unsigned i = 0; i < NumWords; i++) begin
-        mem[i] <= phy_id_t'(i);
-        end
-      end else begin
-        for (int unsigned j = 0; j < NrWritePorts; j++) begin
-          for (int unsigned i = 0; i < NumWords; i++) begin
-            // Write first
-            if (we_dec[j][i]) begin
-              mem[i] <= wdata_i[j];
-            end
+          // Write first
+          if (we_dec[j][i]) begin
+            mem[i] <= wdata_i[j];
           end
         end
+      end
 
-        if (ZeroRegZero) begin
-          mem[0] <= phy_id_t'(0);
-        end
+      if (ZeroRegZero) begin
+        mem[0] <= phy_id_t'(0);
       end
     end
   end
