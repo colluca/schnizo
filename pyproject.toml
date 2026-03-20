@@ -62,9 +62,7 @@ docs = [
 all = [
     "snitch[kernels,docs]"
 ]
-nonfree = [
-    "pysynthutils @ git+ssh://git@iis-git.ee.ethz.ch/colluca/pysynthutils.git@75af7d2",
-]
+nonfree = []
 all-nonfree = [
     "snitch[all,nonfree]"
 ]

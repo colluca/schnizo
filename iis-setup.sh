@@ -27,5 +27,7 @@ export PATH=$PATH:/usr/local/uv
 export UV_LINK_MODE=copy
 
 # Bootstrap the Python environment
+uv remove pysynthutils --optional nonfree || true
+
 uv sync --all-extras --locked
 source .venv/bin/activate
