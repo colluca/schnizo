@@ -214,6 +214,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         };
       end
       LoopLcp2: begin
+        // TODO(colluca): this could be provided by the dispatcher directly
         if ((producer_id_i == disp_req_i.current_producer_dest.producer) &&
             disp_req_i.current_producer_dest.valid) begin
           slot_result_o.do_writeback = 1'b1;
