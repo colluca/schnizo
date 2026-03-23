@@ -88,6 +88,9 @@ module schnizo_controller import schnizo_pkg::*; #(
   input  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_i,
   input  logic                                        fpr_we_i,
   input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i
+
+  // Spatz Integration
+  input spatz_running_instrs_i
 );
 
   logic            instr_dispatched;
@@ -283,7 +286,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
   logic all_lsus_empty, fence_stall;
   assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
-  assign fence_stall = (instr_decoded_i.is_fence & ~all_lsus_empty) & instr_valid_i;
+  // Spatz: on a FENCE also wait for Spatz to finish
+  assign fence_stall = (instr_decoded_i.is_fence & (~all_lsus_empty || spatz_running_instrs_i)) & instr_valid_i;
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
   // We can continue as soon as the cache responds

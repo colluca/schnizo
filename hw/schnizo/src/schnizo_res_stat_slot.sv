@@ -126,6 +126,8 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   // for control logic should be hardcoded here. `is_store` is one of these, so it should be
   // renamed to reflect its FU-independent function.
   typedef struct packed  {
+    // Raw instruction for Spatz
+    logic [31:0]                    spatz_raw_instr;
     // Whether the RSS contains an active instruction.
     logic                           is_occupied;
     // How many consumer use the result of this instruction.
@@ -213,6 +215,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   `FFAR(slot_q, slot_d, slot_reset_state, clk_i, rst_i);
 
   assign slot_reset_state = '{
+    spatz_raw_instr:     '0, 
     is_occupied:          1'b0, // suppresses operand requests
     consumer_count:       '0,
     consumed_by:          '0,
@@ -451,6 +454,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
   rs_slot_t slot_lcp1;
   always_comb begin
     slot_lcp1 = '{
+      spatz_raw_instr:     disp_req_i.fu_data.raw_instr, //Needed by Spatz
       is_occupied:          1'b1,
       consumer_count:       '0,
       consumed_by:          '0,
@@ -461,7 +465,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
       // Duplicate logic for is_store. Once in LSU and once here.
       // TODO: Optimize by passing this to the LSU instead of regenerating it inside the LSU?
       is_store:             (disp_req_i.fu_data.fu == STORE) &&
-                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
+                            (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}) || (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp), // Handle the casse of other kind of instructions (SPATZ) that do not write back.
       lsu_size:             disp_req_i.fu_data.lsu_size,
       fpu_fmt_src:          disp_req_i.fu_data.fpu_fmt_src,
       fpu_fmt_dst:          disp_req_i.fu_data.fpu_fmt_dst,
@@ -636,6 +640,7 @@ module schnizo_res_stat_slot import schnizo_pkg::*; #(
     // results can come back OoO from the FU (as is the case for the FPU).
     issue_req_o                      = '0;
     issue_req_o.fu_data.fu           = NONE; // Not required by FU
+    issue_req_o.fu_data.raw_instr    = slot_issue.spatz_raw_instr; // Spatz needs the raw instruction
     issue_req_o.fu_data.alu_op       = slot_issue.alu_op;
     issue_req_o.fu_data.lsu_op       = slot_issue.lsu_op;
     issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP

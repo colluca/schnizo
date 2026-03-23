@@ -11,6 +11,8 @@ module schnizo_decoder import schnizo_pkg::*; #(
   parameter bit          RVF         = 1,
   /// Enable D Extension (double).
   parameter bit          RVD         = 0,
+  /// Spatz: Enable RVV Extension (vector).
+  parameter bit          RVV          = 1,
   parameter bit          XF16        = 0,
   parameter bit          XF16ALT     = 0,
   parameter bit          XF8         = 0,

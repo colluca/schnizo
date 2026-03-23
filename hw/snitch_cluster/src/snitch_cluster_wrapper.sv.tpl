@@ -81,6 +81,7 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAluRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_slots')}};
   localparam int unsigned NumLsuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_slots')}};
   localparam int unsigned NumFpuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_slots')}};
+  localparam int unsigned NumSpatzRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_spatz_slots')}};
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
@@ -143,6 +144,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .RVE (${core_isa('e')}),
     .RVF (${core_isa('f')}),
     .RVD (${core_isa('d')}),
+    .RVV (${core_isa('v')}),
     .XDivSqrt (${core_cfg_flat('Xdiv_sqrt')}),
     .XF16 (${core_cfg_flat('xf16')}),
     .XF16ALT (${core_cfg_flat('xf16alt')}),
@@ -172,6 +174,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .NumAluRss (NumAluRss),
     .NumLsuRss (NumLsuRss),
     .NumFpuRss (NumFpuRss),
+    .NumSpatzRss (NumSpatzRss),
     .NumAluRspPorts (NumAluRspPorts),
     .NumLsuRspPorts (NumLsuRspPorts),
     .NumFpuRspPorts (NumFpuRspPorts),
