@@ -531,4 +531,24 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .overflow_o()
   );
 
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  // The inflight counters track the actual number of dispatched and issued instructions
+  // in flight. If we have a issue handshake without a previous dispatch handshake, or a
+  // result handshake without a previous issue handshake, the counters underflow and we
+  // raise an error. Additionally, there can only be at most one instruction dispatched
+  // but not yet issued.
+  rss_cnt_t inflight_disp_d, inflight_disp_q;
+  rss_cnt_t inflight_issue_d, inflight_issue_q;
+  assign inflight_disp_d  = restart_i ? '0 :
+                            inflight_disp_q  + rss_cnt_t'(disp_hs)  - rss_cnt_t'(issue_hs);
+  assign inflight_issue_d = restart_i ? '0 :
+                            inflight_issue_q + rss_cnt_t'(issue_hs) - rss_cnt_t'(retire_at_issue + result_hs);
+  `FFAR(inflight_disp_q,  inflight_disp_d,  '0, clk_i, rst_i)
+  `FFAR(inflight_issue_q, inflight_issue_d, '0, clk_i, rst_i)
+  `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_cnt_t'(1), clk_i, !rst_i)
+  `ASSERT(IssueBeforeResult, inflight_issue_q < rss_cnt_t'(NofRss), clk_i, !rst_i)
+
 endmodule

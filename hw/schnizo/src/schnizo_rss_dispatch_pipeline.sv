@@ -2,6 +2,8 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "common_cells/assertions.svh"
+
 // Combines initial slot update, operand request generation, operand response handling,
 // and issue logic into a single module.
 module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
@@ -18,6 +20,9 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   parameter type         rss_idx_t        = logic,
   parameter type         issue_req_t      = logic
 ) (
+  input  logic            clk_i,
+  input  logic            rst_ni,
+
   // Control
   input  logic            restart_i,
   input  producer_id_t    disp_producer_id_i,
@@ -369,7 +374,16 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     end
   end
 
-  // TODO(colluca): add assertion to ensure !slot_issue_i.is_occupied when we have a dispatch in Lcp1
-  // TODO(colluca): add assertion to ensure slot_issue_i.is_occupied when we have a dispatch in Lcp2 or Lep
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  // A dispatch request cannot be accepted in LCP1 if the slot is occupied
+  `ASSERT(DispLcp1SlotNotOccupied,
+    (disp_hs && loop_state_i == LoopLcp1) |-> !slot_issue_i.is_occupied)
+
+  // A dispatch request cannot be accepted in LCP2 and LEP if the slot is not occupied
+  `ASSERT(DispLcp2LepSlotOccupied,
+    (disp_hs && loop_state_i inside {LoopLcp2, LoopLep}) |-> slot_issue_i.is_occupied)
 
 endmodule

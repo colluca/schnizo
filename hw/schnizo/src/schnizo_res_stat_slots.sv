@@ -208,6 +208,8 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .operand_t       (operand_t),
     .issue_req_t     (issue_req_t)
   ) i_dispatch_pipeline (
+    .clk_i                  (clk_i),
+    .rst_ni                 (!rst_i),
     .restart_i              (restart_i),
     .disp_producer_id_i     (rss_ids[disp_idx_i]),
     .issue_producer_id_i    (rss_ids[issue_idx_i]),
