@@ -11,7 +11,10 @@
 // dispatch requests to the different functional units. It selects the FU type based on the
 // decoded instruction. If more than one FU of the same type is available, it further selects the
 // specific FU of that type to dispatch the instruction to.
-// It itself instantiates the RMT and updates it based on the dispatch information.
+// It itself instantiates the RMT and updates it based on the dispatch and write back information.
+
+// There is always only one spatz so no other parameters are required.
+
 module schnizo_dispatcher import schnizo_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          EnableFrep  = 1,
@@ -78,6 +81,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   input frep_mem_cons_mode_e frep_mem_cons_mode_i,
   // Asserted if the currently selected FU for the instruction does not have an empty RSS.
   output logic        rs_full_o
+
+  // Spatz
+  output logic      spatz_disp_req_valid_o,
+  input  logic      spatz_disp_req_ready_i,
+  input  disp_rsp_t spatz_disp_rsp_i,
+  input  logic      spatz_rs_full_i,
 );
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
@@ -171,6 +180,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     csr_disp_req_valid_o = 1'b0;
     fpu_disp_req_valid_o = '0;
     acc_disp_req_valid_o = 1'b0;
+    spatz_disp_req_valid_o = 1'b0;
 
     acc_req_o         = '0;
     acc_req_o.id      = instr_dec_i.rd; // TODO: currently only GPR address supported
@@ -210,6 +220,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         acc_req_o.data_argb    = instr_fu_data_i.operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
       end
+      schnizo_pkg::SPATZ: spatz_disp_req_valid_o = dispatch_valid_i;
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing.
       end
@@ -266,6 +277,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       schnizo_pkg::DMA: begin
         // no dispatch response
         fu_ready = acc_disp_req_ready_i;
+      end
+      schnizo_pkg::SPATZ: begin
+        fu_response = spatz_disp_rsp_i;
+        fu_ready    = spatz_disp_req_ready_i;
+        fu_rs_full  = spatz_rs_full_i;
       end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.

@@ -23,7 +23,8 @@ package schnizo_pkg;
     MULDIV, // shared muldiv unit from hive
     CSR,
     FPU,
-    DMA
+    DMA,
+    SPATZ
   } fu_t;
 
   // Accelerators available in the Schnizo Cluster / Hive.
@@ -253,6 +254,7 @@ package schnizo_pkg;
       schnizo_pkg::FPU:       name = "FPU";
       schnizo_pkg::MULDIV:    name = "MULDIV"; // shared muldiv unit from hive
       schnizo_pkg::DMA:       name = "DMA";
+      schnizo_pkg::SPATZ:     name = "SPATZ";
       default:                name = "???";
     endcase
     return name;

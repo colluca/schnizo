@@ -34,6 +34,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned FpuNofOperands    = 3,
   parameter int unsigned FpuNofResReqIfs   = 3,
   parameter int unsigned FpuNofResRspPorts = 1,
+  // Spatz Parameter
+  parameter int unsigned SpatzNofRss       = 1,
+  parameter int unsigned SpatzNofOperands  = 2,
+  parameter int unsigned SpatzNofOpPorts   = 1,
+  parameter int unsigned SpatzNofResReqIfs = 1,
+  parameter int unsigned SpatzNofResRspIfs = 1,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
@@ -81,8 +87,25 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
+  // Spatz Result can be floating point or integer
+  parameter type         spatz_result_t = logic [FLEN-1:0], 
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
+  // SPATZ Parameters
+  parameter bit          RVV            = 1,
+  parameter int unsigned NumSpatzFPUs   = 4,
+  parameter int unsigned NumSpatzIPUs   = 1,
+  // TCDM Types for Spatz
+  parameter type         tcdm_req_chan_t  = logic,
+  parameter type         tcdm_rsp_chan_t  = logic,
+  parameter type         tcdm_req_t       = logic,
+  parameter type         tcdm_rsp_t       = logic,
+
+  /// Derived parameter *Do not override*
+  parameter int unsigned NumSpatzFUs         = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int unsigned NumMemPortsPerSpatz = NumSpatzFUs,
+  parameter int unsigned TCDMPorts           = RVV ? NumMemPortsPerSpatz + NofLsus : NofLsus,
+
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
@@ -145,6 +168,13 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output fpnew_pkg::status_t fpu_status_o,
   output logic               fpu_status_valid_o,
 
+  // Minimum amount of signals for spatz. May need to add more if required.
+  input  logic      spatz_disp_reqs_valid_i,
+  output logic      spatz_disp_reqs_ready_o,
+  output disp_rsp_t spatz_disp_rsp_o,
+  output logic      spatz_loop_finish_o,
+  output logic      spatz_rs_full_o,
+
   // Writeback ports. We only have one per FU type.
   output alu_result_t alu_wb_result_o,
   output instr_tag_t  alu_wb_result_tag_o,
@@ -161,6 +191,20 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output instr_tag_t      fpu_wb_result_tag_o,
   output logic            fpu_wb_result_valid_o,
   input  logic            fpu_wb_result_ready_i
+
+  // Spatz writeback signals
+
+  output spatz_result_t   spatz_wb_result_o, // TODO: Understand what width is needed here
+  output instr_tag_t      spatz_wb_result_tag_o,
+  output logic            spatz_wb_result_valid_o,
+  input  logic            spatz_wb_result_ready_i,
+  
+  output logic            spatz_running_instrs_o,
+
+  // SPATZ TCDM Ports
+  output tcdm_req_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_req_o,
+  input  tcdm_rsp_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_rsp_i
+
 );
 
   /////////////////////////////////////
@@ -186,7 +230,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // TODO: Add consumer count restriction to achieve a feasible bit width.
   localparam integer unsigned ConsumerCount = AluNofOperands * AluNofRss * NofAlus +
                                               LsuNofOperands * LsuNofRss * NofLsus +
-                                              FpuNofOperands * FpuNofRss * NofFpus;
+                                              FpuNofOperands * FpuNofRss * NofFpus +
+                                              (RVV ? (SpatzNofOperands * SpatzNofRss * 1) : 0); // only 1 Spatz
 
   // ---------------------------
   // Operand distribution network
@@ -280,6 +325,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned AluRsIdOffset = 0;
   localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus;
   localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus;
+  localparam integer unsigned SpatzRsIdOffset = FpuRsIdOffset + NofFpus;
 
   // Each RS needs a globally unique ID for its operand request ports.
   // These IDs are shared between the RSSs of a reservation station.
@@ -287,7 +333,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned LsuOpIdOffset = AluOpIdOffset +
                                               NofAlus * AluNofOperands;
   localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset +
-                                              NofLsus * LsuNofOperands;
+                                              NofLsus * (LsuNofOperands * LsuNofOpPorts);
+  localparam integer unsigned SpatzOpIdOffset = FpuOpIdOffset +
+                                              NofFpus * (FpuNofOperands * FpuNofOpPorts);
 
   ////////////////////////////////////////
   // Operand distribution network (ODN) //
@@ -336,6 +384,19 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
+  operand_req_t [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs;
+  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_valid;
+  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_ready;
+  res_req_t     [SpatzNofResReqIfs-1:0][NofOperandIfs-1:0]   spatz_res_reqs;
+  logic         [SpatzNofResReqIfs-1:0][NofOperandIfs-1:0]   spatz_res_reqs_valid;
+  logic         [SpatzNofResReqIfs-1:0][NofOperandIfs-1:0]   spatz_res_reqs_ready;
+  res_rsp_t     [SpatzNofResRspIfs-1:0]                      spatz_res_rsps;
+  logic         [SpatzNofResRspIfs-1:0]                      spatz_res_rsps_valid;
+  logic         [SpatzNofResRspIfs-1:0]                      spatz_res_rsps_ready;
+  operand_t     [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps;
+  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_valid;
+  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_ready;
+
   operand_req_t [NofOperandIfs-1:0] op_reqs;
   logic         [NofOperandIfs-1:0] op_reqs_valid;
   logic         [NofOperandIfs-1:0] op_reqs_ready;
@@ -370,6 +431,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       alu_op_reqs_ready = '0;
       lsu_op_reqs_ready = '0;
       fpu_op_reqs_ready = '0;
+      spatz_op_reqs_ready = '0;
 
       op_rsps_ready     = '0;
       alu_op_rsps       = '0;
@@ -378,6 +440,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       lsu_op_rsps_valid = '0;
       fpu_op_rsps       = '0;
       fpu_op_rsps_valid = '0;
+      spatz_op_rsps     = '0;
+      spatz_op_rsps_valid = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
         for (int op = 0; op < AluNofOperands; op++) begin
@@ -418,6 +482,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           ope_if = ope_if + 1;
         end
       end
+      // Spatz integration
+      if(RVV) begin
+        for (int port = 0; port < SpatzNofOpPorts; port++) begin
+          for (int op = 0; op < SpatzNofOperands; op++) begin
+            // operand requests
+            op_reqs[ope_if]                    = spatz_op_reqs[port][op];
+            op_reqs_valid[ope_if]              = spatz_op_reqs_valid[port][op];
+            spatz_op_reqs_ready[port][op]      = op_reqs_ready[ope_if];
+            // operand responses
+            spatz_op_rsps[port][op]            = op_rsps[ope_if];
+            spatz_op_rsps_valid[port][op]      = op_rsps_valid[ope_if];
+            op_rsps_ready[ope_if]              = spatz_op_rsps_ready[port][op];
+            ope_if = ope_if + 1;
+          end
+        end
+      end
     end
 
     // Unpack the linear array of result requests onto the FUs' result request interfaces.
@@ -434,12 +514,14 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       alu_res_reqs_valid = '0;
       lsu_res_reqs       = '0;
       fpu_res_reqs       = '0;
+      spatz_res_reqs     = '0;
 
       res_rsps           = '0;
       res_rsps_valid     = '0;
       alu_res_rsps_ready = '0;
       lsu_res_rsps_ready = '0;
       fpu_res_rsps_ready = '0;
+      spatz_res_rsps_ready = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
         for (int alu_rss = 0; alu_rss < AluNofRss; alu_rss++) begin
@@ -498,6 +580,23 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           res_rsps[rsp_if]             = fpu_res_rsps[fpu][rsp];
           res_rsps_valid[rsp_if]       = fpu_res_rsps_valid[fpu][rsp];
           fpu_res_rsps_ready[fpu][rsp] = res_rsps_ready[rsp_if];
+          rsp_if = rsp_if + 1;
+        end
+      end
+      if (RVV) begin
+        //SPATZ
+        for (int spatz_req_if = 0; spatz_req_if < SpatzNofResReqIfs; spatz_req_if++) begin
+          // requests
+          spatz_res_reqs[spatz_req_if]       = res_reqs[req_if];
+          spatz_res_reqs_valid[spatz_req_if] = res_reqs_valid[req_if];
+          res_reqs_ready[req_if]             = spatz_res_reqs_ready[spatz_req_if];
+          req_if = req_if + 1;
+        end
+        for (int rsp = 0; rsp < SpatzNofResRspIfs; rsp++) begin
+          // responses
+          res_rsps[rsp_if]             = spatz_res_rsps[rsp];
+          res_rsps_valid[rsp_if]       = spatz_res_rsps_valid[rsp];
+          spatz_res_rsps_ready[rsp]    = res_rsps_ready[rsp_if];
           rsp_if = rsp_if + 1;
         end
       end
@@ -565,6 +664,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign alu_op_reqs_ready = '0;
     assign lsu_op_reqs_ready = '0;
     assign fpu_op_reqs_ready = '0;
+    assign spatz_op_reqs_ready = '0;
 
     assign op_rsps_ready     = '0;
     assign alu_op_rsps       = '0;
@@ -573,18 +673,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign lsu_op_rsps_valid = '0;
     assign fpu_op_rsps       = '0;
     assign fpu_op_rsps_valid = '0;
+    assign spatz_op_rsps     = '0;
+    assign spatz_op_rsps_valid = '0;
 
     assign res_reqs_ready     = '0;
     assign alu_res_reqs       = '0;
     assign alu_res_reqs_valid = '0;
     assign lsu_res_reqs       = '0;
     assign fpu_res_reqs       = '0;
+    assign spatz_res_reqs     = '0;
 
     assign res_rsps           = '0;
     assign res_rsps_valid     = '0;
     assign alu_res_rsps_ready = '0;
     assign lsu_res_rsps_ready = '0;
     assign fpu_res_rsps_ready = '0;
+    assign spatz_res_rsps_ready = '0;
 
     assign op_reqs_ready  = '0;
     assign res_reqs       = '0;
@@ -1256,12 +1360,231 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign fpu_wb_result_o     = fpu_wb_result_and_tag_out.result;
   assign fpu_wb_result_tag_o = fpu_wb_result_and_tag_out.tag;
 
+  ///////////
+  // Spatz //
+  ///////////
+
+  if (RVV) begin: gen_rvv_block
+  // Signals connecting the FU block and the actual FU
+  issue_req_t   spatz_issue_req;
+  logic         spatz_issue_req_valid;
+  logic         spatz_issue_req_ready;
+  logic         spatz_exec_commit;
+  spatz_result_t spatz_result;
+  instr_tag_t   spatz_result_tag;
+  logic         spatz_result_valid;
+  logic         spatz_result_ready;
+  logic         spatz_busy;
+
+  // Producer ID for the SPATZ RS
+  producer_id_t spatz_producer_start_id;
+  assign spatz_producer_start_id = producer_id_t'{
+    slot_id: '0, // single-slot //TODO: Is not single slot, fix this
+    rs_id:   rs_id_t'(SpatzRsIdOffset + 0)
+  };
+
+  // Reservation station and ODN wrapper
+  schnizo_fu_block #(
+    .Xfrep         (Xfrep),
+    .disp_req_t    (disp_req_t),
+    .disp_rsp_t    (disp_rsp_t),
+    .issue_req_t   (issue_req_t),
+    .result_t      (spatz_result_t),
+    .instr_tag_t   (instr_tag_t),
+    .NofRss        (SpatzNofRss),
+    .NofOperands   (SpatzNofOperands),
+    .NofOpPorts    (SpatzNofOpPorts),
+    .NofOperandIfs (NofOperandIfs),
+    .NofResRspIfs  (SpatzNofResRspIfs),
+    .ConsumerCount (ConsumerCount),
+    .RegAddrWidth  (RegAddrWidth),
+    .MaxIterationsW(MaxIterationsW),
+    .producer_id_t (producer_id_t),
+    .slot_id_t     (slot_id_t),
+    .operand_req_t (operand_req_t),
+    .operand_t     (operand_t),
+    .res_req_t     (res_req_t),
+    .dest_mask_t   (dest_mask_t),
+    .res_rsp_t     (res_rsp_t)
+  ) i_spatz_block (
+    .clk_i,
+    .rst_i,
+    /// RS control signals
+    .producer_id_i      (spatz_producer_start_id),
+    .restart_i          (restart_i),
+    .loop_state_i       (loop_state_i),
+    .in_lxp_i           (in_lxp),
+    .lep_iterations_i   (lep_iterations_i),
+    .goto_lcp2_i        (goto_lcp2_i),
+    .fu_busy_i          (spatz_busy),
+    .loop_finish_o      (spatz_loop_finish_o),
+    .rs_full_o          (spatz_rs_full_o),
+    /// Instruction stream
+    // From dispatcher
+    .disp_req_i         (disp_req_i),
+    .disp_req_valid_i   (spatz_disp_reqs_valid_i),
+    .disp_req_ready_o   (spatz_disp_reqs_ready_o),
+    .instr_exec_commit_i(instr_exec_commit_i),
+    .disp_rsp_o         (spatz_disp_rsp_o),
+    // To FU
+    .issue_req_o        (spatz_issue_req),
+    .issue_req_valid_o  (spatz_issue_req_valid),
+    .issue_req_ready_i  (spatz_issue_req_ready),
+    .instr_exec_commit_o(spatz_exec_commit),
+    // From FU
+    .result_i           (spatz_result),
+    .result_tag_i       (spatz_result_tag),
+    .result_valid_i     (spatz_result_valid),
+    .result_ready_o     (spatz_result_ready),
+    // To writeback
+    .wb_result_o        (spatz_wb_result_o),
+    .wb_result_tag_o    (spatz_wb_result_tag_o),
+    .wb_result_valid_o  (spatz_wb_result_valid_o),
+    .wb_result_ready_i  (spatz_wb_result_ready_i),
+    /// Operand distribution network
+    .op_reqs_o          (spatz_op_reqs),
+    .op_reqs_valid_o    (spatz_op_reqs_valid),
+    .op_reqs_ready_i    (spatz_op_reqs_ready),
+    .res_reqs_i         (spatz_res_reqs),
+    .res_reqs_valid_i   (spatz_res_reqs_valid),
+    .res_reqs_ready_o   (spatz_res_reqs_ready),
+    .res_rsps_o         (spatz_res_rsps),
+    .res_rsps_valid_o   (spatz_res_rsps_valid),
+    .res_rsps_ready_i   (spatz_res_rsps_ready),
+    .op_rsps_i          (spatz_op_rsps),
+    .op_rsps_valid_i    (spatz_op_rsps_valid),
+    .op_rsps_ready_o    (spatz_op_rsps_ready)
+  );
+
+
+  //TODO: Build the accelerator request based on the decoded instruction
+
+  typedef struct packed {
+    logic [5:0] id;
+    logic [31:0] data_op;
+    data_t data_arga;
+    data_t data_argb;
+    data_t data_argc;
+  } spatz_issue_req_t;
+
+  typedef struct packed {
+    logic accept;
+    logic writeback;
+    logic loadstore;
+    logic exception;
+    logic isfloat;
+  } spatz_issue_rsp_t;
+
+  typedef struct packed {
+    logic [5:0] id;
+    logic error;
+    data_t data;
+    logic is_fp;
+  } spatz_rsp_t;
+
+
+  spatz_issue_req_t acc_spatz_req;
+  spatz_issue_rsp_t acc_spatz_resp;
+  spatz_rsp_t       acc_resp;
+
+
+  assign acc_spatz_req = '{
+    id:        spatz_issue_req.tag.dest_reg,
+    data_op:   spatz_issue_req.fu_data.raw_instr,
+    data_arga: spatz_issue_req.fu_data.operand_a,
+    data_argb: spatz_issue_req.fu_data.operand_b,
+    data_argc: '0 // ignored, Spatz can receive at most two scalar values
+  };
+
+  assign spatz_result = acc_resp.data;
+  assign spatz_result_tag = {
+    dest_reg: acc_resp.id,
+    dest_reg_is_fp: acc_resp.is_fp,
+    is_branch: '0,
+    is_jump: '0
+  };
+
+
+  
+  assign spatz_busy = !spatz_issue_req_ready; // if we cannot dispatch, we are busy
+
+  tcdm_req_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_req;
+  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_req_valid;
+  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_req_ready;
+  tcdm_rsp_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_rsp;
+  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_rsp_valid;
+
+  fpnew_pkg::status_t spatz_fpu_status;
+
+  fpnew_pkg::fmt_mode_t spatz_fmt_mode;
+  assign spatz_fmt_mode = '{
+    src: spatz_issue_req.fu_data.fpu_fmt_src,
+    dst: spatz_issue_req.fu_data.fpu_fmt_dst
+  };
+
+  spatz #(
+    .NrMemPorts         (4     ),
+    .NumOutstandingLoads(8),
+    .FPUImplementation  (FPUImplementation),
+    .RegisterRsp        ('0     ),
+    .dreq_t             (dreq_t                  ),
+    .drsp_t             (drsp_t                  ),
+    .spatz_mem_req_t    (tcdm_req_chan_t       ),
+    .spatz_mem_rsp_t    (tcdm_rsp_chan_t       ),
+    .spatz_issue_req_t  (spatz_issue_req_t         ),
+    .spatz_issue_rsp_t  (spatz_issue_rsp_t         ),
+    .spatz_rsp_t        (spatz_rsp_t               )
+  ) i_spatz (
+    .clk_i                   (clk_i                 ),
+    .rst_ni                  (~rst_i                ),
+    .testmode_i              ('0                    ),
+    .hart_id_i               (hart_id_i             ),
+    .issue_valid_i           (spatz_issue_req_valid  ),
+    .issue_ready_o           (spatz_issue_req_ready  ),
+    .issue_req_i             (acc_spatz_req        ), //Special care
+    .issue_rsp_o             (acc_spatz_resp       ), //Special care
+    .rsp_valid_o             (spatz_result_valid   ),
+    .rsp_ready_i             (spatz_result_ready   ),      
+    .rsp_o                   (acc_resp              ), //Special care
+    .running_instrs_o        (spatz_running_instrs_o),
+    .spatz_mem_req_o         (spatz_mem_req         ),
+    .spatz_mem_req_valid_o   (spatz_mem_req_valid   ),
+    .spatz_mem_req_ready_i   (spatz_mem_req_ready   ),
+    .spatz_mem_rsp_i         (spatz_mem_rsp         ),
+    .spatz_mem_rsp_valid_i   (spatz_mem_rsp_valid   ),
+    .spatz_mem_finished_o    (    ),
+    .spatz_mem_str_finished_o(),
+    .fp_lsu_mem_req_o        (        ),
+    .fp_lsu_mem_rsp_i        ('0        ),
+    .fpu_rnd_mode_i          (spatz_issue_req.fu_data.fpu_rnd_mode),
+    .fpu_fmt_mode_i          (spatz_fmt_mode),
+    .fpu_status_o            (spatz_fpu_status)
+  );
+
+  // The first indices are assigned to the LSUs, the next to the SPATZ.
+   for (genvar p = 0; p < NumMemPortsPerSpatz; p++) begin: gen_tcdm_assignment
+    assign spatz_tcdm_req_o[p] = '{
+         q      : spatz_mem_req[p],
+         q_valid: spatz_mem_req_valid[p]
+       };
+    assign spatz_mem_req_ready[p] = spatz_tcdm_rsp_i[p].q_ready;
+
+    assign spatz_mem_rsp[p]       = spatz_tcdm_rsp_i[p].p;
+    assign spatz_mem_rsp_valid[p] = spatz_tcdm_rsp_i[p].p_valid;
+  end
+
+  end else begin
+
+    assign spatz_loop_finish_o = '1;
+
+  end
+
   ////////////
   // Status //
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish};
+  assign all_rs_finish_o = &{&alu_loop_finish_o, &lsu_loop_finish_o, &fpu_loop_finish_o, &spatz_loop_finish_o};
 
   ////////////////////
   // Tracer helpers //
@@ -1279,9 +1602,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     end else if (rs_id < NofAlus + NofLsus) begin
       fu_name = "LSU";
       fu_id = rs_id - NofAlus;
-    end else begin
+    end else if (rs_id < NofAlus + NofLsus + NofFpus) begin
       fu_name = "FPU";
       fu_id = rs_id - NofAlus - NofLsus;
+    end else begin
+      fu_name = "SPATZ";
+      fu_id = rs_id - NofAlus - NofLsus - NofFpus;
     end
 
     return $sformatf("%s%0d", fu_name, fu_id);
@@ -1318,10 +1644,16 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       num_ops = LsuNofOperands;
       consumer = consumer - LsuOpIdOffset;
       fu_name = "LSU";
-    end else begin
+    end else if (consumer < SpatzOpIdOffset) begin
+      num_ports = FpuNofOpPorts;
       num_ops = FpuNofOperands;
       consumer = consumer - FpuOpIdOffset;
       fu_name = "FPU";
+    end else begin
+      num_ports = SpatzNofOpPorts;
+      num_ops = SpatzNofOperands;
+      consumer = consumer - SpatzOpIdOffset;
+      fu_name = "SPATZ";
     end
 
     rs_id = consumer / num_ops;

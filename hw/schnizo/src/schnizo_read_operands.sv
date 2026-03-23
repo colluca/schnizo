@@ -21,6 +21,7 @@ module schnizo_read_operands import schnizo_pkg::*; #(
 ) (
   input  logic [XLEN-1:0] pc_i,
   input  instr_dec_t      instr_dec_i,
+  input  logic [XLEN-1:0]     instr_fetch_data_i, // Raw instruction bits
 
   output logic [NrIntReadPorts-1:0][RegAddrSize-1:0] gpr_raddr_o,
   input  logic [NrIntReadPorts-1:0][XLEN-1:0]        gpr_rdata_i,
@@ -33,6 +34,7 @@ module schnizo_read_operands import schnizo_pkg::*; #(
   always_comb begin
     fu_data_o              = '0;
     fu_data_o.fu           = instr_dec_i.fu;
+    fu_data_o.raw_instr   =  instr_fetch_data_i; // Pass the raw instruction to the FU (needed by Spatz)
     fu_data_o.alu_op       = instr_dec_i.alu_op;
     fu_data_o.lsu_op       = instr_dec_i.lsu_op;
     fu_data_o.csr_op       = instr_dec_i.csr_op;
