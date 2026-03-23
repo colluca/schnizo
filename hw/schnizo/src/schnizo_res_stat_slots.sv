@@ -39,6 +39,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   input  logic         restart_i,
   input  loop_state_e  loop_state_i,
   input  rss_idx_t     disp_idx_i,
+  input  rss_idx_t     issue_idx_i,
   input  logic         last_result_iter_i,
   output logic         retiring_o,
 
@@ -103,8 +104,9 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   rss_idx_t result_rss_sel;
   assign result_rss_sel = rss_idx_t'(result_tag_i);
 
-  rs_slot_issue_t               slot_issue_q;      // registered issue state for the selected slot
-  rs_slot_issue_t               slot_issue_d;      // post-dispatch-pipeline issue state for the selected slot
+  rs_slot_issue_t               slot_issue_rdata;  // registered issue state for the selected slot
+  rs_slot_issue_t               slot_issue_wdata;  // post-dispatch-pipeline issue state for the selected slot
+  logic                         slot_issue_wen;    // write enable for the issue slot
   rs_slot_result_t [NofRss-1:0] slot_result_qs;    // registered result state of each slot
   rs_slot_result_t [NofRss-1:0] slot_result_ds;    // next result state for each slot
   rs_slot_result_t              slot_result_init;  // initial result state from dispatch pipeline (LCP1)
@@ -145,11 +147,11 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   ) i_issue_slots (
     .clk_i,
     .rst_i,
-    .raddr_i(disp_idx_i),
-    .rdata_o(slot_issue_q),
-    .wen_i  (disp_req_valid_i),
-    .waddr_i(disp_idx_i),
-    .wdata_i(slot_issue_d)
+    .raddr_i(issue_idx_i),
+    .rdata_o(slot_issue_rdata),
+    .wen_i  (slot_issue_wen),
+    .waddr_i(issue_idx_i),
+    .wdata_i(slot_issue_wdata)
   );
 
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
@@ -215,15 +217,17 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .issue_req_t     (issue_req_t)
   ) i_dispatch_pipeline (
     .restart_i              (restart_i),
-    .producer_id_i          (rss_ids[disp_idx_i]),
+    .disp_producer_id_i     (rss_ids[disp_idx_i]),
+    .issue_producer_id_i    (rss_ids[issue_idx_i]),
     .loop_state_i           (loop_state_i),
     .disp_req_i             (disp_req_i),
-    .disp_req_valid_i       (disp_req_valid_i),
+    .disp_req_valid_i       (disp_req_valid_i && (disp_idx_i == issue_idx_i)), // only send valid for the selected slot
     .disp_req_ready_o       (disp_req_ready_pipeline),
-    .slot_issue_i           (slot_issue_q),
+    .slot_issue_i           (slot_issue_rdata),
+    .slot_issue_o           (slot_issue_wdata),
+    .slot_issue_wen_o       (slot_issue_wen),
     .slot_result_i          (slot_result_qs[disp_idx_i]),
     .slot_result_reset_val_i(slot_result_reset),
-    .slot_issue_o           (slot_issue_d),
     .slot_result_o          (slot_result_init),
     .op_reqs_o              (op_reqs_o),
     .op_reqs_valid_o        (op_reqs_valid_o),
@@ -315,7 +319,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .disp_req_t      (disp_req_t)
   ) i_result_capture (
     .slot_i               (slot_res_rsps[result_rss_sel]),
-    .issue_hs_i           (issue_hs && (disp_idx_i == result_rss_sel)),
+    .issue_hs_i           (issue_hs && (issue_idx_i == result_rss_sel)),
     .result_i             (result_i),
     .result_valid_i       (rss_wb_valid_sync),
     .loop_state_i         (loop_state_i),

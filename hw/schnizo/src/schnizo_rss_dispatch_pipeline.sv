@@ -20,15 +20,24 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 ) (
   // Control
   input  logic            restart_i,
-  input  producer_id_t    producer_id_i,
+  input  producer_id_t    disp_producer_id_i,
+  input  producer_id_t    issue_producer_id_i,
   input  loop_state_e     loop_state_i,
-  input  disp_req_t       disp_req_i,
-  input  logic            disp_req_valid_i,
+  
+  // Issue slot interface
   input  rs_slot_issue_t  slot_issue_i,
+  output rs_slot_issue_t  slot_issue_o,
+  output logic            slot_issue_wen_o,
+  
+  // Result slot interface
   input  rs_slot_result_t slot_result_i,
   input  rs_slot_result_t slot_result_reset_val_i,
-  output rs_slot_issue_t  slot_issue_o,
   output rs_slot_result_t slot_result_o,
+
+  // Dispatch
+  input  disp_req_t disp_req_i,
+  input  logic      disp_req_valid_i,
+  output logic      disp_req_ready_o,
 
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -36,16 +45,15 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Operand response
-  input  operand_t     [NofOperands-1:0] op_rsps_i,
-  input  logic         [NofOperands-1:0] op_rsps_valid_i,
-  output logic         [NofOperands-1:0] op_rsps_ready_o,
+  input  operand_t [NofOperands-1:0] op_rsps_i,
+  input  logic     [NofOperands-1:0] op_rsps_valid_i,
+  output logic     [NofOperands-1:0] op_rsps_ready_o,
 
   // Issue
-  input  logic         issue_req_ready_i,
-  output logic         disp_req_ready_o,
-  output issue_req_t   issue_req_o,
-  output logic         issue_req_valid_o,
-  output logic         issue_hs_o
+  output issue_req_t issue_req_o,
+  output logic       issue_req_valid_o,
+  input  logic       issue_req_ready_i,
+  output logic       issue_hs_o
 );
 
   /////////////////////////
@@ -109,6 +117,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Initial value of the slot upon accepting a new instruction
   rs_slot_issue_t slot_lcp1;
   always_comb begin
+    slot_lcp1 = slot_issue_i;
+
     slot_lcp1 = '{
       is_occupied:      1'b1,
       alu_op:           disp_req_i.fu_data.alu_op,
@@ -215,7 +225,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       end
       LoopLcp2: begin
         // TODO(colluca): this could be provided by the dispatcher directly
-        if ((producer_id_i == disp_req_i.current_producer_dest.producer) &&
+        if ((disp_producer_id_i == disp_req_i.current_producer_dest.producer) &&
             disp_req_i.current_producer_dest.valid) begin
           slot_result_o.do_writeback = 1'b1;
         end
@@ -247,18 +257,21 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         }
       };
 
-      op_reqs_valid_o[op] = disp_req_valid_i && selected_slot.is_occupied &&
+      op_reqs_valid_o[op] = selected_slot.is_occupied &&
                             selected_slot.operands[op].is_produced &&
                             !selected_slot.operands[op].is_valid &&
                             !selected_slot.operands[op].requested;
     end
   end
 
+  logic [NofOperands-1:0] op_reqs_hs;
+  assign op_reqs_hs = op_reqs_valid_o & op_reqs_ready_i;
+
   // Capture request placement at handshake
   always_comb begin : slot_requested_update
     slot_op = selected_slot;
     for (int op = 0; op < NofOperands; op++) begin
-      if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
+      if (op_reqs_hs[op]) begin
         slot_op.operands[op].requested = 1'b1;
       end
     end
@@ -270,6 +283,9 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   rs_slot_issue_t slot_op_rsp;
 
+  logic [NofOperands-1:0] op_rsps_hs;
+  assign op_rsps_hs = op_rsps_valid_i & op_rsps_ready_o;
+
   // Operand response handling
   always_comb begin : operand_response_handling
     slot_op_rsp = slot_op;
@@ -280,6 +296,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         slot_op_rsp.operands[op].is_valid  = 1'b1;
         slot_op_rsp.operands[op].requested = 1'b0;
         // Acknowledge the response
+        // TODO(colluca): does this need to depend on valid?
         op_rsps_ready_o[op] = 1'b1;
       end
     end
@@ -315,17 +332,20 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
     issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
-    issue_req_o.tag                  = producer_id_i.slot_id;
+    issue_req_o.tag                  = issue_producer_id_i.slot_id;
   end
 
   for (genvar i = 0; i < NofOperands; i++) begin : gen_operand_valid
     assign operand_valid[i] = slot_op_rsp.operands[i].is_valid;
   end
   assign all_operands_valid = &operand_valid;
-  assign issue_req_valid_o = disp_req_valid_i && slot_op_rsp.is_occupied && all_operands_valid;
+  // In LCP1, dispatch and issue are decoupled, so we can use the dispatch handshake to initialize
+  // the slot, and update it as the operands become valid.
+  assign issue_req_valid_o = (loop_state_i == LoopLcp1 ? slot_op_rsp.is_occupied : disp_req_valid_i) && all_operands_valid;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
   // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
-  assign disp_req_ready_o = issue_hs;
+  assign disp_req_ready_o = (loop_state_i == LoopLcp1) || issue_hs;
+  assign disp_hs = disp_req_ready_o && disp_req_valid_i;
   assign issue_hs_o = issue_hs;
 
   // Update the slot after issuing the instruction (instruction_iter and
@@ -333,6 +353,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   always_comb begin : slot_issue_update
     slot_issue_o = slot_op_rsp;
+    slot_issue_wen_o = disp_hs || |op_reqs_hs || |op_rsps_hs || issue_hs; // We can update the slot upon dispatch (new instruction) or when issuing (toggle iteration and invalidate operands)
 
     if (issue_hs) begin
       // Toggle instruction state
@@ -345,5 +366,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       end
     end
   end
+
+  // TODO(colluca): add assertion to ensure !slot_issue_i.is_occupied when we have a dispatch in Lcp1
+  // TODO(colluca): add assertion to ensure slot_issue_i.is_occupied when we have a dispatch in Lcp2 or Lep
 
 endmodule
