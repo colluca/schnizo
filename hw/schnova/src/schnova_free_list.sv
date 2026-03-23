@@ -14,14 +14,14 @@ module schnova_free_list import schnizo_pkg::*; #(
   input  logic         clk_i,
   input  logic         rst_i,
   // Allocation Interface (Rename Stage)
-  input logic alloc_valid_i,
-  output logic alloc_ready_o,
-  input logic [$clog2(PipeWidth):0] alloc_count_i,
-  output phy_id_t [PipeWidth-1:0]  alloc_regs_o,
+  input logic pop_i,
+  output logic freelist_ready_o,
+  input logic [$clog2(PipeWidth):0] pop_count_i,
+  output phy_id_t [PipeWidth-1:0]  allocated_regs_o,
   // Deallocation Interface (Retire/Commit Stage)
-  input logic retire_valid_i,
-  input logic retire_count_i,
-  input phy_id_t [PipeWidth-1:0] retire_regs_i
+  input logic push_i,
+  input logic [$clog2(PipeWidth):0] push_count_i,
+  input phy_id_t [PipeWidth-1:0] retired_regs_i
 );
   // Connections and registers
   localparam int unsigned NumPhysRegs  = 2**PhysAddrWidth;
@@ -32,46 +32,50 @@ module schnova_free_list import schnizo_pkg::*; #(
 
   // Calculate the current number of free physical registers
   logic [AddrWidth:0] free_count;
-  
+
   assign free_count = tail_ptr - head_ptr;
-  assign alloc_ready_o = (free_count >= alloc_count_i);
+  assign freelist_ready_o = (free_count >= pop_count_i);
 
   // Allocation, we pop free entries from the free list
   always_comb begin
-    alloc_regs_o = '0;
+    allocated_regs_o = '0;
     for (int i = 0; i < PipeWidth; i++) begin
-      if (i < alloc_count_i) begin
-        alloc_regs_o[i] = free_list[(head_ptr+i)];
+      if (i < pop_count_i) begin
+        allocated_regs_o[i] = free_list[(head_ptr+i)];
       end
     end
   end
 
   // Sequential updates, that includes pointer calculations and retirements
-  always_ff @(posedge clk_i or posedge rst_i) begin 
+  always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
       head_ptr <= '0;
       // At the beginning all architectural registers are mapped
       // that means 32 registers are mapped
-      tail_ptr <= NumPhysRegs - NumRegs;                                    
-      for (int unsigned i = 0; i < (NumPhysRegs-NumRegs); i++) begin
-        free_list[i] <= phy_id_t'(i + 32);
-      end                          
-    end else begin                                       
+      tail_ptr <= NumPhysRegs - NumRegs;
+      for (int unsigned i = 0; i < NumPhysRegs; i++) begin
+        if (i < (NumPhysRegs-NumRegs)) begin
+          free_list[i] <= phy_id_t'(i + 32);
+        end else begin
+          free_list[i] <= '0;
+        end
+      end
+    end else begin
       // Update the head pointer on allocation
-      if(alloc_valid_i && alloc_ready_o) begin
-        head_ptr = head_ptr + alloc_count_i;
+      if(pop_i && freelist_ready_o) begin
+        head_ptr <= head_ptr + pop_count_i;
       end
 
       // Update tail on retirement
-      if (retire_valid_i) begin
+      if (push_i) begin
         for (int i = 0; i < PipeWidth; i++) begin
-          if (i < retire_count_i) begin
-            free_list[(tail_ptr+i)] <= retire_regs_i[i];
+          if (i < push_count_i) begin
+            free_list[(tail_ptr+i)] <= retired_regs_i[i];
           end
         end
-        tail_ptr <= tail_ptr + retire_count_i;
+        tail_ptr <= tail_ptr + push_count_i;
       end
       end
-  end                                                  
+  end
 
 endmodule

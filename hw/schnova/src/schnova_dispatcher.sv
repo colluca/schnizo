@@ -21,6 +21,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   parameter int unsigned NofAlus     = 1,
   parameter int unsigned NofLsus     = 1,
   parameter int unsigned NofFpus     = 1,
+  parameter int unsigned RobTagWidth = 1,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
   parameter type         phy_id_t    = logic,
@@ -28,7 +29,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   parameter type         disp_rsp_t  = logic,
   parameter type         producer_id_t = logic,
   parameter type         rs_id_t       = logic,
-  parameter type         rename_data_t = logic,
+  parameter type         reg_map_t = logic,
   parameter type         fu_data_t   = logic,
   parameter type         acc_req_t   = logic,
   parameter type         sb_disp_data_t = logic
@@ -39,14 +40,25 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // Handshake to dispatch instruction consisting of instr_dec_i and instr_fu_data_i
   input  instr_dec_t [PipeWidth-1:0] instr_dec_i,
   input  fu_data_t   [PipeWidth-1:0] instr_fu_data_i,
-  input  logic [32*PipeWidth-1:0]  instr_fetch_data_i,
-  input  logic                     dispatch_valid_i,
-  output logic                     dispatch_ready_o,
-  input  logic                     instr_exec_commit_i,
+  input  logic [32*PipeWidth-1:0]    instr_fetch_data_i,
+  input  logic                       dispatch_valid_i,
+  output logic                       dispatch_ready_o,
+  input  logic                       instr_exec_commit_i,
+
+  input  logic [PipeWidth-1:0]         instr_valid_i,
+  input  logic [$clog2(PipeWidth):0]   instr_valid_count_i,
+  input  logic [PipeWidth-1:0]         instr_rename_valid_i,
+  input  logic [$clog2(PipeWidth):0]   instr_rename_count_i,
 
   // From rename stage
-  input  rename_data_t [PipeWidth-1:0] rename_info_i,
+  input  reg_map_t [PipeWidth-1:0] reg_map_i,
   output sb_disp_data_t [PipeWidth-1:0] sb_disp_data_o,
+
+  // From/to ROB
+  output logic                                 rob_push_o,
+  output logic [$clog2(PipeWidth):0]           rob_push_count_o,
+  output phy_id_t [PipeWidth-1:0]              rob_phy_reg_rd_old_o,
+  input logic [PipeWidth-1:0][RobTagWidth-1:0] rob_idx_i,
 
   // Handshake to all possible FUs. Each FU has own ready/valid interface.
   output disp_req_t disp_req_o,
@@ -160,6 +172,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     disp_req_o.tag.dest_reg_is_fp = instr_dec_i[0].rd_is_fp;
     disp_req_o.tag.is_branch      = instr_dec_i[0].is_branch;
     disp_req_o.tag.is_jump        = instr_dec_i[0].is_jal | instr_dec_i[0].is_jalr;
+    disp_req_o.tag.rob_tag        = rob_idx_i[0];
   end
 
   //////////////////
@@ -426,18 +439,57 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   end
 
   //////////////////////////////////////////
+  // Generate the ROB allocation requests //
+  //////////////////////////////////////////
+
+  logic [$clog2(PipeWidth):0] alloc_idx;
+
+  // The incoming dispatch request will only be valid
+  // if we have enough ROB entries otherwise the controller
+  // would stall the dispatch by forcing the valid to zero.
+
+  // We only allocate new entries in the ROB in superscalar mode
+  // TODO (soderma): We only allocate the entries that we dispatched this cycle
+  assign rob_push_o = (rob_push_count_o != '0) & en_superscalar_i;
+
+  // The amount of new entries we allocated, is the amount of instructions
+  // that have to be allocated
+  assign rob_push_count_o = instr_rename_count_i;
+
+  // The ROB assumes that the incoming data is valid in a block
+  // that means all the mappings that should be allocated are in contiguous elements
+  // The ROB will then allocate an entry for rob_phy_reg_rd_old_o[0] at the tail pointer
+  // (tail_ptr) and rob_phy_reg_rd_old_o[1] at tail_ptr + 1.
+  always_comb begin : map_phy_reg_rd_old
+    // Per default we don't assign a mapping
+    rob_phy_reg_rd_old_o = '0;
+
+    alloc_idx = '0;
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (instr_rename_valid_i[i]) begin
+        rob_phy_reg_rd_old_o[alloc_idx] = reg_map_i[i].phy_reg_rd_old;
+
+        alloc_idx = alloc_idx + 1;
+      end
+    end
+  end
+
+  //////////////////////////////////////////
   // Generate the scroboard dispatch data //
   //////////////////////////////////////////
+
   always_comb begin : write_rmt
     // Forward the new destination mappings to the rename stage
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-        sb_disp_data_o[i].rd             = rename_info_i[i].phy_reg_dest_new;        
+      // In scalar mode we don't perform renaming, so we use the old value stored in the rmt
+        sb_disp_data_o[i].rd             = en_superscalar_i ? reg_map_i[i].phy_reg_rd_new
+                                                            : reg_map_i[i].phy_reg_rd_old;
         sb_disp_data_o[i].rd_is_fp       = instr_dec_i[i].rd_is_fp;
-        sb_disp_data_o[i].rs1            = rename_info_i[i].phy_reg_op_a; 
+        sb_disp_data_o[i].rs1            = reg_map_i[i].phy_reg_rs1;
         sb_disp_data_o[i].rs1_is_fp      = instr_dec_i[i].rs1_is_fp;
-        sb_disp_data_o[i].rs2            = rename_info_i[i].phy_reg_op_b; 
+        sb_disp_data_o[i].rs2            = reg_map_i[i].phy_reg_rs2;
         sb_disp_data_o[i].rs2_is_fp      = instr_dec_i[i].rs2_is_fp;
-        sb_disp_data_o[i].rs3            = rename_info_i[i].phy_reg_op_c;
+        sb_disp_data_o[i].rs3            = reg_map_i[i].phy_reg_rs3;
         sb_disp_data_o[i].use_imm_as_rs3 = instr_dec_i[i].use_imm_as_rs3;
     end
   end

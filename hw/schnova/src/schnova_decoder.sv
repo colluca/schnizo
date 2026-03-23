@@ -29,10 +29,16 @@ module schnova_decoder import schnizo_pkg::*; #(
   input  fpnew_pkg::roundmode_e        fpu_round_mode_i,
   input  fpnew_pkg::fmt_mode_t         fpu_fmt_mode_i,
   output logic [PipeWidth-1:0]         instr_valid_o,
+  // How many instructions are valid from the fetch block
+  // after the decoder
+  output logic [$clog2(PipeWidth):0]   instr_valid_count_o,
   output logic [PipeWidth-1:0]         instr_illegal_o,
   output block_ctrl_info_t             blk_ctrl_info_o,
   output logic                         exit_superscalar_o,
-  output instr_dec_t [PipeWidth-1:0]   instr_dec_o
+  output instr_dec_t [PipeWidth-1:0]   instr_dec_o,
+  // Per instruction signal, whether this instruction has to be renamed
+  output logic [PipeWidth-1:0]         instr_rename_valid_o,
+  output logic [$clog2(PipeWidth):0]   instr_rename_count_o
 );
 
   localparam int unsigned IdxWidth = (PipeWidth > 1) ? $clog2(PipeWidth) : 1;
@@ -52,6 +58,7 @@ module schnova_decoder import schnizo_pkg::*; #(
   // this instruction is the relevant instruction that decides how the frontend
   // controller has to react to this fetch block
   logic [IdxWidth-1:0] blk_ctrl_instr_idx;
+
 
   // The decoder has to main tasks
   // 1) Decode all the instructions of the fetch block
@@ -145,6 +152,32 @@ module schnova_decoder import schnizo_pkg::*; #(
 
   // The instruction valid output is now just the masked instruction valid signal
   assign instr_valid_o = instr_valid & valid_mask;
+
+  // Counting the number of valid instructions
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_valid_count (
+    .data_i(instr_valid_o),
+    .popcount_o(instr_valid_count_o)
+  );
+
+  always_comb begin
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      // We have to rename the instruction if it is valid
+      // and the destination register is not the integer register x0
+      instr_rename_valid_o[i] = instr_valid_o[i] &
+                              (instr_dec_o[i].rd != '0) &
+                              ~instr_dec_o[i].rd_is_fp;
+    end
+  end
+
+  // Counting the numger of instructions that have to be renamed
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_rename_count (
+    .data_i(instr_rename_valid_o),
+    .popcount_o(instr_rename_count_o)
+  );
 
   // We can one hot encode the critical instruction by anding it with the valid mask
   // There should only be one valid critical instruction per fetch block
