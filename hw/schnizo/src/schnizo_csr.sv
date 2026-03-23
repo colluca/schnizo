@@ -43,6 +43,7 @@
 //     Therefore, the side effect is implemented in the READ part of the CSR module.
 //     Reading this CSR sets the barrier_stall signal. It is reset when the core external
 //     signal "barrier_stall_i" is set.
+// TODO(colluca): update comment (possibly auto-generate docs)
 // - FREP_STATE (R): Custom register to read current HW configuration for superscalar FREP mode
 //    This register contains information about the number of functional units and slots per FU.
 //    It contains the information for ALUs, LSUs and FPUs. Each FU has (5,4) bits for number of
@@ -297,12 +298,12 @@ module schnizo_csr import schnizo_pkg::*; #(
 
   // The format of the FREP STATE CSR
   typedef struct packed {
-    logic [4:0] FpuSlots;
-    logic [3:0] Fpus;
-    logic [4:0] LsuSlots;
-    logic [3:0] Lsus;
-    logic [4:0] AluSlots;
-    logic [3:0] Alus;
+    logic [6:0] FpuSlots;
+    logic [2:0] Fpus;
+    logic [6:0] LsuSlots;
+    logic [2:0] Lsus;
+    logic [6:0] AluSlots;
+    logic [2:0] Alus;
   } frep_state_t;
 
   typedef struct packed {
@@ -425,12 +426,12 @@ module schnizo_csr import schnizo_pkg::*; #(
   frep_state_t frep_state;
 
   assign frep_state = '{
-    FpuSlots: FpuNofRss[4:0],
-    Fpus:     NofFpus[3:0],
-    LsuSlots: LsuNofRss[4:0],
-    Lsus:     NofLsus[3:0],
-    AluSlots: AluNofRss[4:0],
-    Alus:     NofAlus[3:0]
+    FpuSlots: FpuNofRss[6:0],
+    Fpus:     NofFpus[2:0],
+    LsuSlots: LsuNofRss[6:0],
+    Lsus:     NofLsus[2:0],
+    AluSlots: AluNofRss[6:0],
+    Alus:     NofAlus[2:0]
   };
 
   // FREP config
