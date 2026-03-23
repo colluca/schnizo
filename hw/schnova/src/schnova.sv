@@ -301,7 +301,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [SlotIdWidth-1:0]   slot_id_t;
   typedef logic [NofResReqIfsW-1:0] rs_id_t;
-  
+
+  localparam int unsigned RobTagWidth = $clog2(NofRobEntries);
 
   // TODO(colluca): review these comments
   typedef struct packed {
@@ -316,9 +317,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   typedef struct packed {
     producer_id_t           producer_id;
     logic [PhysRegAddrSize-1:0] dest_reg;
-    logic                   dest_reg_is_fp;
-    logic                   is_branch;
-    logic                   is_jump;
+    logic [RobTagWidth-1:0]     rob_tag;
+    logic                       dest_reg_is_fp;
+    logic                       is_branch;
+    logic                       is_jump;
   } schnova_instr_tag_t;
 
   typedef struct packed {
@@ -342,14 +344,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   } rmt_entry_t;
 
   typedef struct packed {
-    phy_id_t phy_reg_op_a;
-    phy_id_t phy_reg_op_b;
-    phy_id_t phy_reg_op_c;
-    phy_id_t phy_reg_dest_new;
-    phy_id_t phy_reg_dest_old;
-    logic       valid; // set if this instruction renaming is valid
-  } rename_data_t;
+    phy_id_t phy_reg_rs1;
+    phy_id_t phy_reg_rs2;
+    phy_id_t phy_reg_rs3;
+    phy_id_t phy_reg_rd_new;
+    phy_id_t phy_reg_rd_old;
+  } reg_map_t;
 
+  
   typedef struct packed {
     fu_data_t   fu_data;
     rmt_entry_t producer_op_a;
@@ -442,8 +444,25 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   logic flush_backend;
   logic dispatched;
+  logic freelist_ready;
+  logic freelist_push;
+  logic [$clog2(PipeWidth):0] freelist_push_count;
+  phy_id_t [PipeWidth-1:0] retired_regs;
+  logic [$clog2(PipeWidth):0]   instr_valid_count;
+  logic [PipeWidth-1:0]         instr_rename_valid;
+  logic [$clog2(PipeWidth):0]   instr_rename_count;
   sb_disp_data_t [PipeWidth-1:0] sb_disp_data;
-  rename_data_t [PipeWidth-1:0]  rename_info;
+  reg_map_t [PipeWidth-1:0]  reg_map;
+
+  logic                                rob_push;
+  logic [$clog2(PipeWidth):0]          rob_push_count;
+  phy_id_t [PipeWidth-1:0]             rob_phy_reg_rd_old;
+  logic [PipeWidth-1:0][RobTagWidth-1:0]  rob_idx;
+
+  logic rob_ready;
+
+  logic [PipeWidth-1:0]                   wb_valid;
+  logic [PipeWidth-1:0][RobTagWidth-1:0]  wb_rob_idx;
 
   logic ctrl_instr_retired;
 
@@ -558,9 +577,12 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_round_mode_i        (fpu_rnd_mode),
     .fpu_fmt_mode_i          (fpu_fmt_mode),
     .instr_valid_o           (instr_valid),
+    .instr_valid_count_o     (instr_valid_count),
     .instr_illegal_o         (instr_decoded_illegal),
     .blk_ctrl_info_o         (blk_ctrl_info),
-    .instr_dec_o             (instr_decoded)
+    .instr_dec_o             (instr_decoded),
+    .instr_rename_valid_o    (instr_rename_valid),
+    .instr_rename_count_o    (instr_rename_count)
   );
 
   // Read the operands - do always read (even if invalid instr) because controller depends on
@@ -616,8 +638,11 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     // To rename stage
     .flush_backend_o (flush_backend),
     .dispatched_o(dispatched),
+    .freelist_ready_i(freelist_ready),
     .all_rs_finish_i(all_rs_finish),
     .rs_restart_o(rs_restart),
+    // ROB
+    .rob_ready_i(rob_ready),
     // Interface to dispatcher
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
@@ -665,16 +690,20 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .RegAddrSize(RegAddrSize),
     .instr_dec_t(instr_dec_t),
     .phy_id_t(phy_id_t),
-    .rename_data_t(rename_data_t)
+    .reg_map_t(reg_map_t)
   ) i_rename (
     .clk_i,
     .rst_i,
     .en_superscalar_i(en_superscalar),
-    .flush_i(flush_backend),
     .dispatched_i(dispatched),
-    .dispatch_valid_i(dispatch_instr_valid),
+    .instr_rename_valid_i(instr_rename_valid),
+    .instr_rename_count_i(instr_rename_count),
     .instr_dec_i(instr_decoded),
-    .rename_info_o(rename_info)
+    .reg_map_o(reg_map),
+    .freelist_ready_o(freelist_ready),
+    .freelist_push_i(freelist_push),
+    .freelist_push_count_i(freelist_push_count),
+    .retired_regs_i(retired_regs)
   );
 
   //////////////
@@ -700,6 +729,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   schnova_dispatcher #(
     .PipeWidth(PipeWidth),
+    .RobTagWidth(RobTagWidth),
     .RegAddrSize(RegAddrSize),
     .NofAlus    (NofAlus),
     .NofLsus    (NofLsus),
@@ -707,7 +737,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
     .phy_id_t(phy_id_t),
-    .rename_data_t(rename_data_t),
+    .reg_map_t(reg_map_t),
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
     .producer_id_t(producer_id_t),
@@ -719,7 +749,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .clk_i,
     .rst_i,
     // Rename interface
-    .rename_info_i(rename_info),
+    .reg_map_i(reg_map),
     .sb_disp_data_o(sb_disp_data),
     .en_superscalar_i    (en_superscalar),
     .instr_dec_i         (instr_decoded),
@@ -728,6 +758,16 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .dispatch_valid_i    (dispatch_instr_valid), // main control signal / stall signal
     .instr_exec_commit_i (instr_exec_commit),
     .dispatch_ready_o    (dispatch_instr_ready),
+    // From decoder
+    .instr_valid_i       (instr_valid),
+    .instr_valid_count_i (instr_valid_count),
+    .instr_rename_valid_i(instr_rename_valid),
+    .instr_rename_count_i(instr_rename_count),
+    // ROB
+    .rob_push_o(rob_push),
+    .rob_push_count_o(rob_push_count),
+    .rob_phy_reg_rd_old_o(rob_phy_reg_rd_old),
+    .rob_idx_i(rob_idx),
     // Instruction stream
     .disp_req_o          (dispatch_req),
     // ALU
@@ -995,6 +1035,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // See module for details and specialities!
   schnova_writeback #(
     .PipeWidth      (PipeWidth),
+    .RobTagWidth    (RobTagWidth),
     .XLEN           (XLEN),
     .FLEN           (FLEN),
     .NrIntWritePorts(NrIntWritePorts),
@@ -1004,11 +1045,15 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .alu_result_t   (alu_result_t),
     .data_t         (data_t)
   ) i_writeback (
+    .en_superscalar_i  (en_superscalar),
     // ALU interface
     .alu_result_i      (alu_result),
     .alu_result_tag_i  (alu_result_tag),
     .alu_result_valid_i(alu_result_valid),
     .alu_result_ready_o(alu_result_ready),
+    // To ROB
+    .wb_valid_o(wb_valid),
+    .wb_rob_idx_o(wb_rob_idx),
     // TODO (soderma): This used to be PC+4, the instruction after the jal/jalr
     .consecutive_pc_i  (consecutive_pc),
     // CSR interface
@@ -1086,6 +1131,32 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   assign core_events_o.issue_fpu         = issue_fpu_q;
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
   assign core_events_o.issue_fpu_seq     = '0;
+
+  ////////////////////
+  // Reorder Buffer //
+  ////////////////////
+
+  schnova_reorder_buffer #(
+    .PipeWidth(PipeWidth),
+    .NofEntries(NofRobEntries),
+    .phy_id_t(phy_id_t)
+  ) i_rob (
+    .clk_i,
+    .rst_i,
+    // Dispatch interface
+    .rob_push_i(rob_push),
+    .rob_push_count_i(rob_push_count),
+    .rob_phy_reg_rd_old_i(rob_phy_reg_rd_old),
+    .rob_idx_o(rob_idx),
+    .rob_ready_o(rob_ready),
+    // Writeback Interface
+    .wb_valid_i(wb_valid),
+    .wb_rob_idx_i(wb_rob_idx),
+    // Freelist interface
+    .freelist_push_o(freelist_push),
+    .push_count_o(freelist_push_count),
+    .retired_regs_o(retired_regs)
+  );
 
   ////////////////
   // Scoreboard //

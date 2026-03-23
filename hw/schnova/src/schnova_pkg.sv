@@ -12,4 +12,6 @@ package schnova_pkg;
   // of architectural registers.
   localparam int unsigned PhysRegAddrSize = 6;
 
+  localparam int unsigned NofRobEntries = 32;
+
 endpackage

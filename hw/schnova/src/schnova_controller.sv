@@ -43,6 +43,10 @@ module schnova_controller import schnizo_pkg::*; #(
   output logic instr_exec_commit_o,
   output logic stall_o,
   output logic ctrl_stall_o,
+  // From rename
+  input logic freelist_ready_i,
+  // From ROB
+  input logic rob_ready_i,
    // Asserted if all reservation stations have no instructions in flight.
   input  logic all_rs_finish_i,
   output logic rs_restart_o,
@@ -291,6 +295,17 @@ module schnova_controller import schnizo_pkg::*; #(
   // core would think that it should dispatch this instruction again in the meantime.
   assign stall_disp_ctrl = (ctrl_state_q == WAIT_CTRL) ? en_superscalar_q : 1'b0;
 
+  // We have to stall in superscalar mode if the freelist does not have enough
+  // physical registers to rename all instructions
+  logic freelist_stall;
+  assign freelist_stall = en_superscalar_q ? freelist_ready_i : 1'b0;
+
+  // We have to stall in superscalar mode if the rob does not have enough
+  // entries for all the instructions we want to dispatch in this
+  // fetch block
+  logic rob_stall;
+  assign rob_stall = en_superscalar_q ? rob_ready_i : 1'b0;
+
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
   ////////////////////
@@ -300,6 +315,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // We can dispatch the current instruction if:
   // - it is valid
   // - all registers are ready
+  // - free list is ready to pop enough physical registers
   // - no stall due to a FENCE or FCSR
   // - no stall due to unsuported instructions
   // - no exception occured
@@ -320,6 +336,8 @@ module schnova_controller import schnizo_pkg::*; #(
                     fence_i_stall     |
                     fcsr_stall        |
                     frep_toggle_stall |
+                    freelist_stall    |
+                    rob_stall         |
                     stall_disp_ctrl;
 
   // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched

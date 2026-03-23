@@ -27,6 +27,7 @@
 // This should not be a problem, as the Snitch FPR is only in the FP_SS present.
 module schnova_writeback import schnizo_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
+  parameter int unsigned RobTagWidth     = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned FLEN            = 64,
   parameter int unsigned NrIntWritePorts = 1,
@@ -37,6 +38,10 @@ module schnova_writeback import schnizo_pkg::*; #(
   parameter type         alu_result_t    = logic,
   parameter type         data_t          = logic
 ) (
+  input logic             en_superscalar_i,
+  // ROB interface
+  output logic [PipeWidth-1:0]               wb_valid_o,
+  output logic [PipeWidth-1:0][RobTagWidth-1:0] wb_rob_idx_o,
   // ALU interface
   input  alu_result_t     alu_result_i,
   input  instr_tag_t      alu_result_tag_i,
@@ -94,6 +99,9 @@ module schnova_writeback import schnizo_pkg::*; #(
   logic acc_gpr_valid; // The accelerator only writes to the GPR
   logic acc_gpr_ready;
 
+  logic rob_gpr_valid;
+  logic rob_fpr_valid;
+
   // MUX the valid/ready signals to the correct register file.
   // TODO: This is probably unnecessary and stalls the core. However, the ALU should never
   //        write to the FPR. How should we handle this case? -> Assertion?
@@ -117,6 +125,17 @@ module schnova_writeback import schnizo_pkg::*; #(
   assign acc_gpr_valid = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_result_valid_i;
   assign acc_result_ready_o = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_gpr_ready;
 
+  // TODO (soderma): Clean this up correctly
+  assign wb_valid_o[2] = 1'b0;
+  assign wb_valid_o[3] = 1'b0;
+  assign wb_rob_idx_o[2] = '0;
+  assign wb_rob_idx_o[3] = '0;
+
+  // Port 0 is used for int writebacks if we are in superscalar
+  assign wb_valid_o[0] = rob_gpr_valid & en_superscalar_i;
+  // Port 1 is used for float writebacks if we are in superscalar
+  assign wb_valid_o[1] = rob_fpr_valid & en_superscalar_i;
+
   // Note: The register file must always be ready.
   // Otherwise the valid/ready handshaking is not AXI conform anymore.
   always_comb begin : int_regfile_writeback
@@ -131,6 +150,10 @@ module schnova_writeback import schnizo_pkg::*; #(
     fpu_gpr_ready = '0;
     acc_gpr_ready = '0;
 
+    // ROB signals
+    wb_rob_idx_o[0] = '0;
+    rob_gpr_valid = 1'b0;
+
     // If we have a valid request from the ALU, we have to check whether we actually want to write
     // to a register. Any instruction which is retiring without a register write has the
     // destination register set to rd = x0 (rd = 0, rd_is_fp = 0) as this register is not
@@ -141,6 +164,9 @@ module schnova_writeback import schnizo_pkg::*; #(
     if (alu_gpr_valid && alu_result_tag_i.dest_reg != '0) begin
       gpr_we_o = 1'b1;
       gpr_waddr_o = alu_result_tag_i.dest_reg;
+      // Signal the ROB this entry is done
+      rob_gpr_valid = 1'b1;
+      wb_rob_idx_o[0] = alu_result_tag_i.rob_tag;
       // Select the data to write into rd.
       // This can either be the ALU result or the consecutive PC (for JAL / JALR)
       if (alu_result_tag_i.is_jump) begin
@@ -163,6 +189,9 @@ module schnova_writeback import schnizo_pkg::*; #(
         gpr_waddr_o = csr_result_tag_i.dest_reg;
         gpr_wdata_o = csr_result_i;
 
+        rob_gpr_valid = 1'b1;
+        wb_rob_idx_o[0] = csr_result_tag_i.rob_tag;
+
         csr_gpr_ready = 1'b1;
       end else begin
       // If there is no actual write request, we can serve a LSU or FPU request.
@@ -174,17 +203,26 @@ module schnova_writeback import schnizo_pkg::*; #(
           gpr_waddr_o = lsu_result_tag_i.dest_reg;
           gpr_wdata_o = lsu_result_i[XLEN-1:0];
 
+          rob_gpr_valid = 1'b1;
+          wb_rob_idx_o[0] = lsu_result_tag_i.rob_tag;
+
           lsu_gpr_ready = 1'b1;
         end else if (fpu_gpr_valid) begin
           gpr_we_o = 1'b1;
           gpr_waddr_o = fpu_result_tag_i.dest_reg;
           gpr_wdata_o = fpu_result_i[XLEN-1:0];
 
+          rob_gpr_valid = 1'b1;
+          wb_rob_idx_o[0] = fpu_result_tag_i.rob_tag;
+
           fpu_gpr_ready = 1'b1;
         end else if (acc_gpr_valid) begin
           gpr_we_o = 1'b1;
           gpr_waddr_o = acc_result_tag_i.dest_reg;
           gpr_wdata_o = acc_result_i[XLEN-1:0];
+
+          rob_gpr_valid = 1'b1;
+          wb_rob_idx_o[0] = acc_result_tag_i.rob_tag;
 
           acc_gpr_ready = 1'b1;
         end
@@ -201,16 +239,26 @@ module schnova_writeback import schnizo_pkg::*; #(
     lsu_fpr_ready = '0;
     fpu_fpr_ready = '0;
 
+    // ROB signals
+    wb_rob_idx_o[1] = '0;
+    rob_fpr_valid = 1'b0;
+
     if (lsu_fpr_valid) begin
       fpr_we_o = 1'b1;
       fpr_waddr_o = lsu_result_tag_i.dest_reg;
       fpr_wdata_o = lsu_result_i[FLEN-1:0];
+
+      rob_fpr_valid = 1'b1;
+      wb_rob_idx_o[1] = lsu_result_tag_i.rob_tag;
 
       lsu_fpr_ready = 1'b1;
     end else if (fpu_fpr_valid) begin
       fpr_we_o = 1'b1;
       fpr_waddr_o = fpu_result_tag_i.dest_reg;
       fpr_wdata_o = fpu_result_i[FLEN-1:0];
+
+      rob_fpr_valid = 1'b1;
+      wb_rob_idx_o[1] = fpu_result_tag_i.rob_tag;
 
       fpu_fpr_ready = 1'b1;
     end

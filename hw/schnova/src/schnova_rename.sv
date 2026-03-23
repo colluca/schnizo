@@ -6,8 +6,6 @@
 `include "common_cells/assertions.svh"
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
-// TODO (soderma): Might make sense to use a free list instead of always asking the reservation stations/
-// dispatch stage if a slot is available and sending the destination renaming back
 // Description: Renaming stage
 module schnova_rename import schnizo_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
@@ -19,20 +17,25 @@ module schnova_rename import schnizo_pkg::*; #(
   parameter int unsigned RegAddrSize = 5,
   parameter type         instr_dec_t = logic,
   parameter type         phy_id_t = logic,
-  parameter type         rename_data_t = logic
+  parameter type         reg_map_t = logic
 ) (
   input  logic         clk_i,
   input  logic         rst_i,
+  input  instr_dec_t   [PipeWidth-1:0]  instr_dec_i,
+  input  logic [PipeWidth-1:0]         instr_rename_valid_i,
+  input  logic [$clog2(PipeWidth):0]   instr_rename_count_i,
   input  logic dispatched_i,
-  input  logic dispatch_valid_i,
   input  logic en_superscalar_i,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
-  input  instr_dec_t   [PipeWidth-1:0]  instr_dec_i,
-  output rename_data_t [PipeWidth-1:0]  rename_info_o
+  output reg_map_t [PipeWidth-1:0]  reg_map_o,
+  // To controller
+  output logic freelist_ready_o,
+  // From ROB
+  input logic freelist_push_i,
+  input [$clog2(PipeWidth):0] freelist_push_count_i,
+  input phy_id_t [PipeWidth-1:0] retired_regs_i
 );
-
-  phy_id_t    [PipeWidth-1:0]  dest_map;
 
   logic       [RmtNrIntReadPorts-1:0][RegAddrSize-1:0] rmt_int_raddr;
   logic       [RmtNrFpReadPorts-1:0][RegAddrSize-1:0]  rmt_fp_raddr;
@@ -41,21 +44,20 @@ module schnova_rename import schnizo_pkg::*; #(
 
   logic       [RmtNrWritePorts-1:0][RegAddrSize-1:0] rmt_waddr;
   // We have to insert a new mapping in the RTM for every instruction
+  phy_id_t    [PipeWidth-1:0]                        allocated_regs;
   phy_id_t    [RmtNrWritePorts-1:0]                  new_mapping_rd;
   logic       [RmtNrWritePorts-1:0]                  rmt_int_we;
   logic       [RmtNrWritePorts-1:0]                  rmt_fp_we;
+
+  logic [$clog2(PipeWidth):0] alloc_idx;
 
   phy_id_t [PipeWidth-1:0] mapping_rs1;
   phy_id_t [PipeWidth-1:0] mapping_rs2;
   phy_id_t [PipeWidth-1:0] mapping_rs3;
   phy_id_t [PipeWidth-1:0] mapping_rd;
 
-  // Whether the instruction was already renamed in a previous cycle
-  logic [PipeWidth-1:0] is_renamed_d, is_renamed_q;
-
   // Physical register allocation signals
-  logic alloc_pr_hs;
-  logic alloc_pr_ready;
+  logic pop_freelist;
 
   /////////////////
   // RMT readout //
@@ -103,8 +105,10 @@ module schnova_rename import schnizo_pkg::*; #(
   // Reading the Free List //
   ///////////////////////////
 
-  logic alloc_valid = 1'b0;
-  logic [$clog2(PipeWidth):0] alloc_count;
+  // We pop physical registers from the free list
+  // once we have sucessfully dispatched instructions
+  // and are in the scalar execution mode.
+  assign pop_freelist = dispatched_i & en_superscalar_i;
 
   schnova_free_list #(
     .PipeWidth(PipeWidth),
@@ -114,16 +118,29 @@ module schnova_rename import schnizo_pkg::*; #(
   ) i_free_list (
     .clk_i,
     .rst_i,
-    .alloc_valid_i(alloc_valid),
-    .alloc_ready_o(alloc_pr_ready),
-    .alloc_count_i(alloc_count),
-    .alloc_regs_o(dest_map),
-    .retire_valid_i(),
-    .retire_count_i(),
-    .retire_regs_i()
+    .pop_i(pop_freelist),
+    .freelist_ready_o(freelist_ready_o),
+    .pop_count_i(instr_rename_count_i),
+    .allocated_regs_o(allocated_regs),
+    .push_i(freelist_push_i),
+    .push_count_i(freelist_push_count_i),
+    .retired_regs_i(retired_regs_i)
   );
 
-  assign alloc_pr_hs= dispatch_valid_i & alloc_pr_ready;
+  // Mapping the physical registers to the instructions that need renaming
+  always_comb begin: map_phys_regs
+    // No renaming is performed per default
+    new_mapping_rd = '0;
+
+    alloc_idx = '0;
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if(instr_rename_valid_i[i]) begin
+        new_mapping_rd[i] = allocated_regs[alloc_idx];
+        // Increment to the next allocated registers
+        alloc_idx = alloc_idx + 1;
+      end
+    end
+  end
 
   ////////////////
   // RMT update //
@@ -133,13 +150,10 @@ module schnova_rename import schnizo_pkg::*; #(
     rmt_fp_we = '0;
 
     for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-      // First we readout the current mapping
-      new_mapping_rd[instr_idx] = dest_map[instr_idx];
       rmt_waddr[instr_idx] = instr_dec_i[instr_idx].rd;
-      // Only update the RMT if the destination mapping sent by the dispatcher is valid
-      // Dispatching will happen in order, because we have to update the renaming in order
-      // to not break any dependencies.
-      if (alloc_pr_hs && en_superscalar_i) begin
+      // We update the RMT once, the instructions were successfully dispatched
+      // and we are in superscalar mode, were we actually rename
+      if (dispatched_i && en_superscalar_i) begin
         rmt_fp_we[instr_idx] = instr_dec_i[instr_idx].rd_is_fp;
         rmt_int_we[instr_idx] = ~instr_dec_i[instr_idx].rd_is_fp;
       end
@@ -153,68 +167,48 @@ module schnova_rename import schnizo_pkg::*; #(
   always_comb begin: track_inter_instr_dep
     for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
       // Default: mappings already come from RMT read stage
-      rename_info_o[instr_idx].phy_reg_op_a = mapping_rs1[instr_idx];
-      rename_info_o[instr_idx].phy_reg_op_b = mapping_rs2[instr_idx];
-      rename_info_o[instr_idx].phy_reg_op_c = mapping_rs3[instr_idx];
-      // TODO(soderma): Assign correct values s
-      rename_info_o[instr_idx].phy_reg_dest_new = mapping_rd[instr_idx];
-      rename_info_o[instr_idx].phy_reg_dest_old = mapping_rd[instr_idx];
+      reg_map_o[instr_idx].phy_reg_rs1 = mapping_rs1[instr_idx];
+      reg_map_o[instr_idx].phy_reg_rs2 = mapping_rs2[instr_idx];
+      reg_map_o[instr_idx].phy_reg_rs3 = mapping_rs3[instr_idx];
+      reg_map_o[instr_idx].phy_reg_rd_old = mapping_rd[instr_idx];
+      reg_map_o[instr_idx].phy_reg_rd_new = new_mapping_rd[instr_idx];
 
-      // Check against all older instructions in same bundle
-      for (int unsigned older_idx = 0; older_idx < instr_idx; older_idx++) begin
-        // -------------------------
-        // RS1 dependency forwarding
-        // -------------------------
-        // Check if rs1 is the same register as the destination register
-        if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].rs1) &&
-            (instr_dec_i[older_idx].rd_is_fp == instr_dec_i[instr_idx].rs1_is_fp)) begin
+      // We only do renaming in superscalar mode, hence only then do we have to forward
+      // these renamings.
+      if (en_superscalar_i) begin
+        // Check against all older instructions in same bundle
+        for (int unsigned older_idx = 0; older_idx < instr_idx; older_idx++) begin
+          // -------------------------
+          // RS1 dependency forwarding
+          // -------------------------
+          // Check if rs1 is the same register as the destination register
+          if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].rs1) &&
+              (instr_dec_i[older_idx].rd_is_fp == instr_dec_i[instr_idx].rs1_is_fp)) begin
+              // Forward the renaming of the destination register
+              reg_map_o[instr_idx].phy_reg_rs1 =  new_mapping_rd[older_idx];
+          end
 
-            rename_info_o[instr_idx].phy_reg_op_a =  is_renamed_q[older_idx] ?
-            // The mapping was alrady stored to the RMT in a previous cycle
-                                                      mapping_rd[older_idx]   :
-            // The mapping should be forwarded by the dispatcher/functional units
-                                                      new_mapping_rd[older_idx];
+          // -------------------------
+          // RS2 dependency forwarding
+          // -------------------------
+          // Check if rs2 is the same register as the destination register
+          if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].rs2) &&
+              (instr_dec_i[older_idx].rd_is_fp == instr_dec_i[instr_idx].rs2_is_fp)) begin
+              // Forward the renaming of the destination register
+              reg_map_o[instr_idx].phy_reg_rs2 =  new_mapping_rd[older_idx];
+          end
+
+          // -------------------------
+          // RS3 dependency forwarding (FP only)
+          // -------------------------
+          // Check if immediate is the same register as the destination register
+          if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].imm[RegAddrSize-1:0]) &&
+              instr_dec_i[older_idx].rd_is_fp                                            &&
+              instr_dec_i[instr_idx].use_imm_as_rs3) begin
+              // Forward the renaming of the destination register
+              reg_map_o[instr_idx].phy_reg_rs3 =  new_mapping_rd[older_idx];
+          end
         end
-
-        // -------------------------
-        // RS2 dependency forwarding
-        // -------------------------
-        // Check if rs2 is the same register as the destination register
-        if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].rs2) &&
-            (instr_dec_i[older_idx].rd_is_fp == instr_dec_i[instr_idx].rs2_is_fp)) begin
-
-            rename_info_o[instr_idx].phy_reg_op_b =  is_renamed_q[older_idx] ?
-            // The mapping was alrady stored to the RMT in a previous cycle
-                                                      mapping_rd[older_idx]   :
-            // The mapping should be forwarded by the dispatcher/functional units
-                                                      new_mapping_rd[older_idx];
-        end
-
-        // -------------------------
-        // RS3 dependency forwarding (FP only)
-        // -------------------------
-        // Check if immediate is the same register as the destination register
-        if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].imm[RegAddrSize-1:0]) &&
-            instr_dec_i[older_idx].rd_is_fp                                            &&
-            instr_dec_i[instr_idx].use_imm_as_rs3) begin
-
-            rename_info_o[instr_idx].phy_reg_op_c =  is_renamed_q[older_idx] ?
-            // The mapping was alrady stored to the RMT in a previous cycle
-                                                      mapping_rd[older_idx]   :
-            // The mapping should be forwarded by the dispatcher/functional units
-                                                      new_mapping_rd[older_idx];
-        end
-      end
-      // Renaming for an instruction has to strictly happen in order
-      // so we have to make sure that renamings are valid only if all
-      // older instruction renamings are valid
-      if(instr_idx == 0) begin
-        // The first instruction does not have to wait on older instructions to complete renaming
-        rename_info_o[instr_idx].valid = dispatch_valid_i | is_renamed_q[instr_idx];
-      end else begin
-        rename_info_o[instr_idx].valid = rename_info_o[instr_idx-1].valid                       ?
-                                          dispatch_valid_i | is_renamed_q[instr_idx] :
-                                          1'b0;
       end
     end
   end
@@ -265,23 +259,5 @@ module schnova_rename import schnizo_pkg::*; #(
     .wdata_i(new_mapping_rd),
     .we_i   (rmt_fp_we)
   );
-
-  // Update the is_renamed register that keeps track of which registers already have been
-  // renamed
-  `FFAR(is_renamed_q, is_renamed_d, '0, clk_i, rst_i);
-
-  always_comb begin: rename_state_update
-    is_renamed_d = is_renamed_q;
-    for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-      if(dispatched_i) begin
-        // We have to restart renaming in the next cycle in that case
-        is_renamed_d[instr_idx] = 1'b0;
-      end else if (alloc_pr_hs) begin
-        // The destination register was renamed in this cycle
-        // hence the renaming can be read out from the RMT in the next cycle
-        is_renamed_d[instr_idx] = 1'b1;
-      end
-    end
-  end
 
 endmodule
