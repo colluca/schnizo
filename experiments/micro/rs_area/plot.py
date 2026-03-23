@@ -24,8 +24,12 @@ def main():
     df['hierarchy_details'] = df['synth_results'].str['hierarchy_details']
     df['CombArea'] = df['hierarchy_details'].map(lambda x: to_kge(x.tree.get_attr('CombArea')))
     df['SeqArea'] = df['hierarchy_details'].map(lambda x: to_kge(x.tree.get_attr('SeqArea')))
+    df['MacroBBArea'] = df['hierarchy_details'].map(
+        lambda x: to_kge(x.tree.get_attr('MacroBBArea'))
+    )
     df['CombArea'] = df['CombArea'].round(0).astype('int')
     df['SeqArea'] = df['SeqArea'].round(0).astype('int')
+    df['MacroBBArea'] = df['MacroBBArea'].round(0).astype('int')
     df['1BitEqSeq'] = (df['synth_results'].str['multibit'].str['1BitEqSeq']).astype('int')
     df['GE/bit'] = (1e3 * df['SeqArea'] / df['1BitEqSeq']).round(1)
 
