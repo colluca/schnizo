@@ -57,9 +57,10 @@ inline uint32_t szrt_frep_state() {
     return capabilities;
 }
 
-#define FREP_NOF_FU_BITS 4
+// TODO(colluca): can we generate these directly from the hardware?
+#define FREP_NOF_FU_BITS 3
 #define FREP_NOF_FU_MASK ((1 << FREP_NOF_FU_BITS) - 1)
-#define FREP_NOF_SLOTS_BITS 5
+#define FREP_NOF_SLOTS_BITS 7
 #define FREP_NOF_SLOTS_OFFSET FREP_NOF_FU_BITS
 #define FREP_NOF_SLOTS_MASK ((1 << FREP_NOF_SLOTS_BITS) - 1)
 #define FREP_FU_OFFSET (FREP_NOF_FU_BITS + FREP_NOF_SLOTS_BITS)
