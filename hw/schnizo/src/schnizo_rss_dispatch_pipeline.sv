@@ -28,6 +28,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  producer_id_t    disp_producer_id_i,
   input  producer_id_t    issue_producer_id_i,
   input  loop_state_e     loop_state_i,
+  input  logic            last_issue_iter_i,
   output logic            retire_at_issue_o,
   
   // Issue slot interface
@@ -371,6 +372,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         slot_issue_o.operands[i].is_valid = slot_issue_o.operands[i].is_produced ? 1'b0 :
                                             slot_issue_o.operands[i].is_valid;
       end
+      // Free the slot on the last issue iteration so it can be reused in the next LCP1.
+      if (last_issue_iter_i) slot_issue_o.is_occupied = 1'b0;
     end
   end
 

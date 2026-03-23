@@ -40,6 +40,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   input  loop_state_e  loop_state_i,
   input  rss_idx_t     disp_idx_i,
   input  rss_idx_t     issue_idx_i,
+  input  logic         last_issue_iter_i,
   input  logic         last_result_iter_i,
   output logic         retire_at_issue_o,
 
@@ -214,6 +215,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .disp_producer_id_i     (rss_ids[disp_idx_i]),
     .issue_producer_id_i    (rss_ids[issue_idx_i]),
     .loop_state_i           (loop_state_i),
+    .last_issue_iter_i      (last_issue_iter_i),
     .retire_at_issue_o      (retire_at_issue_o),
     .disp_req_i             (disp_req_i),
     .disp_req_valid_i       (disp_req_valid_i && (disp_idx_i == issue_idx_i)), // only send valid for the selected slot
