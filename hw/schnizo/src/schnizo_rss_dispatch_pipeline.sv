@@ -23,6 +23,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  producer_id_t    disp_producer_id_i,
   input  producer_id_t    issue_producer_id_i,
   input  loop_state_e     loop_state_i,
+  output logic            retire_at_issue_o,
   
   // Issue slot interface
   input  rs_slot_issue_t  slot_issue_i,
@@ -52,8 +53,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Issue
   output issue_req_t issue_req_o,
   output logic       issue_req_valid_o,
-  input  logic       issue_req_ready_i,
-  output logic       issue_hs_o
+  input  logic       issue_req_ready_i
 );
 
   /////////////////////////
@@ -73,6 +73,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     fpu_fmt_dst:      fpnew_pkg::FP32,
     fpu_rnd_mode:     fpnew_pkg::RNE,
     instruction_iter: 1'b0,
+    no_dest:          1'b0,
     operands:         '0 // invalid operands lead to no issue requests
   };
 
@@ -129,6 +130,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
       fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
       instruction_iter: 1'b0,
+      no_dest:          (disp_req_i.fu_data.fu == STORE) &&
+                        (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
       operands:         '0
     };
 
@@ -140,8 +143,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // Initial value of the slot upon accepting an instruction in LCP2.
   // Now all operand producers should be known, so we can update the missing producer information.
-  // We also now know which instruction is the last in the loop to write to a certain register.
-  // We can therefore also update the `do_writeback` flag.
   rs_slot_issue_t slot_lcp2;
   always_comb begin
     slot_lcp2 = slot_issue_i;
@@ -204,7 +205,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Compute the updated result slot state depending on loop phase:
   // - LCP1: full initialization for a newly dispatched instruction.
   //         We must set the result iteration flag to 1 — it gets toggled when writing the first result.
-  //         TODO(colluca): is this the right place for the has_dest logic? Perhaps move it to the decoder.
+  //         TODO(colluca): is this the right place for the no_dest logic? Perhaps move it to the decoder.
   // - LCP2: pass through the current result state, only updating `do_writeback` if needed.
   // This output is fed into res_req_handling as slot_i (instead of slot_result_qs) when dispatching,
   // so any concurrent consumer reads are applied on top of the dispatch update — no bypass needed.
@@ -216,7 +217,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
           consumer_count: '0,
           consumed_by:    '0,
           result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
-          has_dest:       (disp_req_i.fu_data.fu == STORE) &&
+          // TODO(colluca): can't we just use dest x0 to communicate this info?
+          no_dest:        (disp_req_i.fu_data.fu == STORE) &&
                           (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
           dest_id:        disp_req_i.tag.dest_reg,
           dest_is_fp:     disp_req_i.tag.dest_reg_is_fp,
@@ -346,7 +348,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
   assign disp_req_ready_o = (loop_state_i == LoopLcp1) || issue_hs;
   assign disp_hs = disp_req_ready_o && disp_req_valid_i;
-  assign issue_hs_o = issue_hs;
+  assign retire_at_issue_o = issue_hs && slot_op_rsp.no_dest;
 
   // Update the slot after issuing the instruction (instruction_iter and
   // operands[i].is_valid fields).

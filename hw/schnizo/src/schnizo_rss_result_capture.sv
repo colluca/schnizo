@@ -13,15 +13,13 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
 ) (
   // Control
   input  rs_slot_result_t slot_i,
-  input  logic            issue_hs_i,
+  input  logic            disp_hs_i,
   input  result_t         result_i,
   input  logic            result_valid_i,
   input  loop_state_e     loop_state_i,
   input  logic            is_last_result_iter_i,
   input  disp_req_t       disp_req_i,
   output logic            result_ready_o,
-  output logic            retired_o,
-  output logic            retired_rs_o,
   output rs_slot_result_t slot_o,
 
   // Writeback
@@ -45,28 +43,6 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
   // The ready may not be dependent on the valid. Otherwise, because of the RF/RSS writeback
   // synchronization logic, we would have a combinational loop.
   assign result_ready_o = result_consumed || !slot_i.result.is_valid || slot_i.consumer_count == '0;
-
-  // We captured a new result when the stream fork signals the handshake to the FU.
-  // This includes both cases (only RSS as well as RSS and RF).
-  // A store instruction has no result. Thus we capture a dummy result at the same time
-  // we issue the store instruction.
-  assign retired_o = slot_i.has_dest ? issue_hs_i : (result_valid_i && result_ready_o);
-
-  // Retired signal back to RS to step the result pointer.
-  // For all instructions except stores, this retired signal is the same as used inside this RSS.
-  // I.e., it is asserted in the cycle we retire the result / handshake it.
-  // For stores this is different as stores have no result and thus retire immediately.
-  // However, we must signal the retirement "in order" to the result pointer.
-  // As loads and stores can be mixed, we could miss the retired signal for a store as it is only
-  // asserted once in the cycle we issue it. But in this cycle the RS result pointer could be set
-  // to an ongoing load. Thus we signal the retired signal always and as soon as the RS result
-  // pointer steps to the store, it immediately "retires" the instruction.
-  // TODO(colluca): does the RS really need a pointer? Or is a counter sufficient? In the latter
-  // case we wouldn't need this differentiation and the RS would just set `retiring` to
-  // |rss_retiring instead of rss_retiring[result_idx]. This would also be easier to extend if
-  // we would at some point want to support multiple instructions retiring in the same cycle,
-  // within the same RS, e.g. due to the presence of pipelines with different latencies.
-  assign retired_rs_o = slot_i.has_dest ? 1'b1 : retired_o;
 
   //////////////////
   // RF writeback //
@@ -97,7 +73,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
   //                Doesn't the LSU simply not raise result_valid_i when it decodes a store?
   //                And if it does, why?
   assign rf_do_writeback_o = (loop_state_i == LoopLep) ? (is_last_result_iter_i &&
-    slot_i.do_writeback && !slot_i.has_dest) : 1'b1;
+    slot_i.do_writeback && !slot_i.no_dest) : 1'b1;
 
   //////////////////////////////////////
   // Slot update after result capture //
@@ -105,7 +81,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
 
   always_comb begin
     slot_o = slot_i;
-    if (retired_o) begin
+    if (result_valid_i && result_ready_o) begin
       slot_o.result.is_valid  = 1'b1;
       slot_o.result.iteration = !slot_o.result.iteration;
       // Don't update the result FFs for stores.
@@ -113,7 +89,7 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
       //       logic?
       // TODO(colluca): to save power we would want to avoid that it switches at all, i.e.
       // keep the value in slot_q, not '0.
-      slot_o.result.value     = slot_o.has_dest ? '0 : result_i;
+      slot_o.result.value     = result_i;
       slot_o.consumed_by      = '0;
     end
   end

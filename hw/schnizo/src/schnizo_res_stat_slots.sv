@@ -41,7 +41,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   input  rss_idx_t     disp_idx_i,
   input  rss_idx_t     issue_idx_i,
   input  logic         last_result_iter_i,
-  output logic         retiring_o,
+  output logic         retire_at_issue_o,
 
   // Dispatch
   input  disp_req_t    disp_req_i,
@@ -110,15 +110,10 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   rs_slot_result_t [NofRss-1:0] slot_result_qs;    // registered result state of each slot
   rs_slot_result_t [NofRss-1:0] slot_result_ds;    // next result state for each slot
   rs_slot_result_t              slot_result_init;  // initial result state from dispatch pipeline (LCP1)
-  logic                         issue_hs;          // issue handshake from the dispatch pipeline
   rs_slot_result_t [NofRss-1:0] slot_res_rsps;     // post-res-req-handling result state from each slot
   rs_slot_result_t              slot_wb_capture;   // post-result-capture result state for the selected slot
-  logic                         capture_retired;
-  logic                         capture_retired_rs;
   result_tag_t                  capture_rf_wb_tag;
   logic                         capture_rf_do_writeback;
-
-  assign retiring_o = capture_retired_rs;
 
   ///////////
   // Slots //
@@ -133,7 +128,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     consumed_by:    '0,
     // We ignore the result part - the iteration flag could be X.
     result:         '0,
-    has_dest:       1'b0,
+    no_dest:       1'b0,
     dest_id:        '0,
     dest_is_fp:     '0,
     do_writeback:   1'b0
@@ -178,7 +173,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
       .rst_i,
       .slot_i            (disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
                           slot_result_init : slot_result_qs[rss]),
-      .retired_i         (capture_retired && (rss_idx_t'(rss) == result_rss_sel)),
+      .retired_i         (result_valid_i && result_ready_o && (rss_idx_t'(rss) == result_rss_sel)),
       .loop_state_i      (loop_state_i),
       .restart_i         (restart_i),
       .producer_id_i     (rss_ids[rss]),
@@ -196,9 +191,6 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   ///////////////////////
   // Dispatch pipeline //
   ///////////////////////
-
-  logic disp_req_ready_pipeline;
-  assign disp_req_ready_o = disp_req_ready_pipeline;
 
   logic       issue_req_valid_raw;
   issue_req_t issue_req_raw;
@@ -220,9 +212,10 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .disp_producer_id_i     (rss_ids[disp_idx_i]),
     .issue_producer_id_i    (rss_ids[issue_idx_i]),
     .loop_state_i           (loop_state_i),
+    .retire_at_issue_o      (retire_at_issue_o),
     .disp_req_i             (disp_req_i),
     .disp_req_valid_i       (disp_req_valid_i && (disp_idx_i == issue_idx_i)), // only send valid for the selected slot
-    .disp_req_ready_o       (disp_req_ready_pipeline),
+    .disp_req_ready_o       (disp_req_ready_o),
     .slot_issue_i           (slot_issue_rdata),
     .slot_issue_o           (slot_issue_wdata),
     .slot_issue_wen_o       (slot_issue_wen),
@@ -237,8 +230,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .op_rsps_ready_o        (op_rsps_ready_o),
     .issue_req_o            (issue_req_raw),
     .issue_req_valid_o      (issue_req_valid_raw),
-    .issue_req_ready_i      (issue_req_ready_i),
-    .issue_hs_o             (issue_hs)
+    .issue_req_ready_i      (issue_req_ready_i)
   );
 
   // TODO(colluca): use rss_ids
@@ -319,15 +311,13 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .disp_req_t      (disp_req_t)
   ) i_result_capture (
     .slot_i               (slot_res_rsps[result_rss_sel]),
-    .issue_hs_i           (issue_hs && (issue_idx_i == result_rss_sel)),
+    .disp_hs_i            (disp_req_valid_i && disp_req_ready_o && (disp_idx_i == result_rss_sel)),
     .result_i             (result_i),
     .result_valid_i       (rss_wb_valid_sync),
     .loop_state_i         (loop_state_i),
     .is_last_result_iter_i(last_result_iter_i),
     .disp_req_i           (disp_req_i),
     .result_ready_o       (rss_wb_ready_sync),
-    .retired_o            (capture_retired),
-    .retired_rs_o         (capture_retired_rs),
     .slot_o               (slot_wb_capture),
     .rf_wb_tag_o          (capture_rf_wb_tag),
     .rf_do_writeback_o    (capture_rf_do_writeback)
