@@ -80,6 +80,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         alu_res_val_t  = logic,
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
+  parameter type         phy_id_t       = logic,
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
@@ -224,13 +225,14 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // operands at once.
   typedef struct packed {
     slot_id_t    slot_id;
+    rs_id_t      rs_id;
   } res_req_t;
 
   // The request going into the request crossbar
   // TODO(colluca): replace with a flat struct, called result_tag_t
   typedef struct packed {
-    rs_id_t   producer; // where to place the request
-    res_req_t request;
+    phy_id_t  phy_reg; // which physical register we request
+    res_req_t request; // who requested it
   } operand_req_t;
 
   // TODO(colluca): what does W stand for? In schnizo.sv there is actually a difference between the
@@ -627,6 +629,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
+      .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -653,16 +656,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .issue_req_valid_o  (alu_issue_req_valid),
       .issue_req_ready_i  (alu_issue_req_ready),
       .instr_exec_commit_o(alu_exec_commit),
-      // From FU
-      .result_i           (alu_result.result),
-      .result_tag_i       (alu_result_tag),
-      .result_valid_i     (alu_result_valid),
-      .result_ready_o     (alu_result_ready),
-      // To writeback
-      .wb_result_o        (alu_wb_result_value),
-      .wb_result_tag_o    (alu_wb_result_tag),
-      .wb_result_valid_o  (alu_wbs_result_valid[alu]),
-      .wb_result_ready_i  (alu_wbs_result_ready[alu]),
       /// Operand distribution network
       .available_results_o(alu_available_results[alu]),
       .op_reqs_o          (alu_op_reqs[alu]),
@@ -678,17 +671,16 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .op_rsps_valid_i    (alu_op_rsps_valid[alu]),
       .op_rsps_ready_o    (alu_op_rsps_ready[alu])
     );
-    // DANGER!
-    // HACK: We do not pass the branch result into the RS so keep the same RS implementation for
-    // all FUs. For any write back we directly take the branch result from the FU. This is
-    // possible because if we want to do a writeback the RS accepts the result only if the
-    // writeback also accepts the writeback. Thus we can bypass the RS.
-    // TODO: find a clean solution how to handle the branch result.
+
+    // Map the results fromn the FU to the writeback arbiter signals
     assign alu_wbs_result_and_tag[alu].result = '{
-      result:      alu_wb_result_value,
+      result:      alu_result.result,
       compare_res: alu_result.compare_res
     };
-    assign alu_wbs_result_and_tag[alu].tag = alu_wb_result_tag;
+    assign alu_wbs_result_and_tag[alu].tag = alu_result_tag;
+
+    assign alu_wbs_result_valid[alu] = alu_result_valid;
+    assign alu_wbs_result_ready[alu] = alu_result_ready;
 
     schnizo_alu #(
       .XLEN         (XLEN),
@@ -834,6 +826,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
+      .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -860,16 +853,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .issue_req_valid_o  (lsu_issue_req_valid),
       .issue_req_ready_i  (lsu_issue_req_ready),
       .instr_exec_commit_o(lsu_exec_commit),
-      // From FU
-      .result_i           (lsu_result),
-      .result_tag_i       (lsu_result_tag),
-      .result_valid_i     (lsu_result_valid),
-      .result_ready_o     (lsu_result_ready),
-      // To writeback
-      .wb_result_o        (lsu_wb_result),
-      .wb_result_tag_o    (lsu_wb_result_tag),
-      .wb_result_valid_o  (lsu_wbs_result_valid[lsu]),
-      .wb_result_ready_i  (lsu_wbs_result_ready[lsu]),
       /// Operand distribution network
       .available_results_o(lsu_available_results[lsu]),
       .op_reqs_o          (lsu_op_reqs[lsu]),
@@ -885,8 +868,13 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
       .op_rsps_ready_o    (lsu_op_rsps_ready[lsu])
     );
-    assign lsu_wbs_result_and_tag[lsu].result = lsu_wb_result;
-    assign lsu_wbs_result_and_tag[lsu].tag    = lsu_wb_result_tag;
+
+    // Map the results fromn the FU to the writeback arbiter signals
+    assign lsu_wbs_result_and_tag[lsu].result = lsu_result;
+    assign lsu_wbs_result_and_tag[lsu].tag    = lsu_result_tag;
+
+    assign lsu_wbs_result_valid[lsu] = lsu_result_valid;
+    assign lsu_wbs_result_ready[lsu] = lsu_result_ready;
 
     schnizo_lsu #(
       .XLEN               (XLEN),
@@ -1045,6 +1033,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
+      .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -1071,16 +1060,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .issue_req_valid_o  (fpu_issue_req_valid),
       .issue_req_ready_i  (fpu_issue_req_ready),
       .instr_exec_commit_o(fpu_exec_commit),
-      // From FU
-      .result_i           (fpu_result),
-      .result_tag_i       (fpu_result_tag),
-      .result_valid_i     (fpu_result_valid[fpu]),
-      .result_ready_o     (fpu_result_ready[fpu]),
-      // To writeback
-      .wb_result_o        (fpu_wb_result),
-      .wb_result_tag_o    (fpu_wb_result_tag),
-      .wb_result_valid_o  (fpu_wbs_result_valid[fpu]),
-      .wb_result_ready_i  (fpu_wbs_result_ready[fpu]),
       /// Operand distribution network
       .available_results_o(fpu_available_results[fpu]),
       .op_reqs_o          (fpu_op_reqs[fpu]),
@@ -1096,8 +1075,13 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .op_rsps_valid_i    (fpu_op_rsps_valid[fpu]),
       .op_rsps_ready_o    (fpu_op_rsps_ready[fpu])
     );
-    assign fpu_wbs_result_and_tag[fpu].result = fpu_wb_result;
-    assign fpu_wbs_result_and_tag[fpu].tag    = fpu_wb_result_tag;
+
+    // Map the results from the FU to the writeback arbiter signals
+    assign fpu_wbs_result_and_tag[fpu].result = fpu_result;
+    assign fpu_wbs_result_and_tag[fpu].tag    = fpu_result_tag;
+
+    assign fpu_wbs_result_valid[fpu] = fpu_result_valid[fpu];
+    assign fpu_wbs_result_ready[fpu] = fpu_result_ready[fpu];
 
     schnizo_fpu #(
       .FPUImplementation(FPUImplementation),
