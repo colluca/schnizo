@@ -30,12 +30,12 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  loop_state_e     loop_state_i,
   input  logic            last_issue_iter_i,
   output logic            retire_at_issue_o,
-  
+
   // Issue slot interface
   input  rs_slot_issue_t  slot_issue_i,
   output rs_slot_issue_t  slot_issue_o,
   output logic            slot_issue_wen_o,
-  
+
   // Result slot interface
   input  rs_slot_result_t slot_result_i,
   input  rs_slot_result_t slot_result_reset_val_i,

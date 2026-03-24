@@ -1187,7 +1187,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         };
         assign fpu_rescap_traces[fpu][rss] = '{
           valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_valid_i &&
-                          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_ready_o && 
+                          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_ready_o &&
                           !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.no_dest &&
                           (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
