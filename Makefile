@@ -45,7 +45,7 @@ SN_ROOT := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 include $(SN_ROOT)/make/common.mk
 
 TARGET = snitch_cluster
-SN_COMMON_BENDER_FLAGS += -t snitch_cluster_wrapper
+SN_COMMON_BENDER_FLAGS += -t snitch_cluster_wrapper -t spatz
 
 #################
 # Configuration #

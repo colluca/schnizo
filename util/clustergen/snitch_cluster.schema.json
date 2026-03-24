@@ -567,6 +567,12 @@
                                             "description": "Number of Slots to capture instructions per FPU. Only relevant if Xfrep is enabled.",
                                             "default": 1
                                         },
+					"num_spatz_slots": {
+                                            "type": "number",
+                                            "title": "Number of Slots per Spatz",
+                                            "description": "Number of Slots to capture instructions per FPU. Only relevant if Xfrep is enabled.",
+                                            "default": 6
+                                        },
                                         "num_alu_rsp_ports": {
                                             "type": "number",
                                             "title": "Number of Response Ports per ALU",

@@ -80,13 +80,13 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // Memory consistency mode during FREP loop
   input frep_mem_cons_mode_e frep_mem_cons_mode_i,
   // Asserted if the currently selected FU for the instruction does not have an empty RSS.
-  output logic        rs_full_o
+  output logic        rs_full_o,
 
   // Spatz
   output logic      spatz_disp_req_valid_o,
   input  logic      spatz_disp_req_ready_i,
   input  disp_rsp_t spatz_disp_rsp_i,
-  input  logic      spatz_rs_full_i,
+  input  logic      spatz_rs_full_i
 );
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);

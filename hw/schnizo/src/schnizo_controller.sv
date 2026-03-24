@@ -87,7 +87,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   input  logic                                        gpr_we_i,
   input  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_i,
   input  logic                                        fpr_we_i,
-  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i
+  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i,
 
   // Spatz Integration
   input spatz_running_instrs_i
