@@ -3,7 +3,8 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
-import experiments
+import matplotlib.pyplot as plt
+from . import experiments
 
 GE = 0.121
 
@@ -16,8 +17,8 @@ def to_kge(area_um2):
     return to_ge(area_um2) / 1e3
 
 
-def main():
-    df = experiments.get_results()
+def results(dir=None):
+    df = experiments.results(dir=dir)
 
     df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
     df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
@@ -35,7 +36,38 @@ def main():
 
     df.drop(columns=['hierarchy_details'], inplace=True)
     df.drop(columns=['synth_results'], inplace=True)
-    print(df)
+
+    return df
+
+
+def plot(dir=None, show=False):
+    df = results(dir=dir)
+
+    df = df[df['ConsumerCount'] == 64]
+
+    # Pivot: one group per NofRss, one bar per NofOperands
+    plot_df = df.pivot_table(index='NofRss', columns='NofOperands', values='StdCellArea')
+    plot_df.columns = [f'{ops} operands' for ops in plot_df.columns]
+
+    fig, ax = plt.subplots()
+    plot_df.plot(kind='bar', ax=ax, zorder=3)
+
+    ax.set_xlabel('Number of RSEs')
+    ax.set_ylabel('Area [kGE]')
+    ax.set_xticklabels(plot_df.index, rotation=0)
+    ax.legend()
+    ax.set_axisbelow(True)
+    ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
+    fig.tight_layout()
+
+    if show:
+        plt.show()
+
+    return plot_df
+
+
+def main():
+    print(results())
 
 
 if __name__ == '__main__':
