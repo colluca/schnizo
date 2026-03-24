@@ -35,6 +35,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
   parameter type         dest_mask_t    = logic,
+  parameter type         phy_id_t       = logic,
   parameter type         res_rsp_t      = logic
 ) (
   input  logic clk_i,
@@ -66,16 +67,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
   output logic       issue_req_valid_o,
   input  logic       issue_req_ready_i,
   output logic       instr_exec_commit_o,
-  // From FU to the result DEMUX
-  input  result_t    result_i,
-  input  instr_tag_t result_tag_i,
-  input  logic       result_valid_i,
-  output logic       result_ready_o,
-  // From writeback MUX to writeback
-  output result_t    wb_result_o,
-  output instr_tag_t wb_result_tag_o,
-  output logic       wb_result_valid_o,
-  input  logic       wb_result_ready_i,
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
@@ -209,55 +200,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
 
     assign instr_exec_commit_o = sel_superscalar_path ? rs_instr_exec_commit : instr_exec_commit_i;
 
-    // Result DEMUX
-    assign rs_result        = result_i;
-    assign rs_result_tag    = result_tag_i;
-    assign si_wb_result     = result_i;
-    assign si_wb_result_tag = result_tag_i;
-    stream_demux #(
-      .N_OUP(2)
-    ) i_fu_result_demux (
-      .inp_valid_i(result_valid_i),
-      .inp_ready_o(result_ready_o),
-      .oup_sel_i  (sel_superscalar_path),
-      .oup_valid_o({rs_result_valid, si_wb_result_valid}),
-      .oup_ready_i({rs_result_ready, si_wb_result_ready})
-    );
-
-    // Writeback MUX
-    // Local helper type to merge the MUX
-    typedef struct packed {
-      result_t    result;
-      instr_tag_t tag;
-    } result_and_tag_t;
-
-    result_and_tag_t rs_wb_result_and_tag, si_wb_result_and_tag;
-    result_and_tag_t wb_result_and_tag;
-    assign rs_wb_result_and_tag = '{
-      result: rs_wb_result,
-      tag:    rs_wb_result_tag
-    };
-    assign si_wb_result_and_tag = '{
-      result: si_wb_result,
-      tag:    si_wb_result_tag
-    };
-
-    stream_mux #(
-      .DATA_T(result_and_tag_t),
-      .N_INP (2)
-    ) i_fu_wb_mux (
-      .inp_data_i ({rs_wb_result_and_tag, si_wb_result_and_tag}),
-      .inp_valid_i({rs_wb_result_valid,   si_wb_result_valid}),
-      .inp_ready_o({rs_wb_result_ready,   si_wb_result_ready}),
-      .inp_sel_i  (sel_superscalar_path),
-      .oup_data_o (wb_result_and_tag),
-      .oup_valid_o(wb_result_valid_o),
-      .oup_ready_i(wb_result_ready_i)
-    );
-
-    assign wb_result_o     = wb_result_and_tag.result;
-    assign wb_result_tag_o = wb_result_and_tag.tag;
-
     // ---------------------------
     // Reservation Station
     // ---------------------------
@@ -277,6 +219,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
       .result_tag_t  (instr_tag_t),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
+      .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
@@ -302,16 +245,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
       .issue_req_valid_o  (rs_issue_req_valid),
       .issue_req_ready_i  (rs_issue_req_ready),
       .instr_exec_commit_o(rs_instr_exec_commit),
-      // Result from FU
-      .result_i           (rs_result),
-      .result_tag_i       (rs_result_tag),
-      .result_valid_i     (rs_result_valid),
-      .result_ready_o     (rs_result_ready),
-      // RF writeback
-      .rf_wb_result_o     (rs_wb_result),
-      .rf_wb_tag_o        (rs_wb_result_tag),
-      .rf_wb_valid_o      (rs_wb_result_valid),
-      .rf_wb_ready_i      (rs_wb_result_ready),
 
       /// Operand distribution network - directly fed through
       .available_results_o(available_results_o),
@@ -347,12 +280,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
       rs_id:   producer_id_i.rs_id
     };
     assign instr_exec_commit_o = instr_exec_commit_i;
-
-    // From FU result to the writeback. Direct pass-through.
-    assign wb_result_o       = result_i;
-    assign wb_result_tag_o   = result_tag_i;
-    assign wb_result_valid_o = result_valid_i;
-    assign result_ready_o    = wb_result_ready_i;
 
     // The "RS" is never full
     assign rs_full_o = 1'b0;

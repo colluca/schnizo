@@ -40,7 +40,7 @@ module schnova_writeback import schnizo_pkg::*; #(
 ) (
   input logic             en_superscalar_i,
   // ROB interface
-  output logic [PipeWidth-1:0]               wb_valid_o,
+  output logic [PipeWidth-1:0]                  wb_valid_o,
   output logic [PipeWidth-1:0][RobTagWidth-1:0] wb_rob_idx_o,
   // ALU interface
   input  alu_result_t     alu_result_i,
