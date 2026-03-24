@@ -279,7 +279,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic retire_at_issue;
 
   // Dispatch and result trip counter outputs
-  rss_cnt_t disp_cnt, issue_cnt, result_cnt;
+  rss_idx_t disp_cnt, issue_cnt, result_cnt;
   logic     last_disp;
   logic     trip_issue;
   logic     last_result, trip_result;
@@ -289,7 +289,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
-  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
+  rss_idx_t num_allocated_rss_d, num_allocated_rss_q;
   assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
@@ -456,28 +456,28 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //////////////
 
   trip_counter #(
-    .WIDTH(NofRssWidthExt)
+    .WIDTH(NofRssWidth)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (disp_hs),
-    .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .delta_i (rss_idx_t'(1)),
+    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
     .last_o  (last_disp),
     .trip_o  ()
   );
 
   trip_counter #(
-    .WIDTH(NofRssWidthExt)
+    .WIDTH(NofRssWidth)
   ) i_issue_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (issue_hs),
-    .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .delta_i (rss_idx_t'(1)),
+    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
     .q_o     (issue_cnt),
     .last_o  (),
     .trip_o  (trip_issue)
@@ -489,14 +489,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // i.e. to enforce that every FU always produces a response, even if it doesn't carry a result.
   // This would eliminate the need to increment by 2 in some cycles.
   trip_counter #(
-    .WIDTH(NofRssWidthExt)
+    .WIDTH(NofRssWidth)
   ) i_result_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (retire_at_issue || result_hs),
-    .delta_i (rss_cnt_t'(retire_at_issue + result_hs)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .delta_i (rss_idx_t'(retire_at_issue + result_hs)),
+    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
     .q_o     (result_cnt),
     .last_o  (last_result),
     .trip_o  (trip_result)
@@ -542,15 +542,15 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // raise an error. Additionally, there can only be at most one instruction dispatched
   // but not yet issued.
   // TODO(colluca): these assertions would trigger in time 0. Find a solution and fix these.
-  // rss_cnt_t inflight_disp_d, inflight_disp_q;
-  // rss_cnt_t inflight_issue_d, inflight_issue_q;
+  // rss_idx_t inflight_disp_d, inflight_disp_q;
+  // rss_idx_t inflight_issue_d, inflight_issue_q;
   // assign inflight_disp_d  = restart_i ? '0 :
-  //                           inflight_disp_q  + rss_cnt_t'(disp_hs)  - rss_cnt_t'(issue_hs);
+  //                           inflight_disp_q  + rss_idx_t'(disp_hs)  - rss_idx_t'(issue_hs);
   // assign inflight_issue_d = restart_i ? '0 :
-  //                           inflight_issue_q + rss_cnt_t'(issue_hs) - rss_cnt_t'(retire_at_issue + result_hs);
+  //                           inflight_issue_q + rss_idx_t'(issue_hs) - rss_idx_t'(retire_at_issue + result_hs);
   // `FFAR(inflight_disp_q,  inflight_disp_d,  '0, clk_i, rst_i)
   // `FFAR(inflight_issue_q, inflight_issue_d, '0, clk_i, rst_i)
-  // `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_cnt_t'(1), clk_i, !rst_i)
-  // `ASSERT(IssueBeforeResult, inflight_issue_q < rss_cnt_t'(NofRss), clk_i, !rst_i)
+  // `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_idx_t'(1), clk_i, !rst_i)
+  // `ASSERT(IssueBeforeResult, inflight_issue_q < rss_idx_t'(NofRss), clk_i, !rst_i)
 
 endmodule
