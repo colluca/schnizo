@@ -103,68 +103,45 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
 
-  // ---------------------------
-  // Virtual RS ID generation
-  // ---------------------------
-  // We assume the CSR, MULDIV and DMA to have a virtual reservation station
-  // with one slot for not. This is needed, since we use the RMT as a
-  // scoreboard in scalar mode.
-  localparam integer unsigned RsIdOffset = NofAlus + NofLsus + NofFpus;
-  localparam integer unsigned RsCsrId = RsIdOffset;
-  localparam integer unsigned RsMuldivId = RsCsrId + 1;
-  localparam integer unsigned RsDmaId = RsMuldivId + 1;
-
-  // CSR producer id
-  producer_id_t csr_producer;
-  assign csr_producer = producer_id_t'{
-    slot_id: '0, // We only have one
-    rs_id:   rs_id_t'(RsCsrId)
-  };
-
-  // MULDIV producer id
-  producer_id_t muldiv_producer;
-  assign muldiv_producer = producer_id_t'{
-    slot_id: '0, // We only have one
-    rs_id:   rs_id_t'(RsMuldivId)
-  };
-
-  // DMA producer id
-  producer_id_t dma_producer;
-  assign dma_producer = producer_id_t'{
-    slot_id: '0, // We only have one
-    rs_id:   rs_id_t'(RsDmaId)
-  };
-
   ////////////////////////
   // Request generation //
   ////////////////////////
 
-  // Read from RMT (register map table) and include the data in the dispatch request
+  // The dispatch request contains
+  // 1) The physical register mappings of the instruction
+  // 2) The data if it is already valid in the physical register
+  // 3) The instruction as well as its tag
 
-  rmt_entry_t no_mapping;
-  assign no_mapping = '{
-    producer:    '0,
-    valid: 1'b0
-  };
+  logic [PipeWidth-1:0] rs1_valid;
+  logic [PipeWidth-1:0] rs2_valid;
+  logic [PipeWidth-1:0] rs3_valid;
 
-  rmt_entry_t current_dest_entry;
-  // TODO (soderma): Remove this
-  // Not needed at this point
-  assign current_dest_entry = no_mapping;
-
+  // TODO(soderma): Extend to superscalar
   always_comb begin : dispatch_generation
     disp_req_o = '0;
     disp_req_o.fu_data = instr_fu_data_i[0];
 
-    // Operand indfo
-    disp_req_o.producer_op_a = no_mapping;
-    disp_req_o.producer_op_b = no_mapping;
-    disp_req_o.producer_op_c = no_mapping;
+    // Forward the physical register mapings
+    disp_req_o.phy_reg_op_a = reg_map_i[0].phy_reg_rs1;
+    disp_req_o.phy_reg_op_b = reg_map_i[0].phy_reg_rs2;
+    disp_req_o.phy_reg_op_c = reg_map_i[0].phy_reg_rs3;
+    disp_req_o.phy_reg_dest  = reg_map_i[0].phy_reg_rd_new;
 
-    // current destination producer
-    // TODO(colluca): the comment correctly calls it "current destination producer".
-    //                Align LHS signal name.
-    disp_req_o.current_producer_dest = current_dest_entry;
+    // If the operand has to be fetched from the PRF, we set it as invalid
+    // if it is an immediate it is already sent with the dispatch request and
+    // is therefore valid
+    disp_req_o.is_op_a_valid = instr_dec_i[0].use_pc_as_op_a |
+                              instr_dec_i[0].use_rs1addr_as_op_a;
+
+    disp_req_o.is_op_b_valid = (instr_dec_i[0].fu == schnizo_pkg::ALU ||
+                                instr_dec_i[0].fu == schnizo_pkg::CTRL_FLOW) &&
+                                instr_dec_i[0].use_imm_as_op_b &&
+                                !instr_dec_i[0].is_branch;
+
+    disp_req_o.is_op_c_valid = ~instr_dec_i[0].use_imm_as_rs3;
+
+    disp_req_o.is_op_a_fp = instr_dec_i[0].rs1_is_fp;
+    disp_req_o.is_op_b_fp = instr_dec_i[0].rs2_is_fp;
 
     // generate the tag
     disp_req_o.tag.producer_id    = fu_response.producer;
@@ -283,12 +260,7 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         fu_rs_full  = lsu_rs_full_i[lsu_idx];
       end
       schnizo_pkg::CSR : begin
-        // We can map the virtual producer here
-        // this is only needed for the scalar mode
-        // so that the RMT can work as a scoreboard
-        fu_response = disp_rsp_t'{
-          producer: csr_producer
-        };
+        // There is no response because there is no reservation station.
         fu_ready = csr_disp_req_ready_i;
       end
       schnizo_pkg::FPU: begin
@@ -297,21 +269,11 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         fu_rs_full  = fpu_rs_full_i[fpu_idx];
       end
       schnizo_pkg::MULDIV: begin
-        // We can map the virtual producer here
-        // this is only needed for the scalar mode
-        // so that the RMT can work as a scoreboard
-        fu_response = disp_rsp_t'{
-          producer: muldiv_producer
-        };
+        // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::DMA: begin
-        // We can map the virtual producer here
-        // this is only needed for the scalar mode
-        // so that the RMT can work as a scoreboard
-        fu_response = disp_rsp_t'{
-          producer: dma_producer
-        };
+        // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::NONE: begin
@@ -448,13 +410,13 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // if we have enough ROB entries otherwise the controller
   // would stall the dispatch by forcing the valid to zero.
 
-  // We only allocate new entries in the ROB in superscalar mode
-  // TODO (soderma): We only allocate the entries that we dispatched this cycle
-  assign rob_push_o = (rob_push_count_o != '0) & en_superscalar_i;
-
   // The amount of new entries we allocated, is the amount of instructions
   // that have to be allocated
   assign rob_push_count_o = instr_rename_count_i;
+
+  // We only allocate new entries in the ROB in superscalar mode
+  // The allocation happens at a successfull dispatch
+  assign rob_push_o = dispatched & (rob_push_count_o != '0) & en_superscalar_i;
 
   // The ROB assumes that the incoming data is valid in a block
   // that means all the mappings that should be allocated are in contiguous elements
@@ -475,10 +437,10 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   end
 
   //////////////////////////////////////////
-  // Generate the scroboard dispatch data //
+  // Generate the scoreboard dispatch data //
   //////////////////////////////////////////
 
-  always_comb begin : write_rmt
+  always_comb begin : gen_scoreboard_update
     // Forward the new destination mappings to the rename stage
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       // In scalar mode we don't perform renaming, so we use the old value stored in the rmt
@@ -493,4 +455,5 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         sb_disp_data_o[i].use_imm_as_rs3 = instr_dec_i[i].use_imm_as_rs3;
     end
   end
+
 endmodule

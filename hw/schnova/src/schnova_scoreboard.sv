@@ -25,6 +25,10 @@ module schnova_scoreboard #(
   input  logic                                    dispatched_i,
   input  logic [PipeWidth-1:0]                    instr_valid_i,
   input  sb_disp_data_t [PipeWidth-1:0]           disp_data_i,
+  // Read port for the physical register file
+  input  logic [NrReadPorts-1:0][AddrWidth-1:0] raddr_i,
+  input  logic [NrReadPorts-1:0]                read_fp_i,
+  output logic [NrReadPorts-1:0]                rdata_o,
   // Register writeback snooping
   input  logic [NrWritePorts-1:0][AddrWidth-1:0]  wb_gpr_addr_i,
   input  logic [NrWritePorts-1:0]                 wb_gpr_en_i,
@@ -98,7 +102,7 @@ module schnova_scoreboard #(
           end
         end
     end
-  
+
     for (int unsigned j = 0; j < NrWritePorts; j++) begin
         for (int unsigned i = 0; i < NumRegs; i++) begin
           if (wb_gpr_dec[j][i]) begin
@@ -109,6 +113,19 @@ module schnova_scoreboard #(
 
     // x0 is always not busy, we can't write to that register
     sbi_d[0] = 1'b0;
+  end
+
+  ///////////////////////////
+  // Scoreboard read ports //
+  ///////////////////////////
+  always_comb begin
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (read_fp_i[i]) begin
+        rdata_o[i] = sbf_q[raddr_i];
+      end else begin
+        rdata_o[i] = sbi_q[raddr_i];
+      end
+    end
   end
 
   ///////////////////////////

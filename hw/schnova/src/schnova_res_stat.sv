@@ -19,7 +19,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
   parameter int unsigned NofResRspIfs   = 1,
-  parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
@@ -31,11 +30,9 @@ module schnova_res_stat import schnizo_pkg::*; #(
   parameter type         result_tag_t   = logic,
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
+  parameter type         phy_id_t       = logic,
   parameter type         operand_req_t  = logic,
-  parameter type         operand_t      = logic,
-  parameter type         res_req_t      = logic,
-  parameter type         dest_mask_t    = logic,
-  parameter type         res_rsp_t      = logic
+  parameter type         operand_t      = logic
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -64,38 +61,11 @@ module schnova_res_stat import schnizo_pkg::*; #(
   input  logic       issue_req_ready_i,
   output logic       instr_exec_commit_o,
 
-  // Result from FU
-  input  result_t     result_i,
-  input  result_tag_t result_tag_i,
-  input  logic        result_valid_i,
-  output logic        result_ready_o,
-
-  // RF writeback
-  output result_t     rf_wb_result_o,
-  output result_tag_t rf_wb_tag_o,
-  output logic        rf_wb_valid_o,
-  input  logic        rf_wb_ready_i,
-
   /// Operand distribution network
-  // Info required for arbitration in request XBAR
-  // TODO(colluca): constrain NofRss and NofResRspIfs to be equal
-  output operand_req_t [NofRss-1:0] available_results_o,
-
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
   output logic         [NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
-
-  // Result request interface - incoming - from each possible requester
-  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
-  input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
-  output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
-
-  // Result response interface - outgoing - result as operand response
-  // Shared port for all slots.
-  output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
-  output logic     [NofResRspIfs-1:0] res_rsps_valid_o,
-  input  logic     [NofResRspIfs-1:0] res_rsps_ready_i,
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOperands-1:0] op_rsps_i,
@@ -112,42 +82,23 @@ module schnova_res_stat import schnizo_pkg::*; #(
   // We need to count from 0 to NofRss for the control logic -> +1 bit
   localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
 
+
   typedef logic [NofRssWidth-1:0] rss_idx_t;
   typedef logic [NofRssWidthExt-1:0] rss_cnt_t;
 
   typedef struct packed {
-    // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
-    // constant and fetched during LCP1 and LCP2.
-    producer_id_t producer;
-    // Signaling whether this operand is produced or not. If set, the value has to be fetched from
-    // the producer defined by producer_id. If reset, this operand is constant and is fetched in
-    // LCP1 and again in LCP2 and kept for the rest of the loop execution. A constant value can
-    // either be a value read once from a register or an immediate of the instruction.
-    logic         is_produced;
+    // The physical register from where this operand will be fetched
+    phy_id_t phy_reg_src;
+    // If the physical register is a floating point register
+    logic    is_fp;
+    // If this is set, the current operand has a valid value
+    // otherwise the operand has to be fetched/requested from the
+    // physical register file.
+    logic    is_valid;
     operand_t     value;
-    logic         is_valid;
-    // Set if we placed a request to the producer
+    // Set if we placed a request to the physical register
     logic         requested;
   } rss_operand_t;
-
-  typedef struct packed {
-    result_t value;
-    // If set, the result is valid.
-    logic    is_valid;
-  } rss_result_t;
-
-  // Result metadata and counters — updated by res_req_handling and result_capture.
-  typedef struct packed {
-    // The most recent result.
-    rss_result_t                    result;
-    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
-    // Thus, we immediately retire the instruction when it's issued.
-    logic                           has_dest;
-    // The register ID where this instruction does commit into during regular execution.
-    logic [RegAddrWidth-1:0]        dest_id;
-    // Whether the destination register is a floating point or integer register.
-    logic                           dest_is_fp;
-  } rs_slot_result_t;
 
   // Issue-side state — updated by the dispatch pipeline only.
   // TODO(colluca): put all FU-specific fields into a separate struct that is passed
@@ -157,8 +108,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     // Whether the RSS contains an active instruction.
     logic                           is_occupied;
     // The instruction itself. Partially decoded. Depends on FU type.
-    // TODO: Can we rely on the synthesis optimization to remove unused signals even if they are
-    //       registered here?
     alu_op_e                        alu_op;
     lsu_op_e                        lsu_op;
     fpu_op_e                        fpu_op;
@@ -166,15 +115,9 @@ module schnova_res_stat import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
-    // All operands
-    // TODO(colluca): optimize by pulling out of RS. Only one RSS per RS will anyways fetch
-    // operands at any time. One exception is for immediate values, those need to be always
-    // stored, but don't need any of the fields in rss_operand_t beyond `value`.
-    // The other exception is actually for operands that are not produced by other FUs, e.g.
-    // operands that just keep the value from the RF at the time of dispatch.
-    // If we don't buffer these, then we have to be able to fetch them from the RF. Probably
-    // a good compromise would be to have a few registers (less than #operands x #slots) in the
-    // RS to buffer these "non-produced" operands, and fallback to HW loop mode if we run out.
+    // To which physical register this instruction writes to
+    phy_id_t phy_reg_dest;
+    // Data of the operands from this slot
     rss_operand_t [NofOperands-1:0] operands;
   } rs_slot_issue_t;
 
@@ -266,13 +209,10 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .NofRss          (NofRss),
     .NofOperands     (NofOperands),
     .NofResRspIfs    (NofResRspIfs),
-    .ConsumerCount   (ConsumerCount),
     .RegAddrWidth    (RegAddrWidth),
     .UseSram         (UseSram),
     .rs_slot_issue_t (rs_slot_issue_t),
-    .rs_slot_result_t(rs_slot_result_t),
     .rss_operand_t   (rss_operand_t),
-    .rss_result_t    (rss_result_t),
     .disp_req_t      (disp_req_t),
     .issue_req_t     (issue_req_t),
     .result_t        (result_t),
@@ -280,10 +220,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .producer_id_t   (producer_id_t),
     .slot_id_t       (slot_id_t),
     .operand_req_t   (operand_req_t),
-    .operand_t       (operand_t),
-    .res_req_t       (res_req_t),
-    .dest_mask_t     (dest_mask_t),
-    .res_rsp_t       (res_rsp_t)
+    .operand_t       (operand_t)
   ) i_slots (
     .clk_i,
     .rst_i,
@@ -299,24 +236,9 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .issue_req_valid_o,
     .issue_req_ready_i,
     .instr_exec_commit_o,
-    .result_i,
-    .result_tag_i,
-    .result_valid_i,
-    .result_ready_o,
-    .rf_wb_result_o,
-    .rf_wb_tag_o,
-    .rf_wb_valid_o,
-    .rf_wb_ready_i,
-    .available_results_o,
     .op_reqs_o,
     .op_reqs_valid_o,
     .op_reqs_ready_i,
-    .res_reqs_i,
-    .res_reqs_valid_i,
-    .res_reqs_ready_o,
-    .res_rsps_o,
-    .res_rsps_valid_o,
-    .res_rsps_ready_i,
     .op_rsps_i,
     .op_rsps_valid_i,
     .op_rsps_ready_o
@@ -336,6 +258,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .load_i  (1'b0),
     .down_i  (1'b0),
     .delta_i (rss_cnt_t'(1)),
+    .d_i     ('0),
     .q_o     (disp_cnt),
     .overflow_o ()
   );
