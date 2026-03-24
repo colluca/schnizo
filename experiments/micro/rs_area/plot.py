@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import matplotlib.pyplot as plt
+import numpy as np
 from . import experiments
 
 GE = 0.121
@@ -40,30 +41,52 @@ def results(dir=None):
     return df
 
 
-def plot(dir=None, show=False):
+def plot(dir=None, show=False, hide_x_axis=False):
     df = results(dir=dir)
-
     df = df[df['ConsumerCount'] == 64]
 
-    # Pivot: one group per NofRss, one bar per NofOperands
-    plot_df = df.pivot_table(index='NofRss', columns='NofOperands', values='StdCellArea')
-    plot_df.columns = [f'{ops} operands' for ops in plot_df.columns]
+    # Pivot CombArea and SeqArea separately
+    comb_df = df.pivot_table(index='NofRss', columns='NofOperands', values='CombArea')
+    seq_df = df.pivot_table(index='NofRss', columns='NofOperands', values='SeqArea')
 
+    operands = comb_df.columns
+    n_groups = len(comb_df.index)
+    n_bars = len(operands)
+    x = np.arange(n_groups)
+    width = 0.8 / n_bars
+
+    # Use the default color cycle, darken for SeqArea
     fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax, zorder=3)
+    prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-    ax.set_xlabel('Number of RSEs')
+    for i, ops in enumerate(operands):
+        base_color = prop_cycle[i % len(prop_cycle)]
+        # Convert hex to RGB, create a darker shade for SeqArea
+        from matplotlib.colors import to_rgba
+        rgba = to_rgba(base_color)
+        light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
+
+        offset = (i - (n_bars - 1) / 2) * width
+        ax.bar(x + offset, comb_df[ops], width, label=f'{ops} op. (comb)',
+               color=base_color, zorder=3)
+        ax.bar(x + offset, seq_df[ops], width, bottom=comb_df[ops],
+               label=f'{ops} op. (seq)', color=light, zorder=3)
+
     ax.set_ylabel('Area [kGE]')
-    ax.set_xticklabels(plot_df.index, rotation=0)
+    ax.set_xticks(x)
+    if hide_x_axis:
+        ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+    else:
+        ax.set_xlabel('Number of RSEs')
+        ax.set_xticklabels(comb_df.index)
     ax.legend()
-    ax.set_axisbelow(True)
-    ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
+    ax.grid(True, axis='y')
     fig.tight_layout()
 
     if show:
         plt.show()
 
-    return plot_df
+    return df.pivot_table(index='NofRss', columns='NofOperands', values='StdCellArea')
 
 
 def main():

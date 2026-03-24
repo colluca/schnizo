@@ -19,41 +19,41 @@ def gen_experiments(designs=None):
     # Generate list of experiments
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
-        {
-            'design': 'snitch_synth',
-            'name': 'snitch'
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'scalar',
-            'hdl_params': {
-                'Xfrep': 0,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 0,
-                'MulInAlu0': 0,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'scalar+mul',
-            'hdl_params': {
-                'Xfrep': 0,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 0,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'scalar+mul+fpu',
-            'hdl_params': {
-                'Xfrep': 0,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-            }
-        },
+        # {
+        #     'design': 'snitch_synth',
+        #     'name': 'snitch'
+        # },
+        # {
+        #     'design': 'schnizo_synth',
+        #     'name': 'scalar',
+        #     'hdl_params': {
+        #         'Xfrep': 0,
+        #         'NofAlus': 1,
+        #         'NofLsus': 1,
+        #         'NofFpus': 0,
+        #         'MulInAlu0': 0,
+        #     }
+        # },
+        # {
+        #     'design': 'schnizo_synth',
+        #     'name': 'scalar+mul',
+        #     'hdl_params': {
+        #         'Xfrep': 0,
+        #         'NofAlus': 1,
+        #         'NofLsus': 1,
+        #         'NofFpus': 0,
+        #     }
+        # },
+        # {
+        #     'design': 'schnizo_synth',
+        #     'name': 'scalar+mul+fpu',
+        #     'hdl_params': {
+        #         'Xfrep': 0,
+        #         'NofAlus': 1,
+        #         'NofLsus': 1,
+        #         'NofFpus': 1,
+        #     }
+        # },
         {
             'design': 'schnizo_synth',
             'name': 'superscalar_small',
@@ -148,8 +148,8 @@ def gen_experiments(designs=None):
     return experiments
 
 
-def get_results():
-    manager = ExperimentManager(gen_experiments())
+def results(dir=None):
+    manager = ExperimentManager(gen_experiments(), dir=dir, parse_args=False)
     df = manager.get_results()
     df = df.set_index('name')
     df['synth_results'] = df['synth_results'].str[EARLY_SYNTH_STAGE]

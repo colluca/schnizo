@@ -37,7 +37,7 @@ def gen_experiments():
 
 
 def results(dir=None):
-    manager = ExperimentManager(gen_experiments(), dir=dir)
+    manager = ExperimentManager(gen_experiments(), dir=dir, parse_args=False)
     df = manager.get_results()
     df['synth_results'] = df['synth_results'].str[FINAL_SYNTH_STAGE]
     return df

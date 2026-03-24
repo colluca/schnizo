@@ -118,7 +118,7 @@ def gen_experiments(ci=False):
 
 
 def results(dir=None):
-    df = ExperimentManager(gen_experiments(), dir=dir).get_results()
+    df = ExperimentManager(gen_experiments(), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
     df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)

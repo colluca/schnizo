@@ -3,7 +3,7 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
-import experiments
+from . import experiments
 
 GE = 0.121
 
@@ -16,8 +16,8 @@ def to_kge(area_um2):
     return to_ge(area_um2) / 1e3
 
 
-def main():
-    df = experiments.get_results()
+def results(dir=None):
+    df = experiments.results(dir=dir)
 
     df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
     df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
@@ -31,7 +31,12 @@ def main():
 
     df.drop(columns=['hierarchy_details'], inplace=True)
     df.drop(columns=['synth_results'], inplace=True)
-    print(df)
+
+    return df
+
+
+def main():
+    print(results())
 
 
 if __name__ == '__main__':

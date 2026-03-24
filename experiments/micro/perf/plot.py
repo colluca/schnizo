@@ -9,12 +9,43 @@ import numpy as np
 from scipy.stats import gmean
 from . import experiments
 
+SCHNIZO_CFG = {
+    'alu': 3,
+    'lsu': 3,
+    'fpu': 1
+}
+
+BENCHMARK_INSNS = {
+    'sz_axpy':          {'alu':  3, 'fpu':  1, 'lsu':  3},
+    'sz_dot':           {'alu':  2, 'fpu':  4, 'lsu':  8},
+    'exp':              {'alu': 22, 'fpu': 40, 'lsu': 28},
+    'log':              {'alu': 34, 'fpu': 40, 'lsu': 16},
+    'pi_lcg':           {'alu': 20, 'fpu': 28, 'lsu':  0},
+    'pi_xoshiro128p':   {'alu': 84, 'fpu': 28, 'lsu':  0},
+    'poly_lcg':         {'alu': 20, 'fpu': 40, 'lsu':  0},
+    'poly_xoshiro128p': {'alu': 84, 'fpu': 40, 'lsu':  0},
+}
+
+
+def ideal_ipc(insns, cfg):
+    """Compute ideal IPC based on instruction mix and FU counts (bottleneck analysis)."""
+    total = sum(insns.values())
+    cycles = max(insns[fu] / cfg[fu] for fu in cfg if insns.get(fu, 0))
+    return total / cycles
+
+
 THEORETICAL_METRICS = {
-    'fpu_util':
-    {
-        # 4x unrolled
-        'sz_axpy': 4/(4*3+3+4),
-        'sz_dot': 4/(4*2+2+4)
+    'fpu_util': {
+        'scalar': {
+            app: BENCHMARK_INSNS[app]['fpu'] / sum(BENCHMARK_INSNS[app].values())
+            for app in ['sz_axpy', 'sz_dot']
+        }
+    },
+    'ipc': {
+        'superscalar': {
+            app: ideal_ipc(BENCHMARK_INSNS[app], SCHNIZO_CFG)
+            for app in BENCHMARK_INSNS
+        }
     }
 }
 
@@ -127,19 +158,30 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     # Add theoretical markers on top of scalar bars
     labeled = False
     for bar, app in zip(scalar_bars, plot_df.index):
-        if metric in THEORETICAL_METRICS:
-            if app in THEORETICAL_METRICS[metric]:
-                theoretical = THEORETICAL_METRICS[metric][app]
+        if metric == 'fpu_util':
+            if app in THEORETICAL_METRICS[metric]['scalar']:
+                theoretical = THEORETICAL_METRICS[metric]['scalar'][app]
                 ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
-                           color='black', marker='D', zorder=3,
+                           color='black', marker='D', zorder=4,
                            label='Theoretical' if not labeled else '')
                 labeled = True
 
     # Add asymptote markers on top of superscalar bars
     for i, (bar, asymptote) in enumerate(zip(superscalar_bars, asymptotes)):
         ax.scatter(bar.get_x() + bar.get_width() / 2., asymptote,
-                   color='black', marker='*', zorder=3,
+                   color='black', marker='*', zorder=4,
                    label='Asymptote' if i == 0 else '')
+
+    # Add ideal IPC lines on top of superscalar bars
+    labeled = False
+    if metric == 'ipc':
+        for bar, app in zip(superscalar_bars, plot_df.index):
+            if app in THEORETICAL_METRICS['ipc']['superscalar']:
+                ideal = THEORETICAL_METRICS['ipc']['superscalar'][app]
+                ax.plot([bar.get_x(), bar.get_x() + bar.get_width()], [ideal, ideal],
+                        color='tab:red', zorder=3,
+                        label='Ideal' if not labeled else '')
+                labeled = True
 
     # Reference line at y=1
     ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
@@ -147,8 +189,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     # Format plot
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS[metric])
-    ax.set_xticklabels(plot_df.index, rotation=0)
-    ax.legend()
+    ax.set_xticklabels(plot_df.index, rotation=30, ha='right')
+    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
     ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
