@@ -73,7 +73,7 @@
                     size: 16, // total instruction cache size in kByte
                     ways: 2, // number of ways
                     cacheline: 512, // word size in bits
-                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
+                    fetch_data_width: 64, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -112,9 +112,9 @@
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         // Superscalar configuration
-        num_alus: 3,
+        num_alus: 1,
         num_alu_slots: 2,
-        num_lsus: 3,
+        num_lsus: 1,
         num_lsu_slots: 3,
         num_fpus: 1,
         num_fpu_slots: 4,

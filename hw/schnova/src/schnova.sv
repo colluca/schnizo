@@ -304,6 +304,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   localparam int unsigned RobTagWidth = $clog2(NofRobEntries);
 
+  // In the worst case we will have to read 3 entries per instruction
+  // since floating point instructions can have 3 source registers.
+  localparam int unsigned NrDispReadPorts = PipeWidth*3;
+
   // TODO(colluca): review these comments
   typedef struct packed {
     slot_id_t slot_id; // used to select the slot of the request within the RS
@@ -351,13 +355,18 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     phy_id_t phy_reg_rd_old;
   } reg_map_t;
 
-  
+
   typedef struct packed {
     fu_data_t   fu_data;
-    rmt_entry_t producer_op_a;
-    rmt_entry_t producer_op_b;
-    rmt_entry_t producer_op_c;
-    rmt_entry_t current_producer_dest;
+    phy_id_t phy_reg_op_a;
+    logic is_op_a_fp;
+    logic is_op_a_valid;
+    phy_id_t phy_reg_op_b;
+    logic is_op_b_fp;
+    logic is_op_b_valid;
+    phy_id_t phy_reg_op_c;
+    logic is_op_c_valid;
+    phy_id_t phy_reg_dest;
     schnova_instr_tag_t tag;
   } disp_req_t;
 
@@ -373,6 +382,13 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     alu_res_val_t result;
     logic         compare_res;
   } alu_result_t;
+
+  typedef struct packed {
+    phy_id_t  phy_reg; // which physical register we request
+    logic     is_fp;   // if the physical register is a FPR
+  } operand_req_t;
+
+  typedef logic [OpLen-1:0] operand_t;
 
   /////////////////
   // Connections //
@@ -454,6 +470,28 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   sb_disp_data_t [PipeWidth-1:0] sb_disp_data;
   reg_map_t [PipeWidth-1:0]  reg_map;
 
+  logic [NofOperandIfs-1:0][PhysRegAddrSize-1:0] sb_raddr;
+  logic [NofOperandIfs-1:0]                      sb_read_fp;
+  logic [NofOperandIfs-1:0]                      sb_rdata;
+
+  operand_req_t [NofOperandIfs-1:0]              op_reqs;
+  logic         [NofOperandIfs-1:0]              op_reqs_valid;
+  logic         [NofOperandIfs-1:0]              op_reqs_ready;
+  logic         [NofOperandIfs-1:0]              op_reqs_fpr_valid;
+  logic         [NofOperandIfs-1:0]              op_reqs_fpr_ready;
+  logic         [NofOperandIfs-1:0]              op_reqs_gpr_valid;
+  logic         [NofOperandIfs-1:0]              op_reqs_gpr_ready;
+
+  operand_t [NofOperandIfs-1:0]                  op_rsps_data;
+  logic [NofOperandIfs-1:0]                      op_rsps_valid;
+  logic [NofOperandIfs-1:0]                      op_rsps_ready;
+  operand_t [NofOperandIfs-1:0]                  op_rsps_fpr_data;
+  logic [NofOperandIfs-1:0]                      op_rsps_fpr_valid;
+  logic [NofOperandIfs-1:0]                      op_rsps_fpr_ready;
+  operand_t [NofOperandIfs-1:0]                  op_rsps_gpr_data;
+  logic [NofOperandIfs-1:0]                      op_rsps_gpr_valid;
+  logic [NofOperandIfs-1:0]                      op_rsps_gpr_ready;
+
   logic                                rob_push;
   logic [$clog2(PipeWidth):0]          rob_push_count;
   phy_id_t [PipeWidth-1:0]             rob_phy_reg_rd_old;
@@ -461,8 +499,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   logic rob_ready;
 
-  logic [PipeWidth-1:0]                   wb_valid;
-  logic [PipeWidth-1:0][RobTagWidth-1:0]  wb_rob_idx;
+  logic [1:0]                   wb_valid;
+  logic [1:0][RobTagWidth-1:0]  wb_rob_idx;
 
   logic ctrl_instr_retired;
 
@@ -877,6 +915,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
     .fu_data_t          (fu_data_t),
+    .phy_id_t           (phy_id_t),
+    .operand_req_t      (operand_req_t),
+    .operand_t          (operand_t),
     .instr_tag_t        (schnova_instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
@@ -929,6 +970,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_rs_full_o        (fpu_rs_full),
     .fpu_status_o         (fpu_status),
     .fpu_status_valid_o   (fpu_status_valid),
+    // Operand requests
+    .op_reqs_o            (op_reqs),
+    .op_reqs_valid_o      (op_reqs_valid),
+    .op_reqs_ready_i      (op_reqs_ready),
+    // Operand responses
+    .op_rsps_i(op_rsps_data),
+    .op_rsps_valid_i(op_rsps_valid),
+    .op_rsps_ready_o(op_rsps_ready),
     // ALU WB
     .alu_wb_result_o      (alu_result),
     .alu_wb_result_tag_o  (alu_result_tag),
@@ -1164,7 +1213,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
 
   schnova_scoreboard #(
     .PipeWidth(PipeWidth),
-    .NrReadPorts(/* TODO(soderma)*/),
+    .NrReadPorts(NofOperandIfs),
     .NrWritePorts(1),
     .AddrWidth(PhysRegAddrSize),
     .sb_disp_data_t(sb_disp_data_t)
@@ -1177,6 +1226,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .dispatched_i(dispatched),
     .instr_valid_i(instr_valid),
     .disp_data_i(sb_disp_data),
+    // Physical register interface
+    .raddr_i(sb_raddr),
+    .read_fp_i(sb_read_fp),
+    .rdata_o(sb_rdata),
     // Register writeback snooping
     .wb_gpr_addr_i(gpr_waddr),
     .wb_gpr_en_i(gpr_we),
@@ -1191,41 +1244,105 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // Physical Register Files //
   /////////////////////////////
 
-  snitch_regfile #(
-    .DataWidth   (XLEN),
-    .NrReadPorts (NrIntReadPorts),
-    .NrWritePorts(NrIntWritePorts),
-    .ZeroRegZero (1),
-    .AddrWidth   (PhysRegAddrSize)
-  ) i_int_regfile (
+  logic [NofOperandIfs-1:0][PhysRegAddrSize-1:0] sb_fp_raddr;
+  logic [NofOperandIfs-1:0][PhysRegAddrSize-1:0] sb_gp_raddr;
+
+  schnova_phys_regfile #(
+    .DataWidth     (XLEN),
+    .OpLen         (OpLen),
+    .NrReadPorts   (NrIntReadPorts),
+    .NofOperandIfs (NofOperandIfs),
+    .NrWritePorts  (NrIntWritePorts),
+    .ZeroRegZero   (1),
+    .AddrWidth     (PhysRegAddrSize),
+    .operand_req_t (operand_req_t)
+  ) i_int_phy_regfile (
     .clk_i,
     .rst_ni (~rst_i),
     .raddr_i(gpr_raddr),
     .rdata_o(gpr_rdata),
     .waddr_i(gpr_waddr),
     .wdata_i(gpr_wdata),
-    .we_i   (gpr_we)
+    .we_i   (gpr_we),
+    .sb_raddr_o(sb_gp_raddr),
+    .sb_reg_busy_i(sb_rdata),
+    .op_reqs_i(op_reqs),
+    .op_reqs_valid_i(op_reqs_gpr_valid),
+    .op_reqs_ready_o(op_reqs_gpr_ready),
+    .op_rsps_data_o(op_rsps_gpr_data),
+    .op_rsps_valid_o(op_rsps_gpr_valid),
+    .op_rsps_ready_i(op_rsps_gpr_ready)
   );
 
   if (NofFpus > 0) begin : gen_fp_rf
-    snitch_regfile #(
-      .DataWidth    (FLEN),
-      .NrReadPorts  (NrFpReadPorts),
-      .NrWritePorts (NrFpWritePorts),
-      .ZeroRegZero  (0),
-      .AddrWidth    (PhysRegAddrSize)
-    ) i_fp_regfile (
+    schnova_phys_regfile #(
+      .DataWidth     (FLEN),
+      .OpLen         (OpLen),
+      .NrReadPorts   (NrFpReadPorts),
+      .NofOperandIfs (NofOperandIfs),
+      .NrWritePorts  (NrFpWritePorts),
+      .ZeroRegZero   (0),
+      .AddrWidth     (PhysRegAddrSize),
+      .operand_req_t (operand_req_t)
+    ) i_fp_phy_regfile (
       .clk_i,
       .rst_ni (~rst_i),
       .raddr_i(fpr_raddr),
       .rdata_o(fpr_rdata),
       .waddr_i(fpr_waddr),
       .wdata_i(fpr_wdata),
-      .we_i   (fpr_we)
+      .we_i   (fpr_we),
+      .sb_raddr_o(sb_fp_raddr),
+      .sb_reg_busy_i(sb_rdata),
+      .op_reqs_i(op_reqs),
+      .op_reqs_valid_i(op_reqs_fpr_valid),
+      .op_reqs_ready_o(op_reqs_fpr_ready),
+      .op_rsps_data_o(op_rsps_fpr_data),
+      .op_rsps_valid_o(op_rsps_fpr_valid),
+      .op_rsps_ready_i(op_rsps_fpr_ready)
     );
-  end else begin
+  end else begin : gen_no_fp_rf
     assign fpr_rdata = '0;
   end
+
+  // Floating point and integer operand request/response
+  // multiplexing
+  always_comb begin : sb_read_port_mux
+    for (int unsigned op; op < NofOperandIfs; op++) begin
+      sb_raddr[op] =  op_reqs[op].is_fp ?
+                      sb_fp_raddr[op]   :
+                      sb_gp_raddr[op];
+      sb_read_fp[op] = op_reqs[op].is_fp;
+    end
+  end
+
+  for (genvar op = 0; op < NofOperandIfs; op++) begin : gen_op_req_demux
+    stream_demux #(
+        .N_OUP (2)
+      ) i_op_req_demux (
+        .inp_valid_i(op_reqs_valid[op]),
+        .inp_ready_o(op_reqs_ready[op]),
+        .oup_sel_i  (op_reqs[op].is_fp),
+        .oup_valid_o({op_reqs_fpr_valid[op], op_reqs_gpr_valid[op]}),
+        .oup_ready_i({op_reqs_fpr_ready[op], op_reqs_gpr_ready[op]})
+      );
+  end
+
+  for (genvar op = 0; op < NofOperandIfs; op++) begin : gen_op_rsp_mux
+    stream_mux #(
+        .DATA_T(operand_t),
+        .N_INP (2)
+      ) i_op_rsp_mux (
+        .inp_data_i ({op_rsps_fpr_data[op], op_rsps_gpr_data[op]}),
+        .inp_valid_i({op_rsps_fpr_valid[op], op_rsps_gpr_valid[op]}),
+        .inp_ready_o({op_rsps_fpr_ready[op], op_rsps_gpr_ready[op]}),
+        .inp_sel_i  (op_reqs[op].is_fp),
+        .oup_data_o (op_rsps_data[op]),
+        .oup_valid_o(op_rsps_valid[op]),
+        .oup_ready_i(op_rsps_ready[op])
+      );
+  end
+
   ////////////
   // Tracer //
   ////////////
@@ -1308,29 +1425,16 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace_resreq
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_hs &&
+                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
                           // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
                           // after porting issue slots to SRAM
           instr_iter:     1'b0,
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
-          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
+          producer:       i_fu_stage.producer_to_string('0),
+          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
         };
-        assign alu_rescap_traces[alu][rss] = '{
-          // TODO(colluca): this combined signal should be derived inside the slot, not here. Do the same for other logic
-          // sparse here in the tracer.
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.capture_retired &&
-                          !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.has_dest &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          result_iter:    1'b0,
-          rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
-          rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
-          result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
-        };
+        assign alu_rescap_traces[alu][rss] = '{default: '0};
       end else begin : gen_alu_traces_rss_no_trace_resreq
         assign rss_alu_traces[alu][rss]    = '{default: '0};
         assign alu_rescap_traces[alu][rss] = '{default: '0};
@@ -1338,16 +1442,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
         if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
-          assign alu_resreq_traces[alu][rss][con] = '{
-            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
-            producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-            consumer:       i_fu_stage.consumer_to_string(con),
-            // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: 1'b0
-          };
+          assign alu_resreq_traces[alu][rss][con] = '{default: '0};
         end else begin : gen_alu_traces_rss_no_resreq
           assign alu_resreq_traces[alu][rss][con] = '{default: '0};
         end
@@ -1361,11 +1456,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace_resreq
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_hs &&
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
           instr_iter:     1'b0,
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+          producer:       i_fu_stage.producer_to_string('0),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1376,17 +1470,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
           lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
           lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
         };
-        assign lsu_rescap_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.capture_retired &&
-                          !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.has_dest &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          result_iter:    1'b0,
-          rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
-          rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
-          result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
-        };
+        assign lsu_rescap_traces[lsu][rss] = '{default: '0};
       end else begin : gen_lsu_traces_rss_no_trace_resreq
         assign rss_lsu_traces[lsu][rss]    = '{default: '0};
         assign lsu_rescap_traces[lsu][rss] = '{default: '0};
@@ -1394,16 +1478,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
         if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
-          assign lsu_resreq_traces[lsu][rss][con] = '{
-            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
-            producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-            consumer:       i_fu_stage.consumer_to_string(con),
-            // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: 1'b0
-          };
+          assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
         end else begin : gen_lsu_traces_rss_no_resreq
           assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
         end
@@ -1417,31 +1492,20 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_hs &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_hs &&
+                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
           instr_iter:  1'b0,
-          producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
-          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b,
-          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.imm,
-          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
-          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
+          producer:    i_fu_stage.producer_to_string('0),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
           // Directly access the FPU because theses signals are decoded in the FPU. This requires
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
         };
-        assign fpu_rescap_traces[fpu][rss] = '{
-          valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.capture_retired &&
-                          !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.has_dest &&
-                          (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.result_rss_sel == rss),
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-          result_iter:    1'b0,
-          rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_id,
-          rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.dest_is_fp,
-          result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.slot_wb_capture.result.value
-        };
+        assign fpu_rescap_traces[fpu][rss] = '{default: '0};
       end else begin : gen_fpu_traces_no_rss
         assign rss_fpu_traces[fpu][rss]    = '{default: '0};
         assign fpu_rescap_traces[fpu][rss] = '{default: '0};
@@ -1449,16 +1513,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // each consumer can place a result request simultaneously
       for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
         if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
-          assign fpu_resreq_traces[fpu][rss][con] = '{
-            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
-            producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
-            consumer:       i_fu_stage.consumer_to_string(con),
-            // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: 1'b0
-          };
+          assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
         end else begin : gen_fpu_traces_no_resreq
           assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
         end

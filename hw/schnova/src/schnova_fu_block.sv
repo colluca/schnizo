@@ -12,8 +12,6 @@
 // This module instantiates the RS and performs the necessary demuxing and muxing to bypass or go
 // through the RS.
 module schnova_fu_block import schnizo_pkg::*; #(
-  // Globally enable the superscalar feature
-  parameter bit          Xfrep          = 1,
   /// Instruction stream parameters
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
@@ -25,7 +23,6 @@ module schnova_fu_block import schnizo_pkg::*; #(
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
   parameter int unsigned NofResRspIfs   = 1,
-  parameter int unsigned ConsumerCount  = 4,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
@@ -33,10 +30,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
   parameter type         slot_id_t      = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
-  parameter type         res_req_t      = logic,
-  parameter type         dest_mask_t    = logic,
-  parameter type         phy_id_t       = logic,
-  parameter type         res_rsp_t      = logic
+  parameter type         phy_id_t       = logic
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -68,28 +62,10 @@ module schnova_fu_block import schnizo_pkg::*; #(
   input  logic       issue_req_ready_i,
   output logic       instr_exec_commit_o,
 
-  /// Operand distribution network
-  // Info required for arbitration in request XBAR
-  output operand_req_t [NofRss-1:0] available_results_o,
-
-  // TODO(colluca): use generic_reqrsp interfaces for all of these. Would then reduce to four signals:
-  // operand_req_o, operand_rsp_i, result_req_i, result_rsp_o.
-  // We can't actually do it at the moment, because the cardinality of req_reqs and res_rsps differs.
-  //
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
   output logic         [NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
-
-  // Result request interface - incoming - from each possible requester
-  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
-  input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
-  output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
-
-  // Result response interface - outgoing - result as operand response
-  output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
-  output logic     [NofResRspIfs-1:0] res_rsps_valid_o,
-  input  logic     [NofResRspIfs-1:0] res_rsps_ready_i,
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOperands-1:0] op_rsps_i,
@@ -97,215 +73,128 @@ module schnova_fu_block import schnizo_pkg::*; #(
   output logic     [NofOperands-1:0] op_rsps_ready_o
 );
 
-  typedef logic [cf_math_pkg::idx_width(NofRss)-1:0] rs_tag_t;
+  ////////////////////////
+  // Datapath selection //
+  ////////////////////////
 
-  if (Xfrep) begin : gen_superscalar
-    // Module global switch between regular execution and superscalar path
-    logic sel_superscalar_path;
-    assign sel_superscalar_path = en_superscalar_i;
+  // There are two paths between dispatch and issue:
+  // - a path for superscalar execution, which routes dispatch requests into the reservation
+  //   station, which in turn produces issue requests (signals on this path have prefix "rs")
+  // - a direct path for single issue or regular execution, which bypasses the reservation
+  //   station and feeds through dispatch requests to issue requests (signals on this path have
+  //   prefix "si")
+  // This datapath selection block demuxes dispatch requests to the two paths and muxes issue
+  // requests from the two paths.
 
-    ////////////////////////
-    // Datapath selection //
-    ////////////////////////
+  // From dispatch interface DEMUX to RS
+  disp_req_t rs_disp_req;
+  logic      rs_disp_req_valid;
+  logic      rs_disp_req_ready;
+  disp_rsp_t rs_disp_rsp;
+  // From dispatch interface DEMUX to dispatch2issue converter
+  disp_req_t si_disp_req;
+  logic      si_disp_req_valid;
+  logic      si_disp_req_ready;
 
-    // There are two paths between dispatch and issue:
-    // - a path for superscalar execution, which routes dispatch requests into the reservation
-    //   station, which in turn produces issue requests (signals on this path have prefix "rs")
-    // - a direct path for single issue or regular execution, which bypasses the reservation
-    //   station and feeds through dispatch requests to issue requests (signals on this path have
-    //   prefix "si")
-    // This datapath selection block demuxes dispatch requests to the two paths and muxes issue
-    // requests from the two paths.
+  // From the RS to the Issue MUX
+  issue_req_t rs_issue_req;
+  logic       rs_issue_req_valid;
+  logic       rs_issue_req_ready;
+  logic       rs_instr_exec_commit;
+  // From dispatch2issue converter to issue MUX
+  issue_req_t si_issue_req;
+  logic       si_issue_req_valid;
+  logic       si_issue_req_ready;
 
-    // From dispatch interface DEMUX to RS
-    disp_req_t rs_disp_req;
-    logic      rs_disp_req_valid;
-    logic      rs_disp_req_ready;
-    disp_rsp_t rs_disp_rsp;
-    // From dispatch interface DEMUX to dispatch2issue converter
-    disp_req_t si_disp_req;
-    logic      si_disp_req_valid;
-    logic      si_disp_req_ready;
+  // Dispatch DEMUX
+  assign rs_disp_req = disp_req_i;
+  assign si_disp_req = disp_req_i;
+  stream_demux #(
+    .N_OUP (2)
+  ) i_disp_demux (
+    .inp_valid_i(disp_req_valid_i),
+    .inp_ready_o(disp_req_ready_o),
+    .oup_sel_i  (en_superscalar_i),
+    .oup_valid_o({rs_disp_req_valid, si_disp_req_valid}),
+    .oup_ready_i({rs_disp_req_ready, si_disp_req_ready})
+  );
+  // The dispatch response is always returned. The dispatcher must check when it is valid.
+  // TODO(colluca): why not assign this to zero on the SI path and mux it here?
+  assign disp_rsp_o = rs_disp_rsp;
 
-    // From the RS to the Issue MUX
-    issue_req_t rs_issue_req;
-    logic       rs_issue_req_valid;
-    logic       rs_issue_req_ready;
-    logic       rs_instr_exec_commit;
-    // From dispatch2issue converter to issue MUX
-    issue_req_t si_issue_req;
-    logic       si_issue_req_valid;
-    logic       si_issue_req_ready;
+  // Issue MUX
+  // There is no logic in the regular dispatch and issue path. We can directly use the dispatch
+  // valid/ready signals.
+  // TODO(colluca): dispatch2issue converter for single-issue path is the same as the one
+  //                in the gen_scalar block. Could maybe be reused.
+  assign si_issue_req.fu_data = si_disp_req.fu_data;
+  assign si_issue_req.tag     = si_disp_req.tag;
+  assign si_issue_req_valid = si_disp_req_valid;
+  assign si_disp_req_ready  = si_issue_req_ready;
 
-    // From issue MUX to FU
-    // via module interface
+  stream_mux #(
+    .DATA_T(issue_req_t),
+    .N_INP (2)
+  ) i_fu_issue_mux (
+    .inp_data_i ({rs_issue_req,       si_issue_req}),
+    .inp_valid_i({rs_issue_req_valid, si_issue_req_valid}),
+    .inp_ready_o({rs_issue_req_ready, si_issue_req_ready}),
+    .inp_sel_i  (en_superscalar_i),
+    .oup_data_o (issue_req_o),
+    .oup_valid_o(issue_req_valid_o),
+    .oup_ready_i(issue_req_ready_i)
+  );
 
-    // From FU to result DEMUX
-    // via module interface
+  assign instr_exec_commit_o = en_superscalar_i ? rs_instr_exec_commit : instr_exec_commit_i;
 
-    // From the result DEMUX to the RS
-    result_t    rs_result;
-    instr_tag_t rs_result_tag;
-    logic       rs_result_valid;
-    logic       rs_result_ready;
-    // From the RS to the writeback MUX
-    result_t    rs_wb_result;
-    instr_tag_t rs_wb_result_tag;
-    logic       rs_wb_result_valid;
-    logic       rs_wb_result_ready;
-    // From result DEMUX to writeback MUX
-    result_t    si_wb_result;
-    instr_tag_t si_wb_result_tag;
-    logic       si_wb_result_valid;
-    logic       si_wb_result_ready;
+  // ---------------------------
+  // Reservation Station
+  // ---------------------------
 
-    // Dispatch DEMUX
-    assign rs_disp_req = disp_req_i;
-    assign si_disp_req = disp_req_i;
-    stream_demux #(
-      .N_OUP (2)
-    ) i_disp_demux (
-      .inp_valid_i(disp_req_valid_i),
-      .inp_ready_o(disp_req_ready_o),
-      .oup_sel_i  (sel_superscalar_path),
-      .oup_valid_o({rs_disp_req_valid, si_disp_req_valid}),
-      .oup_ready_i({rs_disp_req_ready, si_disp_req_ready})
-    );
-    // The dispatch response is always returned. The dispatcher must check when it is valid.
-    // TODO(colluca): why not assign this to zero on the SI path and mux it here?
-    assign disp_rsp_o = rs_disp_rsp;
-
-    // Issue MUX
-    // There is no logic in the regular dispatch and issue path. We can directly use the dispatch
-    // valid/ready signals.
-    // TODO(colluca): dispatch2issue converter for single-issue path is the same as the one
-    //                in the gen_scalar block. Could maybe be reused.
-    assign si_issue_req.fu_data = si_disp_req.fu_data;
-    assign si_issue_req.tag     = si_disp_req.tag;
-    assign si_issue_req_valid = si_disp_req_valid;
-    assign si_disp_req_ready  = si_issue_req_ready;
-
-    stream_mux #(
-      .DATA_T(issue_req_t),
-      .N_INP (2)
-    ) i_fu_issue_mux (
-      .inp_data_i ({rs_issue_req,       si_issue_req}),
-      .inp_valid_i({rs_issue_req_valid, si_issue_req_valid}),
-      .inp_ready_o({rs_issue_req_ready, si_issue_req_ready}),
-      .inp_sel_i  (sel_superscalar_path),
-      .oup_data_o (issue_req_o),
-      .oup_valid_o(issue_req_valid_o),
-      .oup_ready_i(issue_req_ready_i)
-    );
-
-    assign instr_exec_commit_o = sel_superscalar_path ? rs_instr_exec_commit : instr_exec_commit_i;
-
-    // ---------------------------
-    // Reservation Station
-    // ---------------------------
-    // TODO(colluca): does the reservation station even need an instr_tag_t type that
-    // is calculated as max(wb_tag_t, rs_tag_t)? If not, just pass rs_tag_t here
-    schnova_res_stat #(
-      .NofRss        (NofRss),
-      .NofOperands   (NofOperands),
-      .NofResRspIfs  (NofResRspIfs),
-      .ConsumerCount (ConsumerCount),
-      .RegAddrWidth  (RegAddrWidth),
-      .MaxIterationsW(MaxIterationsW),
-      .disp_req_t    (disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (issue_req_t),
-      .result_t      (result_t),
-      .result_tag_t  (instr_tag_t),
-      .producer_id_t (producer_id_t),
-      .slot_id_t     (slot_id_t),
-      .phy_id_t      (phy_id_t),
-      .operand_req_t (operand_req_t),
-      .operand_t     (operand_t),
-      .res_req_t     (res_req_t),
-      .dest_mask_t   (dest_mask_t),
-      .res_rsp_t     (res_rsp_t)
-    ) i_res_stat (
-      .clk_i,
-      .rst_i,
-      // Control signals
-      .producer_id_i      (producer_id_i),
-      .restart_i          (restart_i),
-      .en_superscalar_i   (en_superscalar_i),
-      .rs_full_o          (rs_full_o),
-      .rs_empty_o         (rs_empty_o),
-      // The dispatched instruction - from Dispatcher
-      .disp_req_i         (rs_disp_req),
-      .disp_req_valid_i   (rs_disp_req_valid),
-      .disp_req_ready_o   (rs_disp_req_ready),
-      .instr_exec_commit_i(instr_exec_commit_i),
-      .disp_rsp_o         (rs_disp_rsp),
-      // The issued instruction - to FU
-      .issue_req_o        (rs_issue_req),
-      .issue_req_valid_o  (rs_issue_req_valid),
-      .issue_req_ready_i  (rs_issue_req_ready),
-      .instr_exec_commit_o(rs_instr_exec_commit),
-
-      /// Operand distribution network - directly fed through
-      .available_results_o(available_results_o),
-      // Operand request interface - outgoing - request a result as operand
-      .op_reqs_o          (op_reqs_o),
-      .op_reqs_valid_o    (op_reqs_valid_o),
-      .op_reqs_ready_i    (op_reqs_ready_i),
-      // Result request interface - incoming - translated operand request
-      .res_reqs_i         (res_reqs_i),
-      .res_reqs_valid_i   (res_reqs_valid_i),
-      .res_reqs_ready_o   (res_reqs_ready_o),
-      // Result response interface - outgoing - result as operand response
-      .res_rsps_o         (res_rsps_o),
-      .res_rsps_valid_o   (res_rsps_valid_o),
-      .res_rsps_ready_i   (res_rsps_ready_i),
-      // Operand response interface - incoming - returning result as operand
-      .op_rsps_i          (op_rsps_i),
-      .op_rsps_valid_i    (op_rsps_valid_i),
-      .op_rsps_ready_o    (op_rsps_ready_o)
-    );
-  end else begin : gen_scalar
-    // In the non superscalar version the dispatch request is simply "converted" to an issue request.
-    // The result is directly passed to the writeback.
-
-    // Convert the dispatch request to an issue request. Direct pass-through.
-    assign issue_req_o.fu_data = disp_req_i.fu_data;
-    assign issue_req_o.tag     = disp_req_i.tag;
-    assign issue_req_valid_o   = disp_req_valid_i;
-    assign disp_req_ready_o    = issue_req_ready_i;
-    // Dispatch response must match FU without superscalar feature
-    assign disp_rsp_o = producer_id_t'{
-      slot_id: '0,
-      rs_id:   producer_id_i.rs_id
-    };
-    assign instr_exec_commit_o = instr_exec_commit_i;
-
-    // The "RS" is never full
-    assign rs_full_o = 1'b0;
-
-    /// Operand distribution network
-    // There are no request signals connected anywhere. Simply set all signals to zero and ignore
-    // the inputs.
+  schnova_res_stat #(
+    .NofRss        (NofRss),
+    .NofOperands   (NofOperands),
+    .NofResRspIfs  (NofResRspIfs),
+    .RegAddrWidth  (RegAddrWidth),
+    .MaxIterationsW(MaxIterationsW),
+    .disp_req_t    (disp_req_t),
+    .disp_rsp_t    (disp_rsp_t),
+    .issue_req_t   (issue_req_t),
+    .result_t      (result_t),
+    .result_tag_t  (instr_tag_t),
+    .producer_id_t (producer_id_t),
+    .slot_id_t     (slot_id_t),
+    .phy_id_t      (phy_id_t),
+    .operand_req_t (operand_req_t),
+    .operand_t     (operand_t)
+  ) i_res_stat (
+    .clk_i,
+    .rst_i,
+    // Control signals
+    .producer_id_i      (producer_id_i),
+    .restart_i          (restart_i),
+    .en_superscalar_i   (en_superscalar_i),
+    .rs_full_o          (rs_full_o),
+    .rs_empty_o         (rs_empty_o),
+    // The dispatched instruction - from Dispatcher
+    .disp_req_i         (rs_disp_req),
+    .disp_req_valid_i   (rs_disp_req_valid),
+    .disp_req_ready_o   (rs_disp_req_ready),
+    .instr_exec_commit_i(instr_exec_commit_i),
+    .disp_rsp_o         (rs_disp_rsp),
+    // The issued instruction - to FU
+    .issue_req_o        (rs_issue_req),
+    .issue_req_valid_o  (rs_issue_req_valid),
+    .issue_req_ready_i  (rs_issue_req_ready),
+    .instr_exec_commit_o(rs_instr_exec_commit),
     // Operand request interface - outgoing - request a result as operand
-    assign op_reqs_o       = '0;
-    assign op_reqs_valid_o = '0;
-    // ignore the ready: op_reqs_ready_i
-
-    // Result request interface - incoming - from each possible requester
-    // ingore input: res_reqs_i
-    // ingore input: res_reqs_valid_i
-    assign res_reqs_ready_o = '0;
-
-    // Result response interface - outgoing - result as operand response
-    assign res_rsps_o       = '0;
-    assign res_rsps_valid_o = '0;
-    // ignore the ready: res_rsps_ready_i
-
+    .op_reqs_o          (op_reqs_o),
+    .op_reqs_valid_o    (op_reqs_valid_o),
+    .op_reqs_ready_i    (op_reqs_ready_i),
     // Operand response interface - incoming - returning result as operand
-    // ingore the input: op_rsps_i,
-    // ingore the input: op_rsps_valid_i,
-    assign op_rsps_ready_o = '0;
-  end
+    .op_rsps_i          (op_rsps_i),
+    .op_rsps_valid_i    (op_rsps_valid_i),
+    .op_rsps_ready_o    (op_rsps_ready_o)
+  );
 
 endmodule

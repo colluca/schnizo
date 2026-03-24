@@ -40,8 +40,8 @@ module schnova_writeback import schnizo_pkg::*; #(
 ) (
   input logic             en_superscalar_i,
   // ROB interface
-  output logic [PipeWidth-1:0]                  wb_valid_o,
-  output logic [PipeWidth-1:0][RobTagWidth-1:0] wb_rob_idx_o,
+  output logic [1:0]                  wb_valid_o,
+  output logic [1:0][RobTagWidth-1:0] wb_rob_idx_o,
   // ALU interface
   input  alu_result_t     alu_result_i,
   input  instr_tag_t      alu_result_tag_i,
@@ -124,12 +124,6 @@ module schnova_writeback import schnizo_pkg::*; #(
   // TODO: The Accelerator should never write to the FPR. -> Assertion?
   assign acc_gpr_valid = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_result_valid_i;
   assign acc_result_ready_o = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_gpr_ready;
-
-  // TODO (soderma): Clean this up correctly
-  assign wb_valid_o[2] = 1'b0;
-  assign wb_valid_o[3] = 1'b0;
-  assign wb_rob_idx_o[2] = '0;
-  assign wb_rob_idx_o[3] = '0;
 
   // Port 0 is used for int writebacks if we are in superscalar
   assign wb_valid_o[0] = rob_gpr_valid & en_superscalar_i;

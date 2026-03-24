@@ -11,9 +11,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
   parameter type         rs_slot_issue_t  = logic,
   parameter type         rs_slot_result_t = logic,
   parameter type         rss_operand_t    = logic,
-  parameter type         rss_result_t     = logic,
   parameter type         operand_req_t    = logic,
-  parameter type         res_req_t        = logic,
   parameter type         operand_t        = logic,
   parameter type         rss_idx_t        = logic,
   parameter type         issue_req_t      = logic
@@ -23,11 +21,9 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  producer_id_t    producer_id_i,
   input  disp_req_t       disp_req_i,
   input  logic            disp_req_valid_i,
+  output logic            disp_req_ready_o,
   input  rs_slot_issue_t  slot_issue_i,
-  input  rs_slot_result_t slot_result_i,
-  input  rs_slot_result_t slot_result_reset_val_i,
   output rs_slot_issue_t  slot_issue_o,
-  output rs_slot_result_t slot_result_o,
 
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -41,7 +37,6 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // Issue
   input  logic         issue_req_ready_i,
-  output logic         disp_req_ready_o,
   output issue_req_t   issue_req_o,
   output logic         issue_req_valid_o,
   output logic         issue_hs_o
@@ -63,6 +58,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     fpu_fmt_src:      fpnew_pkg::FP32,
     fpu_fmt_dst:      fpnew_pkg::FP32,
     fpu_rnd_mode:     fpnew_pkg::RNE,
+    phy_reg_dest:     '0,
     operands:         '0 // invalid operands lead to no issue requests
   };
 
@@ -72,27 +68,28 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
   rss_operand_t op_c_init;
 
   assign op_a_init = '{
-    producer:             disp_req_i.producer_op_a.producer,
-    is_produced:          disp_req_i.producer_op_a.valid,
-    is_from_current_iter: disp_req_i.producer_op_a.valid,
+    phy_reg_src:          disp_req_i.phy_reg_op_a,
+    is_fp:                disp_req_i.is_op_a_fp,
+    is_valid:             disp_req_i.is_op_a_valid,
     value:                disp_req_i.fu_data.operand_a,
-    is_valid:             !disp_req_i.producer_op_a.valid,
     requested:            1'b0
   };
 
   assign op_b_init = '{
-    producer:             disp_req_i.producer_op_b.producer,
-    is_produced:          disp_req_i.producer_op_b.valid,
+    phy_reg_src:          disp_req_i.phy_reg_op_b,
+    is_fp:                disp_req_i.is_op_b_fp,
+    is_valid:             disp_req_i.is_op_b_valid,
     value:                disp_req_i.fu_data.operand_b,
-    is_valid:             !disp_req_i.producer_op_b.valid,
     requested:            1'b0
   };
 
   assign op_c_init = '{
-    producer:             disp_req_i.producer_op_c.producer,
-    is_produced:          disp_req_i.producer_op_c.valid,
+    phy_reg_src:          disp_req_i.phy_reg_op_c,
+    // If op c needs to be fetched from a physical register file
+    // it will always be from the floating point physical register file
+    is_fp:                1'b1,
+    is_valid:             disp_req_i.is_op_c_valid,
     value:                disp_req_i.fu_data.imm,
-    is_valid:             !disp_req_i.producer_op_c.valid,
     requested:            1'b0
   };
 
@@ -114,6 +111,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
       fpu_fmt_src:      disp_req_i.fu_data.fpu_fmt_src,
       fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
       fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
+      phy_reg_dest:     disp_req_i.phy_reg_dest,
       operands:         '0
     };
 
@@ -138,29 +136,6 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     end
   end
 
-  // Compute the updated result slot state
-  // If we have a new dispatch request for this slot
-  // we have to initialize the result
-  // otherwise we forward the current result.
-  always_comb begin
-    slot_result_o = slot_result_i;
-
-    // We initialize for every new dispatch request
-    if (disp_req_valid_i) begin
-      slot_result_o = '{
-          result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
-          has_dest:       (disp_req_i.fu_data.fu == STORE) &&
-                          (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
-          dest_id:        disp_req_i.tag.dest_reg,
-          dest_is_fp:     disp_req_i.tag.dest_reg_is_fp
-        };
-    end
-
-    if (restart_i) begin
-      slot_result_o = slot_result_reset_val_i;
-    end
-  end
-
   //////////////////////////
   // Operand req generation//
   //////////////////////////
@@ -171,14 +146,11 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
   always_comb begin: operand_request_generation
     for (int op = 0; op < NofOperands; op++) begin
       op_reqs_o[op] = '{
-        producer: selected_slot.operands[op].producer.rs_id,
-        request: res_req_t'{
-          slot_id:        selected_slot.operands[op].producer.slot_id
-        }
+        phy_reg:    selected_slot.operands[op].phy_reg_src,
+        is_fp: selected_slot.operands[op].is_fp
       };
 
       op_reqs_valid_o[op] = disp_req_valid_i && selected_slot.is_occupied &&
-                            selected_slot.operands[op].is_produced &&
                             !selected_slot.operands[op].is_valid &&
                             !selected_slot.operands[op].requested;
     end
@@ -205,7 +177,9 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     slot_op_rsp = slot_op;
     for (int op = 0; op < NofOperands; op++) begin
       op_rsps_ready_o[op] = 1'b0;
-      if (slot_op.is_occupied && slot_op.operands[op].is_produced && op_rsps_valid_i[op]) begin
+      // We are ready do accept a response if the slot is occupied and does not already
+      // contain a valid value
+      if (slot_op.is_occupied && !slot_op.operands[op].is_valid && op_rsps_valid_i[op]) begin
         slot_op_rsp.operands[op].value     = op_rsps_i[op];
         slot_op_rsp.operands[op].is_valid  = 1'b1;
         // Acknowledge the response
@@ -255,5 +229,8 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
   assign disp_req_ready_o = issue_hs;
   assign issue_hs_o = issue_hs;
+
+  // Forward the slot directly
+  assign slot_issue_o = slot_op_rsp;
 
 endmodule
