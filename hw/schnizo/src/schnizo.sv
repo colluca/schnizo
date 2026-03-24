@@ -24,7 +24,7 @@
 //   have committed before the core gets stopped.
 //
 // Use automatic retiming options in the synthesis tool to optimize the fpnew design.
-module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*; #(
+module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   /// Boot address of core.
   parameter logic [31:0] BootAddr  = 32'h0000_1000,
   /// Physical Address width of the core.
@@ -49,6 +49,14 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*
   parameter type         dreq_t = logic,
   /// Data port response type.
   parameter type         drsp_t = logic,
+  /// TCDM request channel type.
+  parameter type         tcdm_req_chan_t  = logic,
+  /// TCDM response channel type.
+  parameter type         tcdm_rsp_chan_t  = logic,
+
+  parameter type         tcdm_req_t         = logic,
+  /// Data port response type.
+  parameter type         tcdm_rsp_t         = logic,
   /// Accelerator interface types
   parameter type         acc_req_t  = logic,
   parameter type         acc_resp_t = logic,
@@ -59,6 +67,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*
   parameter int unsigned AluNofRss       = 3,
   parameter int unsigned LsuNofRss       = 2,
   parameter int unsigned FpuNofRss       = 4,
+  parameter int unsigned SpatzNofRss     = 6,
   parameter int unsigned AluNofConstants = 4,
   parameter int unsigned LsuNofConstants = 4,
   parameter int unsigned FpuNofConstants = 4,
@@ -137,7 +146,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*
   output snitch_pkg::core_events_t core_events_o,
   /// Cluster HW barrier
   output logic barrier_o,
-  input  logic barrier_i
+  input  logic barrier_i,
 
   // SPATZ TCDM Ports
   output tcdm_req_t    [NumMemPortsPerSpatz-1:0] tcdm_req_o,
@@ -303,6 +312,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*
                                              NofLsus * LsuNofResReqIfs +
                                              NofFpus * FpuNofResReqIfs +
                                              SpatzNofResReqIfs;
+  localparam integer unsigned SpatzNofResRspIfs = RVV ? 1 : 0;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
@@ -616,7 +626,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*
     .gpr_we_i               (gpr_we),
     .gpr_waddr_i            (gpr_waddr),
     .fpr_we_i               (fpr_we),
-    .fpr_waddr_i            (fpr_waddr)
+    .fpr_waddr_i            (fpr_waddr),
     .spatz_running_instrs_i (RVV ? spatz_running_instrs : '0)
 );
 
@@ -1188,6 +1198,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; import spatz_pkg::*
   // Traces for retirements
   retire_fu_trace_t csr_retirement;
   retire_fu_trace_t acc_retirement;
+  internal_retire_spatz_trace_t spatz_retirement [NrParallelInstructions];
   // Traces for writeback (regular and RSS)
   wb_fu_trace_t alu_wb_trace;
   wb_fu_trace_t lsu_wb_trace;

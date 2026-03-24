@@ -190,7 +190,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output logic [FLEN-1:0] fpu_wb_result_o,
   output instr_tag_t      fpu_wb_result_tag_o,
   output logic            fpu_wb_result_valid_o,
-  input  logic            fpu_wb_result_ready_i
+  input  logic            fpu_wb_result_ready_i,
 
   // Spatz writeback signals
 
@@ -1584,7 +1584,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_loop_finish_o, &lsu_loop_finish_o, &fpu_loop_finish_o, &spatz_loop_finish_o};
+  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish, &spatz_loop_finish_o};
 
   ////////////////////
   // Tracer helpers //

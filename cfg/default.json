@@ -124,6 +124,7 @@
         num_fpus: 1,
         num_fpu_slots: 4,
         num_fpu_constants: 8,
+	    num_spatz_slots: 3,
     },
     dma_core_template: {
         isa: "rv32imafd",
