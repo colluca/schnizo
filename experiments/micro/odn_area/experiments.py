@@ -21,7 +21,7 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments():
     # Define axes
     num_slots_axis = [3, 12, 24, 48, 96]
-    num_rsp_ports_axis = [1, 2]
+    num_rsp_ports_axis = [1, 2, 3]
 
     # Generate list of experiments
     experiments = []
