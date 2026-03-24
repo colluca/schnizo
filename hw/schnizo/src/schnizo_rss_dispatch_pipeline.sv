@@ -266,6 +266,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       };
 
       op_reqs_valid_o[op] = selected_slot.is_occupied &&
+                            !(loop_state_i == LoopLcp1 && selected_slot.instruction_iter == 1'b1) &&
                             selected_slot.operands[op].is_produced &&
                             !selected_slot.operands[op].is_valid &&
                             !selected_slot.operands[op].requested;
@@ -349,7 +350,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   assign all_operands_valid = &operand_valid;
   // In LCP1, dispatch and issue are decoupled, so we can use the dispatch handshake to initialize
   // the slot, and update it as the operands become valid.
-  assign issue_req_valid_o = (loop_state_i == LoopLcp1 ? slot_op_rsp.is_occupied : disp_req_valid_i) && all_operands_valid;
+  assign issue_req_valid_o = (loop_state_i == LoopLcp1 ? slot_op_rsp.is_occupied && !slot_op_rsp.instruction_iter : disp_req_valid_i) && all_operands_valid;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
   // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
   assign disp_req_ready_o = (loop_state_i == LoopLcp1) || issue_hs;
