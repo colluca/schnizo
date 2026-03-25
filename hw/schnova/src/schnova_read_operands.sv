@@ -17,11 +17,14 @@ module schnova_read_operands import schnizo_pkg::*; #(
   parameter int unsigned NrIntReadPorts,
   parameter int unsigned NrFpReadPorts,
   parameter type         instr_dec_t = logic,
+  parameter type         reg_map_t   = logic,
   parameter type         fu_data_t = logic
 ) (
   input  logic [XLEN-1:0] jump_pc_i,
   /// From decoder
-  input  instr_dec_t [PipeWidth-1:0]        instr_dec_i,
+  input  instr_dec_t [PipeWidth-1:0]                 instr_dec_i,
+  /// From rename
+  input  reg_map_t                                   reg_map_i,
   output logic [NrIntReadPorts-1:0][RegAddrSize-1:0] gpr_raddr_o,
   input  logic [NrIntReadPorts-1:0][XLEN-1:0]        gpr_rdata_i,
   output logic [NrFpReadPorts-1:0][RegAddrSize-1:0]  fpr_raddr_o,
@@ -48,11 +51,15 @@ module schnova_read_operands import schnizo_pkg::*; #(
       // Set the addresses
       // TODO(colluca): currently always reads from both register files and then MUXes.
       //                We could probably save power by only reading from the relevant register file.
-      gpr_raddr_o[instr_idx*2]   = instr_dec_i[instr_idx].rs1;
-      gpr_raddr_o[instr_idx*2+1] = instr_dec_i[instr_idx].rs2;
-      fpr_raddr_o[instr_idx*3]   = instr_dec_i[instr_idx].rs1;
-      fpr_raddr_o[instr_idx*3+1] = instr_dec_i[instr_idx].rs2;
-      fpr_raddr_o[instr_idx*3+2] = instr_dec_i[instr_idx].imm[RegAddrSize-1:0];
+      if (instr_idx == 0) begin
+        // We only need to read the register file for the scalar mode, otherwise the values are fetched
+        // via operand requests.
+        gpr_raddr_o[0]   = reg_map_i.phy_reg_rs1;
+        gpr_raddr_o[1] = reg_map_i.phy_reg_rs2;
+        fpr_raddr_o[0]   = reg_map_i.phy_reg_rs1;
+        fpr_raddr_o[1] = reg_map_i.phy_reg_rs2;
+        fpr_raddr_o[2] = instr_dec_i[0].imm[RegAddrSize-1:0];
+      end
 
       // Operand A
       // Select the source.
@@ -65,10 +72,15 @@ module schnova_read_operands import schnizo_pkg::*; #(
       end else if (instr_dec_i[instr_idx].use_rs1addr_as_op_a) begin
         fu_data_o[instr_idx].operand_a[XLEN-1:0] = {{XLEN-5{1'b0}}, instr_dec_i[instr_idx].rs1[4:0]};
       end else begin
-        if (instr_dec_i[instr_idx].rs1_is_fp) begin
-          fu_data_o[instr_idx].operand_a[FLEN-1:0] = fpr_rdata_i[instr_idx*3];
+        if (instr_idx == 0) begin
+          if (instr_dec_i[instr_idx].rs1_is_fp) begin
+            fu_data_o[instr_idx].operand_a[FLEN-1:0] = fpr_rdata_i[0];
+          end else begin
+            fu_data_o[instr_idx].operand_a[XLEN-1:0] = gpr_rdata_i[0];
+          end
         end else begin
-          fu_data_o[instr_idx].operand_a[XLEN-1:0] = gpr_rdata_i[instr_idx*2];
+          // For all other instructions we just assign a dummy value
+          fu_data_o[instr_idx].operand_a[XLEN-1:0] = '0;
         end
       end
 
@@ -81,16 +93,26 @@ module schnova_read_operands import schnizo_pkg::*; #(
           instr_dec_i[instr_idx].use_imm_as_op_b && !instr_dec_i[instr_idx].is_branch) begin
           fu_data_o[instr_idx].operand_b[XLEN-1:0] = instr_dec_i[instr_idx].imm;
       end else begin
-        if (instr_dec_i[instr_idx].rs2_is_fp) begin
-          fu_data_o[instr_idx].operand_b[FLEN-1:0] = fpr_rdata_i[instr_idx*3+1];
+        if (instr_idx == 0) begin
+          if (instr_dec_i[instr_idx].rs2_is_fp) begin
+            fu_data_o[instr_idx].operand_b[FLEN-1:0] = fpr_rdata_i[1];
+          end else begin
+            fu_data_o[instr_idx].operand_b[XLEN-1:0] = gpr_rdata_i[1];
+          end
         end else begin
-          fu_data_o[instr_idx].operand_b[XLEN-1:0] = gpr_rdata_i[instr_idx*2+1];
+          // For all other instructions we just assign a dummy value
+          fu_data_o[instr_idx].operand_a[XLEN-1:0] = '0;
         end
       end
 
       // Operand C - reuses imm field
       if (instr_dec_i[instr_idx].use_imm_as_rs3) begin
-        fu_data_o[instr_idx].imm[FLEN-1:0] = fpr_rdata_i[instr_idx*3+2];
+        if (instr_idx == 0) begin
+        fu_data_o[instr_idx].imm[FLEN-1:0] = fpr_rdata_i[2];
+        end else begin
+          // For all other instructions we just assign a dummy value
+          fu_data_o[instr_idx].imm[FLEN-1:0] = '0;
+        end
       end else begin
         fu_data_o[instr_idx].imm[XLEN-1:0] = instr_dec_i[instr_idx].imm;
       end

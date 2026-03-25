@@ -42,7 +42,6 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic dispatch_instr_ready_i,
   output logic instr_exec_commit_o,
   output logic stall_o,
-  output logic ctrl_stall_o,
   // From rename
   input logic freelist_ready_i,
   // From ROB
@@ -261,7 +260,7 @@ module schnova_controller import schnizo_pkg::*; #(
       IDLE: begin
         // If we have a ctrl instruction which is not retired this same cycle
         // we have to wait for it to retire and stall the pipeline.
-        if (blk_ctrl_info_i.is_ctrl && !ctrl_instr_retired_i) begin
+        if (blk_ctrl_info_i.is_ctrl && dispatched_o && !ctrl_instr_retired_i) begin
           ctrl_state_d = WAIT_CTRL;
         end
       end
@@ -274,26 +273,9 @@ module schnova_controller import schnizo_pkg::*; #(
     endcase
   end
 
-  // We stall depending on a mealy fsm
-  always_comb begin : ctrl_stall_handler
-    ctrl_stall = 1'b0;
-    if(ctrl_state_q == IDLE) begin
-      if (blk_ctrl_info_i.is_ctrl && !ctrl_instr_retired_i) begin
-        ctrl_stall = 1'b1;
-      end
-    end else if(ctrl_state_q == WAIT_CTRL) begin
-      ctrl_stall = 1'b1;
-      if (ctrl_instr_retired_i) begin
-        ctrl_stall = 1'b0;
-      end
-    end
-  end
-
-  assign ctrl_stall_o = ctrl_stall;
-
-  // If we are waiting for a control instruction, we have to stall dispatching. Otherwise the
-  // core would think that it should dispatch this instruction again in the meantime.
-  assign stall_disp_ctrl = (ctrl_state_q == WAIT_CTRL) ? en_superscalar_q : 1'b0;
+  // We have to stall the dispatch, if we are in the WAIT_CTRL state
+  // and no ctrl instruction is retired in this cycle.
+  assign ctrl_stall = (ctrl_state_q == WAIT_CTRL) && !ctrl_instr_retired_i;
 
   // We have to stall in superscalar mode if the freelist does not have enough
   // physical registers to rename all instructions
@@ -338,7 +320,7 @@ module schnova_controller import schnizo_pkg::*; #(
                     frep_toggle_stall |
                     freelist_stall    |
                     rob_stall         |
-                    stall_disp_ctrl;
+                    ctrl_stall;
 
   // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched
   // in one go. Hence we only need a valid signal per block not for all instructions separately.
@@ -360,7 +342,17 @@ module schnova_controller import schnizo_pkg::*; #(
   // that way it can restart the renaming process
   assign dispatched_o = instr_dispatched;
 
-  assign stall_o =  !instr_dispatched;
+  ///////////////////////
+  // Fetch stall logic //
+  ///////////////////////
+
+  // We have to stall fetching due to the following reasons
+  // 1) We were not yet able to dispatch the instruction
+  // 2) We have to wait for a control instruction to be resolved
+  // since we don't do any speculation.
+  assign stall_o =  ((ctrl_state_q == IDLE) && !instr_dispatched) ||
+                    ((ctrl_state_q == IDLE) && blk_ctrl_info_i.is_ctrl && en_superscalar_q) ||
+                      ctrl_stall;
 
   //////////////////////////////
   // Superscalar enable logic //

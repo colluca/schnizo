@@ -105,7 +105,7 @@ module schnova_phys_regfile #(
     .AddrWidth   (AddrWidth)
   ) i_regfile (
     .clk_i,
-    .rst_ni (~rst_i),
+    .rst_ni (rst_ni),
     .raddr_i(rf_raddr),
     .rdata_o(rf_rdata),
     .waddr_i(waddr_i),

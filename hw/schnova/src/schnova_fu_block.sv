@@ -161,7 +161,7 @@ module schnova_fu_block import schnizo_pkg::*; #(
     .disp_rsp_t    (disp_rsp_t),
     .issue_req_t   (issue_req_t),
     .result_t      (result_t),
-    .result_tag_t  (instr_tag_t),
+    .instr_tag_t   (instr_tag_t),
     .producer_id_t (producer_id_t),
     .slot_id_t     (slot_id_t),
     .phy_id_t      (phy_id_t),

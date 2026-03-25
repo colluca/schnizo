@@ -18,7 +18,6 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   parameter  type             disp_req_t       = logic,
   parameter  type             issue_req_t      = logic,
   parameter  type             result_t         = logic,
-  parameter  type             result_tag_t     = logic,
   parameter  type             producer_id_t    = logic,
   parameter  type             slot_id_t        = logic,
   parameter  type             phy_id_t         = logic,

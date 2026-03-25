@@ -27,7 +27,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
   parameter type         result_t       = logic,
-  parameter type         result_tag_t   = logic,
+  parameter type         instr_tag_t   = logic,
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
   parameter type         phy_id_t       = logic,
@@ -114,8 +114,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
     // To which physical register this instruction writes to
-    instr_tag_t
-    
+    instr_tag_t                     tag;
 
     // Data of the operands from this slot
     rss_operand_t [NofOperands-1:0] operands;
@@ -216,7 +215,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .disp_req_t      (disp_req_t),
     .issue_req_t     (issue_req_t),
     .result_t        (result_t),
-    .result_tag_t    (result_tag_t),
     .producer_id_t   (producer_id_t),
     .slot_id_t       (slot_id_t),
     .operand_req_t   (operand_req_t),

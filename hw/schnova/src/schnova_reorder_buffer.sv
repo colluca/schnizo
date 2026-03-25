@@ -145,6 +145,7 @@ module schnova_reorder_buffer import schnizo_pkg::*; #(
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (pop_valid[i]) begin
           rob[(head_ptr+i)%NofEntries].valid <= 1'b0;
+          rob[(head_ptr+i)%NofEntries].done  <= 1'b0;
         end
       end
 
