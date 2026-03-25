@@ -119,11 +119,11 @@ module schnova_scoreboard #(
   // Scoreboard read ports //
   ///////////////////////////
   always_comb begin
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
+    for (int unsigned i = 0; i < NrReadPorts; i++) begin
       if (read_fp_i[i]) begin
-        rdata_o[i] = sbf_q[raddr_i];
+        rdata_o[i] = sbf_q[raddr_i[i]]; 
       end else begin
-        rdata_o[i] = sbi_q[raddr_i];
+        rdata_o[i] = sbi_q[raddr_i[i]];
       end
     end
   end

@@ -71,16 +71,14 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     phy_reg_src:          disp_req_i.phy_reg_op_a,
     is_fp:                disp_req_i.is_op_a_fp,
     is_valid:             disp_req_i.is_op_a_valid,
-    value:                disp_req_i.fu_data.operand_a,
-    requested:            1'b0
+    value:                disp_req_i.fu_data.operand_a
   };
 
   assign op_b_init = '{
     phy_reg_src:          disp_req_i.phy_reg_op_b,
     is_fp:                disp_req_i.is_op_b_fp,
     is_valid:             disp_req_i.is_op_b_valid,
-    value:                disp_req_i.fu_data.operand_b,
-    requested:            1'b0
+    value:                disp_req_i.fu_data.operand_b
   };
 
   assign op_c_init = '{
@@ -89,8 +87,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     // it will always be from the floating point physical register file
     is_fp:                1'b1,
     is_valid:             disp_req_i.is_op_c_valid,
-    value:                disp_req_i.fu_data.imm,
-    requested:            1'b0
+    value:                disp_req_i.fu_data.imm
   };
 
   // Array to simplify initial operand assignment
@@ -136,13 +133,10 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     end
   end
 
-  //////////////////////////
+  ///////////////////////////
   // Operand req generation//
-  //////////////////////////
+  ///////////////////////////
 
-  rs_slot_issue_t slot_op;
-
-  // Operand request generation
   always_comb begin: operand_request_generation
     for (int op = 0; op < NofOperands; op++) begin
       op_reqs_o[op] = '{
@@ -151,35 +145,20 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
       };
 
       op_reqs_valid_o[op] = disp_req_valid_i && selected_slot.is_occupied &&
-                            !selected_slot.operands[op].is_valid &&
-                            !selected_slot.operands[op].requested;
+                            !selected_slot.operands[op].is_valid;
     end
   end
-
-  // Capture request placement at handshake
-  always_comb begin : slot_requested_update
-    slot_op = selected_slot;
-    for (int op = 0; op < NofOperands; op++) begin
-      if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
-        slot_op.operands[op].requested = 1'b1;
-      end
-    end
-  end
-
-  //////////////////////////
-  // Operand rsp handling //
-  //////////////////////////
 
   rs_slot_issue_t slot_op_rsp;
 
   // Operand response handling
   always_comb begin : operand_response_handling
-    slot_op_rsp = slot_op;
+    slot_op_rsp = selected_slot;
     for (int op = 0; op < NofOperands; op++) begin
       op_rsps_ready_o[op] = 1'b0;
       // We are ready do accept a response if the slot is occupied and does not already
       // contain a valid value
-      if (slot_op.is_occupied && !slot_op.operands[op].is_valid && op_rsps_valid_i[op]) begin
+      if (selected_slot.is_occupied && !selected_slot.operands[op].is_valid && op_rsps_valid_i[op]) begin
         slot_op_rsp.operands[op].value     = op_rsps_i[op];
         slot_op_rsp.operands[op].is_valid  = 1'b1;
         // Acknowledge the response
