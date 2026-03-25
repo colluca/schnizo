@@ -298,13 +298,13 @@ module schnova_controller import schnizo_pkg::*; #(
   // We have to stall in superscalar mode if the freelist does not have enough
   // physical registers to rename all instructions
   logic freelist_stall;
-  assign freelist_stall = en_superscalar_q ? freelist_ready_i : 1'b0;
+  assign freelist_stall = en_superscalar_q ? ~freelist_ready_i : 1'b0;
 
   // We have to stall in superscalar mode if the rob does not have enough
   // entries for all the instructions we want to dispatch in this
   // fetch block
   logic rob_stall;
-  assign rob_stall = en_superscalar_q ? rob_ready_i : 1'b0;
+  assign rob_stall = en_superscalar_q ? ~rob_ready_i : 1'b0;
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 

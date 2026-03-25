@@ -1,0 +1,70 @@
+// Copyright 2026 ETH Zurich and University of Bologna.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Author: Stefan Odermatt <soderma@ethz.ch>
+
+#include "snrt.h"
+
+// asm volatile(
+//     ""
+//     /* outputs: [ asm-name ] "constraint" (c-name)
+//        To use value use: %asm-name
+//        If no asm-name use %0, %1, ... in the order specified
+//        constraints (many more, = or + is required for outputs):
+//        "=": this variable is overwritten, dont assume previous value is there, except when tied to input.
+//        "+": this variable is read and written.
+//        "r": this value must reside in a register
+//        "m": this value must reside in memory */
+//     :
+//     /* inputs: same as outputs except = and + are not allowed*/
+//     :
+//     /* clobbers - modified registers beyond the outputs */
+//     :
+// );
+
+int main() {
+    if (!snrt_is_compute_core()) {
+        return 0;
+    }
+
+    const uint32_t n_reps = 10;
+    const uint32_t start = 10;
+    register volatile uint32_t res asm("t1") = start;
+    // force it into a register to use add instead of addi
+    register uint32_t increment asm("t2") = 8;
+    register uint32_t cnt asm("t3") = n_reps;
+
+    asm volatile(
+        // Wait until all FPU & LSU instructions have retired to have a clean register and
+        // pipeline state. Note, the cache is not yet synchronized.
+        // We must place the fence in the same asm block as otherwise FPU instructions are placed
+        // in between.
+        "fmv.x.w t0, fa0   \n"
+        "mv      t0, t0\n"
+        "fence\n"
+
+        // enable superscalar mode
+        "frep.o %[n_frep], 7, 0, 0\n"
+
+        // Loop
+        "loop:                     \n"
+        "add %[res], %[res], %[inc]\n"
+        "addi %[cnt], %[cnt], -1\n"
+        "bnez %[cnt], loop        \n"
+    
+        // disable superscalar mode
+        "frep.o %[n_frep], 7, 0, 0\n"
+
+        // outputs
+        : [ res ] "+r"(res), [cnt] "+r"(cnt)
+        // inputs - FREP repeats n_frep+1 times..
+        : [ n_frep ] "r"(n_reps - 1), [ inc ] "r"(increment)
+        // clobbers - modified registers beyond the outputs
+        : "t0", "memory");
+
+    if (res != (start + (increment * n_reps))) {
+        return 1;
+    }
+    return 0;
+}

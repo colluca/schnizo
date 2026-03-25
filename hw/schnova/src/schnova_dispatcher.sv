@@ -112,10 +112,6 @@ module schnova_dispatcher import schnizo_pkg::*; #(
   // 2) The data if it is already valid in the physical register
   // 3) The instruction as well as its tag
 
-  logic [PipeWidth-1:0] rs1_valid;
-  logic [PipeWidth-1:0] rs2_valid;
-  logic [PipeWidth-1:0] rs3_valid;
-
   // TODO(soderma): Extend to superscalar
   always_comb begin : dispatch_generation
     disp_req_o = '0;
@@ -145,7 +141,8 @@ module schnova_dispatcher import schnizo_pkg::*; #(
 
     // generate the tag
     disp_req_o.tag.producer_id    = fu_response.producer;
-    disp_req_o.tag.dest_reg       = instr_dec_i[0].rd;
+    disp_req_o.tag.dest_reg       = en_superscalar_i ? reg_map_i[0].phy_reg_rd_new
+                                                     : reg_map_i[0].phy_reg_rd_old;
     disp_req_o.tag.dest_reg_is_fp = instr_dec_i[0].rd_is_fp;
     disp_req_o.tag.is_branch      = instr_dec_i[0].is_branch;
     disp_req_o.tag.is_jump        = instr_dec_i[0].is_jal | instr_dec_i[0].is_jalr;

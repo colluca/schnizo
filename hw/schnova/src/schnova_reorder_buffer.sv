@@ -20,8 +20,8 @@ module schnova_reorder_buffer import schnizo_pkg::*; #(
   output logic [PipeWidth-1:0][TagWidth-1:0] rob_idx_o,
   output logic                               rob_ready_o,
   // Writeback Interface
-  input logic [PipeWidth-1:0]                wb_valid_i,
-  input logic [PipeWidth-1:0][TagWidth-1:0]  wb_rob_idx_i,
+  input logic [1:0]                wb_valid_i,
+  input logic [1:0][TagWidth-1:0]  wb_rob_idx_i,
   // Freelist interface
   output logic freelist_push_o,
   output [$clog2(PipeWidth):0] push_count_o,

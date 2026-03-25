@@ -96,8 +96,6 @@ module schnova_res_stat import schnizo_pkg::*; #(
     // physical register file.
     logic    is_valid;
     operand_t     value;
-    // Set if we placed a request to the physical register
-    logic         requested;
   } rss_operand_t;
 
   // Issue-side state — updated by the dispatch pipeline only.
@@ -116,7 +114,9 @@ module schnova_res_stat import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
     // To which physical register this instruction writes to
-    phy_id_t phy_reg_dest;
+    instr_tag_t
+    
+
     // Data of the operands from this slot
     rss_operand_t [NofOperands-1:0] operands;
   } rs_slot_issue_t;
