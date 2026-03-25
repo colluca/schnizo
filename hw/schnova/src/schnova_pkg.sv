@@ -14,4 +14,14 @@ package schnova_pkg;
 
   localparam int unsigned NofRobEntries = 32;
 
+  function automatic string en_superscalar_tostring(logic en_superscalar);
+    string state;
+    if (!en_superscalar) begin
+      state = "INO";
+    end else begin
+      state = "OOO";
+    end
+    return state;
+  endfunction
+
 endpackage

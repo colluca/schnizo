@@ -12,7 +12,7 @@
 //
 // Instantiates all the FUs and connects each FU to an FU block (containing the RS).
 // Further instantiates the operand distribution network (ODN) and connects FU blocks to it.
-module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
+module schnova_fu_stage import schnizo_pkg::*, schnova_tracer_pkg::*; #(
   // Globally enable the superscalar feature
   parameter bit          Xfrep             = 1,
   parameter bit          MulInAlu0         = 1'b1,
@@ -413,7 +413,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign alu_wbs_result_valid[alu] = alu_result_valid;
     assign alu_result_ready = alu_wbs_result_ready[alu];
 
-    schnizo_alu #(
+    schnova_alu #(
       .XLEN         (XLEN),
       .HasBranch    (alu == '0), // only the first ALU has the branch logic
       .HasMultiplier((alu == '0) && MulInAlu0), // only the first ALU has the multiplier
@@ -592,7 +592,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign lsu_wbs_result_valid[lsu] = lsu_result_valid;
     assign lsu_result_ready = lsu_wbs_result_ready[lsu];
 
-    schnizo_lsu #(
+    schnova_lsu #(
       .XLEN               (XLEN),
       .issue_req_t        (issue_req_t),
       .AddrWidth          (AddrWidth),
@@ -774,7 +774,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign fpu_wbs_result_valid[fpu] = fpu_result_valid[fpu];
     assign fpu_result_ready[fpu] = fpu_wbs_result_ready[fpu];
 
-    schnizo_fpu #(
+    schnova_fpu #(
       .FPUImplementation(FPUImplementation),
       .RVF              (RVF),
       .RVD              (RVD),
