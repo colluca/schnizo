@@ -274,10 +274,8 @@ module schnova_dispatcher import schnizo_pkg::*; #(
         fu_ready = acc_disp_req_ready_i;
       end
       schnizo_pkg::NONE: begin
-        // No FU selected, do nothing. Signal ready to controller.
-        // But we must stall if there is an ongoing FREP loop.
-        // TODO (sorderma): Why do we have to stall in that case
-        fu_ready = ~en_superscalar_i;
+        // There is no FU, so we always signal ready
+        fu_ready = 1'b1;
       end
       default: begin
         // CRASH - should never happen as long as decoder returns valid decoding.

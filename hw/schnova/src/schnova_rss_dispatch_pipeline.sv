@@ -58,7 +58,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     fpu_fmt_src:      fpnew_pkg::FP32,
     fpu_fmt_dst:      fpnew_pkg::FP32,
     fpu_rnd_mode:     fpnew_pkg::RNE,
-    phy_reg_dest:     '0,
+    tag:              '0,
     operands:         '0 // invalid operands lead to no issue requests
   };
 
@@ -108,7 +108,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
       fpu_fmt_src:      disp_req_i.fu_data.fpu_fmt_src,
       fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
       fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
-      phy_reg_dest:     disp_req_i.phy_reg_dest,
+      tag:              disp_req_i.tag,
       operands:         '0
     };
 
@@ -196,7 +196,7 @@ module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
     issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
     issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
-    issue_req_o.tag                  = producer_id_i.slot_id;
+    issue_req_o.tag                  = slot_op_rsp.tag;
   end
 
   for (genvar i = 0; i < NofOperands; i++) begin : gen_operand_valid

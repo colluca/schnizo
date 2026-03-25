@@ -135,9 +135,9 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // localparam int unsigned FLEN = DataWidth;
   // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
-  localparam int unsigned NrIntReadPorts = 2*PipeWidth;
+  localparam int unsigned NrIntReadPorts = 2;
   localparam int unsigned NrIntWritePorts = 1;
-  localparam int unsigned NrFpReadPorts = 3*PipeWidth;
+  localparam int unsigned NrFpReadPorts = 3;
   localparam int unsigned NrFpWritePorts = 1;
 
   // We have to read out a mapping for every source operand and potentially
@@ -422,7 +422,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   logic [PipeWidth-1:0] instr_decoded_illegal;
   logic            instr_illegal;
   logic            stall;
-  logic            ctrl_stall;
   logic            enter_wfi;
   logic            ebreak;
   logic            ecall;
@@ -560,7 +559,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     // From controller
     .exception_i              (exception),
     .stall_i                  (stall),
-    .ctrl_stall_i             (ctrl_stall),
     .mret_i                   (mret),
     .sret_i                   (sret),
     .en_superscalar_i         (en_superscalar),
@@ -633,10 +631,14 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .NrIntReadPorts(NrIntReadPorts),
     .NrFpReadPorts (NrFpReadPorts),
     .instr_dec_t   (instr_dec_t),
+    .reg_map_t     (reg_map_t),
     .fu_data_t     (fu_data_t)
   ) i_read_operands (
     .jump_pc_i(jump_pc),
     .instr_dec_i(instr_decoded),
+    // Need the first register map info, since we always read from the physical register
+    // only the first instruction actually reads from the PRF.
+    .reg_map_i  (reg_map[0]),
     .gpr_raddr_o(gpr_raddr),
     .gpr_rdata_i(gpr_rdata),
     .fpr_raddr_o(fpr_raddr),
@@ -686,7 +688,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .instr_exec_commit_o    (instr_exec_commit),
     .stall_o                (stall),
-    .ctrl_stall_o           (ctrl_stall),
     // Writeback interface
     .ctrl_instr_retired_i(ctrl_instr_retired),
     // Exception source interface
@@ -919,6 +920,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .operand_req_t      (operand_req_t),
     .operand_t          (operand_t),
     .instr_tag_t        (schnova_instr_tag_t),
+    .issue_req_t        (issue_req_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),

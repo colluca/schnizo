@@ -76,6 +76,7 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         disp_rsp_t     = logic,
   parameter type         fu_data_t      = logic,
   parameter type         instr_tag_t    = logic,
+  parameter type         issue_req_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
   parameter type         dreq_t         = logic,
@@ -171,15 +172,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   /////////////////////////////////////
   // Parameters and type definitions //
   /////////////////////////////////////
-
-  // ---------
-  // Issue
-  // ---------
-
-  typedef struct packed {
-    fu_data_t fu_data;
-    instr_tag_t tag;
-  } issue_req_t;
 
   // ---------------------------
   // Operand distribution network
@@ -330,15 +322,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // ALUs //
   //////////
 
-  typedef logic [cf_math_pkg::idx_width(AluNofRss)-1:0] alu_rs_tag_t;
-
-  typedef logic [cf_math_pkg::max($bits(alu_rs_tag_t),$bits(instr_tag_t))-1:0] alu_instr_tag_t;
-
-  typedef struct packed {
-    fu_data_t       fu_data;
-    alu_instr_tag_t tag;
-  } alu_issue_req_t;
-
   typedef struct packed {
     alu_result_t result;
     instr_tag_t  tag;
@@ -353,12 +336,12 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
 
     // Signals connecting the FU block and the actual FU
-    alu_issue_req_t alu_issue_req;
+    issue_req_t alu_issue_req;
     logic           alu_issue_req_valid;
     logic           alu_issue_req_ready;
     logic           alu_exec_commit;
     alu_result_t    alu_result;
-    alu_instr_tag_t alu_result_tag;
+    instr_tag_t     alu_result_tag;
     logic           alu_result_valid_raw;
     logic           alu_result_valid;
     logic           alu_result_ready;
@@ -377,9 +360,9 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     schnova_fu_block #(
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (alu_issue_req_t),
+      .issue_req_t   (issue_req_t),
       .result_t      (alu_res_val_t),
-      .instr_tag_t   (alu_instr_tag_t),
+      .instr_tag_t   (instr_tag_t),
       .NofRss        (AluNofRss),
       .NofOperands   (AluNofOperands),
       .NofResRspIfs  (AluNofRss),
@@ -434,8 +417,8 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .XLEN         (XLEN),
       .HasBranch    (alu == '0), // only the first ALU has the branch logic
       .HasMultiplier((alu == '0) && MulInAlu0), // only the first ALU has the multiplier
-      .issue_req_t  (alu_issue_req_t),
-      .instr_tag_t  (alu_instr_tag_t)
+      .issue_req_t  (issue_req_t),
+      .instr_tag_t  (instr_tag_t)
     ) i_alu (
       .clk_i,
       .rst_i,
@@ -703,15 +686,6 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [FLEN-1:0] fpu_result_t;
 
-  typedef logic [cf_math_pkg::idx_width(FpuNofRss)-1:0] fpu_rs_tag_t;
-
-  typedef logic [cf_math_pkg::max($bits(fpu_rs_tag_t),$bits(instr_tag_t))-1:0] fpu_instr_tag_t;
-
-  typedef struct packed {
-    fu_data_t       fu_data;
-    fpu_instr_tag_t tag;
-  } fpu_issue_req_t;
-
   typedef struct packed {
     fpu_result_t result;
     instr_tag_t  tag;
@@ -729,12 +703,12 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpus
     // Signals connecting the FU block and the actual FU
-    fpu_issue_req_t fpu_issue_req;
+    issue_req_t     fpu_issue_req;
     logic           fpu_issue_req_valid;
     logic           fpu_issue_req_ready;
     logic           fpu_exec_commit;
     fpu_result_t    fpu_result;
-    fpu_instr_tag_t fpu_result_tag;
+    instr_tag_t     fpu_result_tag;
     logic           fpu_busy;
 
     producer_id_t producer_start_id;
@@ -750,9 +724,9 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     schnova_fu_block #(
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (fpu_issue_req_t),
+      .issue_req_t   (issue_req_t),
       .result_t      (fpu_result_t),
-      .instr_tag_t   (fpu_instr_tag_t),
+      .instr_tag_t   (instr_tag_t),
       .NofRss        (FpuNofRss),
       .NofOperands   (FpuNofOperands),
       .NofResRspIfs  (FpuNofRss),
@@ -812,8 +786,8 @@ module schnova_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .FLEN             (FLEN),
       .RegisterFPUIn    (RegisterFPUIn),
       .RegisterFPUOut   (RegisterFPUOut),
-      .issue_req_t      (fpu_issue_req_t),
-      .instr_tag_t      (fpu_instr_tag_t)
+      .issue_req_t      (issue_req_t),
+      .instr_tag_t      (instr_tag_t)
     ) i_fpu (
       .clk_i,
       .rst_ni           (~rst_i),
