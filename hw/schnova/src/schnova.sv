@@ -24,7 +24,7 @@
 //   have committed before the core gets stopped.
 //
 // Use automatic retiming options in the synthesis tool to optimize the fpnew design.
-module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
+module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Boot address of core.
   parameter logic [31:0] BootAddr  = 32'h0000_1000,
   /// Physical Address width of the core.
@@ -319,7 +319,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // ---------------------------
 
   typedef struct packed {
-    producer_id_t           producer_id;
+    producer_id_t               producer_id;
     logic [PhysRegAddrSize-1:0] dest_reg;
     logic [RobTagWidth-1:0]     rob_tag;
     logic                       dest_reg_is_fp;
@@ -1352,8 +1352,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   // pragma translate_off
 
   // Core and dispatch traces
-  schnizo_core_trace_t     core_trace;
-  schnizo_dispatch_trace_t dispatch_trace;
+  core_trace_t     core_trace;
+  dispatch_trace_t dispatch_trace;
   int unsigned             dispatch_rs_id;
 
   // Traces for regular execution
@@ -1374,32 +1374,12 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   wb_fu_trace_t fpu_wb_trace;
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
-  // Traces for result requests (each RSS has one signal per request crossbar output)
-  resreq_trace_t alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs];
-  resreq_trace_t lsu_resreq_traces [NofLsus][LsuNofRss][NofOperandIfs];
-  resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
-
-  // Traces for result captures (each RSS has one signal)
-  rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
-  rescap_trace_t lsu_rescap_traces [NofLsus][LsuNofRss];
-  rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
-
-  loop_state_e                  loop_state;
-  logic [FrepMaxItersWidth-1:0] loop_iteration = '0;
-
-  always_comb begin
-    loop_state = LoopRegular;
-    if (en_superscalar) begin
-      loop_state = LoopLcp1;
-    end
-  end
 
   assign core_trace = '{
-    priv_level: priv_lvl,
-    state:      loop_state,
-    iteration:  loop_iteration,
-    stall:      stall,
-    exception:  exception
+    priv_level:     priv_lvl,
+    en_superscalar: en_superscalar,
+    stall:          stall,
+    exception:      exception
   };
 
   assign dispatch_trace = '{
@@ -1408,9 +1388,13 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     pc_d:         i_frontend.pc_d,
     instr_data:   instr_fetch_data[0],
     rs1:          instr_decoded[0].rs1,
+    phy_rs1:      dispatch_req.phy_reg_op_a,
     rs2:          instr_decoded[0].rs2,
+    phy_rs2:      dispatch_req.phy_reg_op_b,
     rs3:          instr_decoded[0].imm, // fused FPU instructions use imm as operand
+    phy_rs3:      dispatch_req.phy_reg_op_c,
     rd:           instr_decoded[0].rd,
+    phy_rd:       dispatch_req.phy_reg_dest,
     rs1_is_fp:    instr_decoded[0].rs1_is_fp,
     rs2_is_fp:    instr_decoded[0].rs2_is_fp,
     rd_is_fp:     instr_decoded[0].rd_is_fp,
@@ -1425,29 +1409,18 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_alu_traces_rss_trace_resreq
+      if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_hs &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
-                          // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
-                          // after porting issue slots to SRAM
-          instr_iter:     1'b0,
-          producer:       i_fu_stage.producer_to_string('0),
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_req_valid_i &&
+                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_req_ready_o &&
+                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
           alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
         };
-        assign alu_rescap_traces[alu][rss] = '{default: '0};
       end else begin : gen_alu_traces_rss_no_trace_resreq
         assign rss_alu_traces[alu][rss]    = '{default: '0};
-        assign alu_rescap_traces[alu][rss] = '{default: '0};
-      end
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
-        if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
-          assign alu_resreq_traces[alu][rss][con] = '{default: '0};
-        end else begin : gen_alu_traces_rss_no_resreq
-          assign alu_resreq_traces[alu][rss][con] = '{default: '0};
-        end
       end
       // verilog_lint: waive-stop line-length
     end
@@ -1456,12 +1429,13 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsu_traces
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_lsu_traces_rss_trace_resreq
+      if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_hs &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:     1'b0,
-          producer:       i_fu_stage.producer_to_string('0),
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_req_valid_i &&
+                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_req_ready_o &&
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          producer:       i_fu_stage.producer_to_string(
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1472,18 +1446,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
           lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
           lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
         };
-        assign lsu_rescap_traces[lsu][rss] = '{default: '0};
       end else begin : gen_lsu_traces_rss_no_trace_resreq
         assign rss_lsu_traces[lsu][rss]    = '{default: '0};
-        assign lsu_rescap_traces[lsu][rss] = '{default: '0};
-      end
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
-        if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
-          assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
-        end else begin : gen_lsu_traces_rss_no_resreq
-          assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
-        end
       end
       // verilog_lint: waive-stop line-length
     end
@@ -1494,10 +1458,11 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_hs &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
-          instr_iter:  1'b0,
-          producer:    i_fu_stage.producer_to_string('0),
+          valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_req_valid_i &&
+                      i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_req_ready_o &&
+                      (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_slots.disp_idx_i == rss),
+          producer:    i_fu_stage.producer_to_string(
+                        i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
           fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b,
           fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.imm,
@@ -1507,18 +1472,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
         };
-        assign fpu_rescap_traces[fpu][rss] = '{default: '0};
       end else begin : gen_fpu_traces_no_rss
         assign rss_fpu_traces[fpu][rss]    = '{default: '0};
-        assign fpu_rescap_traces[fpu][rss] = '{default: '0};
-      end
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
-        if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
-          assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
-        end else begin : gen_fpu_traces_no_resreq
-          assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
-        end
       end
       // verilog_lint: waive-stop line-length
     end
@@ -1558,39 +1513,39 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
   assign alu_wb_trace = '{
     valid:       alu_result_valid && alu_result_ready,
     fu_result:   alu_result.result,
-    fu_rd:       alu_result_tag.dest_reg,
+    fu_phy_rd:       alu_result_tag.dest_reg,
     fu_rd_is_fp: alu_result_tag.dest_reg_is_fp
   };
 
   assign lsu_wb_trace = '{
     valid:       lsu_result_valid && lsu_result_ready,
     fu_result:   lsu_result,
-    fu_rd:       lsu_result_tag.dest_reg,
+    fu_phy_rd:       lsu_result_tag.dest_reg,
     fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp
   };
 
   assign fpu_wb_trace = '{
     valid:       fpu_result_valid && fpu_result_ready,
     fu_result:   fpu_result,
-    fu_rd:       fpu_result_tag.dest_reg,
+    fu_phy_rd:       fpu_result_tag.dest_reg,
     fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp
   };
 
   assign csr_wb_trace = '{
     valid:       csr_result_valid && csr_result_ready,
     fu_result:   csr_result,
-    fu_rd:       csr_result_tag.dest_reg,
+    fu_phy_rd:       csr_result_tag.dest_reg,
     fu_rd_is_fp: csr_result_tag.dest_reg_is_fp
   };
 
   assign acc_wb_trace  = '{
     valid:       acc_pvalid_i && acc_pready_o,
     fu_result:   acc_result,
-    fu_rd:       acc_result_tag.dest_reg,
+    fu_phy_rd:       acc_result_tag.dest_reg,
     fu_rd_is_fp: acc_result_tag.dest_reg_is_fp
   };
 
-  schnizo_tracer #(
+  schnova_tracer #(
     .NofAlus        (NofAlus),
     .NofLsus        (NofLsus),
     .NofFpus        (NofFpus),
@@ -1623,13 +1578,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnizo_tracer_pkg::*; #(
     .lsu_wb_trace       (lsu_wb_trace),
     .fpu_wb_trace       (fpu_wb_trace),
     .csr_wb_trace       (csr_wb_trace),
-    .acc_wb_trace       (acc_wb_trace),
-    .alu_resreq_traces  (alu_resreq_traces),
-    .lsu_resreq_traces  (lsu_resreq_traces),
-    .fpu_resreq_traces  (fpu_resreq_traces),
-    .alu_rescap_traces  (alu_rescap_traces),
-    .lsu_rescap_traces  (lsu_rescap_traces),
-    .fpu_rescap_traces  (fpu_rescap_traces)
+    .acc_wb_trace       (acc_wb_trace)
   );
 
   // pragma translate_on
