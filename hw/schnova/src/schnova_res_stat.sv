@@ -224,7 +224,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
-    .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
+    .disp_idx_i        ('0),
     .retiring_o        (retiring),
     .disp_req_i        (disp_req_i_q),
     .disp_req_valid_i  (disp_req_valid_i_q),
