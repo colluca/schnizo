@@ -13,7 +13,6 @@ NUM_RS = 3
 NUM_OPERANDS_PER_RS = 3
 
 
-
 class ExperimentManager(eu.ExperimentManager):
 
     def derive_axes(self, experiment):
