@@ -35,6 +35,8 @@ int main() {
     register uint32_t increment asm("t2") = 8;
     register uint32_t cnt asm("t3") = n_reps;
 
+    snrt_mcycle();
+
     asm volatile(
         // Wait until all FPU & LSU instructions have retired to have a clean register and
         // pipeline state. Note, the cache is not yet synchronized.
@@ -62,6 +64,8 @@ int main() {
         : [ n_frep ] "r"(n_reps - 1), [ inc ] "r"(increment)
         // clobbers - modified registers beyond the outputs
         : "t0", "memory");
+
+    snrt_mcycle();
 
     if (res != (start + (increment * n_reps))) {
         return 1;

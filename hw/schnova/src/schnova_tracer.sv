@@ -75,6 +75,8 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
 
   localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
 
+  dispatch_detail_t dispatch_queue[NofFus][$];
+
   // verilog_lint: waive-start always-ff-non-blocking
   always_ff @(posedge clk_i) begin
     string trace_header;
@@ -91,6 +93,10 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
         header: trace_header,
         dispatch_trace: dispatch_trace
       };
+
+      if (dispatch_trace.valid && core_trace.en_superscalar) begin
+        dispatch_queue[dispatch_rs_id].push_back(details);
+      end
 
       // Trace events are active depending on CPU states.
       if (!core_trace.en_superscalar) begin
@@ -122,7 +128,7 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
         for (int alu = 0; alu < NofAlus; alu++) begin
           for (int rss = 0; rss < AluNofRss; rss++) begin
             if (rss_alu_traces[alu][rss].valid) begin
-              details = dipatch_queue[alu].pop_front();
+              details = dispatch_queue[alu].pop_front();
               dispatch_event = format_dispatch_extras(details.dispatch_trace);
 
               dispatch_event = $sformatf("%s%s", dispatch_event,
@@ -136,7 +142,7 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
         for (int lsu = 0; lsu < NofLsus; lsu++) begin
           for (int rss = 0; rss < LsuNofRss; rss++) begin
             if (rss_lsu_traces[lsu][rss].valid) begin
-              details = dipatch_queue[NofAlus + lsu].pop_front();
+              details = dispatch_queue[NofAlus + lsu].pop_front();
               dispatch_event = format_dispatch_extras(details.dispatch_trace);
 
               dispatch_event = $sformatf("%s%s", dispatch_event,
@@ -150,7 +156,7 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
         for (int fpu = 0; fpu < NofFpus; fpu++) begin
           for (int rss = 0; rss < FpuNofRss; rss++) begin
             if (rss_fpu_traces[fpu][rss].valid) begin
-              details = dipatch_queue[NofAlus + NofLsus + fpu].pop_front();
+              details = dispatch_queue[NofAlus + NofLsus + fpu].pop_front();
               dispatch_event = format_dispatch_extras(details.dispatch_trace);
 
               dispatch_event = $sformatf("%s%s", dispatch_event,
@@ -169,35 +175,7 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
 
         write_trace_event(file_id, trace_header, "dispatch", dispatch_event,
                           dispatch_trace.valid && (csr_trace.valid || acc_trace.valid));
-      end else if (1'b0) begin
-        // There is no dispatch request and we can have multiple events per cycle.
-        // We must check each RSS issue request on its own.
-        for (int alu = 0; alu < NofAlus; alu++) begin
-          for (int rss = 0; rss < AluNofRss; rss++) begin
-            write_trace_event(file_id, trace_header, "dispatch",
-                             format_alu_trace(rss_alu_traces[alu][rss]),
-                             rss_alu_traces[alu][rss].valid);
-          end
-        end
-        for (int lsu = 0; lsu < NofLsus; lsu++) begin
-          for (int rss = 0; rss < LsuNofRss; rss++) begin
-            write_trace_event(file_id, trace_header, "dispatch",
-                             format_lsu_trace(rss_lsu_traces[lsu][rss]),
-                             rss_lsu_traces[lsu][rss].valid);
-          end
-        end
-        for (int fpu = 0; fpu < NofFpus; fpu++) begin
-          for (int rss = 0; rss < FpuNofRss; rss++) begin
-            write_trace_event(file_id, trace_header, "dispatch",
-                             format_fpu_trace(rss_fpu_traces[fpu][rss]),
-                             rss_fpu_traces[fpu][rss].valid);
-          end
-        end
-        // No CSR and ACC events possible
-      end else begin
-        $warning("Current CPU state not supported by tracer!");
       end
-
       // Writeback events - We must consider all writebacks at all times.
       write_trace_event(file_id, trace_header, "writeback",
                         format_wb_fu_trace(alu_wb_trace, "ALU"),
@@ -221,31 +199,16 @@ module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
         write_trace_event(file_id, trace_header, "retirement",
                           format_fu_retire_trace(alu_retirements[alu]),
                           alu_retirements[alu].valid);
-        for (int rss = 0; rss < AluNofRss; rss++) begin
-          write_trace_event(file_id, trace_header, "rescap",
-                            format_rescap_trace(alu_rescap_traces[alu][rss]),
-                            alu_rescap_traces[alu][rss].valid);
-        end
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
         write_trace_event(file_id, trace_header, "retirement",
                           format_fu_retire_trace(lsu_retirements[lsu]),
                           lsu_retirements[lsu].valid);
-        for (int rss = 0; rss < LsuNofRss; rss++) begin
-          write_trace_event(file_id, trace_header, "rescap",
-                            format_rescap_trace(lsu_rescap_traces[lsu][rss]),
-                            lsu_rescap_traces[lsu][rss].valid);
-        end
       end
       for (int fpu = 0; fpu < NofFpus; fpu++) begin
         write_trace_event(file_id, trace_header, "retirement",
                           format_fu_retire_trace(fpu_retirements[fpu]),
                           fpu_retirements[fpu].valid);
-        for (int rss = 0; rss < FpuNofRss; rss++) begin
-          write_trace_event(file_id, trace_header, "rescap",
-                            format_rescap_trace(fpu_rescap_traces[fpu][rss]),
-                            fpu_rescap_traces[fpu][rss].valid);
-        end
       end
       write_trace_event(file_id, trace_header, "retirement",
                         format_fu_retire_trace(csr_retirement),

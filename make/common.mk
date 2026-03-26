@@ -33,6 +33,7 @@ SN_VLT            ?= $(SN_VERILATOR_SEPP) verilator
 
 # Internal executables
 SN_GENTRACE_PY  ?= $(SN_UTIL_DIR)/sz_trace/sz_gen_trace.py
+SV_GENTRACE_PY  ?= $(SN_UTIL_DIR)/sv_trace/sv_gen_trace.py
 SN_ANNOTATE_PY  ?= $(SN_UTIL_DIR)/trace/annotate.py
 SN_EVENTS_PY    ?= $(SN_UTIL_DIR)/trace/events.py
 SN_JOIN_PY      ?= $(SN_UTIL_DIR)/bench/join.py
@@ -46,6 +47,11 @@ SN_GENTRACE_SRC  = $(SN_UTIL_DIR)/sz_trace/perfetto_trace.py
 SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/formatter.py
 SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/architecture.py
 SN_GENTRACE_SRC += $(SN_UTIL_DIR)/sz_trace/processor.py
+
+SV_GENTRACE_SRC  = $(SN_UTIL_DIR)/sv_trace/perfetto_trace.py
+SV_GENTRACE_SRC += $(SN_UTIL_DIR)/sv_trace/formatter.py
+SV_GENTRACE_SRC += $(SN_UTIL_DIR)/sv_trace/architecture.py
+SV_GENTRACE_SRC += $(SN_UTIL_DIR)/sv_trace/processor.py
 
 # Annotate prerequisites
 SN_ANNOTATE_SRC = $(SN_UTIL_DIR)/trace/a2l.py
@@ -64,6 +70,7 @@ SN_MCPU                    ?= snitch
 SN_RISCV_MC_FLAGS          ?= -disassemble
 SN_RISCV_MC_FLAGS          += -mcpu=$(SN_MCPU)
 SN_ANNOTATE_FLAGS          ?= -q --keep-time --addr2line=$(SN_ADDR2LINE) --format schnizo
+SV_ANNOTATE_FLAGS          ?= -q --keep-time --addr2line=$(SN_ADDR2LINE) --format schnizo
 SN_LAYOUT_EVENTS_FLAGS     ?= --cfg=$(SN_CFG)
 
 # Internal state

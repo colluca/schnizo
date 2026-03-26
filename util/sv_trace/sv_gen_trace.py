@@ -37,7 +37,7 @@ from collections import deque, defaultdict
 from perfetto_trace import PerfettoInstructionTrace
 import formatter
 from formatter import int_lit, flt_lit, flt_fmt
-from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, get_fu_type, CSR_NAMES
+from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, REG_PHYS_NAMES_I, REG_PHYS_NAMES_F, get_fu_type, CSR_NAMES
 from architecture import LSU_SIZE_TO_FLOAT
 from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_NONE
 from processor import ProcessorState
@@ -60,19 +60,12 @@ PERF_EVAL_KEYS_DECIMAL = ('tstart', 'tend', 'cycles')
 EVENT_DISPATCH = "dispatch"
 EVENT_WRITEBACK = "writeback"
 EVENT_RETIREMENT = "retirement"
-EVENT_RESREQ = "resreq"
-EVENT_RESCAP = "rescap"
 
-LOOP_REGULAR = "REG"
-LOOP_HWLOOP = "HWL"
-LOOP_LCP1 = "LCP1"
-LOOP_LCP2 = "LCP2"
-LOOP_LEP = "LEP"
+SCALAR = "INO"
+SUPERSCALR = "OOO"
 
 
 # -------------------- helpers  --------------------------
-
-
 def print_warning(message: str):
     sys.stderr.write(f"WARNING: {message}\n")
 
@@ -91,25 +84,16 @@ def parse_line(line: str) -> dict:
         raise ValueError(f"Not a valid trace line:\n{line}")
 
 
-def gen_dispatch_trace(loop_state, extras, proc_state, mc_exec) -> str:
-    # In LEP certain information on the original instruction is not known, e.g.
-    # the source registers might be altered during register renaming, etc.
-    # We save this information in LCP, and restore it in LEP.
-    # The iteration is also not logged in LEP, so we track it here.
-    # TODO(colluca): should we rather log the iteration in LEP as well?
-    if loop_state in {LOOP_REGULAR, LOOP_HWLOOP}:
+def gen_dispatch_trace(state, extras, proc_state, mc_exec) -> str:
+    # For every dispatch we update the register map table internally
+    proc_state.dispatch(extras)
+
+    if state in {SCALAR}:
         fu_str = ''
-    elif loop_state in {LOOP_LCP1}:
+    elif state in {SUPERSCALR}:
         fu_str = extras['disp_resp']
-        proc_state.lcp1_dispatch(fu_str)
-    elif loop_state in {LOOP_LCP2}:
-        fu_str = extras['disp_resp']
-        proc_state.lcp2_dispatch(fu_str, extras)
-    elif loop_state in {LOOP_LEP}:
-        fu_str = extras['producer']
-        proc_state.lep_dispatch(fu_str, extras)
     else:
-        raise ValueError(f"Not a valid loop state: {loop_state}")
+        raise ValueError(f"Not a valid loop state: {state}")
 
     # Print PC and instruction mnemonic for all instructions
     traceline = formatter.format_insn(extras, mc_exec)
@@ -117,22 +101,19 @@ def gen_dispatch_trace(loop_state, extras, proc_state, mc_exec) -> str:
     # If in superscalar mode, print the functional unit the instruction is being dispatched to
     traceline += f'  {fu_str:<6}'
 
-    # Recover the FU type from the LEP producer
-    # TODO(colluca): can't we use the same extras format for both LEP and other states?
-    if loop_state == LOOP_LEP:
-        extras['fu_type'] = get_fu_type(extras['producer'])
+    if extras['rd_is_fp']:
+        register     = REG_ABI_NAMES_F[extras['rd']]
+        phy_register = REG_PHYS_NAMES_F[extras['phy_rd']]
+    else:
+        register     = REG_ABI_NAMES_I[extras['rd']]
+        phy_register = REG_PHYS_NAMES_I[extras['phy_rd']]
+
+    renaming = f"{register} -> {phy_register}"
+
+    traceline += f'  {renaming:<14}'
 
     # Format extras, returns a collection of comments
     comments = formatter.format_extras(extras)
-
-    # Instruction iter if in FREP
-    # TODO(colluca): merge iteration into HW state string
-    iter_count = extras['iteration']
-    if loop_state not in {LOOP_REGULAR}:
-        iter_comment = f"iter = {iter_count}"
-        if ('instr_iter' in extras) and loop_state in {LOOP_LCP1, LOOP_LCP2, LOOP_LEP}:
-            iter_comment += f" ({extras['instr_iter']})"
-        comments.append(iter_comment)
 
     # Concatenate extras string to traceline
     traceline += " #; " + ", ".join(comments)
@@ -143,49 +124,24 @@ def gen_dispatch_trace(loop_state, extras, proc_state, mc_exec) -> str:
 # This values must come from the state handling logic as the DASM cannot provide it.
 def gen_writeback_trace(extras):
     flt_fmt = 1  # TODO: somehow get the flt format? for now assume always double
+
     if extras['rd_is_fp']:
-        register = REG_ABI_NAMES_F[extras['rd']]
+        register = REG_PHYS_NAMES_F[extras['phy_rd']]
         value_str = flt_lit(extras['result'], flt_fmt)
     else:
-        register = REG_ABI_NAMES_I[extras['rd']]
+        register = REG_PHYS_NAMES_I[extras['phy_rd']]
         value_str = int_lit(extras['result'])
     writeback = f"{register} = {value_str}"
-    if (extras['rd'] == 0 and not extras['rd_is_fp']):
+    if (extras['phy_rd'] == 0 and not extras['rd_is_fp']):
         # This is a writeback to GPR 0, which is fixed to all zeros.
         # Schnizo uses dummy writebacks to this GPR for instructions
         # which don't write any registers.
         return ""
-    return f"{'':<10} {'':<26}  {'':<6} #; {extras['origin']}: {writeback}"
+    return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {writeback}"
 
-
-def gen_resreq_trace(extras):
-    producer = extras['producer']
-    consumer = extras['consumer']
-    req_iter = extras['requested_iter']
-    return (
-        f"{'':<10} {'':<26}  {'':<6} #; RESREQ to {producer} from "
-        f"{consumer}, result iter = {req_iter}"
-    )
-
-
-def gen_rescap_trace(extras):
-    producer = extras['producer']
-    flt_fmt = 1  # TODO: somehow get the flt format? for now assume always double
-    if extras['rd_is_fp']:
-        result = flt_lit(extras['result'], flt_fmt)
-    else:
-        result = int_lit(extras['result'])
-    result_iter = extras['result_iter']
-    iter_count = extras['iteration']
-    return (
-        f"{'':<10} {'':<26}  {'':<6} #; RESCAP {producer} <-- "
-        f"{result}, iter = {iter_count} ({result_iter})"
-    )
-
-
-def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
+def handle_dispatch_event(sim_time, cycle, priv_lvl, extras,
                           lsu_pipelines, fpu_pipelines, perf_metrics):
-    if extras['stall'] and not (loop_state in {LOOP_LEP}):
+    if extras['stall']:
         return
 
     perf_metrics[-1]['issues'] += 1
@@ -249,7 +205,7 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
     return 0
 
 
-def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
+def handle_retirement_event(cycle, priv_lvl, extras,
                             lsu_pipelines, fpu_pipelines, perf_metrics, permissive):
     if (extras['producer'].startswith(FU_LSU) or extras['producer'].startswith(FU_FPU)):
         try:
@@ -282,35 +238,27 @@ def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
     return 0
 
 
-def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
+def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, state, extras,
                           trace, mc_exec):
-    if extras['stall'] and not (loop_state in {LOOP_LEP}):
+    if extras['stall']:
         return
 
-    if loop_state in {LOOP_REGULAR, LOOP_HWLOOP, LOOP_LCP1, LOOP_LCP2}:
-        fu_type = extras['fu_type']
-        # Dispatch response is invalid for CSR, MULDIV, DMA and  NONE
-        if fu_type in {FU_CSR, FU_MULDIV, FU_DMA, FU_NONE}:
-            fu_str = fu_type
-            # We don't have infos about the accelerator id at retirement.
-            # Thus map everything to ACC.
-            # TODO(colluca): this can be changed
-            if (fu_type in {FU_MULDIV, FU_DMA}):
-                fu_str = FU_ACC
-        else:
-            fu_str = extras['disp_resp']
-    elif loop_state in {LOOP_LEP}:
-        fu_str = extras['producer']
+    fu_type = extras['fu_type']
+    # Dispatch response is invalid for CSR, MULDIV, DMA and  NONE
+    if fu_type in {FU_CSR, FU_MULDIV, FU_DMA, FU_NONE}:
+        fu_str = fu_type
+        # We don't have infos about the accelerator id at retirement.
+        # Thus map everything to ACC.
+        # TODO(colluca): this can be changed
+        if (fu_type in {FU_MULDIV, FU_DMA}):
+            fu_str = FU_ACC
     else:
-        raise ValueError(f"Not a valid loop state: {loop_state}\n")
+        fu_str = extras['disp_resp']
 
     # Format instruction
     pc_str = formatter.format_pc(extras)
     mnemonic = formatter.format_mnemonic(extras, mc_exec)
-    iter_count = extras['iteration']
-    annotations = {'pc': pc_str, 'state': loop_state}
-    if loop_state in {LOOP_LCP1, LOOP_LCP2, LOOP_LEP}:
-        annotations.update({'iteration': iter_count})
+    annotations = {'pc': pc_str, 'state': state}
 
     # Emit Perfetto slice begin event
     trace.start_insn(fu_str, mnemonic, cycle * CLOCK_PERIOD_NS, annotations)
@@ -326,24 +274,16 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
             trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
 
 
-def gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
-    # Only capture the retirement in regular modes.
-    # During FREP modes we capture with the rescap event because we need the producer id.
-    if (loop_state in {LOOP_REGULAR, LOOP_HWLOOP}):
-        fu_str = extras['producer']
-        # We map all instructions to the first FU of its type. Except for CSR,
-        # MULDIV, DMA (combined to ACC) and NONE.
-        if (fu_str not in {FU_CSR, FU_ACC, FU_NONE}):
-            fu_str = f"{fu_str}.0"
-        # The instruction ends in this cycle. Thus the event is at the end of this cycle.
-        trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
-
-
-def gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
+def gen_retirement_perfetto(sim_time, cycle, priv_lvl, extras, trace):
     fu_str = extras['producer']
+    # We map all instructions to the first FU of its type. Except for CSR,
+    # MULDIV, DMA (combined to ACC) and NONE.
+    if (fu_str not in {FU_CSR, FU_ACC, FU_NONE}):
+        fu_str = f"{fu_str}.0"
+
+    
     # The instruction ends in this cycle. Thus the event is at the end of this cycle.
     trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
-
 
 def gen_trace_line(line, mc_exec,
                    lsu_pipelines, fpu_pipelines, trace,
@@ -355,7 +295,7 @@ def gen_trace_line(line, mc_exec,
     sim_time = data['time']
     cycle = data['cycle']
     priv_lvl = data['priv']
-    loop_state = data['state']
+    state = data['state']
 
     # Common trace header shared by all trace lines
     header = f"{data['time']:>8}  {data['cycle']:>6} {data['priv']} {data['state']:<4} "
@@ -366,26 +306,19 @@ def gen_trace_line(line, mc_exec,
         # To catch exceptions we allow tracing dispatch events that are not committed (i.e. killed)
         # We must however prevent that they are parsed, since they may contain illegal data.
         if not data['exception']:
-            handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, data,
+            handle_dispatch_event(sim_time, cycle, priv_lvl, data,
                                   lsu_pipelines, fpu_pipelines,
                                   perf_metrics)
-            trace_body = gen_dispatch_trace(loop_state, data, proc_state, mc_exec)
-            gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, data,
+            trace_body = gen_dispatch_trace(state, data, proc_state, mc_exec)
+            gen_dispatch_perfetto(sim_time, cycle, priv_lvl, state, data,
                                   trace, mc_exec)
     elif (data['event'] == EVENT_WRITEBACK):
         # Nothing statefull to handle - TODO: extract somehow the float format..
         trace_body = gen_writeback_trace(data)
-    elif (data['event'] == EVENT_RESREQ):
-        # Nothing statefull to handle
-        trace_body = gen_resreq_trace(data)
-    elif (data['event'] == EVENT_RESCAP):
-        proc_state.capture_result(data['producer'], data)
-        trace_body = gen_rescap_trace(data)
-        gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
     elif (data['event'] == EVENT_RETIREMENT):
-        handle_retirement_event(cycle, priv_lvl, loop_state, data,
+        handle_retirement_event(cycle, priv_lvl, data,
                                 lsu_pipelines, fpu_pipelines, perf_metrics, permissive)
-        gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
+        gen_retirement_perfetto(sim_time, cycle, priv_lvl, data, trace)
     else:
         raise ValueError(f"Not a valid event type: {data['event']}\n")
 
@@ -611,7 +544,6 @@ def main():
         if len(pipeline) != 0:
             print_warning(f"{len(pipeline)} unfinished operations detected for {fpu}.")
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main())
