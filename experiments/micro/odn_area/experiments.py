@@ -8,6 +8,10 @@ from snitch.util.experiments import experiment_utils as eu
 
 FINAL_SYNTH_STAGE = '9'
 
+# Experiment constants
+NUM_RS = 3
+NUM_OPERANDS_PER_RS = 3
+
 
 class ExperimentManager(eu.ExperimentManager):
 
@@ -20,8 +24,8 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments():
     # Define axes
-    num_slots_axis = [3, 12, 24, 48, 96]
-    num_rsp_ports_axis = [1, 2]
+    num_slots_axis = [3, 12, 24, 48, 96, 192]
+    num_rsp_ports_axis = [1, 2, 3]
 
     # Generate list of experiments
     experiments = []
@@ -32,7 +36,7 @@ def gen_experiments():
                 'name': 'req_xbar',
                 'num_slots': num_slots,
                 'hdl_params': {
-                    'NofOperandReqs': 9,
+                    'NofOperandReqs': NUM_OPERANDS_PER_RS * NUM_RS,
                     'NofResRspIfs': num_slots,
                 }
             }
@@ -46,18 +50,18 @@ def gen_experiments():
                     'num_slots': num_slots,
                     'num_rsp_ports': num_rsp_ports,
                     'hdl_params': {
-                        'NofRs': 3,
-                        'NofRssPerRs': int(num_slots / 3),
+                        'NofRs': NUM_RS,
+                        'NofRssPerRs': int(num_slots / NUM_RS),
                         'NofRspPortsPerRs': num_rsp_ports,
-                        'NumOut': 9,
+                        'NumOut': NUM_OPERANDS_PER_RS * NUM_RS,
                     }
                 }
             )
     return experiments
 
 
-def get_results():
-    manager = ExperimentManager(gen_experiments())
+def results(dir=None):
+    manager = ExperimentManager(gen_experiments(), dir=dir, parse_args=False)
     df = manager.get_results()
     df['synth_results'] = df['synth_results'].str[FINAL_SYNTH_STAGE]
     return df

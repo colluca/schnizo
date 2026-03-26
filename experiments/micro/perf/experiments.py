@@ -11,7 +11,7 @@ from pathlib import Path
 # TODO(colluca): which kernels partition the data across cores, and which don't?
 
 
-class FrepExperimentManager(eu.ExperimentManager):
+class ExperimentManager(eu.ExperimentManager):
 
     def derive_axes(self, experiment):
         base_axes = eu.derive_axes_from_keys(experiment, keys=['app', 'mode'])
@@ -40,14 +40,15 @@ class FrepExperimentManager(eu.ExperimentManager):
         return cdefines
 
 
-def gen_experiments(ci):
+def gen_experiments(ci=False):
     # Define experiment axes
     modes = ['scalar', 'superscalar']
     sizes = [256, 512, 1024, 2048, 4096]
 
     # Drop failing tests at 256 when running in CI
+    # Also drop tests at 512 and 4096, just for CI runtime
     if ci:
-        sizes.pop(0)
+        sizes = sizes[2:-1]
 
     # Generate experiment list
     experiments = []
@@ -116,24 +117,22 @@ def gen_experiments(ci):
     return experiments
 
 
-def main():
-    parser = FrepExperimentManager.parser()
-    parser.add_argument('--ci', action='store_true', help='Reduce number of experiments for CI')
-    args = parser.parse_args()
-    experiments = gen_experiments(ci=args.ci)
-    manager = FrepExperimentManager(experiments=experiments, args=args, parse_args=False)
-
-    manager.run()
-
-    df = manager.get_results()
+def results(dir=None):
+    df = ExperimentManager(gen_experiments(), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
     df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
-    print(df)
+    return df
 
-    # Export dataframe to CSV file
-    df.drop(columns=['results'], inplace=True)
-    df.to_csv('results.csv', index=False)
+
+def main():
+    parser = ExperimentManager.parser()
+    parser.add_argument('--ci', action='store_true', help='Reduce number of experiments for CI')
+    args = parser.parse_args()
+    experiments = gen_experiments(ci=args.ci)
+    manager = ExperimentManager(experiments=experiments, args=args, parse_args=False)
+
+    manager.run()
 
 
 if __name__ == '__main__':

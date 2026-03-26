@@ -36,16 +36,6 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'scalar+mul',
-            'hdl_params': {
-                'Xfrep': 0,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 0,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
             'name': 'scalar+mul+fpu',
             'hdl_params': {
                 'Xfrep': 0,
@@ -95,45 +85,6 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_medium-1AluRss',
-            'hdl_params': {
-                'Xfrep': 1,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-                'AluNofRss': 3,
-                'LsuNofRss': 4,
-                'FpuNofRss': 4,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'superscalar_medium-1LsuRss',
-            'hdl_params': {
-                'Xfrep': 1,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-                'AluNofRss': 4,
-                'LsuNofRss': 3,
-                'FpuNofRss': 4,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'superscalar_medium-1FpuRss',
-            'hdl_params': {
-                'Xfrep': 1,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-                'AluNofRss': 4,
-                'LsuNofRss': 4,
-                'FpuNofRss': 3,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
             'name': 'superscalar_large',
             'hdl_params': {
                 'Xfrep': 1,
@@ -148,8 +99,8 @@ def gen_experiments(designs=None):
     return experiments
 
 
-def get_results():
-    manager = ExperimentManager(gen_experiments())
+def results(dir=None):
+    manager = ExperimentManager(gen_experiments(), dir=dir, parse_args=False)
     df = manager.get_results()
     df = df.set_index('name')
     df['synth_results'] = df['synth_results'].str[EARLY_SYNTH_STAGE]

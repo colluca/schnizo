@@ -11,7 +11,7 @@
 // dispatch requests to the different functional units. It selects the FU type based on the
 // decoded instruction. If more than one FU of the same type is available, it further selects the
 // specific FU of that type to dispatch the instruction to.
-// It itself instantiates the RMT and updates it based on the dispatch and write back information.
+// It itself instantiates the RMT and updates it based on the dispatch information.
 module schnizo_dispatcher import schnizo_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          EnableFrep  = 1,

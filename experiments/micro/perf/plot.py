@@ -6,16 +6,46 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-from pathlib import Path
 from scipy.stats import gmean
+from . import experiments
+
+SCHNIZO_CFG = {
+    'alu': 3,
+    'lsu': 3,
+    'fpu': 1
+}
+
+BENCHMARK_INSNS = {
+    'sz_axpy':          {'alu':  3, 'fpu':  1, 'lsu':  3},
+    'sz_dot':           {'alu':  2, 'fpu':  4, 'lsu':  8},
+    'exp':              {'alu': 22, 'fpu': 40, 'lsu': 28},
+    'log':              {'alu': 34, 'fpu': 40, 'lsu': 16},
+    'pi_lcg':           {'alu': 20, 'fpu': 28, 'lsu':  0},
+    'pi_xoshiro128p':   {'alu': 84, 'fpu': 28, 'lsu':  0},
+    'poly_lcg':         {'alu': 20, 'fpu': 40, 'lsu':  0},
+    'poly_xoshiro128p': {'alu': 84, 'fpu': 40, 'lsu':  0},
+}
+
+
+def ideal_ipc(insns, cfg):
+    """Compute ideal IPC based on instruction mix and FU counts (bottleneck analysis)."""
+    total = sum(insns.values())
+    cycles = max(insns[fu] / cfg[fu] for fu in cfg if insns.get(fu, 0))
+    return total / cycles
+
 
 THEORETICAL_METRICS = {
-    'fpu_util':
-    {
-        # 4x unrolled
-        'sz_axpy': 4/(4*3+3+4),
-        'sz_dot': 4/(4*2+2+4)
+    'fpu_util': {
+        'scalar': {
+            app: BENCHMARK_INSNS[app]['fpu'] / sum(BENCHMARK_INSNS[app].values())
+            for app in ['sz_axpy', 'sz_dot']
+        }
+    },
+    'ipc': {
+        'superscalar': {
+            app: ideal_ipc(BENCHMARK_INSNS[app], SCHNIZO_CFG)
+            for app in BENCHMARK_INSNS
+        }
     }
 }
 
@@ -58,7 +88,7 @@ def fit_inverse_function(n_vals, y_vals, x_lim):
     return n_fit, (a * n_fit) / (b * n_fit + c), a, b, c
 
 
-def kernel_scaling_plot(df, app):
+def kernel_scaling_plot(df, app, show=True):
     """Plot IPC and FPU utilization vs problem size with fitted curves"""
     # Extract relevant data
     df = df[(df['app'] == app) & (df['mode'] == 'superscalar')].copy()
@@ -94,11 +124,13 @@ def kernel_scaling_plot(df, app):
     ax[1].grid(True, color='gainsboro', linewidth=0.5)
     fig.tight_layout()
 
-    # Show plot
-    plt.show()
+    if show:
+        plt.show()
+
+    return df
 
 
-def superscalar_comparison_plot(df, metric='fpu_util'):
+def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """Compare scalar and superscalar results across applications"""
     # Pivot data to get utilization from the run with max size per app and mode
     idx_max_size = df.groupby(['app', 'mode'])['size'].idxmax()
@@ -116,7 +148,7 @@ def superscalar_comparison_plot(df, metric='fpu_util'):
 
     # Create grouped bar chart
     fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax)
+    plot_df.plot(kind='bar', ax=ax, zorder=3)
 
     # Get the bar containers for each mode
     bar_containers = ax.containers
@@ -126,55 +158,81 @@ def superscalar_comparison_plot(df, metric='fpu_util'):
     # Add theoretical markers on top of scalar bars
     labeled = False
     for bar, app in zip(scalar_bars, plot_df.index):
-        if metric in THEORETICAL_METRICS:
-            if app in THEORETICAL_METRICS[metric]:
-                theoretical = THEORETICAL_METRICS[metric][app]
+        if metric == 'fpu_util':
+            if app in THEORETICAL_METRICS[metric]['scalar']:
+                theoretical = THEORETICAL_METRICS[metric]['scalar'][app]
                 ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
-                           color='black', marker='D', s=100, zorder=3,
+                           color='black', marker='D', zorder=4,
                            label='Theoretical' if not labeled else '')
                 labeled = True
 
     # Add asymptote markers on top of superscalar bars
     for i, (bar, asymptote) in enumerate(zip(superscalar_bars, asymptotes)):
         ax.scatter(bar.get_x() + bar.get_width() / 2., asymptote,
-                   color='black', marker='*', s=200, zorder=3,
+                   color='black', marker='*', zorder=4,
                    label='Asymptote' if i == 0 else '')
+
+    # Add ideal IPC lines on top of superscalar bars
+    labeled = False
+    if metric == 'ipc':
+        for bar, app in zip(superscalar_bars, plot_df.index):
+            if app in THEORETICAL_METRICS['ipc']['superscalar']:
+                ideal = THEORETICAL_METRICS['ipc']['superscalar'][app]
+                ax.plot([bar.get_x(), bar.get_x() + bar.get_width()], [ideal, ideal],
+                        color='tab:red', zorder=3,
+                        label='Ideal' if not labeled else '')
+                labeled = True
+
+    # Reference line at y=1
+    ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
 
     # Format plot
     ax.set_xlabel('')
-    ax.set_ylabel(METRIC_LABELS[metric], fontsize=12)
-    ax.set_xticklabels(plot_df.index, rotation=0)
-    ax.legend()
+    ax.set_ylabel(METRIC_LABELS[metric])
+    ax.set_xticklabels(plot_df.index, rotation=30, ha='right')
+    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
+    ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
+    ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
     fig.tight_layout()
-    plt.show()
 
     geomean_superscalar_metric = format_metric(gmean(plot_df['Superscalar']), metric)
     print(f'Geomean superscalar {metric}: {geomean_superscalar_metric}')
 
+    if show:
+        plt.show()
 
-def plot1(df):
-    kernel_scaling_plot(df, app="sz_axpy")
-
-
-def plot2(df):
-    kernel_scaling_plot(df, app="sz_dot")
+    return plot_df
 
 
-def plot3(df):
-    kernel_scaling_plot(df, app="exp")
+def plot1(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return kernel_scaling_plot(df, app="sz_axpy", show=show)
 
 
-def plot4(df):
-    kernel_scaling_plot(df, app="log")
+def plot2(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return kernel_scaling_plot(df, app="sz_dot", show=show)
 
 
-def plot5(df):
-    superscalar_comparison_plot(df, 'fpu_util')
+def plot3(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return kernel_scaling_plot(df, app="exp", show=show)
 
 
-def plot6(df):
-    superscalar_comparison_plot(df, 'ipc')
+def plot4(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return kernel_scaling_plot(df, app="log", show=show)
+
+
+def plot5(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return superscalar_comparison_plot(df, 'fpu_util', show=show)
+
+
+def plot6(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return superscalar_comparison_plot(df, 'ipc', show=show)
 
 
 def main():
@@ -194,17 +252,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load dataframe from CSV
-    results_path = Path('results.csv')
-    if not results_path.exists():
-        print(f"Error: Results file not found at {results_path}")
-        print("Please run experiments.py first to generate results.")
-        return
-    df = pd.read_csv(results_path)
-
     # Generate selected plots
     for name in args.plots:
-        plot_dict[name](df)
+        _ = plot_dict[name]()
 
 
 if __name__ == '__main__':
