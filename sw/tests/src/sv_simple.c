@@ -59,9 +59,9 @@ int main() {
         "frep.o %[n_frep], 7, 0, 0\n"
 
         // outputs
-        : [ res ] "+r"(res), [cnt] "+r"(cnt)
+        : [res] "+r"(res), [cnt] "+r"(cnt)
         // inputs - FREP repeats n_frep+1 times..
-        : [ n_frep ] "r"(n_reps - 1), [ inc ] "r"(increment)
+        : [n_frep] "r"(n_reps - 1), [inc] "r"(increment)
         // clobbers - modified registers beyond the outputs
         : "t0", "memory");
 
