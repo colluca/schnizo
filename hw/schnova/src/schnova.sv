@@ -1310,7 +1310,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Floating point and integer operand request/response
   // multiplexing
   always_comb begin : sb_read_port_mux
-    for (int unsigned op; op < NofOperandIfs; op++) begin
+    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
       sb_raddr[op] =  op_reqs[op].is_fp ?
                       sb_fp_raddr[op]   :
                       sb_gp_raddr[op];
