@@ -91,7 +91,7 @@ def fit_inverse_function(n_vals, y_vals, x_lim):
 def kernel_scaling_plot(df, app, show=True):
     """Plot IPC and FPU utilization vs problem size with fitted curves"""
     # Extract relevant data
-    df = df[(df['app'] == app) & (df['mode'] == 'superscalar')].copy()
+    df = df[(df['hw'] == 'fc') & (df['app'] == app) & (df['mode'] == 'superscalar')].copy()
     df = df.sort_values('size')
     n_vals = df['size'].to_numpy(dtype=float)
     ipc_vals = df['ipc'].to_numpy(dtype=float)
@@ -132,6 +132,7 @@ def kernel_scaling_plot(df, app, show=True):
 
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """Compare scalar and superscalar results across applications"""
+    df = df[df['hw'] == 'fc']
     # Pivot data to get utilization from the run with max size per app and mode
     idx_max_size = df.groupby(['app', 'mode'])['size'].idxmax()
     plot_df = df.loc[idx_max_size].pivot(index='app', columns='mode', values=metric)
@@ -205,6 +206,47 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     return plot_df
 
 
+def rsp_ports_tradeoff_plot(df, show=True):
+    """Compare IPC across hw configs for superscalar mode, at max problem size"""
+    df = df[df['mode'] == 'superscalar']
+    idx_max_size = df.groupby(['app', 'hw'])['size'].idxmax()
+    plot_df = df.loc[idx_max_size].pivot(index='app', columns='hw', values='ipc')
+
+    fc_ipc = plot_df['fc']
+    plot_df = plot_df.drop(columns='fc').rename(columns={
+        '1port': '1 port', '2ports': '2 ports', '3ports': '3 ports'
+    })
+
+    fig, ax = plt.subplots()
+    plot_df.plot(kind='bar', ax=ax, zorder=3)
+
+    # Draw fc IPC as a horizontal line spanning all bars in each app group
+    labeled = False
+    for app_idx, app in enumerate(plot_df.index):
+        bars = [c.patches[app_idx] for c in ax.containers]
+        x_left = bars[0].get_x()
+        x_right = bars[-1].get_x() + bars[-1].get_width()
+        ax.plot([x_left, x_right], [fc_ipc[app], fc_ipc[app]],
+                color='tab:red', zorder=4,
+                label='Fully connected' if not labeled else '')
+        labeled = True
+
+    ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
+    ax.set_xlabel('')
+    ax.set_ylabel(METRIC_LABELS['ipc'])
+    ax.set_xticklabels(plot_df.index, rotation=30, ha='right')
+    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
+    ax.set_axisbelow(True)
+    ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
+    ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
+    fig.tight_layout()
+
+    if show:
+        plt.show()
+
+    return plot_df
+
+
 def plot1(show=True, dir=None):
     df = experiments.results(dir=dir)
     return kernel_scaling_plot(df, app="sz_axpy", show=show)
@@ -235,10 +277,15 @@ def plot6(show=True, dir=None):
     return superscalar_comparison_plot(df, 'ipc', show=show)
 
 
+def plot7(show=True, dir=None):
+    df = experiments.results(dir=dir)
+    return rsp_ports_tradeoff_plot(df, show=show)
+
+
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot7]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
