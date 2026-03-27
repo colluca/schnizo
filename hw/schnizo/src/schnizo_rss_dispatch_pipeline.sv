@@ -2,6 +2,8 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "common_cells/assertions.svh"
+
 // Combines initial slot update, operand request generation, operand response handling,
 // and issue logic into a single module.
 module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
@@ -18,17 +20,31 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   parameter type         rss_idx_t        = logic,
   parameter type         issue_req_t      = logic
 ) (
+  input  logic            clk_i,
+  input  logic            rst_ni,
+
   // Control
   input  logic            restart_i,
-  input  producer_id_t    producer_id_i,
+  input  producer_id_t    disp_producer_id_i,
+  input  producer_id_t    issue_producer_id_i,
   input  loop_state_e     loop_state_i,
-  input  disp_req_t       disp_req_i,
-  input  logic            disp_req_valid_i,
+  input  logic            last_issue_iter_i,
+  output logic            retire_at_issue_o,
+
+  // Issue slot interface
   input  rs_slot_issue_t  slot_issue_i,
+  output rs_slot_issue_t  slot_issue_o,
+  output logic            slot_issue_wen_o,
+
+  // Result slot interface
   input  rs_slot_result_t slot_result_i,
   input  rs_slot_result_t slot_result_reset_val_i,
-  output rs_slot_issue_t  slot_issue_o,
   output rs_slot_result_t slot_result_o,
+
+  // Dispatch
+  input  disp_req_t disp_req_i,
+  input  logic      disp_req_valid_i,
+  output logic      disp_req_ready_o,
 
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -36,16 +52,14 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Operand response
-  input  operand_t     [NofOperands-1:0] op_rsps_i,
-  input  logic         [NofOperands-1:0] op_rsps_valid_i,
-  output logic         [NofOperands-1:0] op_rsps_ready_o,
+  input  operand_t [NofOperands-1:0] op_rsps_i,
+  input  logic     [NofOperands-1:0] op_rsps_valid_i,
+  output logic     [NofOperands-1:0] op_rsps_ready_o,
 
   // Issue
-  input  logic         issue_req_ready_i,
-  output logic         disp_req_ready_o,
-  output issue_req_t   issue_req_o,
-  output logic         issue_req_valid_o,
-  output logic         issue_hs_o
+  output issue_req_t issue_req_o,
+  output logic       issue_req_valid_o,
+  input  logic       issue_req_ready_i
 );
 
   /////////////////////////
@@ -65,6 +79,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     fpu_fmt_dst:      fpnew_pkg::FP32,
     fpu_rnd_mode:     fpnew_pkg::RNE,
     instruction_iter: 1'b0,
+    no_dest:          1'b0,
     operands:         '0 // invalid operands lead to no issue requests
   };
 
@@ -109,6 +124,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Initial value of the slot upon accepting a new instruction
   rs_slot_issue_t slot_lcp1;
   always_comb begin
+    slot_lcp1 = slot_issue_i;
+
     slot_lcp1 = '{
       is_occupied:      1'b1,
       alu_op:           disp_req_i.fu_data.alu_op,
@@ -119,6 +136,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
       fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
       instruction_iter: 1'b0,
+      no_dest:          (disp_req_i.fu_data.fu == STORE) &&
+                        (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
       operands:         '0
     };
 
@@ -130,8 +149,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // Initial value of the slot upon accepting an instruction in LCP2.
   // Now all operand producers should be known, so we can update the missing producer information.
-  // We also now know which instruction is the last in the loop to write to a certain register.
-  // We can therefore also update the `do_writeback` flag.
   rs_slot_issue_t slot_lcp2;
   always_comb begin
     slot_lcp2 = slot_issue_i;
@@ -194,7 +211,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // Compute the updated result slot state depending on loop phase:
   // - LCP1: full initialization for a newly dispatched instruction.
   //         We must set the result iteration flag to 1 — it gets toggled when writing the first result.
-  //         TODO(colluca): is this the right place for the has_dest logic? Perhaps move it to the decoder.
+  //         TODO(colluca): is this the right place for the no_dest logic? Perhaps move it to the decoder.
   // - LCP2: pass through the current result state, only updating `do_writeback` if needed.
   // This output is fed into res_req_handling as slot_i (instead of slot_result_qs) when dispatching,
   // so any concurrent consumer reads are applied on top of the dispatch update — no bypass needed.
@@ -206,7 +223,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
           consumer_count: '0,
           consumed_by:    '0,
           result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
-          has_dest:       (disp_req_i.fu_data.fu == STORE) &&
+          // TODO(colluca): can't we just use dest x0 to communicate this info?
+          no_dest:        (disp_req_i.fu_data.fu == STORE) &&
                           (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
           dest_id:        disp_req_i.tag.dest_reg,
           dest_is_fp:     disp_req_i.tag.dest_reg_is_fp,
@@ -214,7 +232,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         };
       end
       LoopLcp2: begin
-        if ((producer_id_i == disp_req_i.current_producer_dest.producer) &&
+        // TODO(colluca): this could be provided by the dispatcher directly
+        if ((disp_producer_id_i == disp_req_i.current_producer_dest.producer) &&
             disp_req_i.current_producer_dest.valid) begin
           slot_result_o.do_writeback = 1'b1;
         end
@@ -246,18 +265,22 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         }
       };
 
-      op_reqs_valid_o[op] = disp_req_valid_i && selected_slot.is_occupied &&
+      op_reqs_valid_o[op] = selected_slot.is_occupied &&
+                            !(loop_state_i == LoopLcp1 && selected_slot.instruction_iter == 1'b1) &&
                             selected_slot.operands[op].is_produced &&
                             !selected_slot.operands[op].is_valid &&
                             !selected_slot.operands[op].requested;
     end
   end
 
+  logic [NofOperands-1:0] op_reqs_hs;
+  assign op_reqs_hs = op_reqs_valid_o & op_reqs_ready_i;
+
   // Capture request placement at handshake
   always_comb begin : slot_requested_update
     slot_op = selected_slot;
     for (int op = 0; op < NofOperands; op++) begin
-      if (op_reqs_valid_o[op] && op_reqs_ready_i[op]) begin
+      if (op_reqs_hs[op]) begin
         slot_op.operands[op].requested = 1'b1;
       end
     end
@@ -269,6 +292,9 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   rs_slot_issue_t slot_op_rsp;
 
+  logic [NofOperands-1:0] op_rsps_hs;
+  assign op_rsps_hs = op_rsps_valid_i & op_rsps_ready_o;
+
   // Operand response handling
   always_comb begin : operand_response_handling
     slot_op_rsp = slot_op;
@@ -279,6 +305,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         slot_op_rsp.operands[op].is_valid  = 1'b1;
         slot_op_rsp.operands[op].requested = 1'b0;
         // Acknowledge the response
+        // TODO(colluca): does this need to depend on valid?
         op_rsps_ready_o[op] = 1'b1;
       end
     end
@@ -314,24 +341,28 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
     issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
-    issue_req_o.tag                  = producer_id_i.slot_id;
+    issue_req_o.tag                  = issue_producer_id_i.slot_id;
   end
 
   for (genvar i = 0; i < NofOperands; i++) begin : gen_operand_valid
     assign operand_valid[i] = slot_op_rsp.operands[i].is_valid;
   end
   assign all_operands_valid = &operand_valid;
-  assign issue_req_valid_o = disp_req_valid_i && slot_op_rsp.is_occupied && all_operands_valid;
+  // In LCP1, dispatch and issue are decoupled, so we can use the dispatch handshake to initialize
+  // the slot, and update it as the operands become valid.
+  assign issue_req_valid_o = (loop_state_i == LoopLcp1 ? slot_op_rsp.is_occupied && !slot_op_rsp.instruction_iter : disp_req_valid_i) && all_operands_valid;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
   // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
-  assign disp_req_ready_o = issue_hs;
-  assign issue_hs_o = issue_hs;
+  assign disp_req_ready_o = (loop_state_i == LoopLcp1) || issue_hs;
+  assign disp_hs = disp_req_ready_o && disp_req_valid_i;
+  assign retire_at_issue_o = issue_hs && slot_op_rsp.no_dest;
 
   // Update the slot after issuing the instruction (instruction_iter and
   // operands[i].is_valid fields).
 
   always_comb begin : slot_issue_update
     slot_issue_o = slot_op_rsp;
+    slot_issue_wen_o = disp_hs || |op_reqs_hs || |op_rsps_hs || issue_hs; // We can update the slot upon dispatch (new instruction) or when issuing (toggle iteration and invalidate operands)
 
     if (issue_hs) begin
       // Toggle instruction state
@@ -342,7 +373,21 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         slot_issue_o.operands[i].is_valid = slot_issue_o.operands[i].is_produced ? 1'b0 :
                                             slot_issue_o.operands[i].is_valid;
       end
+      // Free the slot on the last issue iteration so it can be reused in the next LCP1.
+      if (last_issue_iter_i) slot_issue_o.is_occupied = 1'b0;
     end
   end
+
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  // A dispatch request cannot be accepted in LCP1 if the slot is occupied
+  `ASSERT(DispLcp1SlotNotOccupied,
+    (disp_hs && loop_state_i == LoopLcp1) |-> !slot_issue_i.is_occupied)
+
+  // A dispatch request cannot be accepted in LCP2 and LEP if the slot is not occupied
+  `ASSERT(DispLcp2LepSlotOccupied,
+    (disp_hs && loop_state_i inside {LoopLcp2, LoopLep}) |-> slot_issue_i.is_occupied)
 
 endmodule
