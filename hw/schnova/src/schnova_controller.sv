@@ -15,6 +15,7 @@ module schnova_controller import schnizo_pkg::*; #(
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
   parameter int unsigned RegAddrSize     = 5,
+  parameter int unsigned MaxIterationsWidth  = 6,
   parameter type         instr_dec_t     = logic,
   parameter type         block_ctrl_info_t = logic,
   parameter type         priv_lvl_t      = logic
@@ -32,6 +33,7 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic       [PipeWidth-1:0] instr_valid_i,
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
+  input  logic                       exit_superscalar_i,
   // To backend
   output logic                      flush_backend_o,
   output logic                      dispatched_o,
@@ -73,7 +75,6 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // Superscalar features enabled
   output logic en_superscalar_o,
-  input logic  exit_superscalar_i,
 
   // From scoreboard
   input logic             registers_ready_i,
@@ -87,9 +88,67 @@ module schnova_controller import schnizo_pkg::*; #(
   // Per default the core starts in scalar mode
   `FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
 
-  logic ignore_toggle_d, ignore_toggle_q;
-  // Per default we don't ignore toggling between the execution modes
-  `FFAR(ignore_toggle_q, ignore_toggle_d, 1'b0, clk_i, rst_i);
+    ////////////////////////
+  // Loop control logic //
+  ////////////////////////
+
+  logic        loop_start_ready;
+  logic        loop_jump;
+  logic [31:0] loop_jump_addr;
+  logic        loop_stall;
+  logic        frep_sw_error;
+  logic        goto_hw_loop;
+
+    // Convert the decoded loop iterations to the actual number of iterations.
+    // In Snitch we specify one less in the encoding.
+    logic [MaxIterationsWidth-1:0] loop_iterations;
+    assign loop_iterations = frep_iterations_i + 1;
+
+    // Convert the loop body size to the actual number of iterations.
+    // In Snitch we specify one less in the encoding.
+    logic [FrepBodySizeWidth-1:0] loop_bodysize;
+    assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
+
+  schnova_loop_controller #(
+    .AddrWidth     (32),
+    .MaxBodysizeW  (FrepBodySizeWidth),
+    .MaxIterationsWidth(MaxIterationsWidth),
+    .instr_dec_t   (instr_dec_t)
+  ) i_loop_ctrl (
+    .clk_i,
+    .rst_i,
+    .instr_decoded_i  (instr_decoded_i),
+    .instr_valid_i    (instr_valid_i),
+    .instr_addr_i     (pc_q),
+    // The next instruction after an FREP can only be the immediately next instruction.
+    // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
+    // on the loop_jump signal. TODO: check address overflow..
+    .next_instr_addr_i(pc_q + 'd4),
+    .stall_i          (stall_o),
+    .exception_i      (exception_o),
+    .rs_full_i        (rs_full_i),
+    .all_rs_finish_i  (all_rs_finish_i),
+    // Only in scalar execution mode is it legal to observe an frep instruction
+    // hence we can take the first instruction
+    .loop_start_req_i   (instr_decoded_i[0].is_frep & instr_valid_i[0]),
+    .loop_start_commit_i(instr_decoded_i[0].is_frep & instr_exec_commit_o[0]),
+    // A ready response for the commit to adhere to the ready/valid flow.
+    .loop_start_ready_o (loop_start_ready),
+    .loop_bodysize_i    (loop_bodysize),
+    .loop_iterations_i  (loop_iterations),
+    .frep_mode_i        (instr_decoded_i[0].frep_mode),
+
+    .loop_jump_o     (loop_jump),
+    .loop_jump_addr_o(loop_jump_addr),
+    .loop_stall_o    (loop_stall),
+    .sw_err_o        (frep_sw_error),
+    .loop_state_o    (loop_state_o),
+    .loop_iteration_o(loop_iteration_o),
+    .goto_lcp2_o     (goto_lcp2_o),
+    .lep_iterations_o(lep_iterations_o),
+    .rs_restart_o    (rs_restart_o),
+    .goto_hw_loop_o  (goto_hw_loop)
+  );
 
   ////////////////
   // Exceptions //
@@ -237,9 +296,8 @@ module schnova_controller import schnizo_pkg::*; #(
   // Reason is that during superscalar execution the
   // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
   // Note the decoder and frontend guarantes, that frep is always the first valid instruction.
-  logic frep_toggle_stall;
-  assign frep_toggle_stall = ((instr_decoded_i[0].is_frep & instr_valid_i[0]) ||
-                               exit_superscalar_i) ? sb_busy_i :
+  logic frep_start_stall;
+  assign frep_start_stall = ((instr_decoded_i[0].is_frep & instr_valid_i[0])) ? sb_busy_i :
                                                                         1'b0;
 
   // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
@@ -317,7 +375,8 @@ module schnova_controller import schnizo_pkg::*; #(
   assign stall_raw = fence_stall      |
                     fence_i_stall     |
                     fcsr_stall        |
-                    frep_toggle_stall |
+                    frep_start_stall  |
+                    loop_stall        |
                     freelist_stall    |
                     rob_stall         |
                     ctrl_stall;
@@ -360,19 +419,10 @@ module schnova_controller import schnizo_pkg::*; #(
 
   always_comb begin
     en_superscalar_d = en_superscalar_q;
-    ignore_toggle_d = ignore_toggle_q;
     // We toggle the mode whenever a valid frep instruction was decoded as the first
     // valid instruction and we don't ignore it
     if (instr_decoded_i[0].is_frep && instr_valid_i[0] && !ignore_toggle_q) begin
       en_superscalar_d = ~en_superscalar_q;
-      // Whenever we successfully toggle, we can reset the ignore toggle state
-      ignore_toggle_d = 1'b0;
-    end
-
-    // We have to ignore the next toggle, when we forcefully exit superscalar mode
-    if (en_superscalar_q && exit_superscalar_i) begin
-      ignore_toggle_d = 1'b1;
-      en_superscalar_d = 1'b0;
     end
   end
 

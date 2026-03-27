@@ -48,7 +48,7 @@ module schnova_decoder import schnizo_pkg::*; #(
   logic [PipeWidth-1:0] is_ctrl_instr;
   // Per instruction signal, whether the instruction is unsuported during
   // superscalar execution
-  logic [PipeWidth-1:0] is_usupported_instr;
+  logic [PipeWidth-1:0] is_unsupported_instr;
   // Valid mask, that mask all the instruction that have to be invalidated
   // due to a fence_i or control instruction
   logic [PipeWidth-1:0] valid_mask;
@@ -115,15 +115,14 @@ module schnova_decoder import schnizo_pkg::*; #(
                               instr_dec_o[instr_idx].is_jalr)  &
                               instr_valid[instr_idx];
       // All these instructions except for frep are unsuported during superscalar execution
-      is_usupported_instr[instr_idx] = (instr_dec_o[instr_idx].fu inside {NONE, MULDIV, CSR, DMA}) &
-                                        !instr_dec_o[instr_idx].is_frep                            &
+      is_unsupported_instr[instr_idx] = (instr_dec_o[instr_idx].fu inside {NONE, MULDIV, CSR, DMA}) &
                                         en_superscalar_i                                           &
                                         instr_valid[instr_idx];
     end
   end
 
   // We have to exit superscalar mode as soon as we observe an unsupported instruction
-  assign exit_superscalar_o = |is_usupported_instr;
+  assign exit_superscalar_o = |is_unsupported_instr;
 
   // Generate the valid mask
   always_comb begin: gen_valid_mask
@@ -143,8 +142,7 @@ module schnova_decoder import schnizo_pkg::*; #(
         // 3) We don't execute any unsuported instruction in superscalar mode
         valid_mask[instr_idx] = (is_ctrl_instr[instr_idx-1] |
                                 ~valid_mask[instr_idx-1]    |
-                                instr_dec_o[instr_idx].is_frep |
-                                is_usupported_instr[instr_idx])
+                                is_unsupported_instr[instr_idx])
                                 ? 1'b0 : 1'b1;
       end
     end

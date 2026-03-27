@@ -225,6 +225,7 @@ sources:
       - hw/schnova/src/schnova_rss_dispatch_pipeline.sv
       - hw/schnova/src/schnova_writeback.sv
       - hw/schnova/src/schnova_phys_regfile.sv
+      - hw/schnizo/src/schnova_loop_controller.sv
       # Level 2
       - hw/schnova/src/schnova_tracer.sv
       - hw/schnova/src/schnova_controller.sv

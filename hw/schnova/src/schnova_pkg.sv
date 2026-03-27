@@ -14,6 +14,12 @@ package schnova_pkg;
 
   localparam int unsigned NofRobEntries = 32;
 
+  typedef enum logic [1:0] {
+    LoopRegular, // regular execution
+    LoopHwLoop,  // regular hw loop execution
+    LoopDep      // Superscalar loop execution
+  } loop_state_e;
+
   function automatic string en_superscalar_tostring(logic en_superscalar);
     string state;
     if (!en_superscalar) begin
