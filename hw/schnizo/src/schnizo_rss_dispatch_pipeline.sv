@@ -353,7 +353,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   assign issue_req_valid_o = (loop_state_i == LoopLcp1 ? slot_op_rsp.is_occupied && !slot_op_rsp.instruction_iter : disp_req_valid_i) && all_operands_valid;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
   // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
-  assign disp_req_ready_o = (loop_state_i == LoopLcp1) || issue_hs;
+  assign disp_req_ready_o = loop_state_i == LoopLcp1 ? !slot_issue_i.is_occupied : issue_hs;
   assign disp_hs = disp_req_ready_o && disp_req_valid_i;
   assign retire_at_issue_o = issue_hs && slot_op_rsp.no_dest;
 
@@ -381,10 +381,6 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   ////////////////
   // Assertions //
   ////////////////
-
-  // A dispatch request cannot be accepted in LCP1 if the slot is occupied
-  `ASSERT(DispLcp1SlotNotOccupied,
-    (disp_hs && loop_state_i == LoopLcp1) |-> !slot_issue_i.is_occupied)
 
   // A dispatch request cannot be accepted in LCP2 and LEP if the slot is not occupied
   `ASSERT(DispLcp2LepSlotOccupied,

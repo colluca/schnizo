@@ -235,6 +235,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Only accept it if we commit to the dispatch.
   assign disp_req_valid_guarded = disp_req_valid_i && !disp_req_valid_i_q && !rs_full_o &&
                                   instr_exec_commit_i;
+  // TODO(colluca): what does this mean? Is it still valid after we decoupled issue and dispatch
   // Do not signal ready until we are processing the request. This allows to handle branches where
   // the target address is only valid in the cycle the ALU computes it.
   // This is in the effective dispatch cycle because the ALU is single cycle.
@@ -309,6 +310,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic lcp_finished;
   logic lep_finished_issue, lep_finished;
 
+  // TODO(colluca): rename this signal to what exactly the controller needs to know.
   // In LCP the loop controller knows when we are in the last loop iteration.
   // All it needs to know from the RS is if the FU has retired all instructions.
   // `fu_busy_i` is asserted also when the output of the FU is valid, but in this cycle
@@ -362,6 +364,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                res_stat and bypass everything internally?
   //                Well, maybe not, because of the cut.
 
+  // TODO(colluca): make this an enum to clearly understand who's being selected in the waves
   logic sel_disp_req_internal;
   assign sel_disp_req_internal = loop_state_i == LoopLep;
 
@@ -409,14 +412,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .res_req_t       (res_req_t),
     .dest_mask_t     (dest_mask_t),
     .res_rsp_t       (res_rsp_t)
-  ) i_slots (
+  ) i_res_stat_slots (
     .clk_i,
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
     .loop_state_i      (loop_state_i),
-    .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
-    .issue_idx_i       (issue_cnt[NofRssWidth-1:0]),
+    .disp_idx_i        (disp_cnt),
+    .issue_idx_i       (issue_cnt),
     .last_issue_iter_i (lep_issue_iter_count == 1),
     .last_result_iter_i(last_result_iter),
     .retire_at_issue_o (retire_at_issue),
@@ -537,20 +540,24 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   ////////////////
 
   // The inflight counters track the actual number of dispatched and issued instructions
-  // in flight. If we have a issue handshake without a previous dispatch handshake, or a
+  // in flight. If we have an issue handshake without a previous dispatch handshake, or a
   // result handshake without a previous issue handshake, the counters underflow and we
   // raise an error. Additionally, there can only be at most one instruction dispatched
   // but not yet issued.
-  // TODO(colluca): these assertions would trigger in time 0. Find a solution and fix these.
-  // rss_idx_t inflight_disp_d, inflight_disp_q;
-  // rss_idx_t inflight_issue_d, inflight_issue_q;
-  // assign inflight_disp_d  = restart_i ? '0 :
-  //                           inflight_disp_q  + rss_idx_t'(disp_hs)  - rss_idx_t'(issue_hs);
-  // assign inflight_issue_d = restart_i ? '0 :
-  //                           inflight_issue_q + rss_idx_t'(issue_hs) - rss_idx_t'(retire_at_issue + result_hs);
-  // `FFAR(inflight_disp_q,  inflight_disp_d,  '0, clk_i, rst_i)
-  // `FFAR(inflight_issue_q, inflight_issue_d, '0, clk_i, rst_i)
-  // `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_idx_t'(1), clk_i, !rst_i)
-  // `ASSERT(IssueBeforeResult, inflight_issue_q < rss_idx_t'(NofRss), clk_i, !rst_i)
+  // Underflow detection relies on wrapping: any single underflow from 0 wraps to
+  // 2^NofRssWidthExt - 1 >= NofRss, which violates the bound and fires the assertion.
+  // This holds because retire_at_issue is gated by issue_hs (see schnizo_rss_dispatch_pipeline),
+  // so the maximum net decrement per cycle is 1 (either result_hs alone, or
+  // issue_hs + retire_at_issue + result_hs = +1 - 1 - 1 = -1).
+  rss_cnt_t inflight_disp_d, inflight_disp_q;
+  rss_cnt_t inflight_issue_d, inflight_issue_q;
+  assign inflight_disp_d  = restart_i ? '0 :
+                            inflight_disp_q  + rss_cnt_t'(disp_hs)  - rss_cnt_t'(issue_hs);
+  assign inflight_issue_d = restart_i ? '0 :
+                            inflight_issue_q + rss_cnt_t'(issue_hs) - rss_cnt_t'(retire_at_issue + result_hs);
+  `FFAR(inflight_disp_q,  inflight_disp_d,  '0, clk_i, rst_i)
+  `FFAR(inflight_issue_q, inflight_issue_d, '0, clk_i, rst_i)
+  `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_cnt_t'(1), clk_i, rst_i)
+  `ASSERT(IssueBeforeResult, inflight_issue_q < rss_cnt_t'(NofRss), clk_i, rst_i)
 
 endmodule
