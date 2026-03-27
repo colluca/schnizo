@@ -141,7 +141,7 @@ clean-rtl: sn-clean-rtl
 ############
 
 NONFREE_REMOTE ?= git@iis-git.ee.ethz.ch:pulp-restricted/snitch-cluster-nonfree.git
-NONFREE_COMMIT ?= 9a8259f1c5ebe974216ec192e459516460115f56
+NONFREE_COMMIT ?= daf6a6332947fc21ac91b365973864a0baab94c2
 NONFREE_DIR = $(SN_ROOT)/nonfree
 
 .PHONY: nonfree clean-nonfree
