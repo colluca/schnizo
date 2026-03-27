@@ -60,6 +60,9 @@ def gen_experiments(ci=False):
     experiments = []
     for cfg in cfgs:
         for mode in modes:
+            # Scalar experiments only run with the 1port config
+            if mode == 'scalar' and cfg != '1port':
+                continue
             for size in sizes:
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
                 experiments.extend([
