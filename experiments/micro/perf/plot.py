@@ -16,15 +16,19 @@ SCHNIZO_CFG = {
 }
 
 BENCHMARK_INSNS = {
-    'sz_axpy':          {'alu':  3, 'fpu':  1, 'lsu':  3},
-    'sz_dot':           {'alu':  2, 'fpu':  4, 'lsu':  8},
-    'exp':              {'alu': 22, 'fpu': 40, 'lsu': 28},
-    'log':              {'alu': 34, 'fpu': 40, 'lsu': 16},
-    'pi_lcg':           {'alu': 20, 'fpu': 28, 'lsu':  0},
-    'pi_xoshiro128p':   {'alu': 84, 'fpu': 28, 'lsu':  0},
-    'poly_lcg':         {'alu': 20, 'fpu': 40, 'lsu':  0},
-    'poly_xoshiro128p': {'alu': 84, 'fpu': 40, 'lsu':  0},
+    'superscalar': {
+        'sz_axpy':          {'alu':  3, 'fpu':  1, 'lsu':  3},
+        'sz_dot':           {'alu':  2, 'fpu':  4, 'lsu':  8},
+        'exp':              {'alu': 22, 'fpu': 40, 'lsu': 28},
+        'log':              {'alu': 34, 'fpu': 40, 'lsu': 16},
+        'pi_lcg':           {'alu': 20, 'fpu': 28, 'lsu':  0},
+        'pi_xoshiro128p':   {'alu': 84, 'fpu': 28, 'lsu':  0},
+        'poly_lcg':         {'alu': 20, 'fpu': 40, 'lsu':  0},
+        'poly_xoshiro128p': {'alu': 84, 'fpu': 40, 'lsu':  0},
+    }
 }
+BENCHMARK_INSNS['scalar'] = BENCHMARK_INSNS['superscalar'].copy()
+BENCHMARK_INSNS['scalar']['sz_axpy'] = {'alu':  3, 'fpu':  4, 'lsu':  12}
 
 
 def ideal_ipc(insns, cfg):
@@ -37,14 +41,14 @@ def ideal_ipc(insns, cfg):
 THEORETICAL_METRICS = {
     'fpu_util': {
         'scalar': {
-            app: BENCHMARK_INSNS[app]['fpu'] / sum(BENCHMARK_INSNS[app].values())
+            app: BENCHMARK_INSNS['scalar'][app]['fpu'] / sum(BENCHMARK_INSNS['scalar'][app].values())
             for app in ['sz_axpy', 'sz_dot']
         }
     },
     'ipc': {
         'superscalar': {
-            app: ideal_ipc(BENCHMARK_INSNS[app], SCHNIZO_CFG)
-            for app in BENCHMARK_INSNS
+            app: ideal_ipc(BENCHMARK_INSNS['superscalar'][app], SCHNIZO_CFG)
+            for app in BENCHMARK_INSNS['superscalar']
         }
     }
 }
@@ -132,7 +136,8 @@ def kernel_scaling_plot(df, app, show=True):
 
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """Compare scalar and superscalar results across applications"""
-    df = df[df['hw'] == 'fc']
+    df = df[((df['mode'] == 'superscalar') & (df['hw'] == 'fc')) |
+            ((df['mode'] == 'scalar') & (df['hw'] == '1port'))]
     # Pivot data to get utilization from the run with max size per app and mode
     idx_max_size = df.groupby(['app', 'mode'])['size'].idxmax()
     plot_df = df.loc[idx_max_size].pivot(index='app', columns='mode', values=metric)

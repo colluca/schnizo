@@ -60,7 +60,7 @@ def gen_experiments(ci=False):
     experiments = []
     for cfg in cfgs:
         for mode in modes:
-            # Scalar experiments only run with the 1port config
+            # Scalar experiments do not depend on the response xbar configuration
             if mode == 'scalar' and cfg != '1port':
                 continue
             for size in sizes:
