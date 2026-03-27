@@ -93,6 +93,19 @@ def gen_experiments(designs=None):
                 'NofFpus': 1,
             }
         },
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_xl',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 3,
+                'NofLsus': 3,
+                'NofFpus': 1,
+                'AluNofRss': 32,
+                'LsuNofRss': 32,
+                'FpuNofRss': 64,
+            }
+        },
     ]
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]
