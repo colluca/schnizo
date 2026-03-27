@@ -38,10 +38,14 @@ def ideal_ipc(insns, cfg):
     return total / cycles
 
 
+def ideal_fpu_util(insns):
+    return insns['fpu'] / sum(insns.values())
+
+
 THEORETICAL_METRICS = {
     'fpu_util': {
         'scalar': {
-            app: BENCHMARK_INSNS['scalar'][app]['fpu'] / sum(BENCHMARK_INSNS['scalar'][app].values())
+            app: ideal_fpu_util(BENCHMARK_INSNS['scalar'][app])
             for app in ['sz_axpy', 'sz_dot']
         }
     },

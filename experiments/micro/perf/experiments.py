@@ -128,6 +128,7 @@ def gen_experiments(ci=False):
                                 'n': size,
                                 'func_ptr': 'calculate_psum_schnizo',
                             },
+                            'cmd': [sim_bin, "${elf}"],
                             'roi': Path("roi/pi_estimation.json.tpl")
                         })
 
