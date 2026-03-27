@@ -160,9 +160,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     logic [ConsumerCountWidth-1:0]  consumed_by;
     // The most recent result.
     rss_result_t                    result;
+    // TODO(colluca): it should be possible to get rid of this
     // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
     // Thus, we immediately retire the instruction when it's issued.
-    logic                           has_dest;
+    logic                           no_dest;
     // The register ID where this instruction does commit into during regular execution.
     logic [RegAddrWidth-1:0]        dest_id;
     // Whether the destination register is a floating point or integer register.
@@ -194,6 +195,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
     // each time the instruction is issued.
     logic                           instruction_iter;
+    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
+    // Thus, we immediately retire the instruction when it's issued.
+    logic                           no_dest;
     // All operands
     // TODO(colluca): optimize by pulling out of RS. Only one RSS per RS will anyways fetch
     // operands at any time. One exception is for immediate values, those need to be always
@@ -265,32 +269,36 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                already has these, and if it needs other information this is all we should
   //                provide it with.
 
-  logic dispatch_hs;
-  assign dispatch_hs = disp_req_valid && disp_req_ready;
+  logic disp_hs;
+  assign disp_hs = disp_req_valid && disp_req_ready;
 
-  // An instruction retires as soon as the result is handshaked, i.e.:
-  // assign retiring = result_valid_i && result_ready_o;
-  // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
-  // if the instruction is a store or any other instruction.
-  logic retiring;
+  logic issue_hs;
+  assign issue_hs = issue_req_valid_o && issue_req_ready_i;
+
+  logic result_hs;
+  assign result_hs = result_valid_i && result_ready_o;
+
+  logic retire_at_issue;
 
   // Dispatch and result trip counter outputs
-  rss_cnt_t disp_cnt, result_cnt;
-  logic     last_disp, trip_disp;
+  rss_idx_t disp_cnt, issue_cnt, result_cnt;
+  logic     last_disp;
+  logic     trip_issue;
   logic     last_result, trip_result;
 
-  logic [MaxIterationsW-1:0] lep_disp_iter_count;
+  logic [MaxIterationsW-1:0] lep_issue_iter_count;
   logic [MaxIterationsW-1:0] lep_result_iter_count;
 
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
-  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
-  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + dispatch_hs : num_allocated_rss_q;
+  rss_idx_t num_allocated_rss_d, num_allocated_rss_q;
+  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
   logic last_result_iter;
   assign last_result_iter = lep_result_iter_count == 1;
 
+  // TODO(colluca): do we need the state-dependent condition?
   assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
 
   logic any_instr_captured;
@@ -301,22 +309,22 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // ---------------------------
 
   logic lcp_finished;
-  logic lep_finished_disp, lep_finished;
+  logic lep_finished_issue, lep_finished;
 
   // In LCP the loop controller knows when we are in the last loop iteration.
   // All it needs to know from the RS is if the FU has retired all instructions.
   // `fu_busy_i` is asserted also when the output of the FU is valid, but in this cycle
   // the instruction may already be retiring, so to not waste a cycle we separately
-  // include this condition.
+  // include this condition (result_hs).
   assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
-                        ((disp_cnt == result_cnt) && retiring));
+                        ((disp_cnt == result_cnt) && result_hs));
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
   // AND
   // - The FUs are not busy, i.e. all results have been captured
-  assign lep_finished_disp = lep_disp_iter_count == '0;
-  assign lep_finished = ((loop_state_i == LoopLep) && lep_finished_disp && !fu_busy_i)
+  assign lep_finished_issue = lep_issue_iter_count == '0;
+  assign lep_finished = ((loop_state_i == LoopLep) && lep_finished_issue && !fu_busy_i)
                         || !any_instr_captured;
 
   always_comb begin : loop_finish
@@ -411,8 +419,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .restart_i         (restart_i),
     .loop_state_i      (loop_state_i),
     .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
+    .issue_idx_i       (issue_cnt[NofRssWidth-1:0]),
+    .last_issue_iter_i (lep_issue_iter_count == 1),
     .last_result_iter_i(last_result_iter),
-    .retiring_o        (retiring),
+    .retire_at_issue_o (retire_at_issue),
     .disp_req_i        (disp_req_i_q),
     .disp_req_valid_i  (disp_req_valid),
     .disp_req_ready_o  (disp_req_ready),
@@ -449,29 +459,48 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //////////////
 
   trip_counter #(
-    .WIDTH(NofRssWidthExt)
+    .WIDTH(NofRssWidth)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
-    .en_i    (dispatch_hs),
-    .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .en_i    (disp_hs),
+    .delta_i (rss_idx_t'(1)),
+    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
     .last_o  (last_disp),
-    .trip_o  (trip_disp)
+    .trip_o  ()
   );
   assign disp_idx = (disp_cnt == NofRss) ? '0 : disp_cnt;
 
   trip_counter #(
-    .WIDTH(NofRssWidthExt)
+    .WIDTH(NofRssWidth)
+  ) i_issue_counter (
+    .clk_i,
+    .rst_ni  (!rst_i),
+    .clear_i (goto_lcp2_i || restart_i),
+    .en_i    (issue_hs),
+    .delta_i (rss_idx_t'(1)),
+    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
+    .q_o     (issue_cnt),
+    .last_o  (),
+    .trip_o  (trip_issue)
+  );
+
+  // An instruction retires as soon as the result is handshaked.
+  // Instructions which don't produce a result retire as soon as they are issued.
+  // TODO(colluca): it would probably be better to make this uniform at the FU level,
+  // i.e. to enforce that every FU always produces a response, even if it doesn't carry a result.
+  // This would eliminate the need to increment by 2 in some cycles.
+  trip_counter #(
+    .WIDTH(NofRssWidth)
   ) i_result_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
-    .en_i    (retiring),
-    .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .en_i    (retire_at_issue || result_hs),
+    .delta_i (rss_idx_t'(retire_at_issue + result_hs)),
+    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
     .q_o     (result_cnt),
     .last_o  (last_result),
     .trip_o  (trip_result)
@@ -484,11 +513,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .clk_i,
     .rst_ni    (!rst_i),
     .clear_i   (restart_i),
-    .en_i      ((loop_state_i == LoopLep) && trip_disp),
+    .en_i      ((loop_state_i == LoopLep) && trip_issue),
     .load_i    (loop_state_i == LoopLcp2),
     .down_i    (1'b1),
     .d_i       (lep_iterations_i),
-    .q_o       (lep_disp_iter_count),
+    .q_o       (lep_issue_iter_count),
     .overflow_o()
   );
 
