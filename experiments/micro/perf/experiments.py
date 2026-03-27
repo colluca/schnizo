@@ -14,7 +14,7 @@ from pathlib import Path
 class ExperimentManager(eu.ExperimentManager):
 
     def derive_axes(self, experiment):
-        base_axes = eu.derive_axes_from_keys(experiment, keys=['app', 'mode'])
+        base_axes = eu.derive_axes_from_keys(experiment, keys=['app', 'mode', 'hw'])
         if experiment['app'] == 'pi_estimation':
             base_axes['app'] = f"{experiment['mc_app']}_{experiment['mc_prng']}"
         if experiment['app'] in ['sz_axpy', 'sz_dot', 'pi_estimation']:
@@ -22,6 +22,9 @@ class ExperimentManager(eu.ExperimentManager):
         if experiment['app'] in ['exp', 'log']:
             return {**base_axes, 'size': experiment['data_cfg']['len']}
         return base_axes
+
+    def derive_hw_cfg(self, experiment):
+        return Path.cwd() / f"cfg/schnizo_xl_{experiment['hw']}.json"
 
     def derive_data_cfg(self, experiment):
         if experiment['app'] not in ['pi_estimation']:
@@ -42,8 +45,11 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
+    cfgs = ['1port', '2ports', '3ports', 'fc']
     modes = ['scalar', 'superscalar']
     sizes = [256, 512, 1024, 2048, 4096]
+    # TODO(colluca): make sure sim_bin is picked up also by MC kernels
+    app_filter = None
 
     # Drop failing tests at 256 when running in CI
     # Also drop tests at 512 and 4096, just for CI runtime
@@ -52,68 +58,82 @@ def gen_experiments(ci=False):
 
     # Generate experiment list
     experiments = []
-    for mode in modes:
-        for size in sizes:
-            experiments.extend([
-                {
-                    'app': 'sz_dot',
-                    'mode': mode,
-                    'data_cfg': {
-                        'n': size,
-                        'funcptr': 'dot_schnizo',
-                    },
-                    'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
-                            "${sim_bin}", "${elf}"],
-                    'roi': Path("roi/sz_dot_roi.json.tpl")
-                },
-                {
-                    'app': 'sz_axpy',
-                    'mode': mode,
-                    'data_cfg': {
-                        'n': size,
-                        'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnizo',
-                    },
-                    'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
-                            "${sim_bin}", "${elf}"],
-                    'roi': Path("roi/sz_axpy_roi.json.tpl")
-                },
-                {
-                    'app': 'exp',
-                    'mode': mode,
-                    'data_cfg': {
-                        'len': size,
-                        'batch_size': size,
-                    },
-                    'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
-                            "${sim_bin}", "${elf}"],
-                    'roi': Path("roi/exp.json.tpl")
-                },
-                {
-                    'app': 'log',
-                    'mode': mode,
-                    'data_cfg': {
-                        'len': size,
-                        'batch_size': size,
-                    },
-                    'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
-                            "${sim_bin}", "${elf}"],
-                    'roi': Path("roi/log.json.tpl")
-                },
-            ])
-            for mc_app in ['pi', 'poly']:
-                for mc_prng in ['lcg', 'xoshiro128p']:
-                    experiments.append({
-                        # TODO(colluca): rename app montecarlo
-                        'app': 'pi_estimation',
-                        'mc_app': mc_app,
-                        'mc_prng': mc_prng,
+    for cfg in cfgs:
+        for mode in modes:
+            for size in sizes:
+                sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
+                experiments.extend([
+                    {
+                        'app': 'sz_dot',
+                        'hw': cfg,
                         'mode': mode,
                         'data_cfg': {
                             'n': size,
-                            'func_ptr': 'calculate_psum_schnizo',
+                            'funcptr': 'dot_schnizo',
                         },
-                        'roi': Path("roi/pi_estimation.json.tpl")
-                    })
+                        'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
+                                sim_bin, "${elf}"],
+                        'roi': Path("roi/sz_dot_roi.json.tpl")
+                    },
+                    {
+                        'app': 'sz_axpy',
+                        'hw': cfg,
+                        'mode': mode,
+                        'data_cfg': {
+                            'n': size,
+                            'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnizo',
+                        },
+                        'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
+                                sim_bin, "${elf}"],
+                        'roi': Path("roi/sz_axpy_roi.json.tpl")
+                    },
+                    {
+                        'app': 'exp',
+                        'hw': cfg,
+                        'mode': mode,
+                        'data_cfg': {
+                            'len': size,
+                            'batch_size': size,
+                        },
+                        'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
+                                sim_bin, "${elf}"],
+                        'roi': Path("roi/exp.json.tpl")
+                    },
+                    {
+                        'app': 'log',
+                        'hw': cfg,
+                        'mode': mode,
+                        'data_cfg': {
+                            'len': size,
+                            'batch_size': size,
+                        },
+                        'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
+                                sim_bin, "${elf}"],
+                        'roi': Path("roi/log.json.tpl")
+                    },
+                ])
+                for mc_app in ['pi', 'poly']:
+                    for mc_prng in ['lcg', 'xoshiro128p']:
+                        experiments.append({
+                            # TODO(colluca): rename app montecarlo
+                            'app': 'pi_estimation',
+                            'hw': cfg,
+                            'mc_app': mc_app,
+                            'mc_prng': mc_prng,
+                            'mode': mode,
+                            'data_cfg': {
+                                'n': size,
+                                'func_ptr': 'calculate_psum_schnizo',
+                            },
+                            'roi': Path("roi/pi_estimation.json.tpl")
+                        })
+
+    # Filter by apps
+    if app_filter is not None:
+        experiments = [e for e in experiments
+                       if e['app'] in app_filter
+                       or f"{e.get('mc_app')}_{e.get('mc_prng')}" in app_filter]
+
     return experiments
 
 
