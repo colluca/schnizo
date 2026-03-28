@@ -280,7 +280,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic retire_at_issue;
 
   // Dispatch and result trip counter outputs
-  rss_idx_t disp_cnt, issue_cnt, result_cnt;
+  rss_cnt_t disp_cnt;
+  rss_idx_t disp_idx, issue_idx, result_idx;
   logic     last_disp;
   logic     trip_issue;
   logic     last_result, trip_result;
@@ -290,15 +291,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
-  rss_idx_t num_allocated_rss_d, num_allocated_rss_q;
+  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
   assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
+  assign rs_full_o = disp_cnt == NofRss;
+
   logic last_result_iter;
   assign last_result_iter = lep_result_iter_count == 1;
-
-  // TODO(colluca): do we need the state-dependent condition?
-  assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
 
   logic any_instr_captured;
   assign any_instr_captured = (num_allocated_rss_q != '0);
@@ -317,7 +317,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // the instruction may already be retiring, so to not waste a cycle we separately
   // include this condition (result_hs).
   assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
-                        ((disp_cnt == result_cnt) && result_hs));
+                        ((disp_idx == result_idx) && result_hs));
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
@@ -418,8 +418,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
     .loop_state_i      (loop_state_i),
-    .disp_idx_i        (disp_cnt),
-    .issue_idx_i       (issue_cnt),
+    .disp_idx_i        (disp_idx),
+    .issue_idx_i       (issue_idx),
     .last_issue_iter_i (lep_issue_iter_count == 1),
     .last_result_iter_i(last_result_iter),
     .retire_at_issue_o (retire_at_issue),
@@ -458,19 +458,23 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Counters //
   //////////////
 
+  // This counts the number of dispatched instructions, which can be as many as NofRss.
+  // The dispatch index on the other hand must point to a valid reservation station,
+  // so it should trip when it reaches NofRss-1.
   trip_counter #(
-    .WIDTH(NofRssWidth)
+    .WIDTH(NofRssWidthExt)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (disp_hs),
-    .delta_i (rss_idx_t'(1)),
-    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
+    .delta_i (rss_cnt_t'(1)),
+    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
     .last_o  (last_disp),
     .trip_o  ()
   );
+  assign disp_idx = (disp_cnt == NofRss) ? '0 : disp_cnt;
 
   trip_counter #(
     .WIDTH(NofRssWidth)
@@ -481,7 +485,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .en_i    (issue_hs),
     .delta_i (rss_idx_t'(1)),
     .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (issue_cnt),
+    .q_o     (issue_idx),
     .last_o  (),
     .trip_o  (trip_issue)
   );
@@ -500,7 +504,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .en_i    (retire_at_issue || result_hs),
     .delta_i (rss_idx_t'(retire_at_issue + result_hs)),
     .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (result_cnt),
+    .q_o     (result_idx),
     .last_o  (last_result),
     .trip_o  (trip_result)
   );
@@ -539,25 +543,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Assertions //
   ////////////////
 
-  // The inflight counters track the actual number of dispatched and issued instructions
-  // in flight. If we have an issue handshake without a previous dispatch handshake, or a
-  // result handshake without a previous issue handshake, the counters underflow and we
-  // raise an error. Additionally, there can only be at most one instruction dispatched
-  // but not yet issued.
-  // Underflow detection relies on wrapping: any single underflow from 0 wraps to
-  // 2^NofRssWidthExt - 1 >= NofRss, which violates the bound and fires the assertion.
-  // This holds because retire_at_issue is gated by issue_hs (see schnizo_rss_dispatch_pipeline),
-  // so the maximum net decrement per cycle is 1 (either result_hs alone, or
-  // issue_hs + retire_at_issue + result_hs = +1 - 1 - 1 = -1).
-  rss_cnt_t inflight_disp_d, inflight_disp_q;
-  rss_cnt_t inflight_issue_d, inflight_issue_q;
-  assign inflight_disp_d  = restart_i ? '0 :
-                            inflight_disp_q  + rss_cnt_t'(disp_hs)  - rss_cnt_t'(issue_hs);
-  assign inflight_issue_d = restart_i ? '0 :
-                            inflight_issue_q + rss_cnt_t'(issue_hs) - rss_cnt_t'(retire_at_issue + result_hs);
-  `FFAR(inflight_disp_q,  inflight_disp_d,  '0, clk_i, rst_i)
-  `FFAR(inflight_issue_q, inflight_issue_d, '0, clk_i, rst_i)
-  `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_cnt_t'(1), clk_i, rst_i)
-  `ASSERT(IssueBeforeResult, inflight_issue_q < rss_cnt_t'(NofRss), clk_i, rst_i)
+  `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_cnt > issue_idx)), clk_i, rst_i)
+  `ASSERT(MaxDispatchIssueDistanceOne, rss_cnt_t'(disp_idx) <= rss_cnt_t'(issue_idx + 1), clk_i, rst_i)
+  // TODO(colluca): fix after converting also lep_issue_iter_count and lep_result_iter_count
+  // to trip_counters
+  // `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (issue_idx > result_idx) || (lep_issue_iter_count < lep_result_iter_count)), clk_i, rst_i)
 
 endmodule
