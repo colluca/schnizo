@@ -139,6 +139,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic        loop_stall;
   logic        frep_sw_error;
   logic        goto_hw_loop;
+  logic        frep_exception;
+  logic        frep_exec_commit;
 
   if (Xfrep) begin : gen_loop_ctrl
     // Convert the decoded loop iterations to the actual number of iterations.
@@ -172,7 +174,7 @@ module schnizo_controller import schnizo_pkg::*; #(
       .all_rs_finish_i  (all_rs_finish_i),
 
       .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
-      .loop_start_commit_i(instr_decoded_i.is_frep & instr_exec_commit_o),
+      .loop_start_commit_i(instr_decoded_i.is_frep & frep_exec_commit),
       // A ready response for the commit to adhere to the ready/valid flow.
       .loop_start_ready_o (loop_start_ready),
       .loop_bodysize_i    (loop_bodysize),
@@ -353,6 +355,14 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic instr_exec_commit;
   assign instr_exec_commit = dispatch_instr_valid_o && !exception_o && !goto_hw_loop;
   assign instr_exec_commit_o = instr_exec_commit;
+
+  // For FREP, only interrupts and FREP-specific software errors can block commit. All other
+  // exceptions in exception_o are structurally impossible when the current instruction is FREP
+  // (wrong opcode, wrong FU, no branch/jump). In particular, instr_addr_misaligned_o sits in the
+  // timing cone of exception_o via alu_compare_res_i -> consecutive_pc, creating a false timing
+  // path to loop_start_commit_i. Using a separate frep_exception breaks that path.
+  assign frep_exception = interrupt_i | frep_sw_error;
+  assign frep_exec_commit = dispatch_instr_valid_o && !frep_exception && !goto_hw_loop;
 
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has
