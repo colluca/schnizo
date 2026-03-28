@@ -45,7 +45,7 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    cfgs = ['1port', '2ports', '3ports', 'fc']
+    cfgs = ['1port', '2ports', '3ports', 'fc', '1x128-1x32-1x64']
     modes = ['scalar', 'superscalar']
     sizes = [256, 512, 1024, 2048, 4096]
     # TODO(colluca): make sure sim_bin is picked up also by MC kernels
