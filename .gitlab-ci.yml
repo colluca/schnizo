@@ -120,9 +120,8 @@ schnizo-experiments:
   timeout: 90m
   needs: [snitch-cluster-sw]
   script:
-    - make vsim CFG_OVERRIDE=cfg/schnizo_xl.json -j
     - cd experiments/micro/perf
-    - ./experiments.py --actions sw run roi --ci -j
+    - ./experiments.py --actions hw sw run roi --ci -j
 
 # Test OmegaNet TCDM interconnect
 snitch-cluster-omega-vsim:
