@@ -295,18 +295,17 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   logic [NofOperands-1:0] op_rsps_hs;
   assign op_rsps_hs = op_rsps_valid_i & op_rsps_ready_o;
 
+  // Always ready to accept a response when we place an operand request
+  assign op_rsps_ready_o = '1;
+
   // Operand response handling
   always_comb begin : operand_response_handling
     slot_op_rsp = slot_op;
     for (int op = 0; op < NofOperands; op++) begin
-      op_rsps_ready_o[op] = 1'b0;
-      if (slot_op.is_occupied && slot_op.operands[op].is_produced && op_rsps_valid_i[op]) begin
+      if (op_rsps_valid_i[op] && op_rsps_ready_o[op]) begin
         slot_op_rsp.operands[op].value     = op_rsps_i[op];
         slot_op_rsp.operands[op].is_valid  = 1'b1;
         slot_op_rsp.operands[op].requested = 1'b0;
-        // Acknowledge the response
-        // TODO(colluca): does this need to depend on valid?
-        op_rsps_ready_o[op] = 1'b1;
       end
     end
   end
@@ -385,5 +384,13 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // A dispatch request cannot be accepted in LCP2 and LEP if the slot is not occupied
   `ASSERT(DispLcp2LepSlotOccupied,
     (disp_hs && loop_state_i inside {LoopLcp2, LoopLep}) |-> slot_issue_i.is_occupied)
+
+  // A response can only arrive if a request was placed, which requires is_occupied, is_produced
+  // and requested
+  for (genvar op = 0; op < NofOperands; op++) begin : gen_op_rsp_assertions
+    `ASSERT(OpRspImpliesOccupied,  op_rsps_valid_i[op] |-> slot_op.is_occupied)
+    `ASSERT(OpRspImpliesProduced,  op_rsps_valid_i[op] |-> slot_op.operands[op].is_produced)
+    `ASSERT(OpRspImpliesRequested, op_rsps_valid_i[op] |-> slot_op.operands[op].requested) 
+  end
 
 endmodule
