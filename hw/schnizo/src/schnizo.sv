@@ -365,6 +365,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic            dispatch_instr_valid;
   logic            dispatch_instr_ready;
   logic            instr_exec_commit;
+  logic            fpu_instr_exec_commit;
   logic [XLEN-1:0] consecutive_pc;
 
   fpnew_pkg::roundmode_e fpu_rnd_mode;
@@ -508,6 +509,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .instr_exec_commit_o    (instr_exec_commit),
+    .fpu_instr_exec_commit_o(fpu_instr_exec_commit),
     .stall_o                (stall),
     .rs_full_i              (rs_full),
     .all_rs_finish_i        (all_rs_finish),
@@ -718,7 +720,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
     // Global commit signal
-    .instr_exec_commit_i  (instr_exec_commit),
+    .instr_exec_commit_i    (instr_exec_commit),
+    .fpu_instr_exec_commit_i(fpu_instr_exec_commit),
     // Trace
     // pragma translate_off
     .alu_trace_o          (alu_trace),

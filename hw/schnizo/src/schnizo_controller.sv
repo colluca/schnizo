@@ -44,6 +44,11 @@ module schnizo_controller import schnizo_pkg::*; #(
   output logic                      dispatch_instr_valid_o,
   input  logic                      dispatch_instr_ready_i,
   output logic                      instr_exec_commit_o,
+  // Commit signal for FPU in regular mode: same as instr_exec_commit but excludes
+  // instr_addr_misaligned_o, which is always 0 for FP instructions (they are never branches).
+  // This breaks the false timing path: ALU adder -> branch compare -> consecutive_pc ->
+  //   instr_addr_misaligned_o -> exception_o -> instr_exec_commit -> fpu_exec_commit.
+  output logic                      fpu_instr_exec_commit_o,
   output logic                      stall_o,
   input  logic                      rs_full_i,
   input  logic                      all_rs_finish_i,
@@ -355,6 +360,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic instr_exec_commit;
   assign instr_exec_commit = dispatch_instr_valid_o && !exception_o && !goto_hw_loop;
   assign instr_exec_commit_o = instr_exec_commit;
+  assign fpu_instr_exec_commit_o = dispatch_instr_valid_o && !goto_hw_loop
+      && !(instr_illegal_o | ecall_o | ebreak_o | csr_exception | interrupt_i | frep_sw_error);
 
   // For FREP, only interrupts and FREP-specific software errors can block commit. All other
   // exceptions in exception_o are structurally impossible when the current instruction is FREP
