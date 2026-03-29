@@ -61,9 +61,10 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned FpuNofRss  = 4,
   parameter bit          MulInAlu0  = 1'b1,
   /// Response XBAR configuration
-  parameter integer unsigned AluNofResRspPorts = 1,
-  parameter integer unsigned LsuNofResRspPorts = 1,
-  parameter integer unsigned FpuNofResRspPorts = 1,
+  // TODO(colluca): either use int or integer, but consistently
+  parameter integer unsigned AluNofResRspPorts = 2,
+  parameter integer unsigned LsuNofResRspPorts = 2,
+  parameter integer unsigned FpuNofResRspPorts = 2,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -1005,7 +1006,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   // Traces for RSS issues
   issue_alu_trace_t rss_alu_traces [NofAlus][AluNofRss];
-  issue_lsu_trace_t rss_lsu_traces [NofLsus][LsuNofRss];
+  // TODO(colluca): probably we should remove the traces altogether in if LSU has no Xfrep (i.e. NofRss==0)
+  issue_lsu_trace_t rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
   issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
 
   // Traces for retirements
@@ -1019,12 +1021,12 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   wb_fu_trace_t acc_wb_trace;
   // Traces for result requests (each RSS has one signal per request crossbar output)
   resreq_trace_t alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs];
-  resreq_trace_t lsu_resreq_traces [NofLsus][LsuNofRss][NofOperandIfs];
+  resreq_trace_t lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)][NofOperandIfs];
   resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
 
   // Traces for result captures (each RSS has one signal)
   rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
-  rescap_trace_t lsu_rescap_traces [NofLsus][LsuNofRss];
+  rescap_trace_t lsu_rescap_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
   rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
 
   assign core_trace = '{

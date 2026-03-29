@@ -10,7 +10,10 @@ module schnizo_synth #(
 	parameter int unsigned AluNofRss = 4,
 	parameter int unsigned LsuNofRss = 4,
 	parameter int unsigned FpuNofRss = 4,
-	parameter bit          MulInAlu0 = 1'b1
+	parameter bit          MulInAlu0 = 1'b1,
+	parameter integer unsigned AluNofResRspPorts = 2,
+	parameter integer unsigned LsuNofResRspPorts = 2,
+	parameter integer unsigned FpuNofResRspPorts = 2
 ) (
 	input  logic                                       clk_i,
 	input  logic                                       rst_ni,
@@ -61,6 +64,9 @@ module schnizo_synth #(
 		.LsuNofRss(LsuNofRss),
 		.FpuNofRss(FpuNofRss),
 		.MulInAlu0(MulInAlu0),
+		.AluNofResRspPorts(AluNofResRspPorts),
+		.LsuNofResRspPorts(LsuNofResRspPorts),
+		.FpuNofResRspPorts(FpuNofResRspPorts),
 		.NumOutstandingLoads(schnizo_synth_pkg::NumIntOutstandingLoads),
 		.NumOutstandingMem(schnizo_synth_pkg::NumIntOutstandingMem),
 		.SnitchPMACfg(snitch_cluster_pkg::SnitchPMACfg),

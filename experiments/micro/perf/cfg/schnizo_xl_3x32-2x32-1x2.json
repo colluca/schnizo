@@ -122,7 +122,7 @@
         num_fpus: 2,
         num_fpu_slots: 32,
         num_alu_rsp_ports: 2,
-        num_lsu_rsp_ports: 2,
+        num_lsu_rsp_ports: 0,
         num_fpu_rsp_ports: 2,
     },
     dma_core_template: {

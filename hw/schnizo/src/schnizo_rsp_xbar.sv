@@ -46,7 +46,7 @@ module schnizo_rsp_xbar #(
       int unsigned s;
       s = '0;
       for (int i = 0; i < n; i++) begin
-          s += NofRspPorts[i];
+        s += NofRspPorts[i];
       end
       return s;
   endfunction
@@ -70,72 +70,74 @@ module schnizo_rsp_xbar #(
 
   // Generate the first stage of muxes (NofRss -> 1)
   for (genvar i = 0; i < NofRs; i++) begin : gen_rs_muxes
+    if (NofRss[i] > 0) begin : gen_rs_mux
 
-    localparam int unsigned RssIdxWidth = cf_math_pkg::idx_width(NofRss[i]);
-    localparam int unsigned RssOffset = rss_offset(i);
-    localparam int unsigned RspOffset = rsp_offset(i);
+      localparam int unsigned RssIdxWidth = cf_math_pkg::idx_width(NofRss[i]);
+      localparam int unsigned RssOffset = rss_offset(i);
+      localparam int unsigned RspOffset = rsp_offset(i);
 
-    // Get signals from this RS
-    logic       [NofRss[i]-1:0] rs_valid;
-    logic       [NofRss[i]-1:0] rs_ready;
-    payload_t   [NofRss[i]-1:0] rs_data;
-    dest_mask_t [NofRss[i]-1:0] rs_sel;
-    assign rs_valid = valid_i[RssOffset+:NofRss[i]];
-    assign rs_data = data_i[RssOffset+:NofRss[i]];
-    assign rs_sel = sel_i[RssOffset+:NofRss[i]];
-    assign ready_o[RssOffset+:NofRss[i]] = rs_ready;
+      // Get signals from this RS
+      logic       [NofRss[i]-1:0] rs_valid;
+      logic       [NofRss[i]-1:0] rs_ready;
+      payload_t   [NofRss[i]-1:0] rs_data;
+      dest_mask_t [NofRss[i]-1:0] rs_sel;
+      assign rs_valid = valid_i[RssOffset+:NofRss[i]];
+      assign rs_data = data_i[RssOffset+:NofRss[i]];
+      assign rs_sel = sel_i[RssOffset+:NofRss[i]];
+      assign ready_o[RssOffset+:NofRss[i]] = rs_ready;
 
-    // Priority encoder to find the first NofRspPorts valid responses
-    // TODO(colluca): technically we wouldn't need this, if we would just forward the
-    // indices of the arbitrated result requests
-    logic [NofRspPorts[i]-1:0][RssIdxWidth-1:0] mux1_selects;
-    always_comb begin
-      automatic int cnt = 0;
-      mux1_selects = '0;
-      for (int j = 0; j < NofRss[i]; j++) begin
-        if (rs_valid[j]) begin
-          mux1_selects[cnt] = j;
-          cnt++;
+      // Priority encoder to find the first NofRspPorts valid responses
+      // TODO(colluca): technically we wouldn't need this, if we would just forward the
+      // indices of the arbitrated result requests
+      logic [NofRspPorts[i]-1:0][RssIdxWidth-1:0] mux1_selects;
+      always_comb begin
+        automatic int cnt = 0;
+        mux1_selects = '0;
+        for (int j = 0; j < NofRss[i]; j++) begin
+          if (rs_valid[j]) begin
+            mux1_selects[cnt] = j;
+            cnt++;
+          end
+          if (cnt >= NofRspPorts[i]) break;
         end
-        if (cnt >= NofRspPorts[i]) break;
       end
-    end
 
-    // Pack data and select together to pass them through the mux
-    data_and_sel_t [NofRss[i]-1:0] rs_data_and_sel;
-    for (genvar j = 0; j < NofRss[i]; j++) begin : gen_data_and_sel_pack
-      assign rs_data_and_sel[j].data = rs_data[j];
-      assign rs_data_and_sel[j].sel = rs_sel[j];
-    end
-
-    // Each result port may grant a result request. To avoid multiple drivers
-    // on the ready signals, we must explicitly OR-combine them.
-    logic [NofRspPorts[i]-1:0][NofRss[i]-1:0] rs_ready_per_port;
-    logic [NofRss[i]-1:0][NofRspPorts[i]-1:0] rs_ready_per_port_transposed;
-    for (genvar rss = 0; rss < NofRss[i]; rss++) begin : gen_combine_port_readies
-      for (genvar port = 0; port < NofRspPorts[i]; port++) begin : gen_iter_ports
-        assign rs_ready_per_port_transposed[rss][port] = rs_ready_per_port[port][rss];
+      // Pack data and select together to pass them through the mux
+      data_and_sel_t [NofRss[i]-1:0] rs_data_and_sel;
+      for (genvar j = 0; j < NofRss[i]; j++) begin : gen_data_and_sel_pack
+        assign rs_data_and_sel[j].data = rs_data[j];
+        assign rs_data_and_sel[j].sel = rs_sel[j];
       end
-      assign rs_ready[rss] = |rs_ready_per_port_transposed[rss];
-    end
 
-    // Generate one mux for each port
-    for (genvar j = 0; j < NofRspPorts[i]; j++) begin : gen_mux
-      // DANGER! Output data may change on the interface before a handshake,
-      // e.g. if a higher priority valid appears causing the select to change.
-      // TODO(colluca): is this safe?
-      stream_mux #(
-        .DATA_T(data_and_sel_t),
-        .N_INP(NofRss[i])
-      ) i_rsp_mux (
-        .inp_data_i(rs_data_and_sel),
-        .inp_valid_i(rs_valid),
-        .inp_ready_o(rs_ready_per_port[j]),
-        .inp_sel_i(mux1_selects[j]),
-        .oup_data_o(mux1_data[RspOffset+j]),
-        .oup_valid_o(mux1_valid[RspOffset+j]),
-        .oup_ready_i(mux1_ready[RspOffset+j])
-      );
+      // Each result port may grant a result request. To avoid multiple drivers
+      // on the ready signals, we must explicitly OR-combine them.
+      logic [NofRspPorts[i]-1:0][NofRss[i]-1:0] rs_ready_per_port;
+      logic [NofRss[i]-1:0][NofRspPorts[i]-1:0] rs_ready_per_port_transposed;
+      for (genvar rss = 0; rss < NofRss[i]; rss++) begin : gen_combine_port_readies
+        for (genvar port = 0; port < NofRspPorts[i]; port++) begin : gen_iter_ports
+          assign rs_ready_per_port_transposed[rss][port] = rs_ready_per_port[port][rss];
+        end
+        assign rs_ready[rss] = |rs_ready_per_port_transposed[rss];
+      end
+
+      // Generate one mux for each port
+      for (genvar j = 0; j < NofRspPorts[i]; j++) begin : gen_mux
+        // DANGER! Output data may change on the interface before a handshake,
+        // e.g. if a higher priority valid appears causing the select to change.
+        // TODO(colluca): is this safe?
+        stream_mux #(
+          .DATA_T(data_and_sel_t),
+          .N_INP(NofRss[i])
+        ) i_rsp_mux (
+          .inp_data_i(rs_data_and_sel),
+          .inp_valid_i(rs_valid),
+          .inp_ready_o(rs_ready_per_port[j]),
+          .inp_sel_i(mux1_selects[j]),
+          .oup_data_o(mux1_data[RspOffset+j]),
+          .oup_valid_o(mux1_valid[RspOffset+j]),
+          .oup_ready_i(mux1_ready[RspOffset+j])
+        );
+      end
     end
   end
 

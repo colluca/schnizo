@@ -296,13 +296,14 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   operand_req_t [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_valid;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
-  operand_req_t [NofLsus-1:0][LsuNofRss-1:0]                          lsu_available_results;
-  dest_mask_t   [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_reqs;
-  logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_reqs_ready;
-  res_rsp_t     [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_rsps;
-  logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_rsps_valid;
-  logic         [NofLsus-1:0][LsuNofRss-1:0]                          lsu_res_rsps_ready;
+  // TODO(colluca): this should be done for all FUs to support NofRss==0 (i.e. no Xfrep)
+  operand_req_t [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_available_results;
+  dest_mask_t   [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_res_reqs;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_res_reqs_valid;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_res_reqs_ready;
+  res_rsp_t     [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_res_rsps;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_res_rsps_valid;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_res_rsps_ready;
   operand_t     [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_valid;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_ready;
@@ -487,7 +488,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .NofResRspIfs  (TotalNofRss),
       .operand_req_t (operand_req_t),
       .dest_mask_t   (dest_mask_t)
-    ) i_request_xbar (
+    ) i_req_xbar (
       .op_reqs_i          (op_reqs),
       .op_reqs_valid_i    (op_reqs_valid),
       .op_reqs_ready_o    (op_reqs_ready),
@@ -516,7 +517,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .NumInp          (TotalNofRss),
       .NumOut          (NofOperandIfs),
       .payload_t       (operand_t)
-    ) i_response_xbar (
+    ) i_rsp_xbar (
       .clk_i,
       .rst_ni (!rst_i),
       .data_i (res_rsps_operands),
