@@ -67,7 +67,7 @@ class SimResults():
         # Raise exception if no performance data is available
         source = self.perf_json if self.source == 'perf' else self.roi_json
         if not source.exists():
-            raise FileNotFoundError(f'File not found {source}. Performance data is not available.')
+            print(f'File not found {source}.')
 
     @functools.cached_property
     def performance_data(self):
