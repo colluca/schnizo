@@ -8,54 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gmean
 from . import experiments
+from . import model
 
-SCHNIZO_CFG = {
-    'alu': 3,
-    'lsu': 3,
-    'fpu': 1
-}
-
-BENCHMARK_INSNS = {
-    'superscalar': {
-        'sz_axpy':          {'alu':  3, 'fpu':  1, 'lsu':  3},
-        'sz_dot':           {'alu':  2, 'fpu':  4, 'lsu':  8},
-        'exp':              {'alu': 22, 'fpu': 40, 'lsu': 28},
-        'log':              {'alu': 34, 'fpu': 40, 'lsu': 16},
-        'pi_lcg':           {'alu': 20, 'fpu': 28, 'lsu':  0},
-        'pi_xoshiro128p':   {'alu': 84, 'fpu': 28, 'lsu':  0},
-        'poly_lcg':         {'alu': 20, 'fpu': 40, 'lsu':  0},
-        'poly_xoshiro128p': {'alu': 84, 'fpu': 40, 'lsu':  0},
-    }
-}
-BENCHMARK_INSNS['scalar'] = BENCHMARK_INSNS['superscalar'].copy()
-BENCHMARK_INSNS['scalar']['sz_axpy'] = {'alu':  3, 'fpu':  4, 'lsu':  12}
-
-
-def ideal_ipc(insns, cfg):
-    """Compute ideal IPC based on instruction mix and FU counts (bottleneck analysis)."""
-    total = sum(insns.values())
-    cycles = max(insns[fu] / cfg[fu] for fu in cfg if insns.get(fu, 0))
-    return total / cycles
-
-
-def ideal_fpu_util(insns):
-    return insns['fpu'] / sum(insns.values())
-
-
-THEORETICAL_METRICS = {
-    'fpu_util': {
-        'scalar': {
-            app: ideal_fpu_util(BENCHMARK_INSNS['scalar'][app])
-            for app in ['sz_axpy', 'sz_dot']
-        }
-    },
-    'ipc': {
-        'superscalar': {
-            app: ideal_ipc(BENCHMARK_INSNS['superscalar'][app], SCHNIZO_CFG)
-            for app in BENCHMARK_INSNS['superscalar']
-        }
-    }
-}
 
 METRIC_LABELS = {
     'fpu_util': 'FPU Util.',
@@ -169,8 +123,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     labeled = False
     for bar, app in zip(scalar_bars, plot_df.index):
         if metric == 'fpu_util':
-            if app in THEORETICAL_METRICS[metric]['scalar']:
-                theoretical = THEORETICAL_METRICS[metric]['scalar'][app]
+            if app in model.theoretical_metrics()[metric]['scalar']:
+                theoretical = model.theoretical_metrics()[metric]['scalar'][app]
                 ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
                            color='black', marker='D', zorder=4,
                            label='Theoretical' if not labeled else '')
@@ -186,8 +140,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     labeled = False
     if metric == 'ipc':
         for bar, app in zip(superscalar_bars, plot_df.index):
-            if app in THEORETICAL_METRICS['ipc']['superscalar']:
-                ideal = THEORETICAL_METRICS['ipc']['superscalar'][app]
+            if app in model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']:
+                ideal = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar'][app]
                 ax.plot([bar.get_x(), bar.get_x() + bar.get_width()], [ideal, ideal],
                         color='tab:red', zorder=3,
                         label='Ideal' if not labeled else '')
