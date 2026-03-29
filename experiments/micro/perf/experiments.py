@@ -10,6 +10,26 @@ from pathlib import Path
 
 # TODO(colluca): which kernels partition the data across cores, and which don't?
 
+HARDWARE_ALIASES = {
+    'S': '1x1_1x1_1x1',
+    'M': '1x4_1x4_1x4',
+    'GP-M': '1x128_1x32_1x64',
+    'GP-L': '3x32_3x32_1x64',
+    'LA': '3x4_3x4_1x4',
+    'MC': '3x32_1x0_2x32',
+    'TR': '2x32_1x32_2x32',
+}
+
+APPLICATION_CLASS = {
+    'LA': ['sz_axpy', 'sz_dot'],
+    'MC': ['pi_lcg', 'pi_xoshiro128p', 'poly_lcg', 'poly_xoshiro128p'],
+    'TR': ['log', 'exp'],
+}
+APPLICATION_CLASS['GP'] = [app for classes in APPLICATION_CLASS.values() for app in classes]
+
+# Maps hw string to its target app class; absent keys accept all apps (GP)
+_HW_APP_CLASS = {HARDWARE_ALIASES[cls]: cls for cls in ['LA', 'MC', 'TR']}
+
 
 class ExperimentManager(eu.ExperimentManager):
 
@@ -45,7 +65,7 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    cfgs = ['1port', '2ports', '3ports', 'fc', '1x128_1x32_1x64', '3x32_1x0_2x32']
+    cfgs = ['1port', '2ports', '3ports', 'fc', '1x128_1x32_1x64', '3x32_1x0_2x32', '2x32_1x32_2x32']
     modes = ['scalar', 'superscalar']
     sizes = [256, 512, 1024, 2048, 4096]
     # TODO(colluca): make sure sim_bin is picked up also by MC kernels
@@ -59,15 +79,17 @@ def gen_experiments(ci=False):
     # Generate experiment list
     experiments = []
     for cfg in cfgs:
+        app_class = _HW_APP_CLASS.get(cfg)
+        compatible = set(APPLICATION_CLASS[app_class] if app_class else APPLICATION_CLASS['GP'])
         for mode in modes:
             # Scalar experiments do not depend on the response xbar configuration
             if mode == 'scalar' and cfg != '1port':
                 continue
             for size in sizes:
-                if cfg in ['1x128_1x32_1x64', '3x32_1x0_2x32'] and (size != 4096 or mode != 'superscalar'):
+                if cfg not in ['1port', 'fc'] and (size != 4096 or mode != 'superscalar'):
                     continue
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
-                if cfg != '3x32_1x0_2x32':
+                if compatible & {'sz_dot', 'sz_axpy'}:
                     experiments.extend([
                         {
                             'app': 'sz_dot',
@@ -93,6 +115,9 @@ def gen_experiments(ci=False):
                                     sim_bin, "${elf}"],
                             'roi': Path("roi/sz_axpy_roi.json.tpl")
                         },
+                    ])
+                if compatible & {'exp', 'log'}:
+                    experiments.extend([
                         {
                             'app': 'exp',
                             'hw': cfg,
@@ -118,22 +143,23 @@ def gen_experiments(ci=False):
                             'roi': Path("roi/log.json.tpl")
                         },
                     ])
-                for mc_app in ['pi', 'poly']:
-                    for mc_prng in ['lcg', 'xoshiro128p']:
-                        experiments.append({
-                            # TODO(colluca): rename app montecarlo
-                            'app': 'pi_estimation',
-                            'hw': cfg,
-                            'mc_app': mc_app,
-                            'mc_prng': mc_prng,
-                            'mode': mode,
-                            'data_cfg': {
-                                'n': size,
-                                'func_ptr': 'calculate_psum_schnizo',
-                            },
-                            'cmd': [sim_bin, "${elf}"],
-                            'roi': Path("roi/pi_estimation.json.tpl")
-                        })
+                if compatible & set(APPLICATION_CLASS['MC']):
+                    for mc_app in ['pi', 'poly']:
+                        for mc_prng in ['lcg', 'xoshiro128p']:
+                            experiments.append({
+                                # TODO(colluca): rename app montecarlo
+                                'app': 'pi_estimation',
+                                'hw': cfg,
+                                'mc_app': mc_app,
+                                'mc_prng': mc_prng,
+                                'mode': mode,
+                                'data_cfg': {
+                                    'n': size,
+                                    'func_ptr': 'calculate_psum_schnizo',
+                                },
+                                'cmd': [sim_bin, "${elf}"],
+                                'roi': Path("roi/pi_estimation.json.tpl")
+                            })
 
     # Filter by apps
     if app_filter is not None:

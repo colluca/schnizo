@@ -84,6 +84,35 @@ def plot_rsp_xbar(dir=None, show=False):
     return pivot
 
 
+def linear_regression(dir=None):
+    """Fit linear models (area = slope * n_rse + intercept) for req and rsp xbars.
+
+    Returns a dict with:
+      'req_xbar': {'slope', 'intercept', 'r2'}
+      'rsp_xbar': {num_ports: {'slope', 'intercept', 'r2'}, ...}
+    """
+    from scipy.stats import linregress
+    df = results(dir=dir)
+
+    fits = {}
+
+    req = df[(df['name'] == 'req_xbar') & (df['num_slots'] > NUM_RS)]
+    pivot = req.groupby('num_slots')['StdCellArea'].mean()
+    x = (pivot.index // NUM_RS).values
+    slope, intercept, r, _, _ = linregress(x, pivot.values)
+    fits['req_xbar'] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
+
+    rsp = df[(df['name'] == 'rsp_xbar') & (df['num_slots'] > NUM_RS)]
+    pivot = rsp.pivot_table(index='num_slots', columns='num_rsp_ports', values='StdCellArea')
+    x = (pivot.index // NUM_RS).values
+    fits['rsp_xbar'] = {}
+    for ports in pivot.columns:
+        slope, intercept, r, _, _ = linregress(x, pivot[ports].values)
+        fits['rsp_xbar'][int(ports)] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
+
+    return fits
+
+
 def main():
     print(results())
 

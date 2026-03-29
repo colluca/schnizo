@@ -89,6 +89,27 @@ def plot(dir=None, show=False, hide_x_axis=False):
     return df.pivot_table(index='NofRss', columns='NofOperands', values='StdCellArea')
 
 
+def linear_regression(dir=None):
+    """Fit a linear model (area = slope * n_rse + intercept) for each operand count.
+
+    Returns a dict keyed by NofOperands, with CombArea, SeqArea, StdCellArea fits,
+    each containing 'slope', 'intercept', and 'r2'.
+    """
+    from scipy.stats import linregress
+    df = results(dir=dir)
+    df = df[df['ConsumerCount'] == 64]
+
+    fits = {}
+    for ops in sorted(df['NofOperands'].unique()):
+        sub = df[df['NofOperands'] == ops].sort_values('NofRss')
+        x = sub['NofRss'].values
+        fits[ops] = {}
+        for col in ['CombArea', 'SeqArea', 'StdCellArea']:
+            slope, intercept, r, _, _ = linregress(x, sub[col].values)
+            fits[ops][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
+    return fits
+
+
 def main():
     print(results())
 

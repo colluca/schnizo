@@ -176,7 +176,8 @@ def rsp_ports_tradeoff_plot(df, show=True):
     plot_df = df.loc[idx_max_size].pivot(index='app', columns='hw', values='ipc')
 
     fc_ipc = plot_df['fc']
-    plot_df = plot_df.drop(columns='fc').rename(columns={
+    plot_df = plot_df[['1port', '2ports', '3ports']]
+    plot_df = plot_df.rename(columns={
         '1port': '1 port', '2ports': '2 ports', '3ports': '3 ports'
     })
 

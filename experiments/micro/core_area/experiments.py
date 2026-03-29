@@ -46,7 +46,7 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_small',
+            'name': 'superscalar_1x1_1x1_1x1',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 1,
@@ -59,7 +59,7 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_medium',
+            'name': 'superscalar_1x4_1x4_1x4',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 1,
@@ -72,7 +72,7 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_medium_96slots',
+            'name': 'superscalar_1x32_1x32_1x32',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 1,
@@ -85,7 +85,7 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_large',
+            'name': 'superscalar_3x4_3x4_1x4',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 3,
@@ -95,7 +95,7 @@ def gen_experiments(designs=None):
         },
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_xl',
+            'name': 'superscalar_3x32_3x32_1x64',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 3,
