@@ -106,6 +106,47 @@ def gen_experiments(designs=None):
                 'FpuNofRss': 64,
             }
         },
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_1x128_1x32_1x64',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 1,
+                'NofLsus': 1,
+                'NofFpus': 1,
+                'AluNofRss': 128,
+                'LsuNofRss': 32,
+                'FpuNofRss': 64,
+            }
+        },
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_3x32_1x0_2x32',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 3,
+                'NofLsus': 1,
+                'NofFpus': 2,
+                'AluNofRss': 32,
+                'LsuNofRss': 0,
+                'FpuNofRss': 32,
+                'LsuNofResRspPorts': 0
+            }
+        },
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_2x32_1x32_2x32',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 2,
+                'NofLsus': 1,
+                'NofFpus': 2,
+                'AluNofRss': 32,
+                'LsuNofRss': 32,
+                'FpuNofRss': 32,
+                'LsuNofResRspPorts': 0
+            }
+        },
     ]
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]

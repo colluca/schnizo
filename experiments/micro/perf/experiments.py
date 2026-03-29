@@ -45,7 +45,7 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    cfgs = ['1port', '2ports', '3ports', 'fc', '1x128-1x32-1x64']
+    cfgs = ['1port', '2ports', '3ports', 'fc', '1x128_1x32_1x64', '3x32_1x0_2x32']
     modes = ['scalar', 'superscalar']
     sizes = [256, 512, 1024, 2048, 4096]
     # TODO(colluca): make sure sim_bin is picked up also by MC kernels
@@ -64,57 +64,60 @@ def gen_experiments(ci=False):
             if mode == 'scalar' and cfg != '1port':
                 continue
             for size in sizes:
+                if cfg in ['1x128_1x32_1x64', '3x32_1x0_2x32'] and (size != 4096 or mode != 'superscalar'):
+                    continue
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
-                experiments.extend([
-                    {
-                        'app': 'sz_dot',
-                        'hw': cfg,
-                        'mode': mode,
-                        'data_cfg': {
-                            'n': size,
-                            'funcptr': 'dot_schnizo',
+                if cfg != '3x32_1x0_2x32':
+                    experiments.extend([
+                        {
+                            'app': 'sz_dot',
+                            'hw': cfg,
+                            'mode': mode,
+                            'data_cfg': {
+                                'n': size,
+                                'funcptr': 'dot_schnizo',
+                            },
+                            'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
+                                    sim_bin, "${elf}"],
+                            'roi': Path("roi/sz_dot_roi.json.tpl")
                         },
-                        'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
-                                sim_bin, "${elf}"],
-                        'roi': Path("roi/sz_dot_roi.json.tpl")
-                    },
-                    {
-                        'app': 'sz_axpy',
-                        'hw': cfg,
-                        'mode': mode,
-                        'data_cfg': {
-                            'n': size,
-                            'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnizo',
+                        {
+                            'app': 'sz_axpy',
+                            'hw': cfg,
+                            'mode': mode,
+                            'data_cfg': {
+                                'n': size,
+                                'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnizo',
+                            },
+                            'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
+                                    sim_bin, "${elf}"],
+                            'roi': Path("roi/sz_axpy_roi.json.tpl")
                         },
-                        'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
-                                sim_bin, "${elf}"],
-                        'roi': Path("roi/sz_axpy_roi.json.tpl")
-                    },
-                    {
-                        'app': 'exp',
-                        'hw': cfg,
-                        'mode': mode,
-                        'data_cfg': {
-                            'len': size,
-                            'batch_size': size,
+                        {
+                            'app': 'exp',
+                            'hw': cfg,
+                            'mode': mode,
+                            'data_cfg': {
+                                'len': size,
+                                'batch_size': size,
+                            },
+                            'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
+                                    sim_bin, "${elf}"],
+                            'roi': Path("roi/exp.json.tpl")
                         },
-                        'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
-                                sim_bin, "${elf}"],
-                        'roi': Path("roi/exp.json.tpl")
-                    },
-                    {
-                        'app': 'log',
-                        'hw': cfg,
-                        'mode': mode,
-                        'data_cfg': {
-                            'len': size,
-                            'batch_size': size,
+                        {
+                            'app': 'log',
+                            'hw': cfg,
+                            'mode': mode,
+                            'data_cfg': {
+                                'len': size,
+                                'batch_size': size,
+                            },
+                            'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
+                                    sim_bin, "${elf}"],
+                            'roi': Path("roi/log.json.tpl")
                         },
-                        'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
-                                sim_bin, "${elf}"],
-                        'roi': Path("roi/log.json.tpl")
-                    },
-                ])
+                    ])
                 for mc_app in ['pi', 'poly']:
                     for mc_prng in ['lcg', 'xoshiro128p']:
                         experiments.append({

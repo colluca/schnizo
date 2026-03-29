@@ -118,7 +118,7 @@
         num_alus: 3,
         num_alu_slots: 32,
         num_lsus: 1,
-        num_lsu_slots: 2,
+        num_lsu_slots: 0,
         num_fpus: 2,
         num_fpu_slots: 32,
         num_alu_rsp_ports: 2,
