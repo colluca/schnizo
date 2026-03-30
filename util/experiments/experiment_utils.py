@@ -404,12 +404,10 @@ class ExperimentManager:
 
         # Create SynthResults objects
         if 'SynthResults' in globals():
-            try:
+            if self.synth_dir.exists():
                 synth_results = df['synth_dir'].apply(lambda synth_dir: SynthResults(synth_dir))
                 synth_results.rename('synth_results', inplace=True)
                 self.synth_results_available = True
-            except FileNotFoundError:
-                pass
 
         # Combine experiment axes and results into a new DataFrame
         columns = [axes]
