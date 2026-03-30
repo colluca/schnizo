@@ -14,7 +14,7 @@
 // RSS: Reservation Station Slot. A slot can hold one instruction with all the required
 //      information for the superscalar execution.
 // RF:  Register File
-module schnova_res_stat import schnizo_pkg::*; #(
+module schnova_res_stat import schnova_pkg::*; #(
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
@@ -164,7 +164,7 @@ module schnova_res_stat import schnizo_pkg::*; #(
   // Generates the instruction dispatch, issue, retire & writeback control signals and handles
   // the LEP iterations.
 
-  // TODO(colluca): why do we need counters at all for the LCPx phases? The schnizo_controller
+  // TODO(colluca): why do we need counters at all for the LCPx phases? The schnova_controller
   //                already has these, and if it needs other information this is all we should
   //                provide it with.
 

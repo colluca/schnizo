@@ -11,7 +11,7 @@
 // Can handle `NumOutstandingLoads` outstanding loads and `NumOutstandingMem` requests in total
 // and optionally NaNBox if used in a floating-point setting. It expects its memory subsystem to
 // keep order (as if issued with a single ID).
-module schnova_lsu import schnizo_pkg::*, schnova_tracer_pkg::*; #(
+module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned XLEN                = 32,
   parameter type         issue_req_t         = logic,
   parameter int unsigned AddrWidth           = 32,

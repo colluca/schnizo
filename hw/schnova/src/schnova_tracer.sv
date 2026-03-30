@@ -5,7 +5,7 @@
 // pragma translate_off
 
 // Schnizo core tracer.
-module schnova_tracer import schnizo_pkg::*, schnova_tracer_pkg::*; #(
+module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned NofAlus    = 3,
   parameter int unsigned NofLsus    = 1,
   parameter int unsigned NofFpus    = 1,

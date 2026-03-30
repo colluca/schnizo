@@ -11,7 +11,7 @@
 // requests are directly issued to the FUs and FU results are directly sent to the writeback.
 // This module instantiates the RS and performs the necessary demuxing and muxing to bypass or go
 // through the RS.
-module schnova_fu_block import schnizo_pkg::*; #(
+module schnova_fu_block import schnova_pkg::*; #(
   /// Instruction stream parameters
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,

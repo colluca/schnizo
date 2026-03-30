@@ -5,7 +5,7 @@
 // Note: The physical register size has to be a power of two, for the math to work
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
-module schnova_reorder_buffer import schnizo_pkg::*; #(
+module schnova_reorder_buffer import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned NofEntries  = 64,
   parameter type         phy_id_t = logic,

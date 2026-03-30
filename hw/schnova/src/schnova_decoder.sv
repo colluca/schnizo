@@ -5,7 +5,7 @@
 // Author: Stefan Odermatt <soderma@ethz.ch>
 
 // The PipeWidth-wide decoder of Schnova, based on the decoder of Schnizo
-module schnova_decoder import schnizo_pkg::*; #(
+module schnova_decoder import schnova_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter int unsigned PipeWidth   = 1,
   parameter bit          Xdma        = 0,
@@ -70,7 +70,7 @@ module schnova_decoder import schnizo_pkg::*; #(
 
   // Generate all the decoder needed for the superscalar pipeline
   for (genvar dec_idx = 0; dec_idx < PipeWidth; dec_idx++) begin: gen_decoders
-    schnizo_decoder #(
+    schnova_instr_decoder #(
       .XLEN   (XLEN),
       .Xdma   (Xdma),
       .Xfrep  (1), // For now we always abuse Xfrep to switch in and out of superscalar mode

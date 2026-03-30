@@ -4,7 +4,7 @@
 
 // Combines initial slot update, operand request generation, operand response handling,
 // and issue logic into a single module.
-module schnova_rss_dispatch_pipeline import schnizo_pkg::*; #(
+module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   parameter int unsigned NofOperands      = 2,
   parameter type         disp_req_t       = logic,
   parameter type         producer_id_t    = logic,

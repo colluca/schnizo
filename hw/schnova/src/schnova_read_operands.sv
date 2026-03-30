@@ -9,7 +9,7 @@
 // All read values are stored in OpLen bits (defined by fu_data_t) and are
 // NOT sign extended! When computing values with the operands, make sure to use
 // only the relevant bits!
-module schnova_read_operands import schnizo_pkg::*; #(
+module schnova_read_operands import schnova_pkg::*; #(
   parameter int unsigned XLEN,
   parameter int unsigned FLEN,
   parameter int unsigned PipeWidth       = 1,
@@ -88,8 +88,8 @@ module schnova_read_operands import schnizo_pkg::*; #(
       // We must select the correct operand b value based on the FU and the instruction.
       // - ALU can have the immediate value as operand b.
       // - For all other FUs the use_imm_as_op_b is set (if a imm is selected) but must be ignored.
-      if ((instr_dec_i[instr_idx].fu == schnizo_pkg::ALU ||
-           instr_dec_i[instr_idx].fu == schnizo_pkg::CTRL_FLOW) &&
+      if ((instr_dec_i[instr_idx].fu == schnova_pkg::ALU ||
+           instr_dec_i[instr_idx].fu == schnova_pkg::CTRL_FLOW) &&
           instr_dec_i[instr_idx].use_imm_as_op_b && !instr_dec_i[instr_idx].is_branch) begin
           fu_data_o[instr_idx].operand_b[XLEN-1:0] = instr_dec_i[instr_idx].imm;
       end else begin

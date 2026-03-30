@@ -7,7 +7,7 @@
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
 // Description: Renaming stage
-module schnova_rename import schnizo_pkg::*; #(
+module schnova_rename import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned RmtNrIntReadPorts = 3,
   parameter int unsigned RmtNrFpReadPorts = 4,

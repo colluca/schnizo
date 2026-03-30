@@ -9,7 +9,7 @@
 // The controller handles instruction dependencies, keeping track of busy registers in a
 // scoreboard. It controls the program flow by updating the PC and stalling instruction fetch and
 // dispatch when necessary, handling exceptions, HW barriers, control flow instructions.
-module schnova_controller import schnizo_pkg::*; #(
+module schnova_controller import schnova_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned NrIntWritePorts = 1,
@@ -26,7 +26,10 @@ module schnova_controller import schnizo_pkg::*; #(
   // Frontend interface
   input  logic            flush_i_ready_i,
   output logic            flush_i_valid_o,
+  input  logic [31:0]     pc_i,
   input  logic [XLEN-1:0] consecutive_pc_i,
+  output logic            loop_jump_o,
+  output logic [31:0]     loop_jump_addr_o,
 
   // Decoder interface
   input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
@@ -34,6 +37,9 @@ module schnova_controller import schnizo_pkg::*; #(
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
   input  logic                       exit_superscalar_i,
+
+  // Special FREP data
+  input  logic [MaxIterationsWidth-1:0] frep_iterations_i,
   // To backend
   output logic                      flush_backend_o,
   output logic                      dispatched_o,
@@ -75,6 +81,7 @@ module schnova_controller import schnizo_pkg::*; #(
 
   // Superscalar features enabled
   output logic en_superscalar_o,
+  output loop_state_e loop_state_o,
 
   // From scoreboard
   input logic             registers_ready_i,
@@ -82,73 +89,63 @@ module schnova_controller import schnizo_pkg::*; #(
 );
 
   logic instr_dispatched;
-  logic            csr_exception;
-
-  logic en_superscalar_d, en_superscalar_q;
-  // Per default the core starts in scalar mode
-  `FFAR(en_superscalar_q, en_superscalar_d, 1'b0, clk_i, rst_i);
+  logic csr_exception;
+  logic [PipeWidth-1:0] instr_valid;
 
     ////////////////////////
   // Loop control logic //
   ////////////////////////
 
-  logic        loop_start_ready;
-  logic        loop_jump;
-  logic [31:0] loop_jump_addr;
-  logic        loop_stall;
   logic        frep_sw_error;
-  logic        goto_hw_loop;
+  logic [PipeWidth-1:0] valid_mask;
 
-    // Convert the decoded loop iterations to the actual number of iterations.
-    // In Snitch we specify one less in the encoding.
-    logic [MaxIterationsWidth-1:0] loop_iterations;
-    assign loop_iterations = frep_iterations_i + 1;
+  // Convert the decoded loop iterations to the actual number of iterations.
+  // In Snitch we specify one less in the encoding.
+  logic [MaxIterationsWidth-1:0] loop_iterations;
+  assign loop_iterations = frep_iterations_i + 1;
 
-    // Convert the loop body size to the actual number of iterations.
-    // In Snitch we specify one less in the encoding.
-    logic [FrepBodySizeWidth-1:0] loop_bodysize;
-    assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
+  // Convert the loop body size to the actual number of iterations.
+  // In Snitch we specify one less in the encoding.
+  logic [FrepBodySizeWidth-1:0] loop_bodysize;
+  assign loop_bodysize = instr_decoded_i[0].frep_bodysize + 1;
 
   schnova_loop_controller #(
-    .AddrWidth     (32),
-    .MaxBodysizeW  (FrepBodySizeWidth),
+    .PipeWidth         (PipeWidth),
+    .AddrWidth         (32),
+    .MaxBodysizeWidth  (FrepBodySizeWidth),
     .MaxIterationsWidth(MaxIterationsWidth),
-    .instr_dec_t   (instr_dec_t)
+    .block_ctrl_info_t (block_ctrl_info_t)
   ) i_loop_ctrl (
     .clk_i,
     .rst_i,
-    .instr_decoded_i  (instr_decoded_i),
     .instr_valid_i    (instr_valid_i),
-    .instr_addr_i     (pc_q),
+    .valid_mask_o     (valid_mask),
+    .instr_addr_i     (pc_i),
+    .blk_ctrl_info_i  (blk_ctrl_info_i),
     // The next instruction after an FREP can only be the immediately next instruction.
     // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
     // on the loop_jump signal. TODO: check address overflow..
-    .next_instr_addr_i(pc_q + 'd4),
+    .next_instr_addr_i(pc_i + 'd4),
     .stall_i          (stall_o),
     .exception_i      (exception_o),
-    .rs_full_i        (rs_full_i),
-    .all_rs_finish_i  (all_rs_finish_i),
     // Only in scalar execution mode is it legal to observe an frep instruction
     // hence we can take the first instruction
     .loop_start_req_i   (instr_decoded_i[0].is_frep & instr_valid_i[0]),
-    .loop_start_commit_i(instr_decoded_i[0].is_frep & instr_exec_commit_o[0]),
-    // A ready response for the commit to adhere to the ready/valid flow.
-    .loop_start_ready_o (loop_start_ready),
+    .loop_start_commit_i(instr_decoded_i[0].is_frep & instr_exec_commit_o),
     .loop_bodysize_i    (loop_bodysize),
     .loop_iterations_i  (loop_iterations),
     .frep_mode_i        (instr_decoded_i[0].frep_mode),
-
-    .loop_jump_o     (loop_jump),
-    .loop_jump_addr_o(loop_jump_addr),
-    .loop_stall_o    (loop_stall),
-    .sw_err_o        (frep_sw_error),
-    .loop_state_o    (loop_state_o),
-    .loop_iteration_o(loop_iteration_o),
-    .goto_lcp2_o     (goto_lcp2_o),
-    .lep_iterations_o(lep_iterations_o),
-    .rs_restart_o    (rs_restart_o),
-    .goto_hw_loop_o  (goto_hw_loop)
+    .exit_frep_i        (exit_superscalar_i),
+    .loop_jump_o        (loop_jump_o),
+    .loop_jump_addr_o   (loop_jump_addr_o),
+    .sw_err_o           (frep_sw_error),
+    .loop_state_o       (loop_state_o),
+    .en_superscalar_o   (en_superscalar_o)
   );
+
+  // After the loop controller we maks the valid bits
+  // It could be that some instruction have to be invalidated since they are out of the loop body
+  assign instr_valid = instr_valid_i & valid_mask;
 
   ////////////////
   // Exceptions //
@@ -165,12 +162,12 @@ module schnova_controller import schnizo_pkg::*; #(
   logic [PipeWidth-1:0] sret;
 
   for (genvar instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin: gen_per_instr_exception
-    assign ecall_ex[instr_idx]  = instr_decoded_i[instr_idx].is_ecall  && instr_valid_i[instr_idx];
-    assign ebreak_ex[instr_idx] = instr_decoded_i[instr_idx].is_ebreak && instr_valid_i[instr_idx];
+    assign ecall_ex[instr_idx]  = instr_decoded_i[instr_idx].is_ecall  && instr_valid[instr_idx];
+    assign ebreak_ex[instr_idx] = instr_decoded_i[instr_idx].is_ebreak && instr_valid[instr_idx];
     // TODO(soderma): Assumes csr instruction will be done in 1 cycle
     assign csr_ex[instr_idx] =  (instr_decoded_i[instr_idx].fu == CSR) &&
                                 csr_exception_raw_i                    &&
-                                instr_valid_i[instr_idx];
+                                instr_valid[instr_idx];
     // Unaligned address check
     assign instr_addr_misaligned_ex[instr_idx] = (instr_decoded_i[instr_idx].is_branch ||
                                     instr_decoded_i[instr_idx].is_jal            ||
@@ -180,7 +177,7 @@ module schnova_controller import schnizo_pkg::*; #(
     // TODO(colluca): what to do with debug signal?
     // TODO(soderma): WFI not allowed in superscalar mode at this point. Because to be correct,
     // we would have to disable all other instructions.
-    assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid_i[instr_idx];
+    assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid[instr_idx];
     // && !debug_q;
     // Check privileges for certain instructions
     always_comb begin : check_privileges
@@ -203,13 +200,13 @@ module schnova_controller import schnizo_pkg::*; #(
       end
     end
     assign privileges_violated[instr_idx] = privileges_violated_raw[instr_idx] &&
-                                            instr_valid_i[instr_idx];
+                                            instr_valid[instr_idx];
     // Only update the privilege stack if there is a valid xRET instruction.
     assign mret[instr_idx] =  instr_decoded_i[instr_idx].is_mret &&
-                              instr_valid_i[instr_idx]           &&
+                              instr_valid[instr_idx]           &&
                               !privileges_violated[instr_idx];
     assign sret[instr_idx] =  instr_decoded_i[instr_idx].is_sret &&
-                              instr_valid_i[instr_idx]           &&
+                              instr_valid[instr_idx]           &&
                               !privileges_violated[instr_idx];
   end
   // We have an exception if one of the instructions in the block had an exception
@@ -219,7 +216,6 @@ module schnova_controller import schnizo_pkg::*; #(
   assign instr_addr_misaligned_o = |instr_addr_misaligned_ex;
   // Load and store address are missaligned if LSU assert address misaligned
   // and a load/store operation is currently being processed.
-  // TODO: Act correctly on an exception, maybe we can do this similar to schnizo now with our scalar mode.
   assign load_addr_misaligned_o  = lsu_addr_misaligned_i & load_inflight_i;
   assign store_addr_misaligned_o = lsu_addr_misaligned_i & store_inflight_i;
   assign enter_wfi_o = |enter_wfi;
@@ -242,13 +238,14 @@ module schnova_controller import schnizo_pkg::*; #(
                    | instr_addr_misaligned_o
                    | load_addr_misaligned_o
                    | store_addr_misaligned_o
-                   | interrupt_i;
+                   | interrupt_i
+                   | frep_sw_error;
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
   // In case of an exception we flush the entire backend
   // TODO(sorderma): When to restart controllably
   assign flush_backend_o = exception_o;
-  assign rs_restart_o = exception_o || !en_superscalar_q;
+  assign rs_restart_o = exception_o || !en_superscalar_o;
 
   ////////////
   // Stalls //
@@ -261,14 +258,14 @@ module schnova_controller import schnizo_pkg::*; #(
   logic fence_stall;
   // The lsu_empty_i signal already declares whether all LSUs are empty
   assign all_lsus_empty = lsu_empty_i;
-  assign fence_stall = (instr_decoded_i[0].is_fence & ~all_lsus_empty) & instr_valid_i[0];
+  assign fence_stall = (instr_decoded_i[0].is_fence & ~all_lsus_empty) & instr_valid[0];
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
   // We can continue as soon as the cache responds
   // FENCE_I is only allowed in scalar mode, we can thus only consider the first
   // decoded instruction.
   logic fence_i_stall;
-  assign flush_i_valid_o = instr_decoded_i[0].is_fence_i & instr_valid_i[0];
+  assign flush_i_valid_o = instr_decoded_i[0].is_fence_i & instr_valid[0];
   assign fence_i_stall = flush_i_valid_o & ~flush_i_ready_i;
 
   // Check if the current instruction wants to read or write the FCSR. If so, stall until no FPU
@@ -287,7 +284,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // write back into the integer register file.
   // TODO(colluca): we should probably use a separate register in the scoreboard to track if there
   // are any ongoing FPU instructions instead of checking both scoreboards indiscriminately.
-  assign fcsr_stall = sb_busy_i & is_fcsr_instr & instr_valid_i[0];
+  assign fcsr_stall = sb_busy_i & is_fcsr_instr & instr_valid[0];
 
   // Before toggling between scalar and superscalar mode all writebacks must be completed.
   // There are two situations when we toggle
@@ -297,7 +294,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
   // Note the decoder and frontend guarantes, that frep is always the first valid instruction.
   logic frep_start_stall;
-  assign frep_start_stall = ((instr_decoded_i[0].is_frep & instr_valid_i[0])) ? sb_busy_i :
+  assign frep_start_stall = ((instr_decoded_i[0].is_frep & instr_valid[0])) ? sb_busy_i :
                                                                         1'b0;
 
   // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
@@ -308,7 +305,6 @@ module schnova_controller import schnizo_pkg::*; #(
   } ctrl_state_t;
 
   ctrl_state_t ctrl_state_q, ctrl_state_d;
-  logic stall_disp_ctrl;
 
   `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
 
@@ -338,13 +334,13 @@ module schnova_controller import schnizo_pkg::*; #(
   // We have to stall in superscalar mode if the freelist does not have enough
   // physical registers to rename all instructions
   logic freelist_stall;
-  assign freelist_stall = en_superscalar_q ? ~freelist_ready_i : 1'b0;
+  assign freelist_stall = en_superscalar_o ? ~freelist_ready_i : 1'b0;
 
   // We have to stall in superscalar mode if the rob does not have enough
   // entries for all the instructions we want to dispatch in this
   // fetch block
   logic rob_stall;
-  assign rob_stall = en_superscalar_q ? ~rob_ready_i : 1'b0;
+  assign rob_stall = en_superscalar_o ? ~rob_ready_i : 1'b0;
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
@@ -376,14 +372,13 @@ module schnova_controller import schnizo_pkg::*; #(
                     fence_i_stall     |
                     fcsr_stall        |
                     frep_start_stall  |
-                    loop_stall        |
                     freelist_stall    |
                     rob_stall         |
                     ctrl_stall;
 
   // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched
   // in one go. Hence we only need a valid signal per block not for all instructions separately.
-  assign dispatch_instr_valid_o = (|instr_valid_i) & registers_ready_i & ~stall_raw;
+  assign dispatch_instr_valid_o = (|instr_valid) & registers_ready_i & ~stall_raw;
 
   // The instruction may only execute if there are no errors/exceptions.
   // TODO(colluca): clarify "multi-cycle issues" in following comment
@@ -410,21 +405,7 @@ module schnova_controller import schnizo_pkg::*; #(
   // 2) We have to wait for a control instruction to be resolved
   // since we don't do any speculation.
   assign stall_o =  ((ctrl_state_q == IDLE) && !instr_dispatched) ||
-                    ((ctrl_state_q == IDLE) && blk_ctrl_info_i.is_ctrl && en_superscalar_q) ||
+                    ((ctrl_state_q == IDLE) && blk_ctrl_info_i.is_ctrl && en_superscalar_o) ||
                       ctrl_stall;
 
-  //////////////////////////////
-  // Superscalar enable logic //
-  //////////////////////////////
-
-  always_comb begin
-    en_superscalar_d = en_superscalar_q;
-    // We toggle the mode whenever a valid frep instruction was decoded as the first
-    // valid instruction and we don't ignore it
-    if (instr_decoded_i[0].is_frep && instr_valid_i[0] && !ignore_toggle_q) begin
-      en_superscalar_d = ~en_superscalar_q;
-    end
-  end
-
-  assign en_superscalar_o = en_superscalar_q;
 endmodule

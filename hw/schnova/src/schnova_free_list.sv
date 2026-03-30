@@ -5,7 +5,7 @@
 // Note: The physical register size has to be a power of two, for the math to work
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
-module schnova_free_list import schnizo_pkg::*; #(
+module schnova_free_list import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned PhysAddrWidth = 6,
   parameter int unsigned AddrWidth = 5,

@@ -2,13 +2,13 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// ALU of the Schnizo Core.
+// ALU of the Schnova Core.
 //
 // The ALU consists of an adder, a comparison part for branch resolving and an arithmetic
 // shifter unit. It is based on the CVA6 alu module.
 // TODO(colluca): is it possible that adding the multiplier here, with its longer latency,
 // breaks some corner-case in case of a "race condition" with a branch instruction?
-module schnova_alu import schnizo_pkg::*, schnova_tracer_pkg::*; #(
+module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned XLEN          = 32,
   parameter bit          HasBranch     = 1'b1,
   parameter bit          HasMultiplier = 1'b0,
@@ -127,7 +127,7 @@ module schnova_alu import schnizo_pkg::*, schnova_tracer_pkg::*; #(
   logic            mul_busy;
 
   if (HasMultiplier) begin : gen_multiplier
-    schnizo_multiplier #(
+    schnova_multiplier #(
       .Width(XLEN),
       .IdWidth($bits(instr_tag_t))
     ) i_multiplier (

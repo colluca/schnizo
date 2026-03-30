@@ -2,13 +2,13 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// Top-Level of the Schnizo FPU.
+// Top-Level of the schnova FPU.
 //
-// This module wraps the FPnew FPU such that the interface matches the Schnizo dispatch requests.
+// This module wraps the FPnew FPU such that the interface matches the schnova dispatch requests.
 // It decodes the instruction and forwards the operands to the FPU.
 // The operands rs1, rs2, rs3 are defined as in the RISC-V ISA specification.
 // The correct assignment matching the FPnew interface is done here.
-module schnova_fpu import schnizo_pkg::*, schnova_tracer_pkg::*; #(
+module schnova_fpu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter fpnew_pkg::fpu_implementation_t FPUImplementation = '0,
   parameter bit          RVF            = 1,
   parameter bit          RVD            = 1,
@@ -146,84 +146,84 @@ module schnova_fpu import schnizo_pkg::*, schnova_tracer_pkg::*; #(
     operand_mod = '0;
 
     unique case (op)
-      schnizo_pkg::FpuOpFadd: begin
+      schnova_pkg::FpuOpFadd: begin
         fpnew_op = fpnew_pkg::ADD; // rs1 + rs2
         op_selection[0] = NONE;
         op_selection[1] = RS1;
         op_selection[2] = RS2;
       end
-      schnizo_pkg::FpuOpFsub: begin // rs1 - rs2
+      schnova_pkg::FpuOpFsub: begin // rs1 - rs2
         fpnew_op = fpnew_pkg::ADD;
         operand_mod = 1'b1;
         op_selection[0] = NONE;
         op_selection[1] = RS1;
         op_selection[2] = RS2;
       end
-      schnizo_pkg::FpuOpFmadd: begin // (rs1 * rs2) + rs3
+      schnova_pkg::FpuOpFmadd: begin // (rs1 * rs2) + rs3
         fpnew_op = fpnew_pkg::FMADD;
         op_selection[2] = RS3_IMM;
       end
-      schnizo_pkg::FpuOpFmsub: begin // (rs1 * rs2) - rs3
+      schnova_pkg::FpuOpFmsub: begin // (rs1 * rs2) - rs3
         fpnew_op = fpnew_pkg::FMADD;
         operand_mod = 1'b1;
         op_selection[2] = RS3_IMM;
       end
-      schnizo_pkg::FpuOpFnmsub: begin // -(rs1 * rs2) + rs3
+      schnova_pkg::FpuOpFnmsub: begin // -(rs1 * rs2) + rs3
         fpnew_op = fpnew_pkg::FNMSUB;
         op_selection[2] = RS3_IMM;
       end
-      schnizo_pkg::FpuOpFnmadd: begin // -(rs1 * rs2) - rs3
+      schnova_pkg::FpuOpFnmadd: begin // -(rs1 * rs2) - rs3
         fpnew_op = fpnew_pkg::FNMSUB;
         operand_mod = 1'b1;
         op_selection[2] = RS3_IMM;
       end
-      schnizo_pkg::FpuOpFmul: begin // rs1 * rs2
+      schnova_pkg::FpuOpFmul: begin // rs1 * rs2
         fpnew_op = fpnew_pkg::MUL;
       end
-      schnizo_pkg::FpuOpFdiv: begin // rs1 / rs2
+      schnova_pkg::FpuOpFdiv: begin // rs1 / rs2
         fpnew_op = fpnew_pkg::DIV; // TODO: Is this illegal? See comment in Snitch
       end
-      schnizo_pkg::FpuOpFsqrt: begin
+      schnova_pkg::FpuOpFsqrt: begin
         fpnew_op = fpnew_pkg::SQRT;
         op_selection[0] = RS1;
         op_selection[1] = RS1; // TODO: Same as in Snitch: why both inputs to RS1?
       end
-      schnizo_pkg::FpuOpFsgnj: begin
+      schnova_pkg::FpuOpFsgnj: begin
         fpnew_op = fpnew_pkg::SGNJ;
       end
-      schnizo_pkg::FpuOpFsgnjSignExt: begin
+      schnova_pkg::FpuOpFsgnjSignExt: begin
         fpnew_op = fpnew_pkg::SGNJ;
         operand_mod = 1'b1;
       end
-      schnizo_pkg::FpuOpFminmax: begin
+      schnova_pkg::FpuOpFminmax: begin
         fpnew_op = fpnew_pkg::MINMAX;
       end
-      schnizo_pkg::FpuOpFcmp: begin
+      schnova_pkg::FpuOpFcmp: begin
         fpnew_op = fpnew_pkg::CMP;
       end
-      schnizo_pkg::FpuOpF2I: begin
+      schnova_pkg::FpuOpF2I: begin
         fpnew_op = fpnew_pkg::F2I;
         op_selection[1] = NONE;
       end
-      schnizo_pkg::FpuOpF2Iunsigned: begin
+      schnova_pkg::FpuOpF2Iunsigned: begin
         fpnew_op = fpnew_pkg::F2I;
         operand_mod = 1'b1;
         op_selection[1] = NONE;
       end
-      schnizo_pkg::FpuOpI2F: begin
+      schnova_pkg::FpuOpI2F: begin
         fpnew_op = fpnew_pkg::I2F;
         op_selection[1] = NONE;
       end
-      schnizo_pkg::FpuOpI2Funsigned: begin
+      schnova_pkg::FpuOpI2Funsigned: begin
         fpnew_op = fpnew_pkg::I2F;
         operand_mod = 1'b1;
         op_selection[1] = NONE;
       end
-      schnizo_pkg::FpuOpF2F: begin
+      schnova_pkg::FpuOpF2F: begin
         fpnew_op = fpnew_pkg::F2F;
         op_selection[1] = NONE;
       end
-      schnizo_pkg::FpuOpFclassify: begin
+      schnova_pkg::FpuOpFclassify: begin
         fpnew_op = fpnew_pkg::CLASSIFY;
         op_selection[1] = NONE;
       end
