@@ -16,7 +16,7 @@ package schnova_tracer_pkg;
 
   typedef struct packed {
     priv_lvl_t                    priv_level;
-    logic                         en_superscalar;
+    loop_state_e                  loop_state;
     logic                         stall;
     logic                         exception;
   } core_trace_t;
@@ -37,8 +37,6 @@ package schnova_tracer_pkg;
     longint rs1_is_fp;
     longint rs2_is_fp;
     longint rd_is_fp;
-    longint is_branch; // jal & jalr are handled via pc_d (add goto if pc_d != pc_q + 4)
-    longint branch_taken;
     // FU selection - with known number of FUs and RSS we can reconstruct which FU it was.
     // However, not all FUs (CSR, ACC) have a producer id. We provide both informations and the tracer
     // can select depending on the CPU state.
@@ -106,6 +104,8 @@ package schnova_tracer_pkg;
     longint fu_result;
     longint fu_phy_rd;
     longint fu_rd_is_fp;
+    longint is_branch; // jal & jalr are handled via pc_d (add goto if pc_d != pc_q + 4)
+    longint branch_taken;
   } wb_fu_trace_t;
 
   ///////////////
@@ -116,7 +116,7 @@ package schnova_tracer_pkg;
   function automatic string format_trace_header(time t, logic[63:0] cycle, core_trace_t core);
     return $sformatf("{'time': %0t, 'cycle': %0d, 'priv': \"%s\", 'state': \"%s\", 'stall': 0x%0x, 'exception': 0x%0x, ",
                      t, cycle, schnova_pkg::priv_lvl_tostring(core.priv_level),
-                     schnova_pkg::en_superscalar_tostring(core.en_superscalar), core.stall, core.exception);
+                     schnova_pkg::loop_state_tostring(core.loop_state), core.stall, core.exception);
   endfunction
 
   // Format all dispatch extras as a key value pair list.
@@ -141,8 +141,6 @@ package schnova_tracer_pkg;
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rs1_is_fp", trace.rs1_is_fp);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rs2_is_fp", trace.rs2_is_fp);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.rd_is_fp);
-    extras = $sformatf("%s'%s':0x%0x, ", extras, "is_branch", trace.is_branch);
-    extras = $sformatf("%s'%s':0x%0x, ", extras, "branch_taken", trace.branch_taken);
     return extras;
   endfunction
 
@@ -231,6 +229,8 @@ package schnova_tracer_pkg;
     extras = $sformatf("%s'%s':0x%0x, ", extras, "result", trace.fu_result);
     extras = $sformatf("%s'%s':0x%02x, ", extras, "phy_rd", trace.fu_phy_rd);
     extras = $sformatf("%s'%s':0x%0x, ", extras, "rd_is_fp", trace.fu_rd_is_fp);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "is_branch", trace.is_branch);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "branch_taken", trace.branch_taken);
     return extras;
   endfunction
 

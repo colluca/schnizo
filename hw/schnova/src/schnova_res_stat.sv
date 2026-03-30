@@ -169,7 +169,7 @@ module schnova_res_stat import schnova_pkg::*; #(
   //                provide it with.
 
   logic dispatch_hs;
-  assign dispatch_hs = disp_req_valid_i_q && disp_req_ready_o_q;
+  assign dispatch_hs = disp_req_valid_i && disp_req_ready_o;
 
   // An instruction retires as soon as the result is handshaked, i.e.:
   // assign retiring = result_valid_i && result_ready_o;
@@ -198,7 +198,7 @@ module schnova_res_stat import schnova_pkg::*; #(
   end
 
   assign rs_full_o = (num_allocated_rss_q == rss_cnt_t'(NofRss));
-  assign rs_empty_o = (num_allocated_rss_q != '0);
+  assign rs_empty_o = (num_allocated_rss_q == '0);
 
   //////////////////////////////
   // Slots datapath           //
