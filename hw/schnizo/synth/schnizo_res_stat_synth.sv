@@ -4,6 +4,7 @@
 
 module schnizo_res_stat_synth #(
   parameter int unsigned NofRss = 4,
+  parameter int unsigned NofConstants = 4,
   parameter int unsigned NofOperands = 2,
   parameter int unsigned ConsumerCount = 32,
   parameter bit          UseSram = 1'b0
@@ -57,6 +58,7 @@ module schnizo_res_stat_synth #(
   
   schnizo_res_stat #(
     .NofRss(NofRss),
+    .NofConstants(NofConstants),
     .NofOperands(NofOperands),
     .NofResRspIfs(NofRss),
     .ConsumerCount(ConsumerCount),
