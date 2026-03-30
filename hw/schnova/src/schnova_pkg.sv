@@ -221,13 +221,14 @@ package schnova_pkg;
     return level;
   endfunction
 
-  function automatic string en_superscalar_tostring(logic en_superscalar);
+  function automatic string loop_state_tostring(loop_state_e loop_state);
     string state;
-    if (!en_superscalar) begin
-      state = "INO";
-    end else begin
-      state = "OOO";
-    end
+    unique case (loop_state)
+      LoopRegular:  state = "REG";
+      LoopHwLoop:   state = "HWL";
+      LoopDep:      state = "DEP";
+      default:      state = "???";
+    endcase
     return state;
   endfunction
 

@@ -94,12 +94,12 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
         dispatch_trace: dispatch_trace
       };
 
-      if (dispatch_trace.valid && core_trace.en_superscalar) begin
+      if (dispatch_trace.valid && (core_trace.loop_state inside {LoopDep})) begin
         dispatch_queue[dispatch_rs_id].push_back(details);
       end
 
       // Trace events are active depending on CPU states.
-      if (!core_trace.en_superscalar) begin
+      if (!(core_trace.loop_state inside {LoopDep})) begin
         // Format the single dispatch event and append all single issue requests. There should
         // only be one active single issue request. The format functions return "" if the trace is
         // not valid. Therefore, we can combine the formatting functions into one chain.

@@ -1387,7 +1387,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   assign core_trace = '{
     priv_level:     priv_lvl,
-    en_superscalar: en_superscalar,
+    loop_state:     loop_state,
     // Whether the dispatch was stalled
     // Note stall, in this core currently
     stall:          !dispatched,
@@ -1410,8 +1410,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     rs1_is_fp:    instr_decoded[0].rs1_is_fp,
     rs2_is_fp:    instr_decoded[0].rs2_is_fp,
     rd_is_fp:     instr_decoded[0].rd_is_fp,
-    is_branch:    instr_decoded[0].is_branch,
-    branch_taken: alu_result.compare_res,
     fu_type:      schnova_pkg::fu_to_string(instr_decoded[0].fu),
     disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response.producer)
   };
@@ -1523,38 +1521,48 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // Writebacks
   assign alu_wb_trace = '{
-    valid:       alu_result_valid && alu_result_ready,
-    fu_result:   alu_result.result,
-    fu_phy_rd:       alu_result_tag.dest_reg,
-    fu_rd_is_fp: alu_result_tag.dest_reg_is_fp
+    valid:        alu_result_valid && alu_result_ready,
+    fu_result:    alu_result.result,
+    fu_phy_rd:    alu_result_tag.dest_reg,
+    fu_rd_is_fp:  alu_result_tag.dest_reg_is_fp,
+    is_branch:    alu_result_tag.is_branch,
+    branch_taken: alu_result.compare_res
   };
 
   assign lsu_wb_trace = '{
     valid:       lsu_result_valid && lsu_result_ready,
     fu_result:   lsu_result,
     fu_phy_rd:       lsu_result_tag.dest_reg,
-    fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp
+    fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp,
+    is_branch:    1'b0,
+    branch_taken: 1'b0
   };
 
   assign fpu_wb_trace = '{
     valid:       fpu_result_valid && fpu_result_ready,
     fu_result:   fpu_result,
     fu_phy_rd:       fpu_result_tag.dest_reg,
-    fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp
+    fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp,
+    is_branch:    1'b0,
+    branch_taken: 1'b0
   };
 
   assign csr_wb_trace = '{
     valid:       csr_result_valid && csr_result_ready,
     fu_result:   csr_result,
     fu_phy_rd:       csr_result_tag.dest_reg,
-    fu_rd_is_fp: csr_result_tag.dest_reg_is_fp
+    fu_rd_is_fp: csr_result_tag.dest_reg_is_fp,
+    is_branch:    1'b0,
+    branch_taken: 1'b0
   };
 
   assign acc_wb_trace  = '{
     valid:       acc_pvalid_i && acc_pready_o,
     fu_result:   acc_result,
     fu_phy_rd:       acc_result_tag.dest_reg,
-    fu_rd_is_fp: acc_result_tag.dest_reg_is_fp
+    fu_rd_is_fp: acc_result_tag.dest_reg_is_fp,
+    is_branch:    1'b0,
+    branch_taken: 1'b0
   };
 
   schnova_tracer #(

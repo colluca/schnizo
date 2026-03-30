@@ -332,6 +332,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic                [NofAlus-1:0] alu_wbs_result_ready;
 
   logic [NofAlus-1:0] alu_rs_empty;
+  logic [NofAlus-1:0] alu_rs_busy;
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
 
@@ -436,6 +437,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .busy_o           (alu_busy)
     );
 
+    assign alu_rs_busy[alu] = (en_superscalar_i & alu_busy) | ~alu_rs_empty[alu];
+
     // Populate the producer field of the trace
     // pragma translate_off
     string producer;
@@ -514,6 +517,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic                [NofLsus-1:0] lsu_wbs_result_ready;
 
   logic [NofLsus-1:0] lsu_rs_empty;
+  logic [NofLsus-1:0] lsu_rs_busy;
 
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsus
 
@@ -635,6 +639,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .caq_rsp_valid_o  (caq_rsp_valid_o[lsu])
     );
 
+    assign lsu_rs_busy[lsu] = (en_superscalar_i & lsu_busy) | ~lsu_rs_empty[lsu];
+
     // TODO (soderma): Handler exceptions correctly in superscalar
     // Suppress exceptions in superscalar mode for now because we anyway don't handle them one cycle later.
     assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw & !en_superscalar_i;
@@ -700,6 +706,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic                [NofFpus-1:0] fpu_wbs_result_ready;
 
   logic [NofFpus-1:0] fpu_rs_empty;
+  logic [NofFpus-1:0] fpu_rs_busy;
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpus
     // Signals connecting the FU block and the actual FU
@@ -807,6 +814,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .busy_o           (fpu_busy)
     );
 
+    assign fpu_rs_busy[fpu] = (en_superscalar_i & fpu_busy) | ~fpu_rs_empty[fpu];
+
     // Populate the producer and instr_iter fields of the trace
     // pragma translate_off
     string producer;
@@ -870,7 +879,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_rs_empty, &lsu_rs_empty, &fpu_rs_empty};
+  assign all_rs_finish_o = &{~alu_rs_busy, ~lsu_rs_busy, ~fpu_rs_busy};
 
   ////////////////////
   // Tracer helpers //

@@ -207,10 +207,6 @@ def format_extras(extras):
     elif fu_type not in arch.FU_TYPES:
         raise ValueError(f'Invalid FU type {fu_type}')
 
-    # Additional comment if branch
-    if extras.get('is_branch', False):
-        comments.append("taken" if extras['branch_taken'] else "not taken")
-
     # Additional comment if jump
     if not extras['stall'] and (extras.get('pc_d', 4) != (extras.get('pc_q', 0) + 4)):
         comments.append(f"goto {int_lit(extras['pc_d'], as_hex=True)}")

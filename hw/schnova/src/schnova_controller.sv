@@ -30,7 +30,6 @@ module schnova_controller import schnova_pkg::*; #(
   input  logic [XLEN-1:0] consecutive_pc_i,
   output logic            loop_jump_o,
   output logic [31:0]     loop_jump_addr_o,
-
   // Decoder interface
   input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
   input  logic       [PipeWidth-1:0] instr_valid_i,
@@ -54,7 +53,7 @@ module schnova_controller import schnova_pkg::*; #(
   input logic freelist_ready_i,
   // From ROB
   input logic rob_ready_i,
-   // Asserted if all reservation stations have no instructions in flight.
+  // Asserted if all reservation stations have no instructions in flight.
   input  logic all_rs_finish_i,
   output logic rs_restart_o,
 
@@ -97,6 +96,8 @@ module schnova_controller import schnova_pkg::*; #(
   ////////////////////////
 
   logic        frep_sw_error;
+  logic        loop_stall;
+  logic        current_loop_finish;
   logic [PipeWidth-1:0] valid_mask;
 
   // Convert the decoded loop iterations to the actual number of iterations.
@@ -122,6 +123,7 @@ module schnova_controller import schnova_pkg::*; #(
     .valid_mask_o     (valid_mask),
     .instr_addr_i     (pc_i),
     .blk_ctrl_info_i  (blk_ctrl_info_i),
+    .dispatched_i     (dispatched_o),
     // The next instruction after an FREP can only be the immediately next instruction.
     // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
     // on the loop_jump signal. TODO: check address overflow..
@@ -130,17 +132,21 @@ module schnova_controller import schnova_pkg::*; #(
     .exception_i      (exception_o),
     // Only in scalar execution mode is it legal to observe an frep instruction
     // hence we can take the first instruction
-    .loop_start_req_i   (instr_decoded_i[0].is_frep & instr_valid_i[0]),
-    .loop_start_commit_i(instr_decoded_i[0].is_frep & instr_exec_commit_o),
-    .loop_bodysize_i    (loop_bodysize),
-    .loop_iterations_i  (loop_iterations),
-    .frep_mode_i        (instr_decoded_i[0].frep_mode),
-    .exit_frep_i        (exit_superscalar_i),
-    .loop_jump_o        (loop_jump_o),
-    .loop_jump_addr_o   (loop_jump_addr_o),
-    .sw_err_o           (frep_sw_error),
-    .loop_state_o       (loop_state_o),
-    .en_superscalar_o   (en_superscalar_o)
+    .loop_start_req_i      (instr_decoded_i[0].is_frep & instr_valid_i[0]),
+    .loop_start_commit_i   (instr_decoded_i[0].is_frep & instr_exec_commit_o),
+    .loop_bodysize_i       (loop_bodysize),
+    .loop_iterations_i     (loop_iterations),
+    .frep_mode_i           (instr_decoded_i[0].frep_mode),
+    .exit_frep_i           (exit_superscalar_i),
+    .loop_jump_o           (loop_jump_o),
+    .loop_jump_addr_o      (loop_jump_addr_o),
+    .sw_err_o              (frep_sw_error),
+    .loop_state_o          (loop_state_o),
+    .current_loop_finish_o (current_loop_finish),
+    .en_superscalar_o      (en_superscalar_o),
+
+    .all_rs_finish_i       (all_rs_finish_i),
+    .loop_stall_o          (loop_stall)
   );
 
   // After the loop controller we maks the valid bits
@@ -294,8 +300,8 @@ module schnova_controller import schnova_pkg::*; #(
   // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
   // Note the decoder and frontend guarantes, that frep is always the first valid instruction.
   logic frep_start_stall;
-  assign frep_start_stall = ((instr_decoded_i[0].is_frep & instr_valid[0])) ? sb_busy_i :
-                                                                        1'b0;
+  assign frep_start_stall = (instr_decoded_i[0].is_frep & instr_valid[0]) ? sb_busy_i :
+                                                                            1'b0;
 
   // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
   logic ctrl_stall;
@@ -372,6 +378,7 @@ module schnova_controller import schnova_pkg::*; #(
                     fence_i_stall     |
                     fcsr_stall        |
                     frep_start_stall  |
+                    loop_stall        |
                     freelist_stall    |
                     rob_stall         |
                     ctrl_stall;

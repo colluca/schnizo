@@ -61,8 +61,10 @@ EVENT_DISPATCH = "dispatch"
 EVENT_WRITEBACK = "writeback"
 EVENT_RETIREMENT = "retirement"
 
-SCALAR = "INO"
-SUPERSCALR = "OOO"
+
+REGULAR = "REG"
+HW_LOOP = "HWL"
+LOOP_DEP = "DEP"
 
 
 # -------------------- helpers  --------------------------
@@ -88,9 +90,9 @@ def gen_dispatch_trace(state, extras, proc_state, mc_exec) -> str:
     # For every dispatch we update the register map table internally
     proc_state.dispatch(extras)
 
-    if state in {SCALAR}:
+    if state in {REGULAR, HW_LOOP}:
         fu_str = ''
-    elif state in {SUPERSCALR}:
+    elif state in {LOOP_DEP}:
         fu_str = extras['disp_resp']
     else:
         raise ValueError(f"Not a valid loop state: {state}")
@@ -136,7 +138,18 @@ def gen_writeback_trace(extras):
         # This is a writeback to GPR 0, which is fixed to all zeros.
         # Schnizo uses dummy writebacks to this GPR for instructions
         # which don't write any registers.
-        return ""
+        branch_info = ""
+        # Additional comment if branch
+        if extras['is_branch']:
+            if extras['branch_taken']: 
+                branch_info = "taken"
+            else:
+                branch_info = "not taken"
+        
+        return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {branch_info}"
+
+
+
     return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {writeback}"
 
 def handle_dispatch_event(sim_time, cycle, priv_lvl, extras,

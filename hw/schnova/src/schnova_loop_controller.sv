@@ -21,6 +21,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   output logic [PipeWidth-1:0] valid_mask_o,
   input  logic [AddrWidth-1:0] instr_addr_i,
   input  block_ctrl_info_t     blk_ctrl_info_i,
+  input  logic                 dispatched_i,
   // The instruction address following the current instruction (i.e., the first loop instruction)
   input  logic [AddrWidth-1:0] next_instr_addr_i,
   // If we stall, do not update state / step in loop body.
@@ -42,8 +43,13 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   // Asserted when a wrong config is supplied at loop start or end.
   output logic                      sw_err_o,
   // The current state of the loop
-  output loop_state_e            loop_state_o,
-  output logic                      en_superscalar_o
+  output loop_state_e               loop_state_o,
+  output logic                      current_loop_finish_o,
+  output logic                      en_superscalar_o,
+
+  // Asserted if all reservation stations have no instructions in flight.
+  input  logic                      all_rs_finish_i,
+  output logic                      loop_stall_o
 );
 
   typedef struct packed {
@@ -80,6 +86,12 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   logic loop_valid_d, loop_valid_q;
   `FFAR(loop_valid_q, loop_valid_d, '0, clk_i, rst_i);
 
+  logic wait_dep_retirement_d, wait_dep_retirement_q;
+  `FFAR(wait_dep_retirement_q, wait_dep_retirement_d, '0, clk_i, rst_i);
+
+  logic wait_hwl_retirement_d, wait_hwl_retirement_q;
+  `FFAR(wait_hwl_retirement_q, wait_hwl_retirement_d, '0, clk_i, rst_i);
+
   logic [MaxIterationsWidth-1:0] total_iterations_q, total_iterations_d;
   `FFAR(total_iterations_q, total_iterations_d, '0, clk_i, rst_i);
 
@@ -101,7 +113,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   // Check if loop end instruction is jump or branch
   logic ctrl_at_loop_end;
   assign ctrl_at_loop_end = at_loop_end_instr[blk_ctrl_info_i.instr_idx] &
-                          instr_valid_i[blk_ctrl_info_i.instr_idx]     &
+                          instr_valid_i[blk_ctrl_info_i.instr_idx]       &
                           blk_ctrl_info_i.is_ctrl;
 
   always_comb begin : gen_valid_mask
@@ -122,8 +134,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   logic dispatch_loop_end_instr;
   assign dispatch_loop_end_instr = is_at_loop_end && !stall_i;
 
-  logic current_loop_finish;
-  assign current_loop_finish = dispatch_loop_end_instr && (loop_info_q.loop_iterations == 1);
+  assign current_loop_finish_o = dispatch_loop_end_instr && (loop_info_q.loop_iterations == 1);
 
   assign loop_jump_addr_o = loop_info_q.loop_addr_info.loop_start;
 
@@ -133,6 +144,9 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
     loop_info_d  = loop_info_q;
     loop_valid_d = loop_valid_q;
     total_iterations_d = total_iterations_q;
+    wait_dep_retirement_d = wait_dep_retirement_q;
+    wait_hwl_retirement_d = wait_hwl_retirement_q;
+
     en_superscalar_o          = 1'b0;
     loop_jump_o               = 1'b0;
     decrement_loop_iterations = 1'b0;
@@ -146,40 +160,65 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
         end
       end
       LoopHwLoop: begin
-        // TODO(colluca): I believe here in place of current_loop_finish we should only check that
+        // TODO(colluca): I believe here in place of current_loop_finish_o we should only check that
         //                we are not in the last iteration
-        loop_jump_o  = is_at_loop_end && !current_loop_finish;
+        loop_jump_o  = is_at_loop_end && !current_loop_finish_o;
         if (dispatch_loop_end_instr) begin
           decrement_loop_iterations = 1'b1;
+        end
+
+        if (exception_i) begin
+          loop_valid_d           = 1'b0;
+          loop_info_d            = loop_info_reset;
+          loop_info_d.loop_state = LoopRegular;
+          total_iterations_d     = '0;
         end
       end
       LoopDep: begin
         // We enter superscalar execution
         en_superscalar_o = 1'b1;
-        loop_jump_o = is_at_loop_end && !current_loop_finish;
-        if (exit_frep_i) begin
-          // Change back to hardware loop in the next cycle
-          loop_info_d.loop_state = LoopHwLoop;
+        loop_jump_o = is_at_loop_end && !current_loop_finish_o;
+        if (exit_frep_i || wait_hwl_retirement_q) begin
+          // If no RS is busy and we did not dispatch an instruction in this cycle
+          // it is save to change to Hardware loop.
+          if (all_rs_finish_i && !dispatched_i) begin
+            // Change back to hardware loop in the next cycle
+            wait_hwl_retirement_d = 1'b0;
+            loop_info_d.loop_state = LoopHwLoop;
+          end else begin
+            wait_hwl_retirement_d = 1'b1;
+          end
         end
 
         if (dispatch_loop_end_instr) begin
           decrement_loop_iterations = 1'b1;
         end
+
+        if (current_loop_finish_o || exception_i || wait_dep_retirement_q) begin
+          // If no RS is busy and we did not dispatch an instruction in this cycle
+          // it is save to change to Hardware loop.
+          if (all_rs_finish_i && !dispatched_i) begin
+            wait_dep_retirement_d  = 1'b0;
+            loop_valid_d           = 1'b0;
+            loop_info_d            = loop_info_reset;
+            loop_info_d.loop_state = LoopRegular;
+            total_iterations_d     = '0;
+          end else begin
+            wait_dep_retirement_d = 1'b1;
+          end
+        end
       end
       default: ;
     endcase
 
+
     if (decrement_loop_iterations) begin
       loop_info_d.loop_iterations = loop_info_d.loop_iterations - 1;
     end
-
-    if (current_loop_finish || exception_i) begin
-      loop_valid_d           = 1'b0;
-      loop_info_d            = loop_info_reset;
-      loop_info_d.loop_state = LoopRegular;
-      total_iterations_d     = '0;
-    end
   end
+
+  // We have to stall, whenever we wait for a retirement
+  assign loop_stall_o = wait_dep_retirement_q || wait_hwl_retirement_q;
 
   assign loop_state_o = loop_info_q.loop_state;
 
