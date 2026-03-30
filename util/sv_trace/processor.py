@@ -13,9 +13,10 @@ class RegisterMapTable:
     def update_entry(self, extras: dict):
         """At dispatch, we update the register mapping table for the destination register."""
         if extras['rd_is_fp']:
-            self.float_rmt[extras['rd']] = extras['phy_rd'] 
+            self.float_rmt[extras['rd']] = extras['phy_rd']
         else:
             self.integer_rmt[extras['rd']] = extras['phy_rd']
+
 
 class ProcessorState:
     """Tracks processor state."""
@@ -26,7 +27,7 @@ class ProcessorState:
     def dispatch(self, extras: dict):
         """Update the register map tables."""
         self._rmt.update_entry(extras)
-    
+
     def rmt_lookup(self, arch_reg: int, is_fp: bool):
         if is_fp:
             return self._rmt.float_rmt[arch_reg]
@@ -34,7 +35,6 @@ class ProcessorState:
             return self._rmt.integer_rmt[arch_reg]
 
     def rmt_inverse_lookup(self, phys_reg: int, is_fp: bool):
-        
         rmt = self.float_rmt if is_fp else self.integer_rmt
 
         for arch_reg, mapped_phys in rmt.items():
