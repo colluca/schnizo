@@ -53,13 +53,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         acc_req_t  = logic,
   parameter type         acc_resp_t = logic,
   /// FU configuration
-  parameter int unsigned NofAlus    = 3,
-  parameter int unsigned NofLsus    = 1,
-  parameter int unsigned NofFpus    = 1,
-  parameter int unsigned AluNofRss  = 3,
-  parameter int unsigned LsuNofRss  = 2,
-  parameter int unsigned FpuNofRss  = 4,
-  parameter bit          MulInAlu0  = 1'b1,
+  parameter int unsigned NofAlus         = 3,
+  parameter int unsigned NofLsus         = 1,
+  parameter int unsigned NofFpus         = 1,
+  parameter int unsigned AluNofRss       = 3,
+  parameter int unsigned LsuNofRss       = 2,
+  parameter int unsigned FpuNofRss       = 4,
+  parameter int unsigned AluNofConstants = 4,
+  parameter int unsigned LsuNofConstants = 4,
+  parameter int unsigned FpuNofConstants = 4,
+  parameter bit          MulInAlu0       = 1'b1,
   /// Response XBAR configuration
   // TODO(colluca): either use int or integer, but consistently
   parameter integer unsigned AluNofResRspPorts = 2,
@@ -267,6 +270,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
 
   // Each RS has an unique number. The slots have unique numbers within the RS.
+  // TODO(colluca): use cf_math_pkg::max
   localparam integer unsigned MaxNofRss = (AluNofRss > LsuNofRss) ?
                                           // AluNofRss > LsuNofRss
                                           ((AluNofRss > FpuNofRss) ? AluNofRss : FpuNofRss)
@@ -661,16 +665,19 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
+    .AluNofConstants    (AluNofConstants),
     .AluNofOperands     (AluNofOperands),
     .AluNofResReqIfs    (AluNofResReqIfs),
     .AluNofResRspPorts  (AluNofResRspPorts),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
+    .LsuNofConstants    (LsuNofConstants),
     .LsuNofOperands     (LsuNofOperands),
     .LsuNofResReqIfs    (LsuNofResReqIfs),
     .LsuNofResRspPorts  (LsuNofResRspPorts),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
+    .FpuNofConstants    (FpuNofConstants),
     .FpuNofOperands     (FpuNofOperands),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
     .FpuNofResRspPorts  (FpuNofResRspPorts),
@@ -1336,5 +1343,14 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   );
 
   // pragma translate_on
+
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  parameter int unsigned MaxNumConstants = cf_math_pkg::max(FpuNofConstants,
+    cf_math_pkg::max(AluNofConstants, LsuNofConstants));
+
+  `ASSERT_INIT(ProducerTagMinWidth, $bits(producer_id_t) >= cf_math_pkg::idx_width(MaxNumConstants))
 
 endmodule

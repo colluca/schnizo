@@ -2,12 +2,15 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "common_cells/assertions.svh"
 `include "common_cells/registers.svh"
 
 // Datapath of the Reservation Station.
 // Contains the slot registers, dispatch pipeline, result capture, and RF writeback path.
 module schnizo_res_stat_slots import schnizo_pkg::*; #(
   parameter  int unsigned     NofRss           = 4,
+  parameter  int unsigned     NofConstants     = 4,
+  parameter  int unsigned     NofConstantPorts = 2,
   parameter  int unsigned     NofOperands      = 3,
   parameter  int unsigned     NofResRspIfs     = 1,
   parameter  int unsigned     ConsumerCount    = 4,
@@ -97,6 +100,9 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
 
   localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
 
+  localparam integer unsigned ConstMemAddrWidth = cf_math_pkg::idx_width(NofConstants);
+  typedef logic [ConstMemAddrWidth-1:0] const_op_addr_t;
+
   /////////////////
   // Connections //
   /////////////////
@@ -142,13 +148,70 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .rs_slot_issue_t(rs_slot_issue_t)
   ) i_issue_slots (
     .clk_i,
-    .rst_i,
+    .rst_ni (!rst_i),
     .raddr_i(issue_idx_i),
     .rdata_o(slot_issue_rdata),
     .wen_i  (slot_issue_wen),
     .waddr_i(issue_idx_i),
     .wdata_i(slot_issue_wdata)
   );
+
+  /////////////////////
+  // Constant memory //
+  /////////////////////
+
+  const_op_addr_t [NofConstantPorts-1:0] const_op_raddr, const_op_waddr;
+  operand_t       [NofConstantPorts-1:0] const_op_rdata, const_op_wdata;
+  logic           [NofConstantPorts-1:0] const_op_ren, const_op_wen;
+
+  schnizo_res_stat_constant_memory #(
+    .NofConstants(NofConstants),
+    .NofPorts    (NofConstantPorts),
+    .operand_t   (operand_t)
+  ) i_constant_memory (
+    .clk_i,
+    .rst_ni (!rst_i),
+    .ren_i  (const_op_ren),
+    .raddr_i(const_op_raddr),
+    .rdata_o(const_op_rdata),
+    .wen_i  (const_op_wen),
+    .waddr_i(const_op_waddr),
+    .wdata_i(const_op_wdata)
+  );
+
+  // Count how many write requests we receive simultaneously
+  logic [cf_math_pkg::idx_width(NofConstantPorts+1)-1:0] const_op_wen_popcount;
+  popcount #(
+    .INPUT_WIDTH(NofConstantPorts)
+  ) i_const_mem_popcount (
+    .data_i    (const_op_wen),
+    .popcount_o(const_op_wen_popcount)
+  );
+
+  // Track the write pointer into the constant memory
+  const_op_addr_t const_mem_write_ptr;
+  logic           const_mem_overflow;
+  delta_counter #(
+    .WIDTH          (ConstMemAddrWidth),
+    .STICKY_OVERFLOW(0)
+  ) i_const_mem_counter (
+    .clk_i,
+    .rst_ni    (!rst_i),
+    .clear_i   (restart_i),
+    .en_i      (|const_op_wen),
+    .load_i    (1'b0),
+    .down_i    (1'b0),
+    .delta_i   (const_op_addr_t'(const_op_wen_popcount)),
+    .d_i       ('0),
+    .q_o       (const_mem_write_ptr),
+    .overflow_o(const_mem_overflow)
+  );
+  assign const_op_waddr[0] = const_mem_write_ptr;
+  assign const_op_waddr[1] = const_mem_write_ptr + 1;
+
+  /////////////////////////////
+  // Result request handling //
+  /////////////////////////////
 
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
     assign slot_ids[rss] = slot_id_t'(rss);
@@ -198,6 +261,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
 
   schnizo_rss_dispatch_pipeline #(
     .NofOperands     (NofOperands),
+    .NofConstantPorts(NofConstantPorts),
     .disp_req_t      (disp_req_t),
     .producer_id_t   (producer_id_t),
     .rs_slot_issue_t (rs_slot_issue_t),
@@ -205,6 +269,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .rss_operand_t   (rss_operand_t),
     .rss_result_t    (rss_result_t),
     .operand_req_t   (operand_req_t),
+    .const_op_addr_t (const_op_addr_t),
     .res_req_t       (res_req_t),
     .operand_t       (operand_t),
     .issue_req_t     (issue_req_t)
@@ -223,15 +288,21 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .slot_issue_i           (slot_issue_rdata),
     .slot_issue_o           (slot_issue_wdata),
     .slot_issue_wen_o       (slot_issue_wen),
+    .alloc_const_op_valid_o (const_op_wen),
+    .alloc_const_op_data_o  (const_op_wdata),
+    .alloc_const_op_addr_i  (const_op_waddr),
     .slot_result_i          (slot_result_qs[disp_idx_i]),
     .slot_result_reset_val_i(slot_result_reset),
     .slot_result_o          (slot_result_init),
-    .op_reqs_o              (op_reqs_o),
-    .op_reqs_valid_o        (op_reqs_valid_o),
-    .op_reqs_ready_i        (op_reqs_ready_i),
-    .op_rsps_i              (op_rsps_i),
-    .op_rsps_valid_i        (op_rsps_valid_i),
-    .op_rsps_ready_o        (op_rsps_ready_o),
+    .odn_op_reqs_o          (op_reqs_o),
+    .odn_op_reqs_valid_o    (op_reqs_valid_o),
+    .odn_op_reqs_ready_i    (op_reqs_ready_i),
+    .const_op_reqs_o        (const_op_raddr),
+    .const_op_reqs_valid_o  (const_op_ren),
+    .odn_op_rsps_i          (op_rsps_i),
+    .odn_op_rsps_valid_i    (op_rsps_valid_i),
+    .odn_op_rsps_ready_o    (op_rsps_ready_o),
+    .const_op_rsps_i        (const_op_rdata),
     .issue_req_o            (issue_req_raw),
     .issue_req_valid_o      (issue_req_valid_raw),
     .issue_req_ready_i      (issue_req_ready_i)
@@ -326,5 +397,11 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .rf_wb_tag_o          (capture_rf_wb_tag),
     .rf_do_writeback_o    (capture_rf_do_writeback)
   );
+
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  `ASSERT(ConstMemNoOverflow, !const_mem_overflow, clk_i, rst_i)
 
 endmodule

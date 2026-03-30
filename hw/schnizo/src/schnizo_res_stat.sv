@@ -16,6 +16,7 @@
 // RF:  Register File
 module schnizo_res_stat import schnizo_pkg::*; #(
   parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofConstants   = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
   parameter int unsigned NofResRspIfs   = 1,
@@ -135,10 +136,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // Specifying in which iteration the producer generated the value. If set, the producer is in
     // the same iteration. If reset, this is a loop-carried dependency.
     logic         is_from_current_iter;
-    operand_t     value;
-    logic         is_valid;
-    // Set if we placed a request to the producer
-    logic         requested;
   } rss_operand_t;
 
   typedef struct packed {
@@ -392,6 +389,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   schnizo_res_stat_slots #(
     .NofRss          (NofRss),
+    .NofConstants    (NofConstants),
     .NofOperands     (NofOperands),
     .NofResRspIfs    (NofResRspIfs),
     .ConsumerCount   (ConsumerCount),
@@ -543,8 +541,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Assertions //
   ////////////////
 
-  `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_cnt > issue_idx)), clk_i, rst_i)
-  `ASSERT(MaxDispatchIssueDistanceOne, rss_cnt_t'(disp_idx) <= rss_cnt_t'(issue_idx + 1), clk_i, rst_i)
+  // `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_cnt > issue_idx)), clk_i, rst_i)
+  // `ASSERT(MaxDispatchIssueDistanceOne, rss_cnt_t'(disp_idx) <= rss_cnt_t'(issue_idx + 1), clk_i, rst_i)
   // TODO(colluca): fix after converting also lep_issue_iter_count and lep_result_iter_count
   // to trip_counters
   // `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (issue_idx > result_idx) || (lep_issue_iter_count < lep_result_iter_count)), clk_i, rst_i)

@@ -22,6 +22,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   /// Reservation Station parameters
   parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofConstants   = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
   parameter int unsigned NofResRspIfs   = 1,
@@ -271,6 +272,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     // is calculated as max(wb_tag_t, rs_tag_t)? If not, just pass rs_tag_t here
     schnizo_res_stat #(
       .NofRss        (NofRss),
+      .NofConstants  (NofConstants),
       .NofOperands   (NofOperands),
       .NofResRspIfs  (NofResRspIfs),
       .ConsumerCount (ConsumerCount),
