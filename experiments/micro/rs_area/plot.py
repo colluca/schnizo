@@ -43,7 +43,8 @@ def results(dir=None):
 
 def plot(dir=None, show=False, hide_x_axis=False):
     df = results(dir=dir)
-    df = df[df['ConsumerCount'] == 64]
+    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4)]
+    print(df)
 
     # Pivot CombArea and SeqArea separately
     comb_df = df.pivot_table(index='NofRss', columns='NofOperands', values='CombArea')
@@ -87,6 +88,42 @@ def plot(dir=None, show=False, hide_x_axis=False):
         plt.show()
 
     return df.pivot_table(index='NofRss', columns='NofOperands', values='StdCellArea')
+
+
+def plot_constants(dir=None, show=False, hide_x_axis=False):
+    df = results(dir=dir)
+    df = df[(df['NofOperands'] == 3) & (df['NofRss'] == 4) & (df['ConsumerCount'] == 64)]
+    df = df.drop_duplicates(subset='NofConstants').sort_values('NofConstants')
+
+    x = np.arange(len(df))
+    width = 0.8
+
+    from matplotlib.colors import to_rgba
+    prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    base_color = prop_cycle[0]
+    rgba = to_rgba(base_color)
+    light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
+
+    fig, ax = plt.subplots()
+    ax.bar(x, df['CombArea'].values, width, label='comb', color=base_color, zorder=3)
+    ax.bar(x, df['SeqArea'].values, width, bottom=df['CombArea'].values,
+           label='seq', color=light, zorder=3)
+
+    ax.set_ylabel('Area [kGE]')
+    ax.set_xticks(x)
+    if hide_x_axis:
+        ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+    else:
+        ax.set_xlabel('Number of constants')
+        ax.set_xticklabels(df['NofConstants'].values)
+    ax.legend()
+    ax.grid(True, axis='y')
+    fig.tight_layout()
+
+    if show:
+        plt.show()
+
+    return df.set_index('NofConstants')['StdCellArea']
 
 
 def linear_regression(dir=None):

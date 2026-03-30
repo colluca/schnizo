@@ -17,22 +17,27 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments():
     # Define axes
     num_slots_axis = [4, 8, 16, 32, 64]
+    num_constants_axis = [4, 8, 16, 32, 64]
     num_operands_axis = [2, 3]
-    consumer_count_axis = [64, 512]
+    consumer_count_axis = [64]
 
     # Generate list of experiments
     experiments = []
     for num_slots in num_slots_axis:
-        for num_operands in num_operands_axis:
-            for consumer_count in consumer_count_axis:
-                experiments.append({
-                    'design': 'schnizo_res_stat_synth',
-                    'hdl_params': {
-                        'NofRss': num_slots,
-                        'NofOperands': num_operands,
-                        'ConsumerCount': consumer_count
-                    }
-                })
+        for num_constants in num_constants_axis:
+            if num_slots != 4 and num_constants != 4:
+                continue
+            for num_operands in num_operands_axis:
+                for consumer_count in consumer_count_axis:
+                    experiments.append({
+                        'design': 'schnizo_res_stat_synth',
+                        'hdl_params': {
+                            'NofRss': num_slots,
+                            'NofConstants': num_constants,
+                            'NofOperands': num_operands,
+                            'ConsumerCount': consumer_count
+                        }
+                    })
     return experiments
 
 
