@@ -37,7 +37,8 @@ from collections import deque, defaultdict
 from perfetto_trace import PerfettoInstructionTrace
 import formatter
 from formatter import int_lit, flt_lit, flt_fmt
-from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, REG_PHYS_NAMES_I, REG_PHYS_NAMES_F, get_fu_type, CSR_NAMES
+from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, CSR_NAMES
+from architecture import REG_PHYS_NAMES_I, REG_PHYS_NAMES_F
 from architecture import LSU_SIZE_TO_FLOAT
 from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_NONE
 from processor import ProcessorState
@@ -104,10 +105,10 @@ def gen_dispatch_trace(state, extras, proc_state, mc_exec) -> str:
     traceline += f'  {fu_str:<6}'
 
     if extras['rd_is_fp']:
-        register     = REG_ABI_NAMES_F[extras['rd']]
+        register = REG_ABI_NAMES_F[extras['rd']]
         phy_register = REG_PHYS_NAMES_F[extras['phy_rd']]
     else:
-        register     = REG_ABI_NAMES_I[extras['rd']]
+        register = REG_ABI_NAMES_I[extras['rd']]
         phy_register = REG_PHYS_NAMES_I[extras['phy_rd']]
 
     renaming = f"{register} -> {phy_register}"
@@ -141,16 +142,15 @@ def gen_writeback_trace(extras):
         branch_info = ""
         # Additional comment if branch
         if extras['is_branch']:
-            if extras['branch_taken']: 
+            if extras['branch_taken']:
                 branch_info = "taken"
             else:
                 branch_info = "not taken"
-        
+
         return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {branch_info}"
 
-
-
     return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {writeback}"
+
 
 def handle_dispatch_event(sim_time, cycle, priv_lvl, extras,
                           lsu_pipelines, fpu_pipelines, perf_metrics):
@@ -294,9 +294,9 @@ def gen_retirement_perfetto(sim_time, cycle, priv_lvl, extras, trace):
     if (fu_str not in {FU_CSR, FU_ACC, FU_NONE}):
         fu_str = f"{fu_str}.0"
 
-    
     # The instruction ends in this cycle. Thus the event is at the end of this cycle.
     trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
+
 
 def gen_trace_line(line, mc_exec,
                    lsu_pipelines, fpu_pipelines, trace,
@@ -557,6 +557,7 @@ def main():
         if len(pipeline) != 0:
             print_warning(f"{len(pipeline)} unfinished operations detected for {fpu}.")
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())
