@@ -39,6 +39,8 @@ module schnova_frontend # (
     input  logic                              mret_i,
     input  logic                              sret_i,
     input  logic                              en_superscalar_i,
+    input  logic                              loop_jump_i,
+    input  logic [31:0]                       loop_jump_addr_i,
     /// To controller
     output logic [31:0]                       pc_o,
     output logic [XLEN-1:0]                   consecutive_pc_o,
@@ -189,6 +191,8 @@ module schnova_frontend # (
         end else if (blk_ctrl_info_i.is_jal || blk_ctrl_info_i.is_jalr) begin
           // Set to alu result. Clear last bit if JALR
           pc_d = alu_result_i & {{31{1'b1}}, ~blk_ctrl_info_i.is_jalr};
+        end else if (loop_jump_i) begin
+          pc_d = loop_jump_addr_i;
         end else begin
           // The consecutive address covers regular and branch instructions as well as fence_i
           pc_d = consecutive_pc;

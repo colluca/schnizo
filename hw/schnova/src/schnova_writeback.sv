@@ -25,7 +25,7 @@
 // Due to this we cannot distinguish between floating point and integer registers!
 // As of now, all accelerator responses target the integer register file.
 // This should not be a problem, as the Snitch FPR is only in the FP_SS present.
-module schnova_writeback import schnizo_pkg::*; #(
+module schnova_writeback import schnova_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
   parameter int unsigned RobTagWidth     = 1,
   parameter int unsigned XLEN            = 32,

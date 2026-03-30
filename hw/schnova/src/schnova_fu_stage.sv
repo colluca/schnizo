@@ -12,7 +12,7 @@
 //
 // Instantiates all the FUs and connects each FU to an FU block (containing the RS).
 // Further instantiates the operand distribution network (ODN) and connects FU blocks to it.
-module schnova_fu_stage import schnizo_pkg::*, schnova_tracer_pkg::*; #(
+module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Globally enable the superscalar feature
   parameter bit          Xfrep             = 1,
   parameter bit          MulInAlu0         = 1'b1,

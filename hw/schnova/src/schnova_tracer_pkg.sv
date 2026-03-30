@@ -2,11 +2,10 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// Schnizo core tracer package.
+// Schnova core tracer package.
 //
-// Contains type definitions and formatting functions for the Schnizo core tracer.
+// Contains type definitions and formatting functions for the Schnova core tracer.
 package schnova_tracer_pkg;
-  import schnizo_pkg::*;
   import schnova_pkg::*;
 
   // pragma translate_off
@@ -116,7 +115,7 @@ package schnova_tracer_pkg;
   // Returns the header of a trace event. This includes common trace data.
   function automatic string format_trace_header(time t, logic[63:0] cycle, core_trace_t core);
     return $sformatf("{'time': %0t, 'cycle': %0d, 'priv': \"%s\", 'state': \"%s\", 'stall': 0x%0x, 'exception': 0x%0x, ",
-                     t, cycle, schnizo_pkg::priv_lvl_tostring(core.priv_level),
+                     t, cycle, schnova_pkg::priv_lvl_tostring(core.priv_level),
                      schnova_pkg::en_superscalar_tostring(core.en_superscalar), core.stall, core.exception);
   endfunction
 

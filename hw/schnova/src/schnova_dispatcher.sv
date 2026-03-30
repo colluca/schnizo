@@ -12,7 +12,7 @@
 // decoded instruction. If more than one FU of the same type is available, it further selects the
 // specific FU of that type to dispatch the instruction to.
 // It itself instantiates the RMT and updates it based on the dispatch and write back information.
-module schnova_dispatcher import schnizo_pkg::*; #(
+module schnova_dispatcher import schnova_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          EnableFrep  = 1,
   parameter int unsigned PipeWidth       = 1,
@@ -129,8 +129,8 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     disp_req_o.is_op_a_valid = instr_dec_i[0].use_pc_as_op_a |
                               instr_dec_i[0].use_rs1addr_as_op_a;
 
-    disp_req_o.is_op_b_valid = (instr_dec_i[0].fu == schnizo_pkg::ALU ||
-                                instr_dec_i[0].fu == schnizo_pkg::CTRL_FLOW) &&
+    disp_req_o.is_op_b_valid = (instr_dec_i[0].fu == schnova_pkg::ALU ||
+                                instr_dec_i[0].fu == schnova_pkg::CTRL_FLOW) &&
                                 instr_dec_i[0].use_imm_as_op_b &&
                                 !instr_dec_i[0].is_branch;
 
@@ -188,39 +188,39 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     acc_req_o.data_op = instr_fetch_data_i[31:0];
 
     unique case (instr_dec_i[0].fu)
-      schnizo_pkg::MUL,
-      schnizo_pkg::CTRL_FLOW: begin
+      schnova_pkg::MUL,
+      schnova_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
         alu_disp_req_valid_o[0] = dispatch_valid_i;
       end
-      schnizo_pkg::ALU: begin
+      schnova_pkg::ALU: begin
         alu_disp_req_valid_o[alu_idx] = dispatch_valid_i;
       end
-      schnizo_pkg::LOAD,
-      schnizo_pkg::STORE: begin
+      schnova_pkg::LOAD,
+      schnova_pkg::STORE: begin
         lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i;
       end
-      schnizo_pkg::CSR : begin
+      schnova_pkg::CSR : begin
         csr_disp_req_valid_o = dispatch_valid_i;
       end
-      schnizo_pkg::FPU: begin
+      schnova_pkg::FPU: begin
         fpu_disp_req_valid_o[fpu_idx] = dispatch_valid_i;
       end
-      schnizo_pkg::MULDIV: begin
+      schnova_pkg::MULDIV: begin
         acc_disp_req_valid_o = dispatch_valid_i;
-        acc_req_o.addr         = snitch_pkg::IPU; // TODO: use schnizo defined address.
+        acc_req_o.addr         = snitch_pkg::IPU; // TODO: use schnova defined address.
         acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
         acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
         acc_req_o.data_argc    = '0; // unused for shared muldiv
       end
-      schnizo_pkg::DMA: begin
+      schnova_pkg::DMA: begin
         acc_disp_req_valid_o = dispatch_valid_i;
-        acc_req_o.addr         = snitch_pkg::DMA_SS; // TODO: use schnizo defined address.
+        acc_req_o.addr         = snitch_pkg::DMA_SS; // TODO: use schnova defined address.
         acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
         acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
       end
-      schnizo_pkg::NONE: begin
+      schnova_pkg::NONE: begin
         // No FU selected, do nothing.
       end
       default: begin
@@ -237,43 +237,43 @@ module schnova_dispatcher import schnizo_pkg::*; #(
     fu_rs_full  = 1'b0;
 
     unique case (instr_dec_i[0].fu)
-      schnizo_pkg::MUL,
-      schnizo_pkg::CTRL_FLOW: begin
+      schnova_pkg::MUL,
+      schnova_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
         fu_response = alu_disp_rsp_i[0];
         fu_ready    = alu_disp_req_ready_i[0];
         fu_rs_full  = alu_rs_full_i[0];
       end
-      schnizo_pkg::ALU: begin
+      schnova_pkg::ALU: begin
         fu_response = alu_disp_rsp_i[alu_idx];
         fu_ready    = alu_disp_req_ready_i[alu_idx];
         fu_rs_full  = alu_rs_full_i[alu_idx];
       end
-      schnizo_pkg::LOAD,
-      schnizo_pkg::STORE: begin
+      schnova_pkg::LOAD,
+      schnova_pkg::STORE: begin
         // per default take the non consistent mode.
         fu_response = lsu_disp_rsp_i[lsu_idx];
         fu_ready    = lsu_disp_req_ready_i[lsu_idx];
         fu_rs_full  = lsu_rs_full_i[lsu_idx];
       end
-      schnizo_pkg::CSR : begin
+      schnova_pkg::CSR : begin
         // There is no response because there is no reservation station.
         fu_ready = csr_disp_req_ready_i;
       end
-      schnizo_pkg::FPU: begin
+      schnova_pkg::FPU: begin
         fu_response = fpu_disp_rsp_i[fpu_idx];
         fu_ready    = fpu_disp_req_ready_i[fpu_idx];
         fu_rs_full  = fpu_rs_full_i[fpu_idx];
       end
-      schnizo_pkg::MULDIV: begin
+      schnova_pkg::MULDIV: begin
         // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
-      schnizo_pkg::DMA: begin
+      schnova_pkg::DMA: begin
         // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
-      schnizo_pkg::NONE: begin
+      schnova_pkg::NONE: begin
         // There is no FU, so we always signal ready
         fu_ready = 1'b1;
       end

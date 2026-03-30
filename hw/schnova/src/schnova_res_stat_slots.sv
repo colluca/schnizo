@@ -6,7 +6,7 @@
 
 // Datapath of the Reservation Station.
 // Contains the slot registers, dispatch pipeline, result capture, and RF writeback path.
-module schnova_res_stat_slots import schnizo_pkg::*; #(
+module schnova_res_stat_slots import schnova_pkg::*; #(
   parameter  int unsigned     NofRss           = 4,
   parameter  int unsigned     NofOperands      = 3,
   parameter  int unsigned     NofResRspIfs     = 1,
@@ -80,7 +80,7 @@ module schnova_res_stat_slots import schnizo_pkg::*; #(
   producer_id_t [NofRss-1:0] rss_ids;
 
   // Issue slots
-  schnizo_res_stat_issue_memory #(
+  schnova_res_stat_issue_memory #(
     .NofRss         (NofRss),
     .UseSram        (UseSram),
     .rs_slot_issue_t(rs_slot_issue_t)

@@ -210,9 +210,12 @@ sources:
       - hw/schnova/src/schnova_pkg.sv
       # Level 1
       - hw/schnova/src/schnova_tracer_pkg.sv
+      - hw/schnova/src/schnova_multiplier.sv
       - hw/schnova/src/schnova_alu.sv
+      - hw/schnova/src/schnova_instr_decoder.sv
       - hw/schnova/src/schnova_lsu.sv
       - hw/schnova/src/schnova_fpu.sv
+      - hw/schnova/src/schnova_csr.sv
       - hw/schnova/src/schnova_frontend.sv
       - hw/schnova/src/schnova_decoder.sv
       - hw/schnova/src/schnova_read_operands.sv
@@ -225,11 +228,12 @@ sources:
       - hw/schnova/src/schnova_rss_dispatch_pipeline.sv
       - hw/schnova/src/schnova_writeback.sv
       - hw/schnova/src/schnova_phys_regfile.sv
-      - hw/schnizo/src/schnova_loop_controller.sv
+      - hw/schnova/src/schnova_loop_controller.sv
       # Level 2
       - hw/schnova/src/schnova_tracer.sv
       - hw/schnova/src/schnova_controller.sv
       # Level 3
+      - hw/schnova/src/schnova_res_stat_issue_memory.sv
       - hw/schnova/src/schnova_res_stat_slots.sv
       - hw/schnova/src/schnova_res_stat.sv
       - hw/schnova/src/schnova_fu_block.sv

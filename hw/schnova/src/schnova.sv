@@ -24,7 +24,7 @@
 //   have committed before the core gets stopped.
 //
 // Use automatic retiming options in the synthesis tool to optimize the fpnew design.
-module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
+module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Boot address of core.
   parameter logic [31:0] BootAddr  = 32'h0000_1000,
   /// Physical Address width of the core.
@@ -314,10 +314,6 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     rs_id_t   rs_id; // used to control the request crossbar
   } producer_id_t;
 
-  // ---------------------------
-  // Dispatch/issue/result data types
-  // ---------------------------
-
   typedef struct packed {
     producer_id_t               producer_id;
     logic [PhysRegAddrSize-1:0] dest_reg;
@@ -325,7 +321,11 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic                       dest_reg_is_fp;
     logic                       is_branch;
     logic                       is_jump;
-  } schnova_instr_tag_t;
+  } instr_tag_t;
+
+  // ---------------------------
+  // Dispatch/issue/result data types
+  // ---------------------------
 
   typedef struct packed {
     producer_id_t producer;
@@ -367,12 +367,12 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     phy_id_t phy_reg_op_c;
     logic is_op_c_valid;
     phy_id_t phy_reg_dest;
-    schnova_instr_tag_t tag;
+    instr_tag_t tag;
   } disp_req_t;
 
   typedef struct packed {
     fu_data_t fu_data;
-    schnova_instr_tag_t tag;
+    instr_tag_t tag;
   } issue_req_t;
 
   // The ALU result without the branch decision
@@ -450,7 +450,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   block_ctrl_info_t blk_ctrl_info;
 
   alu_result_t alu_result;
-  schnova_instr_tag_t  alu_result_tag;
+  instr_tag_t  alu_result_tag;
   alu_result_t branch_result;
   logic [0:0]  lsu_empty;
   fpnew_pkg::status_t fpu_status;
@@ -562,6 +562,8 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     .mret_i                   (mret),
     .sret_i                   (sret),
     .en_superscalar_i         (en_superscalar),
+    .loop_jump_i              (loop_jump),
+    .loop_jump_addr_i         (loop_jump_addr),
     // To controller
     .pc_o                     (pc),
     .consecutive_pc_o         (consecutive_pc),
@@ -653,6 +655,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic                         rs_full;
   logic                         all_rs_finish;
   logic                         rs_restart;
+  loop_state_e                  loop_state;
 
   schnova_controller #(
     .PipeWidth          (PipeWidth),
@@ -660,6 +663,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
     .RegAddrSize    (RegAddrSize),
+    .MaxIterationsWidth (FrepMaxItersWidth),
     .instr_dec_t        (instr_dec_t),
     .block_ctrl_info_t  (block_ctrl_info_t),
     .priv_lvl_t         (priv_lvl_t)
@@ -669,12 +673,18 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     // Frontend interface
     .flush_i_ready_i        (flush_i_ready_i),
     .flush_i_valid_o        (flush_i_valid),
+    .pc_i                   (pc),
     .consecutive_pc_i       (consecutive_pc),
+    .loop_jump_o            (loop_jump),
+    .loop_jump_addr_o       (loop_jump_addr),
     // Decoder interface
     .instr_decoded_i        (instr_decoded),
     .instr_valid_i          (instr_valid),
     .instr_decoded_illegal_i(instr_decoded_illegal),
     .blk_ctrl_info_i        (blk_ctrl_info),
+    .exit_superscalar_i     (exit_superscalar),
+    // Special FREP data
+    .frep_iterations_i      (fu_data[0].operand_a[FrepMaxItersWidth-1:0]),
     // To rename stage
     .flush_backend_o (flush_backend),
     .dispatched_o(dispatched),
@@ -710,7 +720,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     .mret_o                 (mret),
     .sret_o                 (sret),
     .en_superscalar_o       (en_superscalar),
-    .exit_superscalar_i     (exit_superscalar),
+    .loop_state_o           (loop_state),
     // GPR & FPR Write back snooping for Scoreboard
     .registers_ready_i      (registers_ready),
     .sb_busy_i              (sb_busy)
@@ -851,12 +861,12 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic            alu_result_ready;
   logic            lsu_result_valid;
   logic            lsu_result_ready;
-  schnova_instr_tag_t      lsu_result_tag;
+  instr_tag_t      lsu_result_tag;
   data_t           lsu_result;
   logic [FLEN-1:0] fpu_result;
   logic            fpu_result_valid;
   logic            fpu_result_ready;
-  schnova_instr_tag_t      fpu_result_tag;
+  instr_tag_t      fpu_result_tag;
 
   // Trace signals
   // pragma translate_off
@@ -919,7 +929,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     .phy_id_t           (phy_id_t),
     .operand_req_t      (operand_req_t),
     .operand_t          (operand_t),
-    .instr_tag_t        (schnova_instr_tag_t),
+    .instr_tag_t        (instr_tag_t),
     .issue_req_t        (issue_req_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
@@ -1005,10 +1015,10 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   // TODO: Maybe we should unify the behaviour?
   logic csr_result_valid;
   logic csr_result_ready;
-  schnova_instr_tag_t csr_result_tag;
+  instr_tag_t csr_result_tag;
   logic [XLEN-1:0] csr_result;
 
-  schnizo_csr #(
+  schnova_csr #(
     .XLEN        (XLEN),
     .DebugSupport(0),
     .RVF         (RVF),
@@ -1016,7 +1026,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     .Xdma        (Xdma),
     .VMSupport   (0),
     .issue_req_t (issue_req_t),
-    .result_tag_t(schnova_instr_tag_t),
+    .result_tag_t(instr_tag_t),
     .NofAlus     (NofAlus),
     .AluNofRss   (AluNofRss),
     .NofLsus     (NofLsus),
@@ -1075,7 +1085,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Convert the accelerator response to a proper result and result tag such that the
   // write back and scoreboard functions properly.
   logic [XLEN-1:0] acc_result;
-  schnova_instr_tag_t      acc_result_tag;
+  instr_tag_t      acc_result_tag;
   always_comb begin : acc_response_conversion
     acc_result = acc_prsp_i.data;
     acc_result_tag = '0;
@@ -1092,7 +1102,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
     .RegAddrSize    (PhysRegAddrSize),
-    .instr_tag_t    (schnova_instr_tag_t),
+    .instr_tag_t    (instr_tag_t),
     .alu_result_t   (alu_result_t),
     .data_t         (data_t)
   ) i_writeback (
@@ -1168,7 +1178,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
   // TODO (soderma): This was just written to compile
   assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
   // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
-  // also FP loads as the FP register is in the subsystem. Schnizo cannot distinguish this case as
+  // also FP loads as the FP register is in the subsystem. schnova cannot distinguish this case as
   // we handle all instructions in the core. We thus set the same signal.
   // TODO: rework the core events
   // TODO (soderma): This was just written to compile
@@ -1402,7 +1412,7 @@ module schnova import schnizo_pkg::*, schnova_pkg::*, schnova_tracer_pkg::*; #(
     rd_is_fp:     instr_decoded[0].rd_is_fp,
     is_branch:    instr_decoded[0].is_branch,
     branch_taken: alu_result.compare_res,
-    fu_type:      schnizo_pkg::fu_to_string(instr_decoded[0].fu),
+    fu_type:      schnova_pkg::fu_to_string(instr_decoded[0].fu),
     disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response.producer)
   };
 
