@@ -18,6 +18,7 @@ package schnova_tracer_pkg;
     priv_lvl_t                    priv_level;
     loop_state_e                  loop_state;
     logic                         stall;
+    logic                         stall_dispatch; // high if an instruction was dispatched in this cycle
     logic                         exception;
   } core_trace_t;
 
@@ -114,9 +115,9 @@ package schnova_tracer_pkg;
 
   // Returns the header of a trace event. This includes common trace data.
   function automatic string format_trace_header(time t, logic[63:0] cycle, core_trace_t core);
-    return $sformatf("{'time': %0t, 'cycle': %0d, 'priv': \"%s\", 'state': \"%s\", 'stall': 0x%0x, 'exception': 0x%0x, ",
+    return $sformatf("{'time': %0t, 'cycle': %0d, 'priv': \"%s\", 'state': \"%s\", 'stall': 0x%0x, 'stall_dispatch': 0x%0x, 'exception': 0x%0x, ",
                      t, cycle, schnova_pkg::priv_lvl_tostring(core.priv_level),
-                     schnova_pkg::loop_state_tostring(core.loop_state), core.stall, core.exception);
+                     schnova_pkg::loop_state_tostring(core.loop_state), core.stall, core.stall_dispatch, core.exception);
   endfunction
 
   // Format all dispatch extras as a key value pair list.

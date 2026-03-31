@@ -1408,8 +1408,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     priv_level:     priv_lvl,
     loop_state:     loop_state,
     // Whether the dispatch was stalled
-    // Note stall, in this core currently
-    stall:          !dispatched,
+    stall:          stall,
+    stall_dispatch: !dispatched,
     exception:      exception
   };
 
