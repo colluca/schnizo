@@ -53,7 +53,7 @@ def fit_inverse_function(n_vals, y_vals, x_lim):
 def kernel_scaling_plot(df, app, show=True):
     """Plot IPC and FPU utilization vs problem size with fitted curves"""
     # Extract relevant data
-    df = df[(df['hw'] == 'fc') & (df['app'] == app) & (df['mode'] == 'superscalar')].copy()
+    df = df[(df['hw'] == '3x32_3x32_1x64') & (df['app'] == app) & (df['mode'] == 'superscalar')].copy()
     df = df.sort_values('size')
     n_vals = df['size'].to_numpy(dtype=float)
     ipc_vals = df['ipc'].to_numpy(dtype=float)
@@ -94,8 +94,7 @@ def kernel_scaling_plot(df, app, show=True):
 
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """Compare scalar and superscalar results across applications"""
-    df = df[((df['mode'] == 'superscalar') & (df['hw'] == 'fc')) |
-            ((df['mode'] == 'scalar') & (df['hw'] == '1port'))]
+    df = df[df['hw'] == '3x32_3x32_1x64']
     # Pivot data to get utilization from the run with max size per app and mode
     idx_max_size = df.groupby(['app', 'mode'])['size'].idxmax()
     plot_df = df.loc[idx_max_size].pivot(index='app', columns='mode', values=metric)
@@ -175,10 +174,11 @@ def rsp_ports_tradeoff_plot(df, show=True):
     idx_max_size = df.groupby(['app', 'hw'])['size'].idxmax()
     plot_df = df.loc[idx_max_size].pivot(index='app', columns='hw', values='ipc')
 
-    fc_ipc = plot_df['fc']
-    plot_df = plot_df[['1port', '2ports', '3ports']]
+    fc_ipc = plot_df['3x32_3x32_1x64']
+    plot_df = plot_df[['3x32_3x32_1x64_1port', '3x32_3x32_1x64_2ports', '3x32_3x32_1x64_3ports']]
     plot_df = plot_df.rename(columns={
-        '1port': '1 port', '2ports': '2 ports', '3ports': '3 ports'
+        '3x32_3x32_1x64': 'fc', '3x32_3x32_1x64_1port': '1 port',
+        '3x32_3x32_1x64_2ports': '2 ports', '3x32_3x32_1x64_3ports': '3 ports'
     })
 
     fig, ax = plt.subplots()

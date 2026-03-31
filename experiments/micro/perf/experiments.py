@@ -44,7 +44,7 @@ class ExperimentManager(eu.ExperimentManager):
         return base_axes
 
     def derive_hw_cfg(self, experiment):
-        return Path.cwd() / f"cfg/schnizo_xl_{experiment['hw']}.json"
+        return Path.cwd() / f"cfg/{experiment['hw']}.json"
 
     def derive_data_cfg(self, experiment):
         if experiment['app'] not in ['pi_estimation']:
@@ -65,10 +65,11 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    cfgs = ['1port', '2ports', '3ports', 'fc', '1x128_1x32_1x64', '3x32_1x0_2x32', '2x32_1x32_2x32']
+    cfgs = ['3x32_3x32_1x64_1port', '3x32_3x32_1x64_2ports', '3x32_3x32_1x64_3ports',
+            '3x32_3x32_1x64', '1x128_1x32_1x64', '3x4_3x4_1x4', '3x32_1x0_2x32',
+            '2x32_1x32_2x32']
     modes = ['scalar', 'superscalar']
     sizes = [256, 512, 1024, 2048, 4096]
-    # TODO(colluca): make sure sim_bin is picked up also by MC kernels
     app_filter = None
 
     # Drop failing tests at 256 when running in CI
@@ -83,15 +84,15 @@ def gen_experiments(ci=False):
         compatible = set(APPLICATION_CLASS[app_class] if app_class else APPLICATION_CLASS['GP'])
         for mode in modes:
             # Scalar experiments do not depend on the response xbar configuration
-            if mode == 'scalar' and cfg != '1port':
+            if mode == 'scalar' and cfg != '3x32_3x32_1x64':
                 continue
             for size in sizes:
                 if mode == 'scalar' and size != 4096:
                     continue
-                if cfg not in ['1port', 'fc'] and (size != 4096 or mode != 'superscalar'):
+                if cfg != '3x32_3x32_1x64' and (size != 4096 or mode != 'superscalar'):
                     continue
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
-                if compatible & {'sz_dot', 'sz_axpy'}:
+                if compatible & set(APPLICATION_CLASS['LA']):
                     experiments.extend([
                         {
                             'app': 'sz_dot',
@@ -118,7 +119,7 @@ def gen_experiments(ci=False):
                             'roi': Path("roi/sz_axpy_roi.json.tpl")
                         },
                     ])
-                if compatible & {'exp', 'log'}:
+                if compatible & set(APPLICATION_CLASS['TR']):
                     experiments.extend([
                         {
                             'app': 'exp',
