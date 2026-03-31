@@ -235,6 +235,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     ) i_res_req_handling (
       .clk_i,
       .rst_i,
+      // TODO(colluca): is this 100% correct?
       .slot_i            (disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
                           slot_result_init : slot_result_qs[rss]),
       .retired_i         (result_valid_i && result_ready_o && (rss_idx_t'(rss) == result_rss_sel)),
@@ -258,6 +259,13 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
 
   logic       issue_req_valid_raw;
   issue_req_t issue_req_raw;
+
+  // Gate dispatch when issue and dispatch pointers diverge to ensure that
+  // dispatch is only done once, for the current slot we are processing, i.e.
+  // the one pointed to by issue_idx.
+  logic disp_req_valid_raw, disp_req_ready_raw;
+  assign disp_req_valid_raw = disp_req_valid_i && (disp_idx_i == issue_idx_i);
+  assign disp_req_ready_o = disp_req_ready_raw && (disp_idx_i == issue_idx_i);
 
   schnizo_rss_dispatch_pipeline #(
     .NofOperands     (NofOperands),
@@ -283,8 +291,8 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .last_issue_iter_i      (last_issue_iter_i),
     .retire_at_issue_o      (retire_at_issue_o),
     .disp_req_i             (disp_req_i),
-    .disp_req_valid_i       (disp_req_valid_i && (disp_idx_i == issue_idx_i)), // only send valid for the selected slot
-    .disp_req_ready_o       (disp_req_ready_o),
+    .disp_req_valid_i       (disp_req_valid_raw),
+    .disp_req_ready_o       (disp_req_ready_raw),
     .slot_issue_i           (slot_issue_rdata),
     .slot_issue_o           (slot_issue_wdata),
     .slot_issue_wen_o       (slot_issue_wen),
@@ -386,7 +394,6 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .disp_req_t      (disp_req_t)
   ) i_result_capture (
     .slot_i               (slot_res_rsps[result_rss_sel]),
-    .disp_hs_i            (disp_req_valid_i && disp_req_ready_o && (disp_idx_i == result_rss_sel)),
     .result_i             (result_i),
     .result_valid_i       (rss_wb_valid_sync),
     .loop_state_i         (loop_state_i),

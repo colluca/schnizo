@@ -13,7 +13,6 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
 ) (
   // Control
   input  rs_slot_result_t slot_i,
-  input  logic            disp_hs_i,
   input  result_t         result_i,
   input  logic            result_valid_i,
   input  loop_state_e     loop_state_i,

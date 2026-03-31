@@ -541,10 +541,31 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Assertions //
   ////////////////
 
-  // `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_cnt > issue_idx)), clk_i, rst_i)
-  // `ASSERT(MaxDispatchIssueDistanceOne, rss_cnt_t'(disp_idx) <= rss_cnt_t'(issue_idx + 1), clk_i, rst_i)
-  // TODO(colluca): fix after converting also lep_issue_iter_count and lep_result_iter_count
-  // to trip_counters
-  // `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (issue_idx > result_idx) || (lep_issue_iter_count < lep_result_iter_count)), clk_i, rst_i)
+  rss_cnt_t disp_in_flight_q, disp_in_flight_d;
+  rss_cnt_t issue_in_flight_q, issue_in_flight_d;
+
+  `FFAR(disp_in_flight_q, disp_in_flight_d, '0, clk_i, rst_i)
+  `FFAR(issue_in_flight_q, issue_in_flight_d, '0, clk_i, rst_i)
+
+  always_comb begin
+    disp_in_flight_d = disp_in_flight_q;
+    issue_in_flight_d = issue_in_flight_q;
+
+    if (disp_hs) begin
+      disp_in_flight_d += 1;
+    end
+    if (issue_hs) begin
+      disp_in_flight_d -= 1;
+      issue_in_flight_d += 1;
+    end
+    if (retire_at_issue || result_hs) begin
+      issue_in_flight_d -= (retire_at_issue + result_hs);
+    end
+  end
+
+  `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_in_flight_q >= 1)), clk_i, rst_i)
+  `ASSERT(MaxDispatchIssueDistanceOne, disp_hs |-> (issue_hs || (disp_in_flight_q < 1)), clk_i, rst_i)
+  `ASSERT(RetireAtIssueImpliesIssue, retire_at_issue |-> issue_hs, clk_i, rst_i)
+  `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (issue_in_flight_q >= 1)), clk_i, rst_i)
 
 endmodule

@@ -94,7 +94,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   //////////////////////////
 
   operand_slots_t op_slots_q;
-  logic           disp_hs;
+  logic           disp_hs, issue_hs;
 
   /////////////////////////
   // Initial slot update //
@@ -428,6 +428,26 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     end
   end
 
+  //////////////
+  // Dispatch //
+  //////////////
+
+  // 1-bit FSM
+  logic dispatched_q, dispatched_d;
+  always_comb begin : fsm
+    dispatched_d = dispatched_q;
+    if (disp_hs) begin
+      dispatched_d = 1'b1;
+    end
+    if (issue_hs) begin
+      dispatched_d = 1'b0;
+    end
+  end
+  `FF(dispatched_q, dispatched_d, 1'b0)
+
+  assign disp_req_ready_o = !dispatched_q;
+  assign disp_hs = disp_req_ready_o && disp_req_valid_i;
+
   ///////////
   // Issue //
   ///////////
@@ -437,8 +457,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   logic [NofOperands-1:0] operand_valid;
   logic                   all_operands_valid;
-  logic                   issue_hs;
 
+  // Compose issue request
   always_comb begin : issue_req
     // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
     // is full or the result cannot be written because the current result has not been consumed
@@ -461,26 +481,20 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     issue_req_o.tag                  = issue_producer_id_i.slot_id;
   end
 
+  // Check operand validity
   for (genvar i = 0; i < NofOperands; i++) begin : gen_operand_valid
     assign operand_valid[i] = response_op_slots[i].is_valid;
   end
   assign all_operands_valid = &operand_valid;
-  // In LCP1, dispatch and issue are decoupled, so we can use the dispatch handshake to initialize
-  // the slot, and update it as the operands become valid.
-  logic already_issued;
-  assign already_issued = ((loop_state_i == LoopLcp1) && alloc_const_op_slot.instruction_iter) ||
-                          ((loop_state_i == LoopLcp2) && !alloc_const_op_slot.instruction_iter);
-  assign issue_req_valid_o = alloc_const_op_slot.is_occupied && all_operands_valid &&
-                             !already_issued && ((loop_state_i != LoopLep) || disp_req_valid_i);
+
+  // Issue when instruction has been dispatched (previously or in current cycle), the slot is
+  // occupied, all operands are valid and the current slot hasn't been already issued
+  assign issue_req_valid_o = (dispatched_q || disp_hs) && alloc_const_op_slot.is_occupied &&
+                             all_operands_valid;  // && !already_issued;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
-  // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
-  assign disp_req_ready_o = loop_state_i == LoopLep ? issue_hs : 1'b1;
-  assign disp_hs = disp_req_ready_o && disp_req_valid_i;
   assign retire_at_issue_o = issue_hs && alloc_const_op_slot.no_dest;
 
-  // Update the slot after issuing the instruction (instruction_iter and
-  // operands[i].is_valid fields).
-
+  // Update slot after issue
   operand_slots_t op_slots_d;
   always_comb begin : slot_issue_update
     slot_issue_o = alloc_const_op_slot;
