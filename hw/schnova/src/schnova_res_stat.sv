@@ -177,9 +177,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   // if the instruction is a store or any other instruction.
   logic retiring;
 
-  // Dispatch index, points to the RSS we currently can  dispatch an instruction to
-  rss_cnt_t disp_cnt;
-
   // Number of allocated RSS
   rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
@@ -240,25 +237,6 @@ module schnova_res_stat import schnova_pkg::*; #(
     .op_rsps_i,
     .op_rsps_valid_i,
     .op_rsps_ready_o
-  );
-
-  //////////////
-  // Counters //
-  //////////////
-
-  delta_counter #(
-    .WIDTH(NofRssWidthExt)
-  ) i_disp_counter (
-    .clk_i,
-    .rst_ni  (!rst_i),
-    .clear_i (restart_i),
-    .en_i    (dispatch_hs),
-    .load_i  (1'b0),
-    .down_i  (1'b0),
-    .delta_i (rss_cnt_t'(1)),
-    .d_i     ('0),
-    .q_o     (disp_cnt),
-    .overflow_o ()
   );
 
 endmodule

@@ -37,8 +37,10 @@ module schnova_decoder import schnova_pkg::*; #(
   output logic                         exit_superscalar_o,
   output instr_dec_t [PipeWidth-1:0]   instr_dec_o,
   // Per instruction signal, whether this instruction has to be renamed
-  output logic [PipeWidth-1:0]         instr_rename_valid_o,
-  output logic [$clog2(PipeWidth):0]   instr_rename_count_o
+  output logic [PipeWidth-1:0]         instr_rename_gpr_valid_o,
+  output logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_o,
+  output logic [PipeWidth-1:0]         instr_rename_fpr_valid_o,
+  output logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_o
 );
 
   localparam int unsigned IdxWidth = (PipeWidth > 1) ? $clog2(PipeWidth) : 1;
@@ -163,18 +165,27 @@ module schnova_decoder import schnova_pkg::*; #(
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       // We have to rename the instruction if it is valid
       // and the destination register is not the integer register x0
-      instr_rename_valid_o[i] = instr_valid_o[i] &
-                              (instr_dec_o[i].rd != '0) &
-                              ~instr_dec_o[i].rd_is_fp;
+      instr_rename_gpr_valid_o[i] = instr_valid_o[i]          &
+                                    (instr_dec_o[i].rd != '0) &
+                                    ~instr_dec_o[i].rd_is_fp;
+      instr_rename_fpr_valid_o[i] = instr_valid_o[i] &
+                                    instr_dec_o[i].rd_is_fp;
     end
   end
 
   // Counting the numger of instructions that have to be renamed
   popcount #(
     .INPUT_WIDTH(PipeWidth)
-  ) i_rename_count (
-    .data_i(instr_rename_valid_o),
-    .popcount_o(instr_rename_count_o)
+  ) i_gpr_rename_count (
+    .data_i(instr_rename_gpr_valid_o),
+    .popcount_o(instr_rename_gpr_count_o)
+  );
+
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_fpr_rename_count (
+    .data_i(instr_rename_fpr_valid_o),
+    .popcount_o(instr_rename_fpr_count_o)
   );
 
   // We can one hot encode the critical instruction by anding it with the valid mask

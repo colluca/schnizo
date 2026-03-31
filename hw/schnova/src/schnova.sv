@@ -461,11 +461,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic dispatched;
   logic freelist_ready;
   logic freelist_push;
-  logic [$clog2(PipeWidth):0] freelist_push_count;
-  phy_id_t [PipeWidth-1:0] retired_regs;
+  logic [$clog2(PipeWidth):0] freelist_gpr_push_count;
+  phy_id_t [PipeWidth-1:0] retired_gpr_regs;
+  logic [$clog2(PipeWidth):0] freelist_fpr_push_count;
+  phy_id_t [PipeWidth-1:0] retired_fpr_regs;
   logic [$clog2(PipeWidth):0]   instr_valid_count;
-  logic [PipeWidth-1:0]         instr_rename_valid;
-  logic [$clog2(PipeWidth):0]   instr_rename_count;
+  logic [PipeWidth-1:0]         instr_rename_gpr_valid;
+  logic [$clog2(PipeWidth):0]   instr_rename_gpr_count;
+  logic [PipeWidth-1:0]         instr_rename_fpr_valid;
+  logic [$clog2(PipeWidth):0]   instr_rename_fpr_count;
   sb_disp_data_t [PipeWidth-1:0] sb_disp_data;
   reg_map_t [PipeWidth-1:0]  reg_map;
 
@@ -494,6 +498,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic                                rob_push;
   logic [$clog2(PipeWidth):0]          rob_push_count;
   phy_id_t [PipeWidth-1:0]             rob_phy_reg_rd_old;
+  logic    [PipeWidth-1:0]             rob_phy_reg_rd_old_is_fp;
   logic [PipeWidth-1:0][RobTagWidth-1:0]  rob_idx;
 
   logic rob_ready;
@@ -619,9 +624,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_illegal_o         (instr_decoded_illegal),
     .blk_ctrl_info_o         (blk_ctrl_info),
     .instr_dec_o             (instr_decoded),
-    .instr_rename_valid_o    (instr_rename_valid),
-    .instr_rename_count_o    (instr_rename_count)
+    .instr_rename_gpr_valid_o(instr_rename_gpr_valid),
+    .instr_rename_gpr_count_o(instr_rename_gpr_count),
+    .instr_rename_fpr_valid_o(instr_rename_fpr_valid),
+    .instr_rename_fpr_count_o(instr_rename_fpr_count)
   );
+
+
 
   // Read the operands - do always read (even if invalid instr) because controller depends on
   // values from registers. See for example the FREP instruction and its number of iterations.
@@ -745,14 +754,18 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .rst_i,
     .en_superscalar_i(en_superscalar),
     .dispatched_i(dispatched),
-    .instr_rename_valid_i(instr_rename_valid),
-    .instr_rename_count_i(instr_rename_count),
+    .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
+    .instr_rename_gpr_count_i(instr_rename_gpr_count),
+    .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
+    .instr_rename_fpr_count_i(instr_rename_fpr_count),
     .instr_dec_i(instr_decoded),
     .reg_map_o(reg_map),
     .freelist_ready_o(freelist_ready),
     .freelist_push_i(freelist_push),
-    .freelist_push_count_i(freelist_push_count),
-    .retired_regs_i(retired_regs)
+    .freelist_gpr_push_count_i(freelist_gpr_push_count),
+    .retired_gpr_regs_i(retired_gpr_regs),
+    .freelist_fpr_push_count_i(freelist_fpr_push_count),
+    .retired_fpr_regs_i(retired_fpr_regs)
   );
 
   //////////////
@@ -810,12 +823,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // From decoder
     .instr_valid_i       (instr_valid),
     .instr_valid_count_i (instr_valid_count),
-    .instr_rename_valid_i(instr_rename_valid),
-    .instr_rename_count_i(instr_rename_count),
+    .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
+    .instr_rename_gpr_count_i(instr_rename_gpr_count),
+    .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
+    .instr_rename_fpr_count_i(instr_rename_fpr_count),
     // ROB
     .rob_push_o(rob_push),
     .rob_push_count_o(rob_push_count),
     .rob_phy_reg_rd_old_o(rob_phy_reg_rd_old),
+    .rob_phy_reg_rd_old_is_fp_o(rob_phy_reg_rd_old_is_fp),
     .rob_idx_i(rob_idx),
     // Instruction stream
     .disp_req_o          (dispatch_req),
@@ -1208,6 +1224,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .rob_push_i(rob_push),
     .rob_push_count_i(rob_push_count),
     .rob_phy_reg_rd_old_i(rob_phy_reg_rd_old),
+    .rob_phy_reg_rd_old_is_fp_i(rob_phy_reg_rd_old_is_fp),
     .rob_idx_o(rob_idx),
     .rob_ready_o(rob_ready),
     // Writeback Interface
@@ -1215,8 +1232,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .wb_rob_idx_i(wb_rob_idx),
     // Freelist interface
     .freelist_push_o(freelist_push),
-    .push_count_o(freelist_push_count),
-    .retired_regs_o(retired_regs)
+    .gpr_push_count_o(freelist_gpr_push_count),
+    .gpr_retired_regs_o(retired_gpr_regs),
+    .fpr_push_count_o(freelist_fpr_push_count),
+    .fpr_retired_regs_o(retired_fpr_regs)
   );
 
   ////////////////

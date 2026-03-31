@@ -17,6 +17,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   input logic                                rob_push_i,
   input logic [$clog2(PipeWidth):0]          rob_push_count_i,
   input phy_id_t [PipeWidth-1:0]             rob_phy_reg_rd_old_i,
+  input logic [PipeWidth-1:0]                rob_phy_reg_rd_old_is_fp_i,
   output logic [PipeWidth-1:0][TagWidth-1:0] rob_idx_o,
   output logic                               rob_ready_o,
   // Writeback Interface
@@ -24,20 +25,23 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   input logic [1:0][TagWidth-1:0]  wb_rob_idx_i,
   // Freelist interface
   output logic freelist_push_o,
-  output [$clog2(PipeWidth):0] push_count_o,
-  output phy_id_t [PipeWidth-1:0] retired_regs_o
+  output [$clog2(PipeWidth):0] gpr_push_count_o,
+  output phy_id_t [PipeWidth-1:0] gpr_retired_regs_o,
+  output [$clog2(PipeWidth):0] fpr_push_count_o,
+  output phy_id_t [PipeWidth-1:0] fpr_retired_regs_o
 );
 
   typedef struct packed {
       logic valid;
       logic done;
       phy_id_t phy_reg_rd_old; // The physcial register rd was renamed to previously
+      logic    rd_is_fp;
   } rob_entry_t;
 
   rob_entry_t [NofEntries-1:0] rob;
-  logic [PipeWidth-1:0][NofEntries-1:0] wb_dec;
+  logic [1:0][NofEntries-1:0] wb_dec;
 
-  logic [NofEntries:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
+  logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
 
   logic [TagWidth:0] free_count;
   logic [TagWidth:0] allocated_entries;
@@ -45,7 +49,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   logic [PipeWidth-1:0] pop_valid;
   logic [$clog2(PipeWidth):0] pop_count;
   always_comb begin : wb_decoder
-    for (int unsigned j = 0; j < PipeWidth; j++) begin
+    for (int unsigned j = 0; j < 2; j++) begin
       for (int unsigned i = 0; i < NofEntries; i++) begin
         if (wb_rob_idx_i[j] == i) wb_dec[j][i] = wb_valid_i[j];
         else wb_dec[j][i] = 1'b0;
@@ -74,23 +78,55 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       end else begin
         pop_valid[i] = pop_valid[i-1] && rob[(head_ptr+i)%NofEntries].done;
       end
-      // We can always assign the values from the headpointer
-      // the physical register that we can free is the one the instruction has
-      // overwritten
-      retired_regs_o[i] = rob[(head_ptr+i)%NofEntries].phy_reg_rd_old;
+    end
+  end
+
+  logic [PipeWidth-1:0] gpr_commit_valid;
+  logic [PipeWidth-1:0] fpr_commit_valid;
+  logic [$clog2(PipeWidth):0] commit_gpr_idx;
+  logic [$clog2(PipeWidth):0] commit_fpr_idx;
+
+  always_comb begin
+    gpr_commit_valid = '0;
+    fpr_commit_valid = '0;
+
+    commit_gpr_idx = '0;
+    commit_fpr_idx = '0;
+
+    gpr_retired_regs_o = '0;
+    fpr_retired_regs_o = '0;
+
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (pop_valid[i] && rob[(head_ptr+i)%NofEntries].rd_is_fp) begin
+        fpr_retired_regs_o[commit_fpr_idx] = rob[(head_ptr+i)%NofEntries].phy_reg_rd_old;
+        fpr_commit_valid[i] = 1'b1;
+
+        commit_fpr_idx = commit_fpr_idx + 1;
+      end else if (pop_valid[i] && !rob[(head_ptr+i)%NofEntries].rd_is_fp) begin
+        gpr_retired_regs_o[commit_gpr_idx] = rob[(head_ptr+i)%NofEntries].phy_reg_rd_old;
+        gpr_commit_valid[i] = 1'b1;
+
+        commit_gpr_idx = commit_gpr_idx + 1;
+      end
     end
   end
 
   popcount #(
     .INPUT_WIDTH(PipeWidth)
-  ) i_pop_count (
-    .data_i(pop_valid),
-    .popcount_o(pop_count)
+  ) i_gpr_pop_count (
+    .data_i(gpr_commit_valid),
+    .popcount_o(gpr_push_count_o)
   );
 
-  // The amount of physical registers we can push on to the free list is the amount of
-  // entries we popped from the ROB
-  assign push_count_o = pop_count;
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_fpr_pop_count (
+    .data_i(fpr_commit_valid),
+    .popcount_o(fpr_push_count_o)
+  );
+
+  assign pop_count = gpr_push_count_o + fpr_push_count_o;
+
   // We push registers to the freelist once we have we can remove at least one entry from the
   // rob
   assign freelist_push_o = |pop_valid;
@@ -112,13 +148,14 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
         rob[i] <= rob_entry_t'{
           valid: 1'b0,
           done: 1'b0,
-          phy_reg_rd_old: '0
+          phy_reg_rd_old: '0,
+          rd_is_fp: 1'b0
         };
       end
     end else begin
 
       // Update the ROB when a writeback happens
-      for (int unsigned j = 0; j < PipeWidth; j++) begin
+      for (int unsigned j = 0; j < 2; j++) begin
         for (int unsigned i = 0; i < NofEntries; i++) begin
           // If the wb decoder hits, we set the done bit
           if (wb_dec[j][i]) begin
@@ -134,6 +171,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
             rob[(tail_ptr+i)%NofEntries].valid <= 1'b1;
             rob[(tail_ptr+i)%NofEntries].done  <= 1'b0;
             rob[(tail_ptr+i)%NofEntries].phy_reg_rd_old  <= rob_phy_reg_rd_old_i[i];
+            rob[(tail_ptr+i)%NofEntries].rd_is_fp        <= rob_phy_reg_rd_old_is_fp_i[i];
           end
         end
 

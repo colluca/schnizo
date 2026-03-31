@@ -47,8 +47,10 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   input  logic [PipeWidth-1:0]         instr_valid_i,
   input  logic [$clog2(PipeWidth):0]   instr_valid_count_i,
-  input  logic [PipeWidth-1:0]         instr_rename_valid_i,
-  input  logic [$clog2(PipeWidth):0]   instr_rename_count_i,
+  input  logic [PipeWidth-1:0]         instr_rename_gpr_valid_i,
+  input  logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_i,
+  input  logic [PipeWidth-1:0]         instr_rename_fpr_valid_i,
+  input  logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_i,
 
   // From rename stage
   input  reg_map_t [PipeWidth-1:0] reg_map_i,
@@ -58,6 +60,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   output logic                                 rob_push_o,
   output logic [$clog2(PipeWidth):0]           rob_push_count_o,
   output phy_id_t [PipeWidth-1:0]              rob_phy_reg_rd_old_o,
+  output logic    [PipeWidth-1:0]              rob_phy_reg_rd_old_is_fp_o,
   input logic [PipeWidth-1:0][RobTagWidth-1:0] rob_idx_i,
 
   // Handshake to all possible FUs. Each FU has own ready/valid interface.
@@ -127,7 +130,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     // if it is an immediate it is already sent with the dispatch request and
     // is therefore valid
     disp_req_o.is_op_a_valid = instr_dec_i[0].use_pc_as_op_a |
-                              instr_dec_i[0].use_rs1addr_as_op_a;
+                               instr_dec_i[0].use_rs1addr_as_op_a;
 
     disp_req_o.is_op_b_valid = (instr_dec_i[0].fu == schnova_pkg::ALU ||
                                 instr_dec_i[0].fu == schnova_pkg::CTRL_FLOW) &&
@@ -407,7 +410,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   // The amount of new entries we allocated, is the amount of instructions
   // that have to be allocated
-  assign rob_push_count_o = instr_rename_count_i;
+  assign rob_push_count_o = instr_rename_gpr_count_i + instr_rename_fpr_count_i;
 
   // We only allocate new entries in the ROB in superscalar mode
   // The allocation happens at a successfull dispatch
@@ -420,11 +423,17 @@ module schnova_dispatcher import schnova_pkg::*; #(
   always_comb begin : map_phy_reg_rd_old
     // Per default we don't assign a mapping
     rob_phy_reg_rd_old_o = '0;
+    rob_phy_reg_rd_old_is_fp_o = '0;
 
     alloc_idx = '0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (instr_rename_valid_i[i]) begin
+      if (instr_rename_gpr_valid_i[i]) begin
         rob_phy_reg_rd_old_o[alloc_idx] = reg_map_i[i].phy_reg_rd_old;
+
+        alloc_idx = alloc_idx + 1;
+      end else if (instr_rename_fpr_valid_i[i]) begin
+        rob_phy_reg_rd_old_o[alloc_idx] = reg_map_i[i].phy_reg_rd_old;
+        rob_phy_reg_rd_old_is_fp_o[alloc_idx] = 1'b1;
 
         alloc_idx = alloc_idx + 1;
       end

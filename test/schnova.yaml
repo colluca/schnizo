@@ -1,0 +1,39 @@
+# Copyright 2025 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+runs:
+  #################
+  # Schnizo tests #
+  #################
+  # TODO(colluca): add verification script to sz_axpy, sz_dot
+  - elf: ../sw/kernels/blas/sz_axpy/build/sz_axpy.elf
+    cmd: [../sw/kernels/blas/sz_axpy/scripts/verify.py, "${sim_bin}", "${elf}"]
+  - elf: ../sw/kernels/blas/sz_dot/build/sz_dot.elf
+    cmd: [../sw/kernels/blas/sz_dot/scripts/verify.py, "${sim_bin}", "${elf}"]
+  # TODO(colluca): add sz_gemm, sz_exp and sz_log
+  - elf: ../sw/tests/build/sz_sum.elf
+  - elf: ../sw/tests/build/sz_intraloop_a.elf
+  - elf: ../sw/tests/build/sz_intraloop_a_multicycle.elf
+  - elf: ../sw/tests/build/sz_intraloop_chain.elf
+  - elf: ../sw/tests/build/sz_intraloop_chain_multicycle.elf
+  - elf: ../sw/tests/build/sz_lep_twice.elf
+  - elf: ../sw/tests/build/sz_loopcarried_a.elf
+  - elf: ../sw/tests/build/sz_loopcarried_b.elf
+  - elf: ../sw/tests/build/sz_loopcarried_c.elf
+  - elf: ../sw/tests/build/sz_loopcarried_mixed.elf
+  - elf: ../sw/tests/build/sz_lsu.elf
+  - elf: ../sw/tests/build/sz_multislot_loop.elf
+  - elf: ../sw/tests/build/sz_outofslots.elf
+  - elf: ../sw/tests/build/sz_outofslots_multicycle.elf
+  - elf: ../sw/tests/build/sz_rf_wb_collision.elf
+  - elf: ../sw/tests/build/sz_serialize_memory.elf
+  - elf: ../sw/tests/build/sz_simple_multicycle.elf
+  - elf: ../sw/tests/build/sz_simple.elf
+  - elf: ../sw/tests/build/sz_unsupported_instr.elf
+  - elf: ../sw/tests/build/sz_stores.elf
+  - elf: ../sw/tests/build/sz_compiler.elf
+  - elf: ../sw/tests/build/sz_function_call.elf
+  - elf: ../sw/tests/build/sz_branch.elf
+  - elf: ../sw/tests/build/sz_retirement.elf
+  - elf: ../sw/tests/build/sz_frep_csr.elf
