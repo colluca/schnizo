@@ -86,6 +86,8 @@ def gen_experiments(ci=False):
             if mode == 'scalar' and cfg != '1port':
                 continue
             for size in sizes:
+                if mode == 'scalar' and size != 4096:
+                    continue
                 if cfg not in ['1port', 'fc'] and (size != 4096 or mode != 'superscalar'):
                     continue
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
