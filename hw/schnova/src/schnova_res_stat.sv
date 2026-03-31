@@ -132,14 +132,12 @@ module schnova_res_stat import schnova_pkg::*; #(
   // exception at the next instruction.
   logic disp_req_valid_guarded;
   logic disp_req_ready_o_raw;
-  // Do not accept a new dispatch request if we are currently handling one or we are full.
+
   // Only accept it if we commit to the dispatch.
-  assign disp_req_valid_guarded = disp_req_valid_i && !disp_req_valid_i_q && !rs_full_o &&
+  assign disp_req_valid_guarded = disp_req_valid_i &&
                                   instr_exec_commit_i;
-  // Do not signal ready until we are processing the request. This allows to handle branches where
-  // the target address is only valid in the cycle the ALU computes it.
-  // This is in the effective dispatch cycle because the ALU is single cycle.
-  assign disp_req_ready_o = disp_req_ready_o_raw && !disp_req_valid_i_q && !rs_full_o &&
+
+  assign disp_req_ready_o = disp_req_ready_o_raw &&
                             instr_exec_commit_i;
 
   spill_register_flushable #(
