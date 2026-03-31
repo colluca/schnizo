@@ -126,6 +126,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   operand_slot_t op_c_slot_lcp1;
 
   assign op_a_lcp1 = '{
+    is_used:              disp_req_i.fu_data.use_operand_a,
     producer:             disp_req_i.producer_op_a.producer,
     is_produced:          disp_req_i.producer_op_a.valid,
     is_from_current_iter: disp_req_i.producer_op_a.valid
@@ -137,6 +138,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   };
 
   assign op_b_lcp1 = '{
+    is_used:              disp_req_i.fu_data.use_operand_b,
     producer:             disp_req_i.producer_op_b.producer,
     is_produced:          disp_req_i.producer_op_b.valid,
     is_from_current_iter: disp_req_i.producer_op_b.valid
@@ -148,6 +150,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   };
 
   assign op_c_lcp1 = '{
+    is_used:              disp_req_i.fu_data.use_imm,
     producer:             disp_req_i.producer_op_c.producer,
     is_produced:          disp_req_i.producer_op_c.valid,
     is_from_current_iter: disp_req_i.producer_op_c.valid
@@ -296,13 +299,13 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     end
   end
 
-  ////////////////////////////
-  // Constant memory update //
-  ////////////////////////////
+  ////////////////////////////////
+  // Constant memory allocation //
+  ////////////////////////////////
 
   rs_slot_issue_t alloc_const_op_slot;
 
-  always_comb begin: alloc_const_op_req_generation
+  always_comb begin: const_op_allocation
     automatic int unsigned port = 0;
 
     alloc_const_op_slot = selected_slot;
@@ -310,10 +313,10 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     alloc_const_op_data_o = '0;
 
     for (int op = 0; op < NofOperands; op++) begin
-      if ((loop_state_i == LoopLcp2) && !selected_slot.operands[op].is_produced) begin
+      if (selected_slot.operands[op].is_used && !selected_slot.operands[op].is_produced) begin
         alloc_const_op_data_o[port] = selected_op_slots[op].value;
         // Dispatch handshake ensures operand is only allocated once
-        if (disp_hs) begin
+        if ((loop_state_i == LoopLcp2) && disp_hs) begin
           alloc_const_op_valid_o[port] = 1'b1;
           alloc_const_op_slot.operands[op].producer = alloc_const_op_addr_i[port];
         end
@@ -352,14 +355,15 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   end
 
   // Constant memory request generation
-  always_comb begin: const_mem_op_req_generation
+  always_comb begin: const_op_req_generation
     automatic int unsigned port = 0;
 
     const_op_reqs_o = '0;
     const_op_reqs_valid_o = '0;
 
     for (int op = 0; op < NofOperands; op++) begin
-      if (!alloc_const_op_slot.operands[op].is_produced && (loop_state_i == LoopLep)) begin
+      if (alloc_const_op_slot.operands[op].is_used &&
+          !alloc_const_op_slot.operands[op].is_produced && (loop_state_i == LoopLep)) begin
         const_op_reqs_o[port] = const_op_addr_t'(alloc_const_op_slot.operands[op].producer);
         const_op_reqs_valid_o[port] = !selected_op_slots[op].is_valid;
         port++;
@@ -403,7 +407,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     const_mem_rsp_operands = '0;
 
     for (int op = 0; op < NofOperands; op++) begin
-      if (!alloc_const_op_slot.operands[op].is_produced) begin
+      if (alloc_const_op_slot.operands[op].is_used &&
+          !alloc_const_op_slot.operands[op].is_produced) begin
         const_mem_rsp_operands[op] = const_op_rsps_i[port];
         port++;
         if (port == NofConstantPorts) break;
@@ -423,7 +428,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         end
       end else if (loop_state_i == LoopLep) begin
         response_op_slots[op].value    = const_mem_rsp_operands[op];
-        response_op_slots[op].is_valid = 1'b1;
+        response_op_slots[op].is_valid = alloc_const_op_slot.operands[op].is_used;
       end
     end
   end
@@ -483,7 +488,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // Check operand validity
   for (genvar i = 0; i < NofOperands; i++) begin : gen_operand_valid
-    assign operand_valid[i] = response_op_slots[i].is_valid;
+    assign operand_valid[i] = !alloc_const_op_slot.operands[i].is_used ||
+                              response_op_slots[i].is_valid;
   end
   assign all_operands_valid = &operand_valid;
 

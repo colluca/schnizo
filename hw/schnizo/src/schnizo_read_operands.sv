@@ -47,6 +47,8 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     // Set the addresses
     // TODO(colluca): currently always reads from both register files and then MUXes.
     //                We could probably save power by only reading from the relevant register file.
+    //                Similarly, not all operands need to necessarily be read for all instructions,
+    //                now that we have the instr_dec_i.use_rs* info.
     gpr_raddr_o[0] = instr_dec_i.rs1;
     fpr_raddr_o[0] = instr_dec_i.rs1;
     gpr_raddr_o[1] = instr_dec_i.rs2;
@@ -58,10 +60,13 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     // - JAL and JALR use the PC as operand A.
     // - CSRRxI use the rs1 address as operand A.
     if (instr_dec_i.use_pc_as_op_a) begin
+      fu_data_o.use_operand_a = 1'b1;
       fu_data_o.operand_a[XLEN-1:0] = pc_i;
     end else if (instr_dec_i.use_rs1addr_as_op_a) begin
+      fu_data_o.use_operand_a = 1'b1;
       fu_data_o.operand_a[XLEN-1:0] = {{XLEN-5{1'b0}}, instr_dec_i.rs1[4:0]};
     end else begin
+      fu_data_o.use_operand_a = instr_dec_i.use_rs1;
       if (instr_dec_i.rs1_is_fp) begin
         fu_data_o.operand_a[FLEN-1:0] = fpr_rdata_i[0];
       end else begin
@@ -75,8 +80,10 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     // - For all other FUs the use_imm_as_op_b is set (if a imm is selected) but must be ignored.
     if ((instr_dec_i.fu == schnizo_pkg::ALU || instr_dec_i.fu == schnizo_pkg::CTRL_FLOW) &&
         instr_dec_i.use_imm_as_op_b && !instr_dec_i.is_branch) begin
+      fu_data_o.use_operand_b = 1'b1;
       fu_data_o.operand_b[XLEN-1:0] = instr_dec_i.imm;
     end else begin
+      fu_data_o.use_operand_b = instr_dec_i.use_rs2;
       if (instr_dec_i.rs2_is_fp) begin
         fu_data_o.operand_b[FLEN-1:0] = fpr_rdata_i[1];
       end else begin
@@ -86,8 +93,14 @@ module schnizo_read_operands import schnizo_pkg::*; #(
 
     // Operand C - reuses imm field
     if (instr_dec_i.use_imm_as_rs3) begin
+      fu_data_o.use_imm = 1'b1;
       fu_data_o.imm[FLEN-1:0] = fpr_rdata_i[2];
     end else begin
+      if (instr_dec_i.use_imm_as_op_b && !fu_data_o.use_operand_b) begin
+        fu_data_o.use_imm = 1'b1;
+      end
+      // TODO(colluca): in some cases the immediate will be diverted both to opb and here.
+      //                This is at the very least confusing, if not also useless.
       fu_data_o.imm[XLEN-1:0] = instr_dec_i.imm;
     end
   end

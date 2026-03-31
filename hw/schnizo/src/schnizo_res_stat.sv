@@ -124,7 +124,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
 
+  // TODO(colluca): we could replace is_used and is_producer, with a single enum type variable
+  //                {Unused, Static, Dynamic}
   typedef struct packed {
+    logic         is_used;
     // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
     // constant and fetched during LCP1 and LCP2.
     producer_id_t producer;
@@ -542,7 +545,11 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   ////////////////
 
   rss_cnt_t disp_in_flight_q, disp_in_flight_d;
-  rss_cnt_t issue_in_flight_q, issue_in_flight_d;
+  // TODO(colluca): the size of this counter depends solely on the FU's maximum number of
+  //                outstanding instructions.
+  //                We should feed this parameter from outside and also use it to test that
+  //                issue_in_flight counter never exceeds this value.
+  logic [31:0] issue_in_flight_q, issue_in_flight_d;
 
   `FFAR(disp_in_flight_q, disp_in_flight_d, '0, clk_i, rst_i)
   `FFAR(issue_in_flight_q, issue_in_flight_d, '0, clk_i, rst_i)
