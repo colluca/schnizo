@@ -20,7 +20,7 @@ int main() {
     // force it into a register to use add instead of addi
     register uint32_t increment asm("t2") = 7;
 
-    register volatile uint32_t cnt asm ("t3") = 3;
+    register volatile uint32_t cnt asm("t3") = 3;
 
     asm volatile(
         // Wait until all FPU & LSU instructions have retired to have a clean register and
@@ -35,10 +35,10 @@ int main() {
         "fence\n"
         // loop
         "frep.o %[n_frep], 5, 0, 0\n"
-        "inner_loop: add %[res], %[res], %[inc]\n" // Increment the result
-        "addi %[cnt], %[cnt], -1\n" // Decrement the inner loop counter
-        "bnez %[cnt], inner_loop\n" // If the counter is not zero, repeat the inner loop
-        "add %[cnt], zero, 3"  // Reset the inner loop counter to 3
+        "inner_loop: add %[res], %[res], %[inc]\n"  // Increment the result
+        "addi %[cnt], %[cnt], -1\n"  // Decrement the inner loop counter
+        "bnez %[cnt], inner_loop\n"  // If the counter is not zero, repeat the inner loop
+        "add %[cnt], zero, 3"   // Reset the inner loop counter to 3
         // outputs
         : [ res ] "+r"(res), [ cnt ] "+r"(cnt)
         // inputs - FREP repeats n_frep+1 times..

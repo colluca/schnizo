@@ -34,7 +34,7 @@ int main() {
     // force it into a register to use add instead of addi
     register uint32_t increment asm("t2") = 7;
 
-    register volatile uint32_t is_odd asm ("t3");
+    register volatile uint32_t is_odd asm("t3");
 
     asm volatile(
         // Wait until all FPU & LSU instructions have retired to have a clean register and

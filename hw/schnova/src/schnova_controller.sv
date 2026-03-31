@@ -335,7 +335,7 @@ module schnova_controller import schnova_pkg::*; #(
 
   // We have to stall the dispatch, if we are in the WAIT_CTRL state
   // and no ctrl instruction is retired in this cycle.
-  assign ctrl_stall = (ctrl_state_q == WAIT_CTRL) && !ctrl_instr_retired_i;
+  assign ctrl_stall = (ctrl_state_q == WAIT_CTRL);
 
   // We have to stall in superscalar mode if the freelist does not have enough
   // physical registers to rename all instructions
@@ -413,6 +413,6 @@ module schnova_controller import schnova_pkg::*; #(
   // since we don't do any speculation.
   assign stall_o =  ((ctrl_state_q == IDLE) && !instr_dispatched) ||
                     ((ctrl_state_q == IDLE) && blk_ctrl_info_i.is_ctrl && en_superscalar_o) ||
-                      ctrl_stall;
+                    (ctrl_stall && !ctrl_instr_retired_i);
 
 endmodule
