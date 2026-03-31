@@ -539,4 +539,15 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     `ASSERT(OpRspImpliesRequested, odn_op_rsps_valid_i[op] |-> request_op_slots[op].requested) 
   end
 
+  // There can't be more than NofConstantPorts constants per instruction
+  // TODO(colluca): replace with fallback to HWLOOP mode
+  logic [1:0] num_constants;
+  always_comb begin
+    num_constants = 0;
+    for (int unsigned op = 0; op < NofOperands; op++) begin
+      num_constants += !selected_slot.operands[op].is_produced;
+    end
+  end
+  `ASSERT(MaxConstantsPerInsn, ((loop_state_i == LoopLcp2) && disp_hs) |-> (num_constants <= NofConstantPorts))
+
 endmodule

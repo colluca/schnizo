@@ -409,6 +409,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   // Assertions //
   ////////////////
 
+  // TODO(colluca): replace with fallback to HWLOOP mode
   `ASSERT(ConstMemNoOverflow, !const_mem_overflow, clk_i, rst_i)
 
 endmodule
