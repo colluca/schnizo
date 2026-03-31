@@ -121,6 +121,8 @@ class ExperimentManager:
         experiment['run_dir'] = self.derive_dir(self.run_dir, experiment)
         experiment['power_dir'] = self.derive_dir(self.power_dir, experiment)
         experiment['synth_dir'] = self.derive_dir(self.synth_dir, experiment)
+        if 'app' in experiment:
+            experiment['elf'] = self.derive_elf(experiment)
 
     def derive_cdefines(self, experiment):
         return {}
@@ -175,7 +177,6 @@ class ExperimentManager:
             processes = []
             for experiment in experiments:
                 target = experiment['app']
-                experiment['elf'] = self.derive_elf(experiment)
                 build_dir = experiment['elf'].parent
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
