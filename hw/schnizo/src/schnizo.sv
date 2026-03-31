@@ -182,6 +182,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // Imm field: for unfinished floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the address of the third operand (rs3) from the floating-point regfile
     logic [XLEN-1:0]              imm;
+    logic                         use_imm;
     logic                         use_imm_as_rs3; // set if rs3 is a FP register
     lsu_size_e                    lsu_size; // The bit width the LSU operates on
     fpnew_pkg::fp_format_e        fpu_fmt_src; // The FPU format field.

@@ -984,6 +984,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
 
     // NOIMM, IIMM, SIMM, SBIMM, UIMM, JIMM, RS3
     // select immediate
+    instr_dec_o.use_imm = 1'b0;
     instr_dec_o.use_imm_as_op_b = 1'b0;
     instr_dec_o.use_imm_as_rs3 = 1'b0;
     case (imm_select)
@@ -993,7 +994,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
       end
       SIMM: begin
         instr_dec_o.imm = imm_s_type;
-        instr_dec_o.use_imm_as_op_b = 1'b1;
+        instr_dec_o.use_imm = 1'b1;
       end
       SBIMM: begin
         instr_dec_o.imm = imm_sb_type;

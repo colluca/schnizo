@@ -96,7 +96,9 @@ module schnizo_read_operands import schnizo_pkg::*; #(
       fu_data_o.use_imm = 1'b1;
       fu_data_o.imm[FLEN-1:0] = fpr_rdata_i[2];
     end else begin
-      if (instr_dec_i.use_imm_as_op_b && !fu_data_o.use_operand_b) begin
+      // TODO(colluca): it might be that the operand right of `||` is never true. Perhaps replace
+      //                with an assertion.
+      if (instr_dec_i.use_imm || (instr_dec_i.use_imm_as_op_b && !fu_data_o.use_operand_b)) begin
         fu_data_o.use_imm = 1'b1;
       end
       // TODO(colluca): in some cases the immediate will be diverted both to opb and here.
