@@ -37,3 +37,5 @@ runs:
   - elf: ../sw/tests/build/sz_branch.elf
   - elf: ../sw/tests/build/sz_retirement.elf
   - elf: ../sw/tests/build/sz_frep_csr.elf
+  - elf: ../sw/tests/build/sv_loop_with_branch.elf
+  - elf: ../sw/tests/build/sv_nested_loop.elf

@@ -154,7 +154,7 @@ def gen_writeback_trace(extras):
 
 def handle_dispatch_event(sim_time, cycle, priv_lvl, extras,
                           lsu_pipelines, fpu_pipelines, perf_metrics):
-    if extras['stall']:
+    if extras['stall_dispatch']:
         return
 
     perf_metrics[-1]['issues'] += 1
@@ -253,7 +253,7 @@ def handle_retirement_event(cycle, priv_lvl, extras,
 
 def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, state, extras,
                           trace, mc_exec):
-    if extras['stall']:
+    if extras['stall_dispatch']:
         return
 
     fu_type = extras['fu_type']
@@ -335,7 +335,7 @@ def gen_trace_line(line, mc_exec,
     else:
         raise ValueError(f"Not a valid event type: {data['event']}\n")
 
-    if ((not data['stall']) and data['exception']):
+    if ((not data['stall_dispatch']) and data['exception']):
         trace_body += " EXCEPTION"
 
     if (trace_body == ""):
