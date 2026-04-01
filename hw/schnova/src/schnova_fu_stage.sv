@@ -106,18 +106,17 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic                      en_superscalar_i,
   // Asserted if all RS are either finishing in this cycle or have already finished
   output logic                      all_rs_finish_o,
-
-  /// Instruction streams & FU status signals
-  input  disp_req_t               disp_req_i,
   // Commit the dispatch request and allow the downstream passing.
   // The FU blocks do not require a commit signal as when we won't commit we have an exception
   // and thus anyway abort the LxP and reset the RS and RSSs.
   input  logic                    instr_exec_commit_i,
+  input  disp_req_t [NofAlus-1:0] alu_disp_reqs_i,
   input  logic      [NofAlus-1:0] alu_disp_reqs_valid_i,
   output logic      [NofAlus-1:0] alu_disp_reqs_ready_o,
   output disp_rsp_t [NofAlus-1:0] alu_disp_rsp_o,
   output logic      [NofAlus-1:0] alu_rs_full_o,
 
+  input  disp_req_t [NofLsus-1:0] lsu_disp_reqs_i,
   input  logic      [NofLsus-1:0] lsu_disp_reqs_valid_i,
   output logic      [NofLsus-1:0] lsu_disp_reqs_ready_o,
   output disp_rsp_t [NofLsus-1:0] lsu_disp_rsp_o,
@@ -133,6 +132,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic      [NofLsus-1:0] caq_rsp_valid_i,
   output logic      [NofLsus-1:0] caq_rsp_valid_o,
 
+  input  disp_req_t          [NofFpus-1:0] fpu_disp_reqs_i,
   input  logic               [NofFpus-1:0] fpu_disp_reqs_valid_i,
   output logic               [NofFpus-1:0] fpu_disp_reqs_ready_o,
   output disp_rsp_t          [NofFpus-1:0] fpu_disp_rsp_o,
@@ -385,7 +385,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .rs_empty_o         (alu_rs_empty[alu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i         (disp_req_i),
+      .disp_req_i         (alu_disp_reqs_i[alu]),
       .disp_req_valid_i   (alu_disp_reqs_valid_i[alu]),
       .disp_req_ready_o   (alu_disp_reqs_ready_o[alu]),
       .instr_exec_commit_i(instr_exec_commit_i),
@@ -570,7 +570,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .rs_empty_o         (lsu_rs_empty[lsu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i         (disp_req_i),
+      .disp_req_i         (lsu_disp_reqs_i[lsu]),
       .disp_req_valid_i   (lsu_disp_reqs_valid_i[lsu]),
       .disp_req_ready_o   (lsu_disp_reqs_ready_o[lsu]),
       .instr_exec_commit_i(instr_exec_commit_i),
@@ -755,7 +755,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .rs_empty_o         (fpu_rs_empty[fpu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i         (disp_req_i),
+      .disp_req_i         (fpu_disp_reqs_i[fpu]),
       .disp_req_valid_i   (fpu_disp_reqs_valid_i[fpu]),
       .disp_req_ready_o   (fpu_disp_reqs_ready_o[fpu]),
       .instr_exec_commit_i(instr_exec_commit_i),
