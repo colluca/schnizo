@@ -38,7 +38,7 @@ int main() {
         "inner_loop: add %[res], %[res], %[inc]\n"  // Increment the result
         "addi %[cnt], %[cnt], -1\n"  // Decrement the inner loop counter
         "bnez %[cnt], inner_loop\n"  // If the counter is not zero, repeat the inner loop
-        "add %[cnt], zero, 3"   // Reset the inner loop counter to 3
+        "add %[cnt], zero, 3"  // Reset the inner loop counter to 3
         // outputs
         : [ res ] "+r"(res), [ cnt ] "+r"(cnt)
         // inputs - FREP repeats n_frep+1 times..

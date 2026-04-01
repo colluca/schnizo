@@ -661,7 +661,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Controller //
   ////////////////
 
-  logic                         rs_full;
   logic                         all_rs_finish;
   logic                         rs_restart;
   loop_state_e                  loop_state;
@@ -773,17 +772,20 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   //////////////
 
   // Create the dispatch request
-  disp_req_t dispatch_req;
+  disp_req_t [NofAlus-1:0] alu_disp_reqs;
   logic      [NofAlus-1:0] alu_disp_req_valid;
   logic      [NofAlus-1:0] alu_disp_req_ready;
   disp_rsp_t [NofAlus-1:0] alu_disp_rsp;
   logic      [NofAlus-1:0] alu_rs_full;
+  disp_req_t [NofLsus-1:0] lsu_disp_reqs;
   logic      [NofLsus-1:0] lsu_disp_req_valid;
   logic      [NofLsus-1:0] lsu_disp_req_ready;
   disp_rsp_t [NofLsus-1:0] lsu_disp_rsp;
   logic      [NofLsus-1:0] lsu_rs_full;
+  disp_req_t               csr_disp_req;
   logic                    csr_disp_req_valid;
   logic                    csr_disp_req_ready;
+  disp_req_t [NofFpus-1:0] fpu_disp_reqs;
   logic      [NofFpus-1:0] fpu_disp_req_valid;
   logic      [NofFpus-1:0] fpu_disp_req_ready;
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
@@ -833,22 +835,24 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .rob_phy_reg_rd_old_o(rob_phy_reg_rd_old),
     .rob_phy_reg_rd_old_is_fp_o(rob_phy_reg_rd_old_is_fp),
     .rob_idx_i(rob_idx),
-    // Instruction stream
-    .disp_req_o          (dispatch_req),
     // ALU
+    .alu_disp_reqs_o     (alu_disp_reqs),
     .alu_disp_req_valid_o(alu_disp_req_valid),
     .alu_disp_req_ready_i(alu_disp_req_ready),
     .alu_disp_rsp_i      (alu_disp_rsp),
     .alu_rs_full_i       (alu_rs_full),
     // LSU
+    .lsu_disp_reqs_o     (lsu_disp_reqs),
     .lsu_disp_req_valid_o(lsu_disp_req_valid),
     .lsu_disp_req_ready_i(lsu_disp_req_ready),
     .lsu_disp_rsp_i      (lsu_disp_rsp),
     .lsu_rs_full_i       (lsu_rs_full),
     // CSR
+    .csr_disp_req_o      (csr_disp_req),
     .csr_disp_req_valid_o(csr_disp_req_valid),
     .csr_disp_req_ready_i(csr_disp_req_ready),
     // FPU
+    .fpu_disp_reqs_o     (fpu_disp_reqs),
     .fpu_disp_req_valid_o(fpu_disp_req_valid),
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
@@ -859,15 +863,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .acc_disp_req_ready_i(acc_qready_i),
     // RS control signals
     .restart_i           (flush_backend),
-    .frep_mem_cons_mode_i(frep_mem_cons_mode),
-    .rs_full_o           (rs_full)
+    .frep_mem_cons_mode_i(frep_mem_cons_mode)
   );
 
   // Convert dispatch request to issue request for CSR.
   // The valid/ready is fed through so no extra signals.
   issue_req_t issue_req;
-  assign issue_req.fu_data = dispatch_req.fu_data;
-  assign issue_req.tag     = dispatch_req.tag;
+  assign issue_req.fu_data = csr_disp_req.fu_data;
+  assign issue_req.tag     = csr_disp_req.tag;
 
   //////////////////////
   // Functional Units //
@@ -958,7 +961,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .hard_id_i            (hart_id_i),
     .restart_i            (rs_restart),
     .en_superscalar_i     (en_superscalar),
-    .disp_req_i           (dispatch_req),
     .all_rs_finish_o      (all_rs_finish),
     // Global commit signal
     .instr_exec_commit_i  (instr_exec_commit),
@@ -972,11 +974,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fpu_retire_trace_o   (fpu_retirements),
     // pragma translate_on
     // ALU
+    .alu_disp_reqs_i      (alu_disp_reqs),
     .alu_disp_reqs_valid_i(alu_disp_req_valid),
     .alu_disp_reqs_ready_o(alu_disp_req_ready),
     .alu_disp_rsp_o       (alu_disp_rsp),
     .alu_rs_full_o        (alu_rs_full),
     // LSU
+    .lsu_disp_reqs_i      (lsu_disp_reqs),
     .lsu_disp_reqs_valid_i(lsu_disp_req_valid),
     .lsu_disp_reqs_ready_o(lsu_disp_req_ready),
     .lsu_disp_rsp_o       (lsu_disp_rsp),
@@ -992,6 +996,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .caq_rsp_valid_i      ('0),
     .caq_rsp_valid_o      (),
     //FPU
+    .fpu_disp_reqs_i      (fpu_disp_reqs),
     .fpu_disp_reqs_valid_i(fpu_disp_req_valid),
     .fpu_disp_reqs_ready_o(fpu_disp_req_ready),
     .fpu_disp_rsp_o       (fpu_disp_rsp),
@@ -1430,10 +1435,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     rs2_is_fp:    instr_decoded[0].rs2_is_fp,
     rd_is_fp:     instr_decoded[0].rd_is_fp,
     fu_type:      schnova_pkg::fu_to_string(instr_decoded[0].fu),
-    disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response.producer)
+    disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response[0].producer)
   };
 
-  assign dispatch_rs_id = i_dispatcher.fu_response.producer.rs_id;
+  assign dispatch_rs_id = i_dispatcher.fu_response[0].producer.rs_id;
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
