@@ -60,26 +60,30 @@ def kernel_scaling_plot(df, app, show=True):
     util_vals = df['fpu_util'].to_numpy(dtype=float)
 
     # Plot measured data
-    fig, ax = plt.subplots(2, 1, sharex=True)
+    fig, ax = plt.subplots(1, 2)
     ax[0].scatter(n_vals, ipc_vals, color='black', marker='o', label='Measurements', zorder=2)
     ax[1].scatter(n_vals, util_vals, color='black', marker='o', label='Measurements', zorder=2)
 
     # Interpolate and plot
     function_label = 'Fit: $\\frac{a*n}{b*n+c}$'
-    x_lim = 8192
+    x_lim = 6000
     n_fit, ipc_fit, a, b, _ = fit_inverse_function(n_vals, ipc_vals, x_lim)
     ax[0].plot(n_fit, ipc_fit, color='black', linestyle='--', label=function_label, zorder=1)
-    ax[0].axhline(a / b, color='black', linestyle='-', label='Fit: asymptote')
+    ax[0].axhline(a / b, color='tab:red', linestyle='-', label='Fit: asymptote')
     n_fit, util_fit, a, b, _ = fit_inverse_function(n_vals, util_vals, x_lim)
     ax[1].plot(n_fit, util_fit, color='black', linestyle='--', label=function_label, zorder=1)
-    ax[1].axhline(a / b, color='black', linestyle='-', label='Fit: asymptote')
+    ax[1].axhline(a / b, color='tab:red', linestyle='-', label='Fit: asymptote')
 
     # Format plot
-    ax[1].set_xlabel(f'{APP_LABELS[app]} length (n)')
-    ax[1].set_xticks(n_vals.tolist() + [x_lim])
-    ax[1].tick_params(axis='x', labelrotation=30)
-    ax[0].set_ylabel('IPC')
-    ax[1].set_ylabel('FPU Utilization')
+    fig.supxlabel(f'{APP_LABELS[app]} vector length (in multiples of 256 elements)')
+    xticks = n_vals.tolist()
+    for a in ax:
+        a.set_xticks(xticks)
+        a.set_xticklabels([str(int(v) // 256) for v in xticks])
+    # ax[0].set_ylabel('IPC')
+    # ax[1].set_ylabel('FPU Utilization')
+    if app == 'sz_axpy':
+        ax[0].set_yticks(sorted({t for t in set(ax[0].get_yticks()) | {7} if t == int(t)}))
     ax[0].legend()
     ax[1].legend()
     ax[0].grid(True, color='gainsboro', linewidth=0.5)
@@ -152,11 +156,13 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     # Format plot
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS[metric])
-    ax.set_xticklabels(plot_df.index, rotation=30, ha='right')
-    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
+    ax.set_xticklabels([app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index], rotation=15, ha='right')
+    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0, loc='upper left')
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
     ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
+    if metric == 'fpu_util':
+        ax.set_ylim(top=1.3)
     fig.tight_layout()
 
     geomean_superscalar_metric = format_metric(gmean(plot_df['Superscalar']), metric)
@@ -198,7 +204,7 @@ def rsp_ports_tradeoff_plot(df, show=True):
     ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS['ipc'])
-    ax.set_xticklabels(plot_df.index, rotation=30, ha='right')
+    ax.set_xticklabels([app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index], rotation=15, ha='right')
     ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
