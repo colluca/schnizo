@@ -128,6 +128,12 @@ module schnova_dispatcher import schnova_pkg::*; #(
   `FFAR(lsu_idx_raw_q, lsu_idx_raw_d, '0, clk_i, rst_i);
   `FFAR(fpu_idx_raw_q, fpu_idx_raw_d, '0, clk_i, rst_i);
 
+  // Rob Tag
+  logic [PipeWidth-1:0][RobTagWidth-1:0] rob_tag_d, rob_tag_q;
+  `FFAR(rob_tag_q, rob_tag_d, '0, clk_i, rst_i);
+
+  logic [PipeWidth-1:0] instr_dispatched;
+z
   ////////////////////////
   // Request generation //
   ////////////////////////
@@ -172,7 +178,10 @@ module schnova_dispatcher import schnova_pkg::*; #(
       disp_req[i].tag.dest_reg_is_fp = instr_dec_i[i].rd_is_fp;
       disp_req[i].tag.is_branch      = instr_dec_i[i].is_branch;
       disp_req[i].tag.is_jump        = instr_dec_i[i].is_jal | instr_dec_i[i].is_jalr;
-      disp_req[i].tag.rob_tag        = rob_idx_i[i];
+      // If we have already dispatched some instructions we have to use the rob tag we saved
+      // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
+      // tags starating from the current tail pointer
+      disp_req[i].tag.rob_tag        = (|dispatched_q) ? rob_tag_q[i] : rob_idx_i[i];
     end
   end
 
@@ -271,7 +280,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (disp_to_lsu[i] &&
             (NofLsus > 1)  &&
-            (frep_mem_cons_mode_i inside {FrepMemSerialized})) begin
+            (frep_mem_cons_mode_i != FrepMemSerialized)) begin
           target_lsu_port[i] = lsu_idx + lsu_rank[i];
         end
       end
@@ -284,7 +293,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (disp_to_lsu[i] &&
             (NofLsus > 1)  &&
-            (frep_mem_cons_mode_i inside {FrepMemSerialized})) begin
+            (frep_mem_cons_mode_i != FrepMemSerialized)) begin
           target_lsu_port_unwrapped[i] = lsu_idx + lsu_rank[i];
           // Wrap around if the index exceeds the number of FUs
           if (target_lsu_port_unwrapped[i] >= NofLsus) begin
@@ -352,14 +361,17 @@ module schnova_dispatcher import schnova_pkg::*; #(
       end else begin
         // The instruction has an hazard if an older instruction has an hazard or
         // if an older instruction claimed the same port this instruction needs.
+        // or if an older instruction was not yet dispatched in this cycle
+        // we need to strictly enforce in order dispatch
         instr_has_hazard[i] =   instr_has_hazard[i-1]                                    ||
+                                !instr_dispatched[i-1]                                   ||
                                 ((disp_to_alu0[i] || disp_to_alu[i]) &&
                                 port_claimed_alu[target_alu_port[i]])                    ||
                                 (disp_to_lsu[i] && port_claimed_lsu[target_lsu_port[i]]) ||
                                 (disp_to_fpu[i] && port_claimed_fpu[target_fpu_port[i]]);
 
         // Claim the port for this instruction if it was not already dispatched
-        if (!dispatched_q[i]) begin
+        if (instr_valid_[i] && !dispatched_q[i]) begin
           if (disp_to_alu0[i]) begin
             port_claimed_alu[0] = 1'b1;
           end else if (disp_to_alu[i]) begin
@@ -489,8 +501,6 @@ module schnova_dispatcher import schnova_pkg::*; #(
   ////////////////////
   // Dispatch logic //
   ////////////////////
-
-  logic [PipeWidth-1:0] instr_dispatched;
 
   always_comb begin
     instr_dispatched = '0;
@@ -669,8 +679,19 @@ module schnova_dispatcher import schnova_pkg::*; #(
   // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched
   assign rob_push_o = (|instr_dispatched)      &
                       !(|dispatched_q)         &
-                      (rob_push_count_o != '0) &
                       en_superscalar_i;
+
+  // We have to remember the first ROB tags because of partial dispatch
+  always_comb begin
+    rob_tag_d = rob_tag_q;
+    // Remember the rob tags the next cycle we pushed these into the ROB
+    if (rob_push_o) begin
+      rob_tag_d = rob_idx_i;
+    end
+    if (restart_i) begin
+      rob_tag_d = '0;
+    end
+  end
 
   // The ROB assumes that the incoming data is valid in a block
   // that means all the mappings that should be allocated are in contiguous elements

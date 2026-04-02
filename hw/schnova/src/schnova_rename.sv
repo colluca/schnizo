@@ -237,6 +237,16 @@ module schnova_rename import schnova_pkg::*; #(
               // Forward the renaming of the destination register
               reg_map_o[instr_idx].phy_reg_rs3 =  new_mapping_rd[older_idx];
           end
+
+          // -------------------------
+          // RD dependency forwarding (write after write)
+          // -------------------------
+          if ((instr_dec_i[older_idx].rd == instr_dec_i[instr_idx].rd) &&
+              (instr_dec_i[older_idx].rd_is_fp == instr_dec_i[instr_idx].rd_is_fp)) begin
+              // Forward the renaming of the destination register
+              reg_map_o[instr_idx].phy_reg_rd_old =  new_mapping_rd[older_idx];
+          end
+
         end
       end
     end

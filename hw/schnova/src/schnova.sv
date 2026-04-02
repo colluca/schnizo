@@ -860,7 +860,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .acc_disp_req_valid_o(acc_qvalid_o),
     .acc_disp_req_ready_i(acc_qready_i),
     // RS control signals
-    .restart_i           (flush_backend),
+    .restart_i           (rs_restart),
     .frep_mem_cons_mode_i(frep_mem_cons_mode)
   );
 
@@ -1245,6 +1245,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Scoreboard //
   ////////////////
 
+  logic update_sb;
+
+  assign update_sb = en_superscalar ? rob_push : dispatched;
+
   schnova_scoreboard #(
     .PipeWidth(PipeWidth),
     .NrReadPorts(NofOperandIfs),
@@ -1256,8 +1260,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .clk_i,
     .rst_i,
     .en_superscalar_i(en_superscalar),
-    // Dispatched instruction
-    .dispatched_i(dispatched),
+    // Dispatched at least one instruction
+    .dispatched_i(update_sb),
+     // From dispatcher
     .instr_valid_i(instr_valid),
     .disp_data_i(sb_disp_data),
     // Physical register interface
