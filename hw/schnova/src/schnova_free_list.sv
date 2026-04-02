@@ -28,10 +28,10 @@ module schnova_free_list import schnova_pkg::*; #(
   localparam int unsigned NumRegs  = 2**AddrWidth;
 
   phy_id_t [NumPhysRegs-1:0] free_list;
-  logic [AddrWidth:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
+  logic [PhysAddrWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
 
   // Calculate the current number of free physical registers
-  logic [AddrWidth:0] free_count;
+  logic [$clog2(NumPhysRegs):0] free_count;
 
   assign free_count = tail_ptr - head_ptr;
   assign freelist_ready_o = (free_count >= pop_count_i);
@@ -41,7 +41,7 @@ module schnova_free_list import schnova_pkg::*; #(
     allocated_regs_o = '0;
     for (int i = 0; i < PipeWidth; i++) begin
       if (i < pop_count_i) begin
-        allocated_regs_o[i] = free_list[(head_ptr+i)];
+        allocated_regs_o[i] = free_list[(head_ptr+i)%NumPhysRegs];
       end
     end
   end
@@ -70,7 +70,7 @@ module schnova_free_list import schnova_pkg::*; #(
       if (push_i) begin
         for (int i = 0; i < PipeWidth; i++) begin
           if (i < push_count_i) begin
-            free_list[(tail_ptr+i)] <= retired_regs_i[i];
+            free_list[(tail_ptr+i)%NumPhysRegs] <= retired_regs_i[i];
           end
         end
         tail_ptr <= tail_ptr + push_count_i;

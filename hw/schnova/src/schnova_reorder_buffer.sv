@@ -14,6 +14,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   input  logic         clk_i,
   input  logic         rst_i,
   // Allocation Interface (Rename Stage)
+  // Which instruction of the block to push into the ROB
   input logic                                rob_push_i,
   input logic [$clog2(PipeWidth):0]          rob_push_count_i,
   input phy_id_t [PipeWidth-1:0]             rob_phy_reg_rd_old_i,
@@ -48,6 +49,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
 
   logic [PipeWidth-1:0] pop_valid;
   logic [$clog2(PipeWidth):0] pop_count;
+
   always_comb begin : wb_decoder
     for (int unsigned j = 0; j < 2; j++) begin
       for (int unsigned i = 0; i < NofEntries; i++) begin
@@ -127,7 +129,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
 
   assign pop_count = gpr_push_count_o + fpr_push_count_o;
 
-  // We push registers to the freelist once we have we can remove at least one entry from the
+  // We push registers to the freelist once we can remove at least one entry from the
   // rob
   assign freelist_push_o = |pop_valid;
 
@@ -164,18 +166,16 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
         end
       end
 
-      // Update the tail pointer when new entries are allocated
+      // Update the ROB upon push
       if(rob_push_i && rob_ready_o) begin
         for (int i = 0; i < PipeWidth; i++) begin
-          if (i < rob_push_count_i) begin
             rob[(tail_ptr+i)%NofEntries].valid <= 1'b1;
             rob[(tail_ptr+i)%NofEntries].done  <= 1'b0;
             rob[(tail_ptr+i)%NofEntries].phy_reg_rd_old  <= rob_phy_reg_rd_old_i[i];
             rob[(tail_ptr+i)%NofEntries].rd_is_fp        <= rob_phy_reg_rd_old_is_fp_i[i];
-          end
         end
 
-        // Advance the pointers
+         // Advance the pointers
         tail_ptr <= (tail_ptr + rob_push_count_i);
       end
 
