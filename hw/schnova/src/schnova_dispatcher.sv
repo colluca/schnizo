@@ -390,6 +390,10 @@ module schnova_dispatcher import schnova_pkg::*; #(
     fpu_disp_req_valid_o = '0;
     acc_disp_req_valid_o = 1'b0;
 
+    alu_disp_reqs_o = '0;
+    lsu_disp_reqs_o = '0;
+    fpu_disp_reqs_o = '0;
+
     // Accelerator and CSR instructions are only allowed in scalar mode, hence we only have to consider the
     // the first instruction in the block for them.
 

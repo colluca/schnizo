@@ -78,16 +78,14 @@ module schnova_rename import schnova_pkg::*; #(
       // Generate integer rmt addresses
       rmt_int_raddr[instr_idx*3] = instr_dec_i[instr_idx].rs1;
       rmt_int_raddr[instr_idx*3+1] = instr_dec_i[instr_idx].rs2;
-      if(instr_idx < PipeWidth) begin
-        rmt_int_raddr[instr_idx*3+2] = instr_dec_i[instr_idx].rd;
-      end
+      rmt_int_raddr[instr_idx*3+2] = instr_dec_i[instr_idx].rd;
+
       // Generate float rmt addresses
       rmt_fp_raddr[instr_idx*4] = instr_dec_i[instr_idx].rs1;
       rmt_fp_raddr[instr_idx*4+1] = instr_dec_i[instr_idx].rs2;
       rmt_fp_raddr[instr_idx*4+2] = instr_dec_i[instr_idx].imm[RegAddrSize-1:0];
-      if(instr_idx < PipeWidth) begin
-        rmt_fp_raddr[instr_idx*4+3] = instr_dec_i[instr_idx].rd;
-      end
+      rmt_fp_raddr[instr_idx*4+3] = instr_dec_i[instr_idx].rd;
+
       // Read out mapping for rs1
       mapping_rs1[instr_idx] =  instr_dec_i[instr_idx].rs1_is_fp ?
                                 rmt_fp_rdata[instr_idx*4]        :
@@ -101,11 +99,10 @@ module schnova_rename import schnova_pkg::*; #(
       // Read out mapping for rs3, this can only ever be a floating point register
       mapping_rs3[instr_idx] =  rmt_fp_rdata[instr_idx*4+2];
       // Read out mapping of rd
-      if(instr_idx < PipeWidth) begin
-        mapping_rd[instr_idx] = instr_dec_i[instr_idx].rd_is_fp ?
-                                rmt_fp_rdata[instr_idx*4+3]     :
-                                rmt_int_rdata[instr_idx*3+2];
-      end
+      mapping_rd[instr_idx] = instr_dec_i[instr_idx].rd_is_fp ?
+                              rmt_fp_rdata[instr_idx*4+3]     :
+                              rmt_int_rdata[instr_idx*3+2];
+
     end
   end
 

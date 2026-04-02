@@ -147,7 +147,9 @@ def gen_writeback_trace(extras):
             else:
                 branch_info = "not taken"
 
-        return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {branch_info}"
+            return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {branch_info}"
+        else:
+            return ""
 
     return f"{'':<10} {'':<26}  {'':<6}  {'':<14} #; {extras['origin']}: {writeback}"
 
