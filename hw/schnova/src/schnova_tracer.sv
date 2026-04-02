@@ -6,6 +6,7 @@
 
 // Schnizo core tracer.
 module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
+  parameter int unsigned PipeWidth  = 1,
   parameter int unsigned NofAlus    = 3,
   parameter int unsigned NofLsus    = 1,
   parameter int unsigned NofFpus    = 1,
@@ -18,9 +19,9 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic clk_i,
   input  logic rst_i,
   input  logic [31:0] hart_id_i,
-  input  int unsigned dispatch_rs_id,
+  input  int unsigned      dispatch_rs_id [PipeWidth],
   input  core_trace_t     core_trace,
-  input  dispatch_trace_t dispatch_trace,
+  input  dispatch_trace_t         dispatch_trace[PipeWidth],
   input  issue_alu_trace_t        alu_trace [NofAlus],
   input  issue_lsu_trace_t        lsu_trace [NofLsus],
   input  issue_fpu_trace_t        fpu_trace [NofFpus],
@@ -80,8 +81,8 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // verilog_lint: waive-start always-ff-non-blocking
   always_ff @(posedge clk_i) begin
     string trace_header;
-    string dispatch_event;
-    dispatch_detail_t details;
+    string dispatch_event[PipeWidth];
+    dispatch_detail_t details[PipeWidth];
     if (~rst_i) begin
       cycle++;
 
@@ -89,13 +90,15 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // This trace is extended with the details of the active FU.
       trace_header = format_trace_header($time, cycle, core_trace);
 
-      details = '{
-        header: trace_header,
-        dispatch_trace: dispatch_trace
-      };
+      for (int unsigned i   = 0; i < PipeWidth; i++) begin
+        details[i] = '{
+          header: trace_header,
+          dispatch_trace: dispatch_trace[i]
+        };
 
-      if (dispatch_trace.valid && (core_trace.loop_state inside {LoopDep})) begin
-        dispatch_queue[dispatch_rs_id].push_back(details);
+        if (dispatch_trace[i].valid && (core_trace.loop_state inside {LoopDep})) begin
+          dispatch_queue[dispatch_rs_id[i]].push_back(details[i]);
+        end
       end
 
       // Trace events are active depending on CPU states.
@@ -104,77 +107,79 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
         // only be one active single issue request. The format functions return "" if the trace is
         // not valid. Therefore, we can combine the formatting functions into one chain.
         // The naked dispatch_event contains the None FU dispatches (currently only for FREP).
-        dispatch_event = format_dispatch_extras(dispatch_trace);
+        dispatch_event[0] = format_dispatch_extras(dispatch_trace[0]);
 
         for (int alu = 0; alu < NofAlus; alu++) begin
-          dispatch_event = $sformatf("%s%s", dispatch_event, format_alu_trace(alu_trace[alu]));
+          dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_alu_trace(alu_trace[alu]));
         end
         for (int lsu = 0; lsu < NofLsus; lsu++) begin
-          dispatch_event = $sformatf("%s%s", dispatch_event, format_lsu_trace(lsu_trace[lsu]));
+          dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_lsu_trace(lsu_trace[lsu]));
         end
         for (int fpu = 0; fpu < NofFpus; fpu++) begin
-          dispatch_event = $sformatf("%s%s", dispatch_event, format_fpu_trace(fpu_trace[fpu]));
+          dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_fpu_trace(fpu_trace[fpu]));
         end
-        dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
-        dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
+        dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_csr_trace(csr_trace));
+        dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_acc_trace(acc_trace));
 
-        write_trace_event(file_id, trace_header, "dispatch", dispatch_event, dispatch_trace.valid);
+        write_trace_event(file_id, trace_header, "dispatch", dispatch_event[0], dispatch_trace[0].valid);
       end else begin
         // Format the single dispatch event but capture the producer by taking RSS issue trace.
         // There should also be one FU issue request active. Invalid traces are formated as "".
 
         // If a FU issues, pop from the dispatch details queue and generate the trace.
-        dispatch_detail_t details;
-        for (int alu = 0; alu < NofAlus; alu++) begin
-          for (int rss = 0; rss < AluNofRss; rss++) begin
-            if (rss_alu_traces[alu][rss].valid) begin
-              details = dispatch_queue[alu].pop_front();
-              dispatch_event = format_dispatch_extras(details.dispatch_trace);
+        dispatch_detail_t dep_details[PipeWidth];
+        for (int i = 0; i < PipeWidth; i++) begin
+          for (int alu = 0; alu < NofAlus; alu++) begin
+            for (int rss = 0; rss < AluNofRss; rss++) begin
+              if (rss_alu_traces[alu][rss].valid) begin
+                dep_details[i] = dispatch_queue[alu].pop_front();
+                dispatch_event[i] = format_dispatch_extras(dep_details[i].dispatch_trace);
 
-              dispatch_event = $sformatf("%s%s", dispatch_event,
-                                        format_alu_trace(rss_alu_traces[alu][rss]));
-              write_trace_event(file_id, details.header, "dispatch",
-                                dispatch_event, details.dispatch_trace.valid);
+                dispatch_event[i] = $sformatf("%s%s", dispatch_event[i],
+                                          format_alu_trace(rss_alu_traces[alu][rss]));
+                write_trace_event(file_id, dep_details[i].header, "dispatch",
+                                  dispatch_event[i], dep_details[i].dispatch_trace.valid);
+              end
             end
           end
-        end
 
-        for (int lsu = 0; lsu < NofLsus; lsu++) begin
-          for (int rss = 0; rss < LsuNofRss; rss++) begin
-            if (rss_lsu_traces[lsu][rss].valid) begin
-              details = dispatch_queue[NofAlus + lsu].pop_front();
-              dispatch_event = format_dispatch_extras(details.dispatch_trace);
+          for (int lsu = 0; lsu < NofLsus; lsu++) begin
+            for (int rss = 0; rss < LsuNofRss; rss++) begin
+              if (rss_lsu_traces[lsu][rss].valid) begin
+                dep_details[i] = dispatch_queue[NofAlus + lsu].pop_front();
+                dispatch_event[i] = format_dispatch_extras(dep_details[i].dispatch_trace);
 
-              dispatch_event = $sformatf("%s%s", dispatch_event,
-                                        format_lsu_trace(rss_lsu_traces[lsu][rss]));
-              write_trace_event(file_id, details.header, "dispatch",
-                                dispatch_event, details.dispatch_trace.valid);
+                dispatch_event[i] = $sformatf("%s%s", dispatch_event[i],
+                                          format_lsu_trace(rss_lsu_traces[lsu][rss]));
+                write_trace_event(file_id, dep_details[i].header, "dispatch",
+                                  dispatch_event[i], dep_details[i].dispatch_trace.valid);
+              end
             end
           end
-        end
 
-        for (int fpu = 0; fpu < NofFpus; fpu++) begin
-          for (int rss = 0; rss < FpuNofRss; rss++) begin
-            if (rss_fpu_traces[fpu][rss].valid) begin
-              details = dispatch_queue[NofAlus + NofLsus + fpu].pop_front();
-              dispatch_event = format_dispatch_extras(details.dispatch_trace);
+          for (int fpu = 0; fpu < NofFpus; fpu++) begin
+            for (int rss = 0; rss < FpuNofRss; rss++) begin
+              if (rss_fpu_traces[fpu][rss].valid) begin
+                dep_details[i] = dispatch_queue[NofAlus + NofLsus + fpu].pop_front();
+                dispatch_event[i] = format_dispatch_extras(dep_details[i].dispatch_trace);
 
-              dispatch_event = $sformatf("%s%s", dispatch_event,
-                                        format_fpu_trace(rss_fpu_traces[fpu][rss]));
-              write_trace_event(file_id, details.header, "dispatch",
-                                dispatch_event, details.dispatch_trace.valid);
+                dispatch_event[i] = $sformatf("%s%s", dispatch_event[i],
+                                          format_fpu_trace(rss_fpu_traces[fpu][rss]));
+                write_trace_event(file_id, dep_details[i].header, "dispatch",
+                                  dispatch_event[i], dep_details[i].dispatch_trace.valid);
+              end
             end
           end
         end
 
         // CSR and ACC instructions are not supported in FREP but can still execute (fallback in
         // hw loop mode). These are not cut and thus dispatch immediately.
-        dispatch_event = format_dispatch_extras(dispatch_trace);
-        dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
-        dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
+        dispatch_event[0] = format_dispatch_extras(dispatch_trace[0]);
+        dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_csr_trace(csr_trace));
+        dispatch_event[0] = $sformatf("%s%s", dispatch_event[0], format_acc_trace(acc_trace));
 
-        write_trace_event(file_id, trace_header, "dispatch", dispatch_event,
-                          dispatch_trace.valid && (csr_trace.valid || acc_trace.valid));
+        write_trace_event(file_id, trace_header, "dispatch", dispatch_event[0],
+                          dispatch_trace[0].valid && (csr_trace.valid || acc_trace.valid));
       end
       // Writeback events - We must consider all writebacks at all times.
       write_trace_event(file_id, trace_header, "writeback",

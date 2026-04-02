@@ -4,24 +4,9 @@
 //
 // Stefan Odermatt <soderma@student.ethz.ch>
 
-#include "snrt.h"
+// Test if Schnova properly handles branches inside frep loops
 
-// asm volatile(
-//     ""
-//     /* outputs: [ asm-name ] "constraint" (c-name)
-//        To use value use: %asm-name
-//        If no asm-name use %0, %1, ... in the order specified
-//        constraints (many more, = or + is required for outputs):
-//        "=": this variable is overwritten, dont assume previous value is there, except when tied to input.
-//        "+": this variable is read and written.
-//        "r": this value must reside in a register
-//        "m": this value must reside in memory */
-//     :
-//     /* inputs: same as outputs except = and + are not allowed*/
-//     :
-//     /* clobbers - modified registers beyond the outputs */
-//     :
-// );
+#include "snrt.h"
 
 int main() {
     if (!snrt_is_compute_core()) {

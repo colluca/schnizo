@@ -146,11 +146,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // If PipeWidth = 1, we still have to read the destination register for the scoreboard
   // functionality
   // Integer instructons have 2 source + 1 destination register
-  localparam int unsigned RmtNrIntReadPorts = (PipeWidth > 1 ? 2*PipeWidth + 1*PipeWidth - 1 :
-                                              2*PipeWidth + 1*PipeWidth);
+  localparam int unsigned RmtNrIntReadPorts = 2*PipeWidth + 1*PipeWidth;
   // Float instructions have 3 source + 1 destination register
-  localparam int unsigned RmtNrFpReadPorts = (PipeWidth > 1 ? 3*PipeWidth + 1*PipeWidth - 1 :
-                                              3*PipeWidth + 1*PipeWidth);
+  localparam int unsigned RmtNrFpReadPorts = 3*PipeWidth + 1*PipeWidth;
   // We have to write the new mapping for every destination register
   localparam int unsigned RmtNrWritePorts = 1*PipeWidth;
 
@@ -1387,8 +1385,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // Core and dispatch traces
   core_trace_t     core_trace;
-  dispatch_trace_t dispatch_trace;
-  int unsigned             dispatch_rs_id;
+  dispatch_trace_t dispatch_trace[PipeWidth];
+  int unsigned     dispatch_rs_id[PipeWidth];
 
   // Traces for regular execution
   issue_csr_trace_t csr_trace;
@@ -1412,33 +1410,37 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign core_trace = '{
     priv_level:     priv_lvl,
     loop_state:     loop_state,
-    // Whether the dispatch was stalled
+    // Whether the fetching was stalled
     stall:          stall,
-    stall_dispatch: !dispatched,
+    // Whether the dispatcher was stalled
+    stall_dispatch: !(|i_dispatcher.instr_dispatched),
     exception:      exception
   };
 
-  assign dispatch_trace = '{
-    valid:        i_controller.instr_dispatched || exception,
-    pc_q:         i_frontend.pc_q,
-    pc_d:         i_frontend.pc_d,
-    instr_data:   instr_fetch_data[0],
-    rs1:          instr_decoded[0].rs1,
-    phy_rs1:      reg_map[0].phy_reg_rs1,
-    rs2:          instr_decoded[0].rs2,
-    phy_rs2:      reg_map[0].phy_reg_rs2,
-    rs3:          instr_decoded[0].imm, // fused FPU instructions use imm as operand
-    phy_rs3:      reg_map[0].phy_reg_rs3,
-    rd:           instr_decoded[0].rd,
-    phy_rd:       en_superscalar ? reg_map[0].phy_reg_rd_new : reg_map[0].phy_reg_rd_old,
-    rs1_is_fp:    instr_decoded[0].rs1_is_fp,
-    rs2_is_fp:    instr_decoded[0].rs2_is_fp,
-    rd_is_fp:     instr_decoded[0].rd_is_fp,
-    fu_type:      schnova_pkg::fu_to_string(instr_decoded[0].fu),
-    disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response[0].producer)
-  };
-
-  assign dispatch_rs_id = i_dispatcher.fu_response[0].producer.rs_id;
+  for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_dispatch_traces
+    // verilog_lint: waive-start line-length
+    assign dispatch_trace[idx] = '{
+      valid:        (instr_exec_commit && instr_valid[idx] && i_dispatcher.fu_ready[idx] && !i_dispatcher.dispatched_q[idx]) || exception,
+      pc_q:         i_frontend.pc_q + (idx * 4),
+      pc_d:         i_frontend.pc_d,
+      instr_data:   instr_fetch_data[idx],
+      rs1:          instr_decoded[idx].rs1,
+      phy_rs1:      reg_map[idx].phy_reg_rs1,
+      rs2:          instr_decoded[idx].rs2,
+      phy_rs2:      reg_map[idx].phy_reg_rs2,
+      rs3:          instr_decoded[idx].imm, // fused FPU instructions use imm as operand
+      phy_rs3:      reg_map[idx].phy_reg_rs3,
+      rd:           instr_decoded[idx].rd,
+      phy_rd:       en_superscalar ? reg_map[idx].phy_reg_rd_new : reg_map[idx].phy_reg_rd_old,
+      rs1_is_fp:    instr_decoded[idx].rs1_is_fp,
+      rs2_is_fp:    instr_decoded[idx].rs2_is_fp,
+      rd_is_fp:     instr_decoded[idx].rd_is_fp,
+      fu_type:      schnova_pkg::fu_to_string(instr_decoded[idx].fu),
+      disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response[idx].producer)
+    };
+    // verilog_lint: waive-stop line-length
+    assign dispatch_rs_id[idx] = i_dispatcher.fu_response[idx].producer.rs_id;
+  end
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
@@ -1590,6 +1592,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   };
 
   schnova_tracer #(
+    .PipeWidth      (PipeWidth),
     .NofAlus        (NofAlus),
     .NofLsus        (NofLsus),
     .NofFpus        (NofFpus),
