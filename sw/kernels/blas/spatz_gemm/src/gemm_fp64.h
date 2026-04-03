@@ -30,6 +30,7 @@
 // #define LMUL "8"
 // #endif
 
+#define LMUL "NLMUL"
 
 #define SETVLEN(rd, rs) asm volatile("vsetvli %[vl], %[rvl], e64, m" LMUL ", ta, ma" \
                  : [vl] "=r"(rd) \
@@ -1093,3 +1094,4 @@ static inline void gemm_fp64_vec_base(uint32_t setup_ssr, uint32_t partition_ban
     asm volatile("fence");
     snrt_mcycle();
 }
+

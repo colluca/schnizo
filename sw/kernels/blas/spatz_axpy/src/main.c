@@ -6,11 +6,8 @@
 
 #include "axpy.h"
 #include "data.h"
-#include "math.h"
 
 #define NUM_RUNS 2
-
-#define PROBLEM_SIZE 1000
 
 int main() {
     for (volatile int run = 0; run < NUM_RUNS; run++) {

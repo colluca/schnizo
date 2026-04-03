@@ -4,7 +4,7 @@
 #
 # Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-APP              := sz_gemm
+APP              := spatz_gemm
 $(APP)_BUILD_DIR ?= $(SN_ROOT)/sw/kernels/blas/$(APP)/build
 SRC_DIR          := $(SN_ROOT)/sw/kernels/blas/$(APP)/src
 SRCS             := $(SRC_DIR)/main.c

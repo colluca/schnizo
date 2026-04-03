@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
-    "n_tiles": 1,
+    "n_tiles": 5,
     "double_buffer": false,
-    "n": 1000,
+    "n": 2560,
     "funcptr": "axpy_vec_frep"
 }
