@@ -119,7 +119,7 @@ packages:
     revision: null
     version: null
     source:
-      Path: ../spatz
+      Path: hw/spatz
     dependencies:
     - axi
     - axi_riscv_atomics

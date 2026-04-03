@@ -21,6 +21,7 @@ work.lib++/
 __pycache__
 gmon.out
 /simulation/
+/hw/spatz
 
 # Docs
 /site/
