@@ -10,7 +10,6 @@
 #include <stdint.h>
 
 #define JOB_ARGS_PRELOADED
-#define LMUL "NLMUL"
 // Instead of including blas.h include gemm.h directly
 #include "gemm.h"
 

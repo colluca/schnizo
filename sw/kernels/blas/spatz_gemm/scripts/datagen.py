@@ -78,9 +78,8 @@ class GemmDataGen(du.DataGen):
         assert not (parallelize_m and parallelize_k), 'Cannot parallelize k and m simultaneously'
         assert not (double_buffer and parallelize_k), 'Cannot parallelize k when double buffering'
         assert not transa, 'SIMD kernels don\'t support transposed A matrix'
-        # Removed the dtyoe == 8 assertion
-        # assert (dtype == 8) or (impl == 'baseline') or (impl == 'naive') \
-        #     or transb, 'Optimized SIMD kernels only support transposed B matrix'
+        assert (dtype == 8) or (impl == 'baseline') or (impl == 'naive') \
+            or transb, 'Optimized SIMD kernels only support transposed B matrix'
         assert (impl == 'baseline') or (impl == 'naive') or tile_n >= 8, \
             'n dimension of tile size must be greater or equal to the unrolling factor (8) ' \
             'when using optimized kernels'
