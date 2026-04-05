@@ -35,6 +35,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
+  parameter type         ext_res_req_t  = logic,
+  parameter type         available_result_t = logic,
   parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic
 ) (
@@ -85,8 +87,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
-  // TODO(colluca): constrain NofRss and NofResRspIfs to be equal
-  output operand_req_t [NofRss-1:0] available_results_o,
+  output available_result_t [NofRss-1:0] available_results_o,
 
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -94,7 +95,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - from each possible requester
-  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
+  input  ext_res_req_t [NofResRspIfs-1:0] res_reqs_i,
   input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
   output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
 
@@ -411,6 +412,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .operand_req_t   (operand_req_t),
     .operand_t       (operand_t),
     .res_req_t       (res_req_t),
+    .ext_res_req_t   (ext_res_req_t),
+    .available_result_t   (available_result_t),
     .dest_mask_t     (dest_mask_t),
     .res_rsp_t       (res_rsp_t)
   ) i_res_stat_slots (

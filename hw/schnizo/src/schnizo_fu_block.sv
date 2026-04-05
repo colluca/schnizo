@@ -35,6 +35,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
+  parameter type         ext_res_req_t  = logic,
+  parameter type         available_result_t  = logic,
   parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic
 ) (
@@ -86,7 +88,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
-  output operand_req_t [cf_math_pkg::iomsb(NofRss):0] available_results_o,
+  output available_result_t [cf_math_pkg::iomsb(NofRss):0] available_results_o,
 
   // TODO(colluca): use generic_reqrsp interfaces for all of these. Would then reduce to four signals:
   // operand_req_o, operand_rsp_i, result_req_i, result_rsp_o.
@@ -97,12 +99,12 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   output logic         [NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
-  // Result request interface - incoming - from each possible requester
-  input  dest_mask_t [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_i,
+  // Result request interface - incoming - one per response port
+  input  ext_res_req_t [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_i,
   input  logic       [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_valid_i,
   output logic       [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_ready_o,
 
-  // Result response interface - outgoing - result as operand response
+  // Result response interface - outgoing - one per response port
   output res_rsp_t [cf_math_pkg::iomsb(NofResRspIfs):0] res_rsps_o,
   output logic     [cf_math_pkg::iomsb(NofResRspIfs):0] res_rsps_valid_o,
   input  logic     [cf_math_pkg::iomsb(NofResRspIfs):0] res_rsps_ready_i,
@@ -288,6 +290,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
+      .ext_res_req_t (ext_res_req_t),
+      .available_result_t   (available_result_t),
       .dest_mask_t   (dest_mask_t),
       .res_rsp_t     (res_rsp_t)
     ) i_res_stat (

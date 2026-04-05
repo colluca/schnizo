@@ -29,6 +29,8 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   parameter  type             operand_req_t    = logic,
   parameter  type             operand_t        = logic,
   parameter  type             res_req_t        = logic,
+  parameter  type             ext_res_req_t    = logic,
+  parameter  type             available_result_t = logic,
   parameter  type             dest_mask_t      = logic,
   parameter  type             res_rsp_t        = logic,
   localparam integer unsigned NofRssWidth      = cf_math_pkg::idx_width(NofRss),
@@ -73,13 +75,13 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   input  logic        rf_wb_ready_i,
 
   // Operand request
-  output operand_req_t [NofRss-1:0]      available_results_o,
+  output available_result_t [NofRss-1:0] available_results_o,
   output operand_req_t [NofOperands-1:0] op_reqs_o,
   output logic         [NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Result request
-  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
+  input  ext_res_req_t [NofResRspIfs-1:0] res_reqs_i,
   input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
   output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
 
@@ -107,7 +109,6 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   // Connections //
   /////////////////
 
-
   rss_idx_t result_rss_sel;
   assign result_rss_sel = rss_idx_t'(result_tag_i);
 
@@ -117,7 +118,9 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   rs_slot_result_t [NofRss-1:0] slot_result_qs;    // registered result state of each slot
   rs_slot_result_t [NofRss-1:0] slot_result_ds;    // next result state for each slot
   rs_slot_result_t              slot_result_init;  // initial result state from dispatch pipeline (LCP1)
-  rs_slot_result_t [NofRss-1:0] slot_res_rsps;     // post-res-req-handling result state from each slot
+  rs_slot_result_t [NofResRspIfs-1:0] handler_slot_out;  // Per-port handler outputs (indexed by response port k)
+  rs_slot_result_t [NofRss-1:0]       slot_base_state;   // Per-slot pre-handler state (registered or dispatch init)
+  rs_slot_result_t [NofRss-1:0]       slot_updated_state; // Per-slot post-handler state, before FU result capture
   rs_slot_result_t              slot_wb_capture;   // post-result-capture result state for the selected slot
   result_tag_t                  capture_rf_wb_tag;
   logic                         capture_rf_do_writeback;
@@ -213,6 +216,12 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
   // Result request handling //
   /////////////////////////////
 
+  // Per-slot identifiers and enable_capture_consumers state.
+  // enable_capture_consumers is per-slot state tracking whether we are in the consumer-counting
+  // phase (between LCP1 and LCP2 results). It must be per-slot because response ports can be
+  // dynamically reassigned across cycles.
+  logic [NofRss-1:0] enable_cap_consumers_q, enable_cap_consumers_d;
+
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_rss
     assign slot_ids[rss] = slot_id_t'(rss);
     assign rss_ids[rss] = producer_id_t'{
@@ -220,36 +229,74 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
       rs_id:   producer_id_i.rs_id
     };
 
-    // Demux to update only selected result slot (if any)
+    // Per-slot available result info
+    assign available_results_o[rss].iteration = slot_result_qs[rss].result.iteration;
+    assign available_results_o[rss].valid = slot_result_qs[rss].result.is_valid;
+
+    // Per-slot enable_capture_consumers state machine.
+    logic retired_rss;
+    assign retired_rss = result_valid_i && result_ready_o && (rss_idx_t'(rss) == result_rss_sel);
+
+    always_comb begin
+      enable_cap_consumers_d[rss] = enable_cap_consumers_q[rss];
+      // Set after LCP1 result arrives for this slot
+      if (!enable_cap_consumers_q[rss] && retired_rss && (loop_state_i == LoopLcp1)) begin
+        enable_cap_consumers_d[rss] = 1'b1;
+      end
+      // Clear after LCP2 result arrives for this slot
+      if (enable_cap_consumers_q[rss] && retired_rss) begin
+        enable_cap_consumers_d[rss] = 1'b0;
+      end
+      // Initialization has highest priority
+      if (restart_i) begin
+        enable_cap_consumers_d[rss] = 1'b0;
+      end
+    end
+    `FFAR(enable_cap_consumers_q[rss], enable_cap_consumers_d[rss], 1'b0, clk_i, rst_i);
+
+    // Per-slot base state: use slot_result_init on dispatch so the fresh init is always
+    // captured regardless of whether a result request is in flight, otherwise fall back to the
+    // registered state. This is also what the handler reads as its input.
+    assign slot_base_state[rss] = (disp_req_valid_i && disp_idx_i == rss_idx_t'(rss)) ?
+                                  slot_result_init : slot_result_qs[rss];
+
+    // Per-slot updated state: apply handler output if a port is serving this slot,
+    // otherwise use the base state.
+    always_comb begin
+      slot_updated_state[rss] = slot_base_state[rss];
+      for (int k = 0; k < NofResRspIfs; k++) begin
+        if (res_reqs_valid_i[k] && res_reqs_i[k].slot_id == rss_idx_t'(rss)) begin
+          slot_updated_state[rss] = handler_slot_out[k];
+        end
+      end
+    end
+
+    // Result state register: FU result capture has highest priority.
     assign slot_result_ds[rss] = (rss_idx_t'(rss) == result_rss_sel) ?
-                                 slot_wb_capture : slot_res_rsps[rss];
+                                 slot_wb_capture : slot_updated_state[rss];
     // Result slot
     `FFAR(slot_result_qs[rss], slot_result_ds[rss], slot_result_reset, clk_i, rst_i);
+  end
+
+  // NofResRspIfs result request handlers — one per response port.
+  for (genvar k = 0; k < NofResRspIfs; k++) begin : gen_rsp_ports
+    rss_idx_t slot_sel;
+    assign slot_sel = res_reqs_i[k].slot_id;
 
     schnizo_rss_res_req_handling #(
       .rs_slot_result_t(rs_slot_result_t),
-      .operand_req_t   (operand_req_t),
-      .producer_id_t   (producer_id_t),
       .dest_mask_t     (dest_mask_t),
       .res_rsp_t       (res_rsp_t)
     ) i_res_req_handling (
-      .clk_i,
-      .rst_i,
-      // TODO(colluca): is this 100% correct?
-      .slot_i            (disp_req_valid_i && (rss_idx_t'(rss) == disp_idx_i) ?
-                          slot_result_init : slot_result_qs[rss]),
-      .retired_i         (result_valid_i && result_ready_o && (rss_idx_t'(rss) == result_rss_sel)),
-      .loop_state_i      (loop_state_i),
-      .restart_i         (restart_i),
-      .producer_id_i     (rss_ids[rss]),
-      .slot_o            (slot_res_rsps[rss]),
-      .dest_mask_i       (res_reqs_i[rss]),
-      .dest_mask_valid_i (res_reqs_valid_i[rss]),
-      .dest_mask_ready_o (res_reqs_ready_o[rss]),
-      .available_result_o(available_results_o[rss]),
-      .res_rsp_o         (res_rsps_o[rss]),
-      .res_rsp_valid_o   (res_rsps_valid_o[rss]),
-      .res_rsp_ready_i   (res_rsps_ready_i[rss])
+      .slot_i            (slot_base_state[slot_sel]),
+      .enable_capture_consumers_i(enable_cap_consumers_q[slot_sel]),
+      .slot_o            (handler_slot_out[k]),
+      .dest_mask_i       (res_reqs_i[k].dest_mask),
+      .dest_mask_valid_i (res_reqs_valid_i[k]),
+      .dest_mask_ready_o (res_reqs_ready_o[k]),
+      .res_rsp_o         (res_rsps_o[k]),
+      .res_rsp_valid_o   (res_rsps_valid_o[k]),
+      .res_rsp_ready_i   (res_rsps_ready_i[k])
     );
   end
 
@@ -393,7 +440,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     .result_tag_t    (result_tag_t),
     .disp_req_t      (disp_req_t)
   ) i_result_capture (
-    .slot_i               (slot_res_rsps[result_rss_sel]),
+    .slot_i               (slot_updated_state[result_rss_sel]),
     .result_i             (result_i),
     .result_valid_i       (rss_wb_valid_sync),
     .loop_state_i         (loop_state_i),

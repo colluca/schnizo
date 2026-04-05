@@ -1032,10 +1032,10 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   wb_fu_trace_t fpu_wb_trace;
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
-  // Traces for result requests (each RSS has one signal per request crossbar output)
-  resreq_trace_t alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs];
-  resreq_trace_t lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)][NofOperandIfs];
-  resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
+  // Traces for result requests (each response port has one signal per request crossbar output)
+  resreq_trace_t alu_resreq_traces [NofAlus][AluNofResRspPorts][NofOperandIfs];
+  resreq_trace_t lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
+  resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofResRspPorts][NofOperandIfs];
 
   // Traces for result captures (each RSS has one signal)
   rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
@@ -1071,9 +1071,10 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign dispatch_rs_id = i_dispatcher.fu_response.producer.rs_id;
 
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
+    // Issue and rescap traces: one per RSS slot
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_alu_traces_rss_trace_resreq
+      if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
           valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_valid_i &&
                           i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_ready_o &&
@@ -1082,7 +1083,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           // after porting issue slots to SRAM
           instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
           alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
         };
@@ -1094,31 +1095,38 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
                           (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
           result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
           rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
           result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
         };
-      end else begin : gen_alu_traces_rss_no_trace_resreq
+      end else begin : gen_alu_traces_rss_no_trace
         assign rss_alu_traces[alu][rss]    = '{default: '0};
         assign alu_rescap_traces[alu][rss] = '{default: '0};
       end
+      // verilog_lint: waive-stop line-length
+    end
+    // Resreq traces: one per response port
+    for (genvar port = 0; port < AluNofResRspPorts; port++) begin : gen_alu_traces_rsp_ports
+      // verilog_lint: waive-start line-length
       // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rss_resreq
-        if (Xfrep) begin : gen_alu_traces_rss_resreq_frep
-          assign alu_resreq_traces[alu][rss][con] = '{
-            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rsp_port_resreq
+        if (Xfrep) begin : gen_alu_traces_rsp_port_resreq_frep
+          assign alu_resreq_traces[alu][port][con] = '{
+            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+                                i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
+            requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
+                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
           };
-        end else begin : gen_alu_traces_rss_no_resreq
-          assign alu_resreq_traces[alu][rss][con] = '{default: '0};
+        end else begin : gen_alu_traces_rsp_port_no_resreq
+          assign alu_resreq_traces[alu][port][con] = '{default: '0};
         end
       end
       // verilog_lint: waive-stop line-length
@@ -1126,16 +1134,17 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   end
 
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsu_traces
+    // Issue and rescap traces: one per RSS slot
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_lsu_traces_rss_trace_resreq
+      if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
           valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_valid_i &&
                           i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_ready_o &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_idx_i == rss),
           instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1152,31 +1161,38 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
           result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
           rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
           result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
         };
-      end else begin : gen_lsu_traces_rss_no_trace_resreq
+      end else begin : gen_lsu_traces_rss_no_trace
         assign rss_lsu_traces[lsu][rss]    = '{default: '0};
         assign lsu_rescap_traces[lsu][rss] = '{default: '0};
       end
+      // verilog_lint: waive-stop line-length
+    end
+    // Resreq traces: one per response port
+    for (genvar port = 0; port < LsuNofResRspPorts; port++) begin : gen_lsu_traces_rsp_ports
+      // verilog_lint: waive-start line-length
       // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rss_reqreq
-        if (Xfrep) begin : gen_lsu_traces_rss_resreq_frep
-          assign lsu_resreq_traces[lsu][rss][con] = '{
-            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rsp_port_resreq
+        if (Xfrep) begin : gen_lsu_traces_rsp_port_resreq_frep
+          assign lsu_resreq_traces[lsu][port][con] = '{
+            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+                                i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
+            requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
+                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
           };
-        end else begin : gen_lsu_traces_rss_no_resreq
-          assign lsu_resreq_traces[lsu][rss][con] = '{default: '0};
+        end else begin : gen_lsu_traces_rsp_port_no_resreq
+          assign lsu_resreq_traces[lsu][port][con] = '{default: '0};
         end
       end
       // verilog_lint: waive-stop line-length
@@ -1184,6 +1200,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   end
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpu_traces
+    // Issue and rescap traces: one per RSS slot
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
@@ -1193,7 +1210,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                       (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_idx_i == rss),
           instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
           producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
           fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b,
           fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.imm,
@@ -1209,31 +1226,38 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                           !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
                           (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
           result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
           rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
           rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
           result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
         };
-      end else begin : gen_fpu_traces_no_rss
+      end else begin : gen_fpu_traces_rss_no_trace
         assign rss_fpu_traces[fpu][rss]    = '{default: '0};
         assign fpu_rescap_traces[fpu][rss] = '{default: '0};
       end
+      // verilog_lint: waive-stop line-length
+    end
+    // Resreq traces: one per response port
+    for (genvar port = 0; port < FpuNofResRspPorts; port++) begin : gen_fpu_traces_rsp_ports
+      // verilog_lint: waive-start line-length
       // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rss_resreq
-        if (Xfrep) begin : gen_fpu_traces_rss_resreq_frep
-          assign fpu_resreq_traces[fpu][rss][con] = '{
-            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[rss] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[rss][con],
+      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rsp_port_resreq
+        if (Xfrep) begin : gen_fpu_traces_rsp_port_resreq_frep
+          assign fpu_resreq_traces[fpu][port][con] = '{
+            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
             producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.gen_rss[rss].i_res_req_handling.producer_id_i),
+                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+                                i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
             consumer:       i_fu_stage.consumer_to_string(con),
             // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[rss].request.requested_iter
+            requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
+                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
           };
-        end else begin : gen_fpu_traces_no_resreq
-          assign fpu_resreq_traces[fpu][rss][con] = '{default: '0};
+        end else begin : gen_fpu_traces_rsp_port_no_resreq
+          assign fpu_resreq_traces[fpu][port][con] = '{default: '0};
         end
       end
       // verilog_lint: waive-stop line-length
@@ -1307,14 +1331,17 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   };
 
   schnizo_tracer #(
-    .NofAlus        (NofAlus),
-    .NofLsus        (NofLsus),
-    .NofFpus        (NofFpus),
-    .AluNofRss      (AluNofRss),
-    .LsuNofRss      (LsuNofRss),
-    .FpuNofRss      (FpuNofRss),
-    .NofOperandIfs  (NofOperandIfs),
-    .Xfrep          (Xfrep)
+    .NofAlus              (NofAlus),
+    .NofLsus              (NofLsus),
+    .NofFpus              (NofFpus),
+    .AluNofRss            (AluNofRss),
+    .LsuNofRss            (LsuNofRss),
+    .FpuNofRss            (FpuNofRss),
+    .AluNofResRspPorts    (AluNofResRspPorts),
+    .LsuNofResRspPorts    (LsuNofResRspPorts),
+    .FpuNofResRspPorts    (FpuNofResRspPorts),
+    .NofOperandIfs        (NofOperandIfs),
+    .Xfrep                (Xfrep)
   ) i_tracer (
     .clk_i              (clk_i),
     .rst_i              (rst_i),

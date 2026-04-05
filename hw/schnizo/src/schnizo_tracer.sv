@@ -6,14 +6,17 @@
 
 // Schnizo core tracer.
 module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
-  parameter int unsigned NofAlus    = 3,
-  parameter int unsigned NofLsus    = 1,
-  parameter int unsigned NofFpus    = 1,
-  parameter int unsigned AluNofRss  = 3,
-  parameter int unsigned LsuNofRss  = 2,
-  parameter int unsigned FpuNofRss  = 4,
-  parameter int unsigned NofOperandIfs = 1,
-  parameter bit          Xfrep      = 1
+  parameter int unsigned NofAlus            = 3,
+  parameter int unsigned NofLsus            = 1,
+  parameter int unsigned NofFpus            = 1,
+  parameter int unsigned AluNofRss          = 3,
+  parameter int unsigned LsuNofRss          = 2,
+  parameter int unsigned FpuNofRss          = 4,
+  parameter int unsigned AluNofResRspPorts  = 1,
+  parameter int unsigned LsuNofResRspPorts  = 1,
+  parameter int unsigned FpuNofResRspPorts  = 1,
+  parameter int unsigned NofOperandIfs      = 1,
+  parameter bit          Xfrep              = 1
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -39,9 +42,9 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   input  wb_fu_trace_t            fpu_wb_trace,
   input  wb_fu_trace_t            csr_wb_trace,
   input  wb_fu_trace_t            acc_wb_trace,
-  input  resreq_trace_t           alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs],
-  input  resreq_trace_t           lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)][NofOperandIfs],
-  input  resreq_trace_t           fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs],
+  input  resreq_trace_t           alu_resreq_traces [NofAlus][AluNofResRspPorts][NofOperandIfs],
+  input  resreq_trace_t           lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs],
+  input  resreq_trace_t           fpu_resreq_traces [NofFpus][FpuNofResRspPorts][NofOperandIfs],
   input  rescap_trace_t           alu_rescap_traces [NofAlus][AluNofRss],
   input  rescap_trace_t           lsu_rescap_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
   input  rescap_trace_t           fpu_rescap_traces [NofFpus][FpuNofRss]
@@ -109,29 +112,29 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       // Result request events - these should only be active during LCP and LEP.
       // We can capture them "always".
       for (int alu = 0; alu < NofAlus; alu++) begin
-        for (int rss = 0; rss < AluNofRss; rss++) begin
+        for (int port = 0; port < AluNofResRspPorts; port++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
-                              format_resreq_trace(alu_resreq_traces[alu][rss][con]),
-                              alu_resreq_traces[alu][rss][con].valid);
+                              format_resreq_trace(alu_resreq_traces[alu][port][con]),
+                              alu_resreq_traces[alu][port][con].valid);
           end
         end
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
-        for (int rss = 0; rss < LsuNofRss; rss++) begin
+        for (int port = 0; port < LsuNofResRspPorts; port++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
-                              format_resreq_trace(lsu_resreq_traces[lsu][rss][con]),
-                              lsu_resreq_traces[lsu][rss][con].valid);
+                              format_resreq_trace(lsu_resreq_traces[lsu][port][con]),
+                              lsu_resreq_traces[lsu][port][con].valid);
           end
         end
       end
       for (int fpu = 0; fpu < NofFpus; fpu++) begin
-        for (int rss = 0; rss < FpuNofRss; rss++) begin
+        for (int port = 0; port < FpuNofResRspPorts; port++) begin
           for (int con = 0; con < NofOperandIfs; con++) begin
             write_trace_event(file_id, trace_header, "resreq",
-                              format_resreq_trace(fpu_resreq_traces[fpu][rss][con]),
-                              fpu_resreq_traces[fpu][rss][con].valid);
+                              format_resreq_trace(fpu_resreq_traces[fpu][port][con]),
+                              fpu_resreq_traces[fpu][port][con].valid);
           end
         end
       end

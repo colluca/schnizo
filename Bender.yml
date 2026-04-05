@@ -190,7 +190,6 @@ sources:
       - hw/schnizo/src/schnizo_rsp_xbar.sv
       # Level 2
       - hw/schnizo/src/schnizo_tracer.sv
-      - hw/schnizo/src/schnizo_res_req_mux.sv
       - hw/schnizo/src/schnizo_controller.sv
       # Level 3
       - hw/schnizo/src/schnizo_res_stat_constant_memory.sv
