@@ -103,6 +103,11 @@ package schnizo_synth_pkg;
   } alu_result_t;
 
   typedef struct packed {
+    logic valid;
+    logic iteration;
+  } available_result_t;
+
+  typedef struct packed {
     logic        requested_iter;
     slot_id_t    slot_id;
   } res_req_t;

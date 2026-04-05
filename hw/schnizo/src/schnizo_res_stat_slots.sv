@@ -258,7 +258,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     // captured regardless of whether a result request is in flight, otherwise fall back to the
     // registered state. This is also what the handler reads as its input.
     assign slot_base_state[rss] = (disp_req_valid_i && disp_idx_i == rss_idx_t'(rss)) ?
-                                  slot_result_init : slot_result_qs[rss];
+                                   slot_result_init : slot_result_qs[rss];
 
     // Per-slot updated state: apply handler output if a port is serving this slot,
     // otherwise use the base state.
