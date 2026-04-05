@@ -372,12 +372,13 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   operand_req_t [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs;
   logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_valid;
   logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_ready;
-  res_req_t     [SpatzNofResReqIfs-1:0][NofOperandIfs-1:0]   spatz_res_reqs;
-  logic         [SpatzNofResReqIfs-1:0][NofOperandIfs-1:0]   spatz_res_reqs_valid;
-  logic         [SpatzNofResReqIfs-1:0][NofOperandIfs-1:0]   spatz_res_reqs_ready;
-  res_rsp_t     [SpatzNofResRspIfs-1:0]                      spatz_res_rsps;
-  logic         [SpatzNofResRspIfs-1:0]                      spatz_res_rsps_valid;
-  logic         [SpatzNofResRspIfs-1:0]                      spatz_res_rsps_ready;
+  operand_req_t [SpatzNofRss-1:0]                            spatz_available_results;
+  dest_mask_t   [SpatzNofRss-1:0]                            spatz_res_reqs;
+  logic         [SpatzNofRss-1:0]                            spatz_res_reqs_valid;
+  logic         [SpatzNofRss-1:0]                            spatz_res_reqs_ready;
+  res_rsp_t     [SpatzNofRss-1:0]                            spatz_res_rsps;
+  logic         [SpatzNofRss-1:0]                            spatz_res_rsps_valid;
+  logic         [SpatzNofRss-1:0]                            spatz_res_rsps_ready;
   operand_t     [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps;
   logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_valid;
   logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_ready;
@@ -571,9 +572,10 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           spatz_res_reqs[spatz_req_if]       = res_reqs[req_if];
           spatz_res_reqs_valid[spatz_req_if] = res_reqs_valid[req_if];
           res_reqs_ready[req_if]             = spatz_res_reqs_ready[spatz_req_if];
+          available_results[req_if]           = spatz_available_results[spatz_req_if];
           req_if = req_if + 1;
         end
-        for (int rsp = 0; rsp < SpatzNofResRspIfs; rsp++) begin
+        for (int rsp = 0; rsp < SpatzNofRss; rsp++) begin
           // responses
           res_rsps[rsp_if]             = spatz_res_rsps[rsp];
           res_rsps_valid[rsp_if]       = spatz_res_rsps_valid[rsp];
@@ -1365,8 +1367,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .NofRss        (SpatzNofRss),
     .NofOperands   (SpatzNofOperands),
     .NofOpPorts    (SpatzNofOpPorts),
-    .NofOperandIfs (NofOperandIfs),
-    .NofResRspIfs  (SpatzNofResRspIfs),
+    .NofResRspIfs  (SpatzNofRss),
     .ConsumerCount (ConsumerCount),
     .RegAddrWidth  (RegAddrWidth),
     .MaxIterationsW(MaxIterationsW),
@@ -1413,6 +1414,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .wb_result_valid_o  (spatz_wb_result_valid_o),
     .wb_result_ready_i  (spatz_wb_result_ready_i),
     /// Operand distribution network
+    .available_results_o(spatz_available_results),
     .op_reqs_o          (spatz_op_reqs),
     .op_reqs_valid_o    (spatz_op_reqs_valid),
     .op_reqs_ready_i    (spatz_op_reqs_ready),
@@ -1509,7 +1511,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .clk_i                   (clk_i                 ),
     .rst_ni                  (~rst_i                ),
     .testmode_i              ('0                    ),
-    .hart_id_i               (hart_id_i             ),
+    .hart_id_i               (hard_id_i             ),
     .issue_valid_i           (spatz_issue_req_valid  ),
     .issue_ready_o           (spatz_issue_req_ready  ),
     .issue_req_i             (acc_spatz_req        ), //Special care

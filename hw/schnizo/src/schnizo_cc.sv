@@ -173,7 +173,7 @@ module schnizo_cc #(
   // same performance with only one LSU. The difference is that Snitch can "buffer" more memory
   // requests in the LSU queue (more outstanding transactions).
   // TODO: create parameter for number of FUs.
-  localparam int unsigned NofLsus               = TCDMPorts;
+  localparam int unsigned NofLsus               = NumLsus;
   // Request buffering & cuts
   // For a first implementation we use a buffer depth of 4.
   // This is as similar to the Snitch as possible.
