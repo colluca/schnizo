@@ -68,7 +68,7 @@ module schnizo_rsp_xbar #(
   logic     [NumOut-1:0][TotalNofRspPorts-1:0] mux2_valid;
   logic     [NumOut-1:0][TotalNofRspPorts-1:0] mux2_ready;
 
-  // Generate the first stage of muxes (NofRss -> 1)
+  // Generate the first stage of muxes (NofRss -> NofRspPorts)
   for (genvar i = 0; i < NofRs; i++) begin : gen_rs_muxes
     if (NofRss[i] > 0) begin : gen_rs_mux
 
