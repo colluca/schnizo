@@ -547,11 +547,11 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // There can't be more than NofConstantPorts constants per instruction
   // TODO(colluca): replace with fallback to HWLOOP mode
-  logic [1:0] num_constants;
+  logic [cf_math_pkg::idx_width(NofOperands+1)-1:0] num_constants;
   always_comb begin
     num_constants = 0;
     for (int unsigned op = 0; op < NofOperands; op++) begin
-      num_constants += !selected_slot.operands[op].is_produced;
+      num_constants += selected_slot.operands[op].is_used && !selected_slot.operands[op].is_produced;
     end
   end
   `ASSERT(MaxConstantsPerInsn, ((loop_state_i == LoopLcp2) && disp_hs) |-> (num_constants <= NofConstantPorts))
