@@ -491,6 +491,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // --------------------------------
       // Floating-Point Reg-Reg Operations
       // --------------------------------
+      // TODO(colluca): FMV instructions are arguably not reg-reg operations
       OpcodeOpFp: begin
         if (RVF || RVD) begin
           instr_dec_o.fu        = schnizo_pkg::FPU;
@@ -563,6 +564,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b01000: begin
               // overwrite the destination format. Check the source format.
+              instr_dec_o.use_rs2 = 1'b0;
               unique case ({instr.rftype.fmt, instr.rftype.rs2})
                 7'b01_00000: begin
                   instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2F; // FCVT_D_S
@@ -577,6 +579,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b11000: begin
               instr_dec_o.rd_is_fp = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               unique case (instr.rftype.rs2)
                 5'b00000: instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2I;        //FCVT_W_S, FCVT_W_D
                 5'b00001: instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2Iunsigned;//FCVT_WU_S, FCVT_WU_D
@@ -596,6 +599,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b11100: begin
               check_fpround_mode = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               unique case (instr.rftype.rm)
                 3'b000: begin
                   instr_dec_o.rd_is_fp = 1'b0;
@@ -614,6 +618,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b11010: begin
               instr_dec_o.rs1_is_fp  = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               unique case (instr.rftype.rs2)
                 5'b00000: instr_dec_o.fpu_op = schnizo_pkg::FpuOpI2F;        //FCVT_S_W, FCVT_D_W
                 5'b00001: instr_dec_o.fpu_op = schnizo_pkg::FpuOpI2Funsigned;//FCVT_S_WU, FCVT_D_WU
@@ -621,8 +626,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
               endcase
             end
             5'b11110: begin
+              instr_dec_o.rs1_is_fp = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               if (instr.rftype.rs2 == '0 && instr.rftype.rm == '0) begin
-              instr_dec_o.rs1_is_fp  = 1'b0;
                 instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsgnj; // FMV_W_X
                 instr_dec_o.fpu_rnd_mode = fpnew_pkg::RUP; // passthrough
               end else begin
