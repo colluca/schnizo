@@ -76,14 +76,14 @@
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/dma_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/dma_core_template" },
                 ]
             }
         ]
@@ -103,15 +103,15 @@
     ],
     // Templates.
     compute_core_template: {
-        isa: "rv32imafd",
+        isa: "rv32imafdv",
         xfrep: true, // enables the superscalar feature
         xdma: false,
-        xf16: false,
-        xf16alt: false,
-        xf8: false,
-        xf8alt: false,
-        xfdotp: false,
-        xfvec: false,
+        xf16: true,
+        xf16alt: true,
+        xf8: true,
+        xf8alt: true,
+        xfdotp: true,
+        xfvec: true,
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         // Superscalar configuration

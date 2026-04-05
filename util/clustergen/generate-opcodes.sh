@@ -13,7 +13,17 @@ OPCODES=(opcodes-pseudo opcodes-rv32i opcodes-rv64i opcodes-rv32m opcodes-rv64m 
 #######
 # RTL #
 #######
-OPCODES+=(opcodes-rvv opcodes-ipu_CUSTOM)
+# OPCODES+=(opcodes-rvv opcodes-ipu_CUSTOM)
+# Add all RVV opcode files
+OPCODES+=(
+  opcodes-rvv
+  opcodes-rvv-memidx
+  opcodes-rvv-mask
+  opcodes-rvv-slide
+  opcodes-rvv-reduction
+  opcodes-rvv-convert
+)
+
 INSTR_SV=$ROOT/hw/snitch/src/riscv_instr.sv
 
 cat > $INSTR_SV <<- EOM

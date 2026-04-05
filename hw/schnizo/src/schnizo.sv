@@ -697,6 +697,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
     .fpu_rs_full_i       (fpu_rs_full),
+    // SPATZ
+    .spatz_disp_req_valid_o(spatz_disp_req_valid),
+    .spatz_disp_req_ready_i(spatz_disp_req_ready),
+    .spatz_disp_rsp_i      (spatz_disp_rsp),
+    .spatz_rs_full_i       (spatz_rs_full),
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
@@ -1530,9 +1535,10 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_spatz_traces_rss_resreq
       if (Xfrep) begin : gen_spatz_traces_rss_resreq_frep
         assign spatz_resreq_traces[rss][con] = '{
-          valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+          valid:          0,
+	  // valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+          //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
+          //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.own_producer_id_i),
           consumer:       i_fu_stage.consumer_to_string(con),
