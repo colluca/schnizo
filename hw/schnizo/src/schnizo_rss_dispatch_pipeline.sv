@@ -348,6 +348,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
       odn_op_reqs_valid_o[op] = alloc_const_op_slot.is_occupied &&
         !(loop_state_i == LoopLcp1 && alloc_const_op_slot.instruction_iter == 1'b1) &&
+        alloc_const_op_slot.operands[op].is_used &&
         alloc_const_op_slot.operands[op].is_produced &&
         !selected_op_slots[op].is_valid &&
         !selected_op_slots[op].requested;
