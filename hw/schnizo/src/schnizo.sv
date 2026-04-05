@@ -1076,9 +1076,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_valid_i &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_ready_o &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_idx_i == rss),
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
                           // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
                           // after porting issue slots to SRAM
           instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
@@ -1139,9 +1139,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_valid_i &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_ready_o &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_idx_i == rss),
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
           instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
@@ -1205,9 +1205,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_valid_i &&
-                       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_req_ready_o &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.disp_idx_i == rss),
+          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+                       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+                      (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
           instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
           producer:    i_fu_stage.producer_to_string(
                         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
