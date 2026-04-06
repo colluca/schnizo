@@ -312,12 +312,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
   // TODO(colluca): this should be done for all FUs to support NofRss==0 (i.e. no Xfrep)
   available_result_t [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofRss):0]       lsu_available_results;
-  ext_res_req_t   [NofLsus-1:0][LsuNofResRspPorts-1:0]                 lsu_res_reqs;
-  logic         [NofLsus-1:0][LsuNofResRspPorts-1:0]                 lsu_res_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofResRspPorts-1:0]                 lsu_res_reqs_ready;
-  res_rsp_t     [NofLsus-1:0][LsuNofResRspPorts-1:0]                 lsu_res_rsps;
-  logic         [NofLsus-1:0][LsuNofResRspPorts-1:0]                 lsu_res_rsps_valid;
-  logic         [NofLsus-1:0][LsuNofResRspPorts-1:0]                 lsu_res_rsps_ready;
+  ext_res_req_t   [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofResRspPorts):0]                 lsu_res_reqs;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofResRspPorts):0]                 lsu_res_reqs_valid;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofResRspPorts):0]                 lsu_res_reqs_ready;
+  res_rsp_t     [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofResRspPorts):0]                 lsu_res_rsps;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofResRspPorts):0]                 lsu_res_rsps_valid;
+  logic         [NofLsus-1:0][cf_math_pkg::iomsb(LsuNofResRspPorts):0]                 lsu_res_rsps_ready;
   operand_t     [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_valid;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_ready;
