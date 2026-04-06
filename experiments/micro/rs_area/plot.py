@@ -44,16 +44,16 @@ def results(dir=None):
 
 def plot(dir=None, show=False, hide_x_axis=False):
     df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4)]
+    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4) & (df['NofOperands'] == 3)]
     print(df)
 
     # Pivot CombArea and SeqArea separately
-    comb_df = df.pivot_table(index='NofRss', columns='NofOperands', values='CombArea')
-    seq_df = df.pivot_table(index='NofRss', columns='NofOperands', values='SeqArea')
+    comb_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='CombArea')
+    seq_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='SeqArea')
 
-    operands = comb_df.columns
+    ports = comb_df.columns
     n_groups = len(comb_df.index)
-    n_bars = len(operands)
+    n_bars = len(ports)
     x = np.arange(n_groups)
     width = 0.8 / n_bars
 
@@ -61,7 +61,7 @@ def plot(dir=None, show=False, hide_x_axis=False):
     fig, ax = plt.subplots()
     prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-    for i, ops in enumerate(operands):
+    for i, p in enumerate(ports):
         base_color = prop_cycle[i % len(prop_cycle)]
         # Convert hex to RGB, create a darker shade for SeqArea
         from matplotlib.colors import to_rgba
@@ -69,10 +69,10 @@ def plot(dir=None, show=False, hide_x_axis=False):
         light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
 
         offset = (i - (n_bars - 1) / 2) * width
-        ax.bar(x + offset, comb_df[ops], width, label=f'{ops} op. (comb)',
+        ax.bar(x + offset, comb_df[p], width, label=f'{p} port{"" if int(p) == 1 else "s"} (comb)',
                color=base_color, zorder=3)
-        ax.bar(x + offset, seq_df[ops], width, bottom=comb_df[ops],
-               label=f'{ops} op. (seq)', color=light, zorder=3)
+        ax.bar(x + offset, seq_df[p], width, bottom=comb_df[p],
+               label=f'{p} port{"" if int(p) == 1 else "s"} (seq)', color=light, zorder=3)
 
     ax.set_ylabel('Area [kGE]')
     ax.set_xticks(x)
@@ -81,28 +81,28 @@ def plot(dir=None, show=False, hide_x_axis=False):
     else:
         ax.set_xlabel('Number of RSEs')
         ax.set_xticklabels(comb_df.index)
-    ax.legend()
+    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
     ax.grid(True, axis='y')
     fig.tight_layout()
 
     if show:
         plt.show()
 
-    return df.pivot_table(index='NofRss', columns='NofOperands', values='StdCellArea')
+    return df.pivot_table(index='NofRss', columns='NofResRspIfs', values='StdCellArea')
 
 
 def plot_constants(dir=None, show=False, hide_x_axis=False):
     df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofRss'] == 4)]
+    df = df[(df['ConsumerCount'] == 64) & (df['NofRss'] == 4) & (df['NofOperands'] == 3)]
     print(df)
 
     # Pivot CombArea and SeqArea separately
-    comb_df = df.pivot_table(index='NofConstants', columns='NofOperands', values='CombArea')
-    seq_df = df.pivot_table(index='NofConstants', columns='NofOperands', values='SeqArea')
+    comb_df = df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='CombArea')
+    seq_df = df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='SeqArea')
 
-    operands = comb_df.columns
+    ports = comb_df.columns
     n_groups = len(comb_df.index)
-    n_bars = len(operands)
+    n_bars = len(ports)
     x = np.arange(n_groups)
     width = 0.8 / n_bars
 
@@ -110,7 +110,7 @@ def plot_constants(dir=None, show=False, hide_x_axis=False):
     fig, ax = plt.subplots()
     prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-    for i, ops in enumerate(operands):
+    for i, p in enumerate(ports):
         base_color = prop_cycle[i % len(prop_cycle)]
         # Convert hex to RGB, create a darker shade for SeqArea
         from matplotlib.colors import to_rgba
@@ -118,67 +118,67 @@ def plot_constants(dir=None, show=False, hide_x_axis=False):
         light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
 
         offset = (i - (n_bars - 1) / 2) * width
-        ax.bar(x + offset, comb_df[ops], width, label=f'{ops} op. (comb)',
+        ax.bar(x + offset, comb_df[p], width, label=f'{p} port{"" if int(p) == 1 else "s"} (comb)',
                color=base_color, zorder=3)
-        ax.bar(x + offset, seq_df[ops], width, bottom=comb_df[ops],
-               label=f'{ops} op. (seq)', color=light, zorder=3)
+        ax.bar(x + offset, seq_df[p], width, bottom=comb_df[p],
+               label=f'{p} port{"" if int(p) == 1 else "s"} (seq)', color=light, zorder=3)
 
     ax.set_ylabel('Area [kGE]')
     ax.set_xticks(x)
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of Constants')
+        ax.set_xlabel('Number of CMEs')
         ax.set_xticklabels(comb_df.index)
-    ax.legend()
+    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
     ax.grid(True, axis='y')
     fig.tight_layout()
 
     if show:
         plt.show()
 
-    return df.pivot_table(index='NofConstants', columns='NofOperands', values='StdCellArea')
+    return df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='StdCellArea')
 
 
 def linear_regression(dir=None):
-    """Fit a linear model (area = slope * n_rse + intercept) for each operand count.
+    """Fit a linear model (area = slope * n_rse + intercept) for each port count.
 
-    Returns a dict keyed by NofOperands, with CombArea, SeqArea, StdCellArea fits,
+    Returns a dict keyed by NofResRspIfs, with CombArea, SeqArea, StdCellArea fits,
     each containing 'slope', 'intercept', and 'r2'.
     """
     from scipy.stats import linregress
     df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4)]
+    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4) & (df['NofOperands'] == 3)]
 
     fits = {}
-    for ops in sorted(df['NofOperands'].unique()):
-        sub = df[df['NofOperands'] == ops].sort_values('NofRss')
+    for p in sorted(df['NofResRspIfs'].unique()):
+        sub = df[df['NofResRspIfs'] == p].sort_values('NofRss')
         x = sub['NofRss'].values
-        fits[ops] = {}
+        fits[p] = {}
         for col in ['CombArea', 'SeqArea', 'StdCellArea']:
             slope, intercept, r, _, _ = linregress(x, sub[col].values)
-            fits[ops][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
+            fits[p][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
     return fits
 
 
 def linear_regression_constants(dir=None):
-    """Fit a linear model (area = slope * n_constants + intercept) for each operand count.
+    """Fit a linear model (area = slope * n_constants + intercept) for each port count.
 
-    Returns a dict keyed by NofOperands, with CombArea, SeqArea, StdCellArea fits,
+    Returns a dict keyed by NofResRspIfs, with CombArea, SeqArea, StdCellArea fits,
     each containing 'slope', 'intercept', and 'r2'.
     """
     from scipy.stats import linregress
     df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofRss'] == 4)]
+    df = df[(df['ConsumerCount'] == 64) & (df['NofRss'] == 4) & (df['NofOperands'] == 3)]
 
     fits = {}
-    for ops in sorted(df['NofOperands'].unique()):
-        sub = df[df['NofOperands'] == ops].sort_values('NofConstants')
+    for p in sorted(df['NofResRspIfs'].unique()):
+        sub = df[df['NofResRspIfs'] == p].sort_values('NofConstants')
         x = sub['NofConstants'].values
-        fits[ops] = {}
+        fits[p] = {}
         for col in ['CombArea', 'SeqArea', 'StdCellArea']:
             slope, intercept, r, _, _ = linregress(x, sub[col].values)
-            fits[ops][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
+            fits[p][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
     return fits
 
 

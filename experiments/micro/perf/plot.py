@@ -122,16 +122,16 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     scalar_bars = bar_containers[list(plot_df.columns).index('Scalar')]
     superscalar_bars = bar_containers[list(plot_df.columns).index('Superscalar')]
 
-    # Add theoretical markers on top of scalar bars
-    labeled = False
-    for bar, app in zip(scalar_bars, plot_df.index):
-        if metric == 'fpu_util':
-            if app in model.theoretical_metrics()[metric]['scalar']:
-                theoretical = model.theoretical_metrics()[metric]['scalar'][app]
-                ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
-                           color='black', marker='D', zorder=4,
-                           label='Theoretical' if not labeled else '')
-                labeled = True
+    # # Add theoretical markers on top of scalar bars
+    # labeled = False
+    # for bar, app in zip(scalar_bars, plot_df.index):
+    #     if metric == 'fpu_util':
+    #         if app in model.theoretical_metrics()[metric]['scalar']:
+    #             theoretical = model.theoretical_metrics()[metric]['scalar'][app]
+    #             ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
+    #                        color='black', marker='D', zorder=4,
+    #                        label='Theoretical' if not labeled else '')
+    #             labeled = True
 
     # Add asymptote markers on top of superscalar bars
     for i, (bar, asymptote) in enumerate(zip(superscalar_bars, asymptotes)):
@@ -198,7 +198,7 @@ def rsp_ports_tradeoff_plot(df, show=True):
         x_right = bars[-1].get_x() + bars[-1].get_width()
         ax.plot([x_left, x_right], [fc_ipc[app], fc_ipc[app]],
                 color='tab:red', zorder=4,
-                label='Fully connected' if not labeled else '')
+                label='Idealized' if not labeled else '')
         labeled = True
 
     ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)

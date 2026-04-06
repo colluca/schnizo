@@ -23,6 +23,7 @@ def to_mm2(area_kge):
 def results(dir=None):
     df = experiments.results(dir=dir)
 
+    df['timestamp'] = df['synth_results'].str['qor_summary'].str['timestamp']
     df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
     df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
     df['hierarchy_details'] = df['synth_results'].str['hierarchy_details']
