@@ -18,8 +18,8 @@ def gen_experiments():
     # Define axes
     num_slots_axis = [4, 8, 16, 32, 64]
     num_constants_axis = [4, 8, 16, 32, 64]
-    num_res_ports_axis = [1]
-    num_operands_axis = [2, 3]
+    num_res_ports_axis = [1, 2, 3]
+    num_operands_axis = [3]
     consumer_count_axis = [64]
 
     # Generate list of experiments
