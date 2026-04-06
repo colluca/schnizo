@@ -22,7 +22,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   parameter int unsigned RobTagWidth = 1,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
-  parameter type         phy_id_t    = logic,
+  parameter type         phy_id_t    = logic,  
   parameter type         disp_req_t  = logic,
   parameter type         disp_rsp_t  = logic,
   parameter type         producer_id_t = logic,
@@ -133,7 +133,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   `FFAR(rob_tag_q, rob_tag_d, '0, clk_i, rst_i);
 
   logic [PipeWidth-1:0] instr_dispatched;
-z
+
   ////////////////////////
   // Request generation //
   ////////////////////////
@@ -369,22 +369,22 @@ z
                                 port_claimed_alu[target_alu_port[i]])                    ||
                                 (disp_to_lsu[i] && port_claimed_lsu[target_lsu_port[i]]) ||
                                 (disp_to_fpu[i] && port_claimed_fpu[target_fpu_port[i]]);
+      end
 
-        // Claim the port for this instruction if it was not already dispatched
-        if (instr_valid_[i] && !dispatched_q[i]) begin
-          if (disp_to_alu0[i]) begin
-            port_claimed_alu[0] = 1'b1;
-          end else if (disp_to_alu[i]) begin
-            port_claimed_alu[target_alu_port[i]] = 1'b1;
-          end
+      // Claim the port for this instruction if it was not already dispatched
+      if (!dispatched_q[i]) begin
+        if (disp_to_alu0[i]) begin
+          port_claimed_alu[0] = 1'b1;
+        end else if (disp_to_alu[i]) begin
+          port_claimed_alu[target_alu_port[i]] = 1'b1;
+        end
 
-          if (disp_to_lsu[i]) begin
-            port_claimed_lsu[target_lsu_port[i]] = 1'b1;
-          end
+        if (disp_to_lsu[i]) begin
+          port_claimed_lsu[target_lsu_port[i]] = 1'b1;
+        end
 
-          if (disp_to_fpu[i]) begin
-            port_claimed_fpu[target_fpu_port[i]] = 1'b1;
-          end
+        if (disp_to_fpu[i]) begin
+          port_claimed_fpu[target_fpu_port[i]] = 1'b1;
         end
       end
     end
