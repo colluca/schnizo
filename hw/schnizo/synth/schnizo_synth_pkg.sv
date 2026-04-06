@@ -128,6 +128,11 @@ package schnizo_synth_pkg;
     operand_t   operand;
   } res_rsp_t;
 
+  typedef struct packed {
+    dest_mask_t  dest_mask;
+    slot_id_t    slot_id;
+  } ext_res_req_t;
+
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
