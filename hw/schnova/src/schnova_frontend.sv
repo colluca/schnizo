@@ -39,6 +39,7 @@ module schnova_frontend # (
     input  logic                              mret_i,
     input  logic                              sret_i,
     input  logic                              en_superscalar_i,
+    input  logic [$clog2(PipeWidth):0]        instr_valid_count_i,
     input  logic                              loop_jump_i,
     input  logic [31:0]                       loop_jump_addr_i,
     /// To controller
@@ -149,10 +150,10 @@ module schnova_frontend # (
       assign consecutive_pc = pc_q +
           ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
           // In case of a branch, we just add the immediate
-                                        blk_ctrl_info_i.imm :
+                                        blk_ctrl_info_i.imm + (blk_ctrl_info_i.instr_idx << 2) :
                                         (en_superscalar_i ?
           // Next PC is now PC + #instructions used in the last fetch block
-                                        (PipeWidth-instr_index) << 2 :
+                                        (instr_valid_count_i) << 2 :
           // In scalar mode we just have to calculate PC+4 since the PC and the instruction we
           // use is the one the PC points to.
                                                             4'd4));

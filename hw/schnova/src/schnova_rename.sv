@@ -167,6 +167,8 @@ module schnova_rename import schnova_pkg::*; #(
         new_mapping_rd[i] = allocated_fpr_regs[alloc_fpr_idx];
         // Increment to the next allocated registers
         alloc_fpr_idx = alloc_fpr_idx + 1;
+      end else begin
+        new_mapping_rd[i] = mapping_rd[i];
       end
     end
   end

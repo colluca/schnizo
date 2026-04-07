@@ -459,7 +459,7 @@ module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign lsu_pdata_o = ld_result[DataWidth-1:0];
   assign lsu_ptag_o = laq_out.tag;
   // In case of a write, don't signal a valid transaction. Stores are always
-  // without ans answer to the core.
+  // without an answer to the core.
   assign lsu_pvalid_o = data_rsp_i.p_valid & ~mem_out;
   assign data_req_o.p_ready = lsu_pready_i | mem_out;
 

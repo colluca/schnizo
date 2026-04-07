@@ -495,7 +495,7 @@ def main():
         perf_metrics[0]['start'] = None
 
         # dma_trans = [{'rep': 1}]
-
+        parsed_lines = []
         # Parse input line by line
         for lineno, (line, nextl) in enumerate(current_and_next(line_iter)):
             if line:
@@ -507,7 +507,7 @@ def main():
                                                                  proc_state, args.permissive)
                     # The newline character is in the trace line. This way the trace line can also
                     # be empty.
-                    print(trace_line, file=trace_file, end="")
+                    parsed_lines.append((cycle, sim_time, trace_line))
 
                     if perf_metrics[0]['start'] is None:
                         perf_metrics[0]['tstart'] = sim_time // 1000
@@ -523,6 +523,12 @@ def main():
                         raise e
             else:
                 break  # Nothing more in pipe, EOF
+
+        # Sort primarily by cycle, secondarily by sim_time to stabilize ordering
+        parsed_lines.sort(key=lambda x: (x[0], x[1]))
+
+        for _, _, trace_line in parsed_lines:
+            print(trace_line, file=trace_file, end="")
 
         perf_metrics[-1]['tend'] = sim_time // 1000
         perf_metrics[-1]['end'] = cycle

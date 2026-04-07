@@ -33,10 +33,19 @@ module schnova_controller import schnova_pkg::*; #(
   // Decoder interface
   input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
   input  logic       [PipeWidth-1:0] instr_valid_i,
+  output logic       [PipeWidth-1:0] instr_valid_o,
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
+  output block_ctrl_info_t           blk_ctrl_info_masked_o,
   input  logic                       exit_superscalar_i,
-
+  // How many instructions are valid from the fetch block
+  // after the decoder
+  output logic [$clog2(PipeWidth):0]   instr_valid_count_o,
+  // Per instruction signal, whether this instruction has to be renamed
+  output logic [PipeWidth-1:0]         instr_rename_gpr_valid_o,
+  output logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_o,
+  output logic [PipeWidth-1:0]         instr_rename_fpr_valid_o,
+  output logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_o,
   // Special FREP data
   input  logic [MaxIterationsWidth-1:0] frep_iterations_i,
   // To backend
@@ -91,13 +100,14 @@ module schnova_controller import schnova_pkg::*; #(
   logic csr_exception;
   logic [PipeWidth-1:0] instr_valid;
 
+  block_ctrl_info_t blk_ctrl_info_masked;
+
     ////////////////////////
   // Loop control logic //
   ////////////////////////
 
   logic        frep_sw_error;
   logic        loop_stall;
-  logic        current_loop_finish;
   logic [PipeWidth-1:0] valid_mask;
 
   // Convert the decoded loop iterations to the actual number of iterations.
@@ -122,7 +132,7 @@ module schnova_controller import schnova_pkg::*; #(
     .instr_valid_i    (instr_valid_i),
     .valid_mask_o     (valid_mask),
     .instr_addr_i     (pc_i),
-    .blk_ctrl_info_i  (blk_ctrl_info_i),
+    .blk_ctrl_info_i  (blk_ctrl_info_masked),
     .dispatched_i     (dispatched_o),
     // The next instruction after an FREP can only be the immediately next instruction.
     // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
@@ -142,9 +152,7 @@ module schnova_controller import schnova_pkg::*; #(
     .loop_jump_addr_o      (loop_jump_addr_o),
     .sw_err_o              (frep_sw_error),
     .loop_state_o          (loop_state_o),
-    .current_loop_finish_o (current_loop_finish),
     .en_superscalar_o      (en_superscalar_o),
-
     .all_rs_finish_i       (all_rs_finish_i),
     .loop_stall_o          (loop_stall)
   );
@@ -152,6 +160,49 @@ module schnova_controller import schnova_pkg::*; #(
   // After the loop controller we maks the valid bits
   // It could be that some instruction have to be invalidated since they are out of the loop body
   assign instr_valid = instr_valid_i & valid_mask;
+
+  assign instr_valid_o = instr_valid;
+
+    // Counting the number of valid instructions
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_valid_count (
+    .data_i(instr_valid_o),
+    .popcount_o(instr_valid_count_o)
+  );
+
+  always_comb begin
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      // We have to rename the instruction if it is valid
+      // and the destination register is not the integer register x0
+      instr_rename_gpr_valid_o[i] = instr_valid_o[i]          &
+                                    (instr_decoded_i[i].rd != '0) &
+                                    ~instr_decoded_i[i].rd_is_fp;
+      instr_rename_fpr_valid_o[i] = instr_valid_o[i] &
+                                    instr_decoded_i[i].rd_is_fp;
+    end
+  end
+
+  // Counting the numger of instructions that have to be renamed
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_gpr_rename_count (
+    .data_i(instr_rename_gpr_valid_o),
+    .popcount_o(instr_rename_gpr_count_o)
+  );
+
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_fpr_rename_count (
+    .data_i(instr_rename_fpr_valid_o),
+    .popcount_o(instr_rename_fpr_count_o)
+  );
+
+  // We have to mask the blk control info if the loop controller invalidated it
+  assign blk_ctrl_info_masked = instr_valid[blk_ctrl_info_i.instr_idx] ? blk_ctrl_info_i
+                                                                : '0;
+
+  assign blk_ctrl_info_masked_o = blk_ctrl_info_masked;
 
   ////////////////
   // Exceptions //
@@ -320,7 +371,7 @@ module schnova_controller import schnova_pkg::*; #(
       IDLE: begin
         // If we have a ctrl instruction which is not retired this same cycle
         // we have to wait for it to retire and stall the pipeline.
-        if (blk_ctrl_info_i.is_ctrl && dispatched_o && !ctrl_instr_retired_i) begin
+        if (blk_ctrl_info_masked.is_ctrl && dispatched_o && !ctrl_instr_retired_i) begin
           ctrl_state_d = WAIT_CTRL;
         end
       end
@@ -412,7 +463,7 @@ module schnova_controller import schnova_pkg::*; #(
   // 2) We have to wait for a control instruction to be resolved
   // since we don't do any speculation.
   assign stall_o =  ((ctrl_state_q == IDLE) && !instr_dispatched) ||
-                    ((ctrl_state_q == IDLE) && blk_ctrl_info_i.is_ctrl && en_superscalar_o) ||
+                    ((ctrl_state_q == IDLE) && blk_ctrl_info_masked.is_ctrl && en_superscalar_o) ||
                     (ctrl_stall && !ctrl_instr_retired_i);
 
 endmodule

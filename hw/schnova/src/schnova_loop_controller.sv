@@ -44,7 +44,6 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   output logic                      sw_err_o,
   // The current state of the loop
   output loop_state_e               loop_state_o,
-  output logic                      current_loop_finish_o,
   output logic                      en_superscalar_o,
 
   // Asserted if all reservation stations have no instructions in flight.
@@ -65,6 +64,8 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
 
   loop_info_t                 new_loop;
   logic       [AddrWidth-1:0] new_loop_end_addr;
+
+  logic                      current_loop_finish;
 
   assign new_loop_end_addr = AddrWidth'(instr_addr_i) + AddrWidth'({loop_bodysize_i, 2'b00});
 
@@ -134,7 +135,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   logic dispatch_loop_end_instr;
   assign dispatch_loop_end_instr = is_at_loop_end && !stall_i;
 
-  assign current_loop_finish_o = dispatch_loop_end_instr && (loop_info_q.loop_iterations == 1);
+  assign current_loop_finish = dispatch_loop_end_instr && (loop_info_q.loop_iterations == 1);
 
   assign loop_jump_addr_o = loop_info_q.loop_addr_info.loop_start;
 
@@ -160,9 +161,9 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
         end
       end
       LoopHwLoop: begin
-        // TODO(colluca): I believe here in place of current_loop_finish_o we should only check that
+        // TODO(colluca): I believe here in place of current_loop_finish we should only check that
         //                we are not in the last iteration
-        loop_jump_o  = is_at_loop_end && !current_loop_finish_o;
+        loop_jump_o  = is_at_loop_end && !current_loop_finish;
         if (dispatch_loop_end_instr) begin
           decrement_loop_iterations = 1'b1;
         end
@@ -177,7 +178,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
       LoopDep: begin
         // We enter superscalar execution
         en_superscalar_o = 1'b1;
-        loop_jump_o = is_at_loop_end && !current_loop_finish_o;
+        loop_jump_o = is_at_loop_end && !current_loop_finish;
         if (exit_frep_i || wait_hwl_retirement_q) begin
           // If no RS is busy and we did not dispatch an instruction in this cycle
           // it is save to change to Hardware loop.
@@ -194,7 +195,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
           decrement_loop_iterations = 1'b1;
         end
 
-        if (current_loop_finish_o || exception_i || wait_dep_retirement_q) begin
+        if (current_loop_finish || exception_i || wait_dep_retirement_q) begin
           // If no RS is busy and we did not dispatch an instruction in this cycle
           // it is save to change to Hardware loop.
           if (all_rs_finish_i && !dispatched_i) begin
