@@ -176,6 +176,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   logic [NofOperands-1:0] operand_valid;
   logic                   all_operands_valid;
   logic                   issue_hs;
+  rs_slot_issue_t slot_issue_req;
 
   always_comb begin : issue_req
     // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
@@ -209,7 +210,15 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   assign disp_req_ready_o = issue_hs;
   assign issue_hs_o = issue_hs;
 
+  always_comb begin
+    slot_issue_req = slot_op_rsp;
+    // If we are issuing, the slot will be updated in the same cycle with the new state after issue
+    if (issue_hs) begin
+      slot_issue_req.is_occupied = 1'b0;
+    end
+  end
+
   // Forward the slot directly
-  assign slot_issue_o = slot_op_rsp;
+  assign slot_issue_o = slot_issue_req;
 
 endmodule

@@ -29,18 +29,10 @@ module schnova_decoder import schnova_pkg::*; #(
   input  fpnew_pkg::roundmode_e        fpu_round_mode_i,
   input  fpnew_pkg::fmt_mode_t         fpu_fmt_mode_i,
   output logic [PipeWidth-1:0]         instr_valid_o,
-  // How many instructions are valid from the fetch block
-  // after the decoder
-  output logic [$clog2(PipeWidth):0]   instr_valid_count_o,
   output logic [PipeWidth-1:0]         instr_illegal_o,
   output block_ctrl_info_t             blk_ctrl_info_o,
   output logic                         exit_superscalar_o,
-  output instr_dec_t [PipeWidth-1:0]   instr_dec_o,
-  // Per instruction signal, whether this instruction has to be renamed
-  output logic [PipeWidth-1:0]         instr_rename_gpr_valid_o,
-  output logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_o,
-  output logic [PipeWidth-1:0]         instr_rename_fpr_valid_o,
-  output logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_o
+  output instr_dec_t [PipeWidth-1:0]   instr_dec_o
 );
 
   localparam int unsigned IdxWidth = (PipeWidth > 1) ? $clog2(PipeWidth) : 1;
@@ -141,7 +133,7 @@ module schnova_decoder import schnova_pkg::*; #(
         // that way we guarante three things
         // 1) We don't speculate, since all instruction after the ctrl instructions are invalidated
         // 2) An frep instruction will always be at the beginning of the fetch block
-        // 3) We don't execute any unsuported instruction in superscalar mode
+        // 3) We don't execute any unsupported instruction in superscalar mode
         valid_mask[instr_idx] = (is_ctrl_instr[instr_idx-1] |
                                 ~valid_mask[instr_idx-1]    |
                                 is_unsupported_instr[instr_idx])
@@ -153,48 +145,13 @@ module schnova_decoder import schnova_pkg::*; #(
   // The instruction valid output is now just the masked instruction valid signal
   assign instr_valid_o = instr_valid & valid_mask;
 
-  // Counting the number of valid instructions
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_valid_count (
-    .data_i(instr_valid_o),
-    .popcount_o(instr_valid_count_o)
-  );
-
-  always_comb begin
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      // We have to rename the instruction if it is valid
-      // and the destination register is not the integer register x0
-      instr_rename_gpr_valid_o[i] = instr_valid_o[i]          &
-                                    (instr_dec_o[i].rd != '0) &
-                                    ~instr_dec_o[i].rd_is_fp;
-      instr_rename_fpr_valid_o[i] = instr_valid_o[i] &
-                                    instr_dec_o[i].rd_is_fp;
-    end
-  end
-
-  // Counting the numger of instructions that have to be renamed
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_gpr_rename_count (
-    .data_i(instr_rename_gpr_valid_o),
-    .popcount_o(instr_rename_gpr_count_o)
-  );
-
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_fpr_rename_count (
-    .data_i(instr_rename_fpr_valid_o),
-    .popcount_o(instr_rename_fpr_count_o)
-  );
-
   // We can one hot encode the critical instruction by anding it with the valid mask
   // There should only be one valid critical instruction per fetch block
   // after masking.
   // Note it is also possible that no bit is set if there was no critical instruction
   assign one_hot_crit_instr = is_ctrl_instr & instr_valid_o;
 
-  // To find the index we can no just use a one hot encoder
+  // To find the index we can now just use a one hot encoder
   if (PipeWidth > 1) begin : gen_idx_superscalar
     always_comb begin: fetch_idx_calc
       blk_ctrl_instr_idx = '0;

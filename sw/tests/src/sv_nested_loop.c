@@ -57,7 +57,7 @@ int main() {
         }
     }
     if (res != expected) {
-        return 1;
+        return res;
     }
     return 0;
 }

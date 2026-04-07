@@ -137,6 +137,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   ////////////////////////
   // Request generation //
   ////////////////////////
+  logic [$clog2(PipeWidth):0] rob_idx;
 
   // The dispatch request contains
   // 1) The physical register mappings of the instruction
@@ -144,6 +145,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   // 3) The instruction as well as its tag
 
   always_comb begin : dispatch_generation
+    rob_idx = '0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       disp_req[i] = '0;
       disp_req[i].fu_data = instr_fu_data_i[i];
@@ -181,7 +183,11 @@ module schnova_dispatcher import schnova_pkg::*; #(
       // If we have already dispatched some instructions we have to use the rob tag we saved
       // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
       // tags starating from the current tail pointer
-      disp_req[i].tag.rob_tag        = (|dispatched_q) ? rob_tag_q[i] : rob_idx_i[i];
+      disp_req[i].tag.rob_tag        = (|dispatched_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
+      // Only assign a different rob tag if this instruction really needs a rob entry
+      if (instr_rename_fpr_valid_i[i] || instr_rename_gpr_valid_i[i]) begin
+        rob_idx++;
+      end
     end
   end
 

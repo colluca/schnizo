@@ -13,6 +13,7 @@ package schnova_pkg;
   localparam int unsigned RegAddrSize = 5;
   localparam int unsigned PhysRegAddrSize = 6;
 
+  // The amount of rob entries
   localparam int unsigned NofRobEntries = 32;
 
   //---------------------------

@@ -417,6 +417,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic [31:0]     pc;
   logic [31:0]     jump_pc;
   logic [PipeWidth-1:0] instr_valid;
+  logic [PipeWidth-1:0] instr_valid_masked;
   logic [PipeWidth-1:0] instr_decoded_illegal;
   logic            instr_illegal;
   logic            stall;
@@ -446,6 +447,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
   instr_dec_t [PipeWidth-1:0] instr_decoded;
   block_ctrl_info_t blk_ctrl_info;
+  block_ctrl_info_t blk_ctrl_info_masked;
 
   alu_result_t alu_result;
   instr_tag_t  alu_result_tag;
@@ -559,6 +561,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_fetch_addr_o       (inst_addr_o),
     .instr_fetch_cacheable_o  (inst_cacheable_o),
     .instr_fetch_valid_o      (inst_valid_o),
+    .instr_valid_count_i      (instr_valid_count),
     // From controller
     .exception_i              (exception),
     .stall_i                  (stall),
@@ -581,7 +584,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .alu_compare_res_i        (branch_result.compare_res),
     .alu_result_i             (branch_result.result),
     // From decoder
-    .blk_ctrl_info_i          (blk_ctrl_info),
+    .blk_ctrl_info_i          (blk_ctrl_info_masked),
     // To decoder and dispatcher
     .instr_fetch_data_o      (instr_fetch_data),
     .instr_fetch_data_valid_o(instr_fetch_data_valid)
@@ -618,14 +621,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fpu_round_mode_i        (fpu_rnd_mode),
     .fpu_fmt_mode_i          (fpu_fmt_mode),
     .instr_valid_o           (instr_valid),
-    .instr_valid_count_o     (instr_valid_count),
     .instr_illegal_o         (instr_decoded_illegal),
     .blk_ctrl_info_o         (blk_ctrl_info),
-    .instr_dec_o             (instr_decoded),
-    .instr_rename_gpr_valid_o(instr_rename_gpr_valid),
-    .instr_rename_gpr_count_o(instr_rename_gpr_count),
-    .instr_rename_fpr_valid_o(instr_rename_fpr_valid),
-    .instr_rename_fpr_count_o(instr_rename_fpr_count)
+    .instr_dec_o             (instr_decoded)
   );
 
 
@@ -686,9 +684,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // Decoder interface
     .instr_decoded_i        (instr_decoded),
     .instr_valid_i          (instr_valid),
+    .instr_valid_o           (instr_valid_masked),
     .instr_decoded_illegal_i(instr_decoded_illegal),
     .blk_ctrl_info_i        (blk_ctrl_info),
+    .blk_ctrl_info_masked_o (blk_ctrl_info_masked),
     .exit_superscalar_i     (exit_superscalar),
+    .instr_valid_count_o     (instr_valid_count),
+    .instr_rename_gpr_valid_o(instr_rename_gpr_valid),
+    .instr_rename_gpr_count_o(instr_rename_gpr_count),
+    .instr_rename_fpr_valid_o(instr_rename_fpr_valid),
+    .instr_rename_fpr_count_o(instr_rename_fpr_count),
     // Special FREP data
     .frep_iterations_i      (fu_data[0].operand_a[FrepMaxItersWidth-1:0]),
     // To rename stage
@@ -821,7 +826,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_exec_commit_i (instr_exec_commit),
     .dispatch_ready_o    (dispatch_instr_ready),
     // From decoder
-    .instr_valid_i       (instr_valid),
+    .instr_valid_i       (instr_valid_masked),
     .instr_valid_count_i (instr_valid_count),
     .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
     .instr_rename_gpr_count_i(instr_rename_gpr_count),
@@ -1263,7 +1268,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // Dispatched at least one instruction
     .dispatched_i(update_sb),
      // From dispatcher
-    .instr_valid_i(instr_valid),
+    .instr_valid_i(instr_valid_masked),
     .disp_data_i(sb_disp_data),
     // Physical register interface
     .raddr_i(sb_raddr),
@@ -1425,7 +1430,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_dispatch_traces
     // verilog_lint: waive-start line-length
     assign dispatch_trace[idx] = '{
-      valid:        (instr_exec_commit && instr_valid[idx] && i_dispatcher.fu_ready[idx] && !i_dispatcher.dispatched_q[idx]) || exception,
+      valid:        (instr_exec_commit && instr_valid_masked[idx] && i_dispatcher.fu_ready[idx] && !i_dispatcher.dispatched_q[idx]) || exception,
       pc_q:         i_frontend.pc_q + (idx * 4),
       pc_d:         i_frontend.pc_d,
       instr_data:   instr_fetch_data[idx],
