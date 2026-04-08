@@ -180,13 +180,15 @@ module schnova_rename import schnova_pkg::*; #(
     rmt_int_we = '0;
     rmt_fp_we = '0;
 
+    // Only enable RMT update for the registers that are renamed
     for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
       rmt_waddr[instr_idx] = instr_dec_i[instr_idx].rd;
       // We update the RMT once, the instructions were successfully dispatched
       // and we are in superscalar mode, were we actually rename
-      if (dispatched_i && en_superscalar_i) begin
-        rmt_fp_we[instr_idx] = instr_dec_i[instr_idx].rd_is_fp;
-        rmt_int_we[instr_idx] = ~instr_dec_i[instr_idx].rd_is_fp;
+      if (dispatched_i && en_superscalar_i && instr_rename_gpr_valid_i[instr_idx]) begin
+        rmt_int_we[instr_idx] = 1'b1;
+      end else if (dispatched_i && en_superscalar_i && instr_rename_fpr_valid_i[instr_idx]) begin
+        rmt_fp_we[instr_idx] = 1'b1;
       end
     end
   end

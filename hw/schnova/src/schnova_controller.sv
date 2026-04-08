@@ -37,7 +37,6 @@ module schnova_controller import schnova_pkg::*; #(
   input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
   input  block_ctrl_info_t           blk_ctrl_info_i,
   output block_ctrl_info_t           blk_ctrl_info_masked_o,
-  input  logic                       exit_superscalar_i,
   // How many instructions are valid from the fetch block
   // after the decoder
   output logic [$clog2(PipeWidth):0]   instr_valid_count_o,
@@ -125,11 +124,13 @@ module schnova_controller import schnova_pkg::*; #(
     .AddrWidth         (32),
     .MaxBodysizeWidth  (FrepBodySizeWidth),
     .MaxIterationsWidth(MaxIterationsWidth),
-    .block_ctrl_info_t (block_ctrl_info_t)
+    .block_ctrl_info_t (block_ctrl_info_t),
+    .instr_dec_t       (instr_dec_t)
   ) i_loop_ctrl (
     .clk_i,
     .rst_i,
     .instr_valid_i    (instr_valid_i),
+    .instr_decoded_i  (instr_decoded_i),
     .valid_mask_o     (valid_mask),
     .instr_addr_i     (pc_i),
     .blk_ctrl_info_i  (blk_ctrl_info_masked),
@@ -147,7 +148,6 @@ module schnova_controller import schnova_pkg::*; #(
     .loop_bodysize_i       (loop_bodysize),
     .loop_iterations_i     (loop_iterations),
     .frep_mode_i           (instr_decoded_i[0].frep_mode),
-    .exit_frep_i           (exit_superscalar_i),
     .loop_jump_o           (loop_jump_o),
     .loop_jump_addr_o      (loop_jump_addr_o),
     .sw_err_o              (frep_sw_error),

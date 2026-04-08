@@ -13,11 +13,13 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   parameter int unsigned AddrWidth          = 32,
   parameter int unsigned MaxBodysizeWidth   = 12,
   parameter int unsigned MaxIterationsWidth = 6,
-  parameter type block_ctrl_info_t      = logic
+  parameter type block_ctrl_info_t      = logic,
+  parameter type         instr_dec_t    = logic
 ) (
   input logic clk_i,
   input logic rst_i,
   input  logic [PipeWidth-1:0] instr_valid_i,
+  input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
   output logic [PipeWidth-1:0] valid_mask_o,
   input  logic [AddrWidth-1:0] instr_addr_i,
   input  block_ctrl_info_t     blk_ctrl_info_i,
@@ -35,8 +37,6 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   input  logic [MaxBodysizeWidth-1:0]   loop_bodysize_i,
   input  logic [MaxIterationsWidth-1:0] loop_iterations_i,
   input  frep_mode_e                frep_mode_i,
-  input  logic                      exit_frep_i,
-
   // Request to jump to the loop start address
   output logic                      loop_jump_o,
   output logic [AddrWidth-1:0]      loop_jump_addr_o,
@@ -66,6 +66,11 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   logic       [AddrWidth-1:0] new_loop_end_addr;
 
   logic                      current_loop_finish;
+
+  // Per instruction signal, whether the instruction is unsuported during
+  // superscalar execution
+  logic [PipeWidth-1:0] is_unsupported_instr;
+  logic                 exit_dep;
 
   assign new_loop_end_addr = AddrWidth'(instr_addr_i) + AddrWidth'({loop_bodysize_i, 2'b00});
 
@@ -100,16 +105,19 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   logic is_at_loop_end;
 
   // Check for every instruction if it is at the loop end
-  always_comb begin
+  // or if it is an invalid instruction
+  always_comb begin : gen_per_instr_info
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       at_loop_end_instr[i] = loop_valid_q                                                       &&
                             (loop_info_q.loop_addr_info.loop_end == (instr_addr_i + (i << 2 ))) &&
                             instr_valid_i[i];
+
+      // All these instructions except for frep are unsuported during superscalar execution
+      is_unsupported_instr[i] = (instr_decoded_i[i].fu inside {NONE, MULDIV, CSR, DMA}) &
+                                        en_superscalar_o                            &
+                                        instr_valid_i[i];
     end
   end
-
-  // We are at the end of the loop if one instruction of the block is at the end
-  assign is_at_loop_end = |at_loop_end_instr;
 
   // Check if loop end instruction is jump or branch
   logic ctrl_at_loop_end;
@@ -127,10 +135,16 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
       end else begin
         // We have to invalidate the valid bit if a previous instruction
         // was the loop end instruction or if it was invalidated
-        valid_mask_o[i] = valid_mask_o[i-1] & !at_loop_end_instr[i-1];
+        // or if this instruction is unsupported
+        valid_mask_o[i] = valid_mask_o[i-1] & !at_loop_end_instr[i-1] & !is_unsupported_instr[i];
       end
     end
   end
+
+  // We are at the end of the loop if one instruction of the block is at the end
+  assign is_at_loop_end = |(at_loop_end_instr & valid_mask_o);
+
+  assign exit_dep = |(is_unsupported_instr & valid_mask_o);
 
   logic dispatch_loop_end_instr;
   assign dispatch_loop_end_instr = is_at_loop_end && !stall_i;
@@ -179,7 +193,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
         // We enter superscalar execution
         en_superscalar_o = 1'b1;
         loop_jump_o = is_at_loop_end && !current_loop_finish;
-        if (exit_frep_i || wait_hwl_retirement_q) begin
+        if (exit_dep || wait_hwl_retirement_q) begin
           // If no RS is busy and we did not dispatch an instruction in this cycle
           // it is save to change to Hardware loop.
           if (all_rs_finish_i && !dispatched_i) begin
