@@ -509,7 +509,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic ctrl_instr_retired;
 
   logic en_superscalar;
-  logic exit_superscalar;
   logic registers_ready;
   logic sb_busy;
 
@@ -615,7 +614,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .clk_i,
     .rst_i,
     .en_superscalar_i        (en_superscalar),
-    .exit_superscalar_o      (exit_superscalar),
     .instr_fetch_data_i      (instr_fetch_data),
     .instr_fetch_data_valid_i(instr_fetch_data_valid),
     .fpu_round_mode_i        (fpu_rnd_mode),
@@ -688,7 +686,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_decoded_illegal_i(instr_decoded_illegal),
     .blk_ctrl_info_i        (blk_ctrl_info),
     .blk_ctrl_info_masked_o (blk_ctrl_info_masked),
-    .exit_superscalar_i     (exit_superscalar),
     .instr_valid_count_o     (instr_valid_count),
     .instr_rename_gpr_valid_o(instr_rename_gpr_valid),
     .instr_rename_gpr_count_o(instr_rename_gpr_count),

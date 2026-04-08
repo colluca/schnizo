@@ -206,14 +206,18 @@ module schnova_dispatcher import schnova_pkg::*; #(
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       disp_to_alu0[i] = ((instr_dec_i[i].fu == schnova_pkg::MUL)       |
                         (instr_dec_i[i].fu == schnova_pkg::CTRL_FLOW)) &
-                        instr_valid_i[i];
+                        instr_valid_i[i]                               &
+                        !dispatched_q[i];
       disp_to_alu[i] = (instr_dec_i[i].fu == schnova_pkg::ALU) &
-                        instr_valid_i[i];
+                        instr_valid_i[i]                       &
+                        !dispatched_q[i];
       disp_to_lsu[i] =  ((instr_dec_i[i].fu == schnova_pkg::LOAD)  |
                         (instr_dec_i[i].fu == schnova_pkg::STORE)) &
-                        instr_valid_i[i];
+                        instr_valid_i[i]                           &
+                        !dispatched_q[i];
       disp_to_fpu[i] = (instr_dec_i[i].fu == schnova_pkg::FPU) &
-                        instr_valid_i[i];
+                        instr_valid_i[i]                       &
+                        !dispatched_q[i];
     end
   end
 
@@ -265,6 +269,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     logic [PipeWidth-1:0][NofAlusW:0] target_alu_port_unwrapped;
     always_comb begin
       target_alu_port = '0;
+      target_alu_port_unwrapped = '0;
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (disp_to_alu[i] && (NofAlus > 1) && !disp_to_alu0[i]) begin
           target_alu_port_unwrapped[i] = alu_idx + alu_rank[i];
@@ -296,6 +301,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     logic [PipeWidth-1:0][NofLsusW:0] target_lsu_port_unwrapped;
     always_comb begin
       target_lsu_port = '0;
+      target_lsu_port_unwrapped = '0;
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (disp_to_lsu[i] &&
             (NofLsus > 1)  &&
@@ -327,6 +333,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     logic [PipeWidth-1:0][NofFpusW:0] target_fpu_port_unwrapped;
     always_comb begin
       target_fpu_port = '0;
+      target_fpu_port_unwrapped = '0;
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (disp_to_fpu[i] && (NofFpus > 1)) begin
           target_fpu_port_unwrapped[i] = fpu_idx + fpu_rank[i];
@@ -544,21 +551,21 @@ module schnova_dispatcher import schnova_pkg::*; #(
   popcount #(
     .INPUT_WIDTH(PipeWidth)
   ) i_alu_idx_inc_count (
-    .data_i(disp_to_alu),
+    .data_i(disp_to_alu & instr_dispatched),
     .popcount_o(alu_idx_inc_raw)
   );
 
   popcount #(
     .INPUT_WIDTH(PipeWidth)
   ) i_lsu_idx_inc_count (
-    .data_i(disp_to_lsu),
+    .data_i(disp_to_lsu & instr_dispatched),
     .popcount_o(lsu_idx_inc_raw)
   );
 
   popcount #(
     .INPUT_WIDTH(PipeWidth)
   ) i_fpu_idx_inc_count (
-    .data_i(disp_to_fpu),
+    .data_i(disp_to_fpu & instr_dispatched),
     .popcount_o(fpu_idx_inc)
   );
 
