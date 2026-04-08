@@ -27,7 +27,7 @@ module schnova_controller import schnova_pkg::*; #(
   input  logic            flush_i_ready_i,
   output logic            flush_i_valid_o,
   input  logic [31:0]     pc_i,
-  input  logic [XLEN-1:0] consecutive_pc_i,
+  input  logic [XLEN-1:0] next_pc_i,
   output logic            loop_jump_o,
   output logic [31:0]     loop_jump_addr_o,
   // Decoder interface
@@ -69,8 +69,6 @@ module schnova_controller import schnova_pkg::*; #(
   input  logic        interrupt_i,
   input  logic        csr_exception_raw_i,
   input  logic        lsu_empty_i,
-  input  logic        load_inflight_i,
-  input  logic        store_inflight_i,
   input  logic        lsu_addr_misaligned_i,
   input  priv_lvl_t   priv_lvl_i,
 
@@ -207,85 +205,66 @@ module schnova_controller import schnova_pkg::*; #(
   ////////////////
   // Exceptions //
   ////////////////
-  // Per instruction exception
-  logic [PipeWidth-1:0] ecall_ex;
-  logic [PipeWidth-1:0] ebreak_ex;
-  logic [PipeWidth-1:0] csr_ex;
-  logic [PipeWidth-1:0] instr_addr_misaligned_ex;
-  logic [PipeWidth-1:0] enter_wfi;
-  logic [PipeWidth-1:0] privileges_violated_raw;
-  logic [PipeWidth-1:0] privileges_violated;
-  logic [PipeWidth-1:0] mret;
-  logic [PipeWidth-1:0] sret;
 
-  for (genvar instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin: gen_per_instr_exception
-    assign ecall_ex[instr_idx]  = instr_decoded_i[instr_idx].is_ecall  && instr_valid[instr_idx];
-    assign ebreak_ex[instr_idx] = instr_decoded_i[instr_idx].is_ebreak && instr_valid[instr_idx];
-    // TODO(soderma): Assumes csr instruction will be done in 1 cycle
-    assign csr_ex[instr_idx] =  (instr_decoded_i[instr_idx].fu == CSR) &&
-                                csr_exception_raw_i                    &&
-                                instr_valid[instr_idx];
-    // Unaligned address check
-    assign instr_addr_misaligned_ex[instr_idx] = (instr_decoded_i[instr_idx].is_branch ||
-                                    instr_decoded_i[instr_idx].is_jal            ||
-                                    instr_decoded_i[instr_idx].is_jalr)          &&
-                                    (consecutive_pc_i[1:0] != 2'b0);
-    // Signal to CSR when entering WFI state.
-    // TODO(colluca): what to do with debug signal?
-    // TODO(soderma): WFI not allowed in superscalar mode at this point. Because to be correct,
-    // we would have to disable all other instructions.
-    assign enter_wfi[instr_idx] = instr_decoded_i[instr_idx].is_wfi && instr_valid[instr_idx];
-    // && !debug_q;
-    // Check privileges for certain instructions
-    always_comb begin : check_privileges
-      privileges_violated_raw[instr_idx] = 1'b0;
-      if (instr_decoded_i[instr_idx].is_wfi) begin
-        // WFI is not allowed in U-mode
-        if ((priv_lvl_i == PrivLvlU)) begin
-          privileges_violated_raw[instr_idx] = 1'b1;
-        end
-      end
-      if (instr_decoded_i[instr_idx].is_mret) begin
-        if (priv_lvl_i != PrivLvlM) begin
-          privileges_violated_raw[instr_idx] = 1'b1;
-        end
-      end
-      if (instr_decoded_i[instr_idx].is_sret) begin
-        if (!(priv_lvl_i inside {PrivLvlM, PrivLvlS})) begin
-          privileges_violated_raw[instr_idx] = 1'b1;
-        end
+  // CSR instructions can only be processed in scalar mode, hence the core only has to check the first
+  // instruction for the following exceptions
+  assign ecall_o  = instr_decoded_i[0].is_ecall  && instr_valid[0];
+  assign ebreak_o = instr_decoded_i[0].is_ebreak && instr_valid[0];
+  // Signal to CSR when entering WFI state.
+  // TODO(colluca): what to do with debug signal?
+  assign enter_wfi_o = instr_decoded_i[0].is_wfi && instr_valid[0]; // && !debug_q;
+  assign csr_exception = (instr_decoded_i[0].fu == CSR) &&
+                          csr_exception_raw_i           &&
+                          instr_valid[0];
+
+  logic privileges_violated_raw;
+  logic privileges_violated;
+  // Check privileges for certain instructions
+  always_comb begin : check_privileges
+    privileges_violated_raw = 1'b0;
+    if (instr_decoded_i[0].is_wfi) begin
+      // WFI is not allowed in U-mode
+      if ((priv_lvl_i == PrivLvlU)) begin
+        privileges_violated_raw = 1'b1;
       end
     end
-    assign privileges_violated[instr_idx] = privileges_violated_raw[instr_idx] &&
-                                            instr_valid[instr_idx];
-    // Only update the privilege stack if there is a valid xRET instruction.
-    assign mret[instr_idx] =  instr_decoded_i[instr_idx].is_mret &&
-                              instr_valid[instr_idx]           &&
-                              !privileges_violated[instr_idx];
-    assign sret[instr_idx] =  instr_decoded_i[instr_idx].is_sret &&
-                              instr_valid[instr_idx]           &&
-                              !privileges_violated[instr_idx];
+    if (instr_decoded_i[0].is_mret) begin
+      if (priv_lvl_i != PrivLvlM) begin
+        privileges_violated_raw = 1'b1;
+      end
+    end
+    if (instr_decoded_i[0].is_sret) begin
+      if (!(priv_lvl_i inside {PrivLvlM, PrivLvlS})) begin
+        privileges_violated_raw = 1'b1;
+      end
+    end
   end
-  // We have an exception if one of the instructions in the block had an exception
-  assign ecall_o  = |ecall_ex;
-  assign ebreak_o = |ebreak_ex;
-  assign csr_exception = |csr_ex;
-  assign instr_addr_misaligned_o = |instr_addr_misaligned_ex;
+
+  assign privileges_violated = privileges_violated_raw & instr_valid[0];
+
+  // Only update the privilege stack if there is a valid xRET instruction.
+  assign mret_o =  instr_decoded_i[0].is_mret && instr_valid[0] && !privileges_violated;
+  assign sret_o =  instr_decoded_i[0].is_sret && instr_valid[0] && !privileges_violated;
+
+  // The core does not support speculation, thus only one instruction can be a control instruction
+  assign instr_addr_misaligned_o =  (blk_ctrl_info_masked.is_ctrl) &&
+                                    (next_pc_i[1:0] != 2'b0);
+
+
   // Load and store address are missaligned if LSU assert address misaligned
   // and a load/store operation is currently being processed.
-  assign load_addr_misaligned_o  = lsu_addr_misaligned_i & load_inflight_i;
-  assign store_addr_misaligned_o = lsu_addr_misaligned_i & store_inflight_i;
-  assign enter_wfi_o = |enter_wfi;
-  // xRET instructions are control instructions, there can only be one valid control intstruction per fetch packet.
-  // Therefore we can tell the frontend there is a valid xRET instruction of one of the instructions was a valid xRET
-  // instruction
-  assign mret_o = |mret;
-  assign sret_o = |sret;
+  // TODO (soderma): In superscalar mode address misalginemdents are ignored
+  // this is also done this way in schnizo at the moment. Hence load
+  // stores address misalignments only have to be checked for the first instruction
+  assign load_addr_misaligned_o  = lsu_addr_misaligned_i && (instr_decoded_i[0].fu == LOAD) &&
+                                   instr_valid[0] && registers_ready_i;
+  assign store_addr_misaligned_o = lsu_addr_misaligned_i && (instr_decoded_i[0].fu == STORE) &&
+                                   instr_valid[0] && registers_ready_i;
 
   // A privilege violation is handled as illegal instruction
   // This is done at a instruction block granularity, we throw an exception
   // if one of the instructions of the block was illegal
-  assign instr_illegal_o = (|instr_decoded_illegal_i) | (|privileges_violated);
+  assign instr_illegal_o = (|instr_decoded_illegal_i) | privileges_violated;
 
   // TODO(colluca): what to do with TLB signals?
   assign exception_o = instr_illegal_o
