@@ -62,7 +62,7 @@ module snitch_hive import snitch_icache_pkg::*; #(
   output icache_l0_events_t [CoreCount-1:0] icache_events_o
 );
   // Extend the ID to route back results to the appropriate core.
-  localparam int unsigned IdWidth = 5;
+  localparam int unsigned IdWidth = 6;
   localparam int unsigned LogCoreCount = cf_math_pkg::idx_width(CoreCount);
   localparam int unsigned ExtendedIdWidth = IdWidth + LogCoreCount;
 
