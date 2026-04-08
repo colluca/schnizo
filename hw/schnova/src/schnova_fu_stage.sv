@@ -641,7 +641,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     assign lsu_rs_busy[lsu] = (en_superscalar_i & lsu_busy) | ~lsu_rs_empty[lsu];
 
-    // TODO (soderma): Handler exceptions correctly in superscalar
     // Suppress exceptions in superscalar mode for now because we anyway don't handle them one cycle later.
     assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw & !en_superscalar_i;
 

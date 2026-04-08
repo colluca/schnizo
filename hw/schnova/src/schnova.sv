@@ -395,6 +395,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic [PipeWidth-1:0][31:0] instr_fetch_data;
   logic [PipeWidth-1:0]       instr_fetch_data_valid;
   logic [XLEN-1:0]                 consecutive_pc;
+  logic [XLEN-1:0]                 next_pc;
   logic                            loop_jump;
   logic [31:0]                     loop_jump_addr;
 
@@ -572,6 +573,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // To controller
     .pc_o                     (pc),
     .consecutive_pc_o         (consecutive_pc),
+    .next_pc_o                (next_pc),
     .jump_pc_o                (jump_pc),
     // Exception source interface
     .wfi_i                    (wfi),
@@ -676,7 +678,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .flush_i_ready_i        (flush_i_ready_i),
     .flush_i_valid_o        (flush_i_valid),
     .pc_i                   (pc),
-    .consecutive_pc_i       (consecutive_pc),
+    .next_pc_i              (next_pc),
     .loop_jump_o            (loop_jump),
     .loop_jump_addr_o       (loop_jump_addr),
     // Decoder interface
@@ -712,8 +714,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .interrupt_i            (interrupt),
     .csr_exception_raw_i    (csr_exception_raw),
     .lsu_empty_i            (lsu_empty),
-    .load_inflight_i        (1'b0),
-    .store_inflight_i       (1'b0),
     .lsu_addr_misaligned_i  (lsu_addr_misaligned),
     .priv_lvl_i             (priv_lvl),
     // Interface to CSR & write back for handling an exception

@@ -44,6 +44,7 @@ module schnova_frontend # (
     input  logic [31:0]                       loop_jump_addr_i,
     /// To controller
     output logic [31:0]                       pc_o,
+    output logic [XLEN-1:0]                   next_pc_o,
     output logic [XLEN-1:0]                   consecutive_pc_o,
     output logic [XLEN-1:0]                   jump_pc_o,
     // Branch result
@@ -136,6 +137,7 @@ module schnova_frontend # (
     // Program counter
     // TODO(soderma): Is instr misalignment handled correctly for JAL and JALR instructions?
     assign consecutive_pc_o = consecutive_pc;
+    assign next_pc_o        = pc_d;
     assign pc_o             = pc_q;
 
     // We can merge the consecutive and branched PC computation such that we only have one adder.
