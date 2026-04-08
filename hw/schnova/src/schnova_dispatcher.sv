@@ -424,7 +424,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
     // Accelerator Instruction Request Selection
     acc_req_o         = '0;
-    acc_req_o.id      = instr_dec_i[0].rd; // TODO (soderma): currently only GPR address supported
+    acc_req_o.id      = disp_req[0].tag.dest_reg; // TODO (soderma): currently only GPR address supported
     acc_req_o.data_op = instr_fetch_data_i[31:0];
 
     if (instr_dec_i[0].fu == schnova_pkg::MULDIV) begin
