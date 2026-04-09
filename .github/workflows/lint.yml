@@ -212,7 +212,6 @@ jobs:
         uses: py-actions/flake8@v2
         with:
           flake8-version: "6.0.0"
-          max-line-length: "100"
 
   ######################
   # Clang-Format Check #
