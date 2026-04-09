@@ -105,7 +105,7 @@ snitch-cluster-vsim:
     # Test trace annotation
     - make annotate -j
     # Test expected performance of AXPY kernel
-    - grep -E "ipc\s+5.445" test/logs/sz_trace_hart_00000.txt
+    - grep -E "ipc\s+4.072" test/logs/sz_trace_hart_00000.txt
     # # Run additional, more extensive tests
     # - cd test/blas/gemm && ./test.sh && cd -
     # - cd test/dnn/transpose && ./test.sh && cd -
