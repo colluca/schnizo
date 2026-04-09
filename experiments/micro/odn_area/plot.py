@@ -40,7 +40,8 @@ def plot_req_xbar_slots(dir=None, show=False, hide_x_axis=False):
     df = results(dir=dir)
     num_rs = 3
     num_rsp_ports = 3
-    req = df[(df['name'] == 'req_xbar') & (df['num_rs'] == num_rs) & (df['num_rsp_ports'] == num_rsp_ports)]
+    req = df[(df['name'] == 'req_xbar') & (df['num_rs'] == num_rs) &
+             (df['num_rsp_ports'] == num_rsp_ports)]
 
     pivot = req.groupby('num_slots')['StdCellArea'].mean()
 
@@ -116,7 +117,8 @@ def linear_regression(dir=None):
 
     Returns a dict with:
       'req_xbar': {num_ports: {'slope', 'intercept', 'r2'}, ...}  (area vs num_rs)
-      'req_xbar_slots': {num_ports: {'slope', 'intercept', 'r2'}, ...}  (area vs num_slots, at num_rs=3)
+      'req_xbar_slots': {num_ports: {'slope', 'intercept', 'r2'}, ...}
+        (area vs num_slots, at num_rs=3)
       'rsp_xbar': {num_ports: {'slope', 'intercept', 'r2'}, ...}
     """
     from scipy.stats import linregress

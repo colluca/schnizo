@@ -53,7 +53,8 @@ def fit_inverse_function(n_vals, y_vals, x_lim):
 def kernel_scaling_plot(df, app, show=True):
     """Plot IPC and FPU utilization vs problem size with fitted curves"""
     # Extract relevant data
-    df = df[(df['hw'] == '3x32_3x32_1x64') & (df['app'] == app) & (df['mode'] == 'superscalar')].copy()
+    df = df[(df['hw'] == '3x32_3x32_1x64') & (df['app'] == app) &
+            (df['mode'] == 'superscalar')].copy()
     df = df.sort_values('size')
     n_vals = df['size'].to_numpy(dtype=float)
     ipc_vals = df['ipc'].to_numpy(dtype=float)
@@ -119,10 +120,10 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     # Get the bar containers for each mode
     bar_containers = ax.containers
-    scalar_bars = bar_containers[list(plot_df.columns).index('Scalar')]
     superscalar_bars = bar_containers[list(plot_df.columns).index('Superscalar')]
 
     # # Add theoretical markers on top of scalar bars
+    # scalar_bars = bar_containers[list(plot_df.columns).index('Scalar')]
     # labeled = False
     # for bar, app in zip(scalar_bars, plot_df.index):
     #     if metric == 'fpu_util':
@@ -156,7 +157,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     # Format plot
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS[metric])
-    ax.set_xticklabels([app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index], rotation=15, ha='right')
+    labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
+    ax.set_xticklabels(labels, rotation=15, ha='right')
     ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0, loc='upper left')
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
@@ -204,7 +206,8 @@ def rsp_ports_tradeoff_plot(df, show=True):
     ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS['ipc'])
-    ax.set_xticklabels([app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index], rotation=15, ha='right')
+    labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
+    ax.set_xticklabels(labels, rotation=15, ha='right')
     ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
