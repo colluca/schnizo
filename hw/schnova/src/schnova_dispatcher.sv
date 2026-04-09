@@ -22,7 +22,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   parameter int unsigned RobTagWidth = 1,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
-  parameter type         phy_id_t    = logic,  
+  parameter type         phy_id_t    = logic,
   parameter type         disp_req_t  = logic,
   parameter type         disp_rsp_t  = logic,
   parameter type         producer_id_t = logic,
@@ -592,7 +592,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     always_comb begin: alu_idx_calculation
       if (restart_i) begin
         alu_idx_raw_d = '0;
-      end else if (en_superscalar_i & dispatched) begin
+      end else if (en_superscalar_i &  (|instr_dispatched)) begin
         alu_idx_raw_d = alu_idx_raw_q + alu_idx_inc;
       end else begin
         alu_idx_raw_d = alu_idx_raw_q;
@@ -606,7 +606,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       alu_idx_sum = alu_idx_raw_q + alu_idx_inc;
       if (restart_i) begin
         alu_idx_raw_d = '0;
-      end else if (en_superscalar_i & dispatched) begin
+      end else if (en_superscalar_i & (|instr_dispatched)) begin
         alu_idx_raw_d = (alu_idx_sum >= NofAlus)  ? alu_idx_sum - NofAlus
                                                   : alu_idx_sum[NofAlusW-1:0];
       end else begin
@@ -621,7 +621,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     always_comb begin: lsu_idx_calculation
       if (restart_i) begin
         lsu_idx_raw_d = '0;
-      end else if (en_superscalar_i & dispatched) begin
+      end else if (en_superscalar_i & (|instr_dispatched)) begin
         lsu_idx_raw_d = lsu_idx_raw_q + lsu_idx_inc;
       end else begin
         lsu_idx_raw_d = lsu_idx_raw_q;
@@ -635,7 +635,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       lsu_idx_sum = lsu_idx_raw_q + lsu_idx_inc;
       if (restart_i) begin
         lsu_idx_raw_d = '0;
-      end else if (en_superscalar_i & dispatched) begin
+      end else if (en_superscalar_i & (|instr_dispatched)) begin
         lsu_idx_raw_d = (lsu_idx_sum >= NofLsus)  ? lsu_idx_sum - NofLsus
                                                   : lsu_idx_sum[NofLsusW-1:0];
       end else begin
@@ -650,7 +650,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     always_comb begin: fpu_idx_calculation
       if (restart_i) begin
         fpu_idx_raw_d = '0;
-      end else if (en_superscalar_i & dispatched) begin
+      end else if (en_superscalar_i & (|instr_dispatched)) begin
         fpu_idx_raw_d = fpu_idx_raw_q + fpu_idx_inc;
       end else begin
         fpu_idx_raw_d = fpu_idx_raw_q;
@@ -664,7 +664,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       fpu_idx_sum = fpu_idx_raw_q + fpu_idx_inc;
       if (restart_i) begin
         fpu_idx_raw_d = '0;
-      end else if (en_superscalar_i & dispatched) begin
+      end else if (en_superscalar_i & (|instr_dispatched)) begin
         fpu_idx_raw_d = (fpu_idx_sum >= NofFpus)  ? fpu_idx_sum - NofFpus
                                                   : fpu_idx_sum[NofFpusW-1:0];
       end else begin

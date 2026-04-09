@@ -28,13 +28,17 @@ module schnova_free_list import schnova_pkg::*; #(
   localparam int unsigned NumRegs  = 2**AddrWidth;
 
   phy_id_t [NumPhysRegs-1:0] free_list;
+  logic [PhysAddrWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
   logic [PhysAddrWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
 
   // Calculate the current number of free physical registers
   logic [$clog2(NumPhysRegs):0] free_count;
 
-  assign free_count = tail_ptr - head_ptr;
+  assign free_count = tail_ptr_raw - head_ptr_raw;
   assign freelist_ready_o = (free_count >= pop_count_i);
+
+  assign head_ptr = head_ptr_raw[PhysAddrWidth-1:0];
+  assign tail_ptr = tail_ptr_raw[PhysAddrWidth-1:0];
 
   // Allocation, we pop free entries from the free list
   always_comb begin
@@ -49,10 +53,10 @@ module schnova_free_list import schnova_pkg::*; #(
   // Sequential updates, that includes pointer calculations and retirements
   always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
-      head_ptr <= '0;
+      head_ptr_raw <= '0;
       // At the beginning all architectural registers are mapped
       // that means 32 registers are mapped
-      tail_ptr <= NumPhysRegs - NumRegs;
+      tail_ptr_raw <= NumPhysRegs - NumRegs;
       for (int unsigned i = 0; i < NumPhysRegs; i++) begin
         if (i < (NumPhysRegs-NumRegs)) begin
           free_list[i] <= phy_id_t'(i + 32);
@@ -63,7 +67,7 @@ module schnova_free_list import schnova_pkg::*; #(
     end else begin
       // Update the head pointer on allocation
       if(pop_i && freelist_ready_o) begin
-        head_ptr <= head_ptr + pop_count_i;
+        head_ptr_raw <= head_ptr_raw + pop_count_i;
       end
 
       // Update tail on retirement
@@ -73,7 +77,7 @@ module schnova_free_list import schnova_pkg::*; #(
             free_list[(tail_ptr+i)%NumPhysRegs] <= retired_regs_i[i];
           end
         end
-        tail_ptr <= tail_ptr + push_count_i;
+        tail_ptr_raw <= tail_ptr_raw + push_count_i;
       end
       end
   end
