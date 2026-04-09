@@ -182,7 +182,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
           decrement_loop_iterations = 1'b1;
         end
 
-        if (exception_i) begin
+        if (exception_i || current_loop_finish) begin
           loop_valid_d           = 1'b0;
           loop_info_d            = loop_info_reset;
           loop_info_d.loop_state = LoopRegular;

@@ -42,6 +42,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   rob_entry_t [NofEntries-1:0] rob;
   logic [1:0][NofEntries-1:0] wb_dec;
 
+  logic [TagWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
   logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
 
   logic [TagWidth:0] free_count;
@@ -60,8 +61,12 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   end
 
   // Calculate the current number of free rob entries
-  assign allocated_entries = tail_ptr - head_ptr;
+  assign allocated_entries = tail_ptr_raw - head_ptr_raw;
   assign free_count = NofEntries - allocated_entries;
+
+  // Assign the head pointer and tail pointer
+  assign head_ptr = head_ptr_raw[TagWidth-1:0];
+  assign tail_ptr = tail_ptr_raw[TagWidth-1:0];
 
   // The rob is ready to allocate the requested amount of entries
   // if the number of free entries is larger or equal than the number off
@@ -144,8 +149,8 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   // Sequential updates, that includes pointer calculations and retirements
   always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
-      head_ptr <= '0;
-      tail_ptr <= '0;
+      head_ptr_raw <= '0;
+      tail_ptr_raw <= '0;
       for (int unsigned i = 0; i < NofEntries; i++) begin
         rob[i] <= rob_entry_t'{
           valid: 1'b0,
@@ -176,7 +181,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
         end
 
          // Advance the pointers
-        tail_ptr <= (tail_ptr + rob_push_count_i);
+        tail_ptr_raw <= (tail_ptr_raw + rob_push_count_i);
       end
 
       // Clear the ROB entries on commit
@@ -188,7 +193,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       end
 
       // Advance the head pointer
-      head_ptr <= (head_ptr + pop_count);
+      head_ptr_raw <= (head_ptr_raw + pop_count);
     end
   end
 

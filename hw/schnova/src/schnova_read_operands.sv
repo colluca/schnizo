@@ -58,7 +58,7 @@ module schnova_read_operands import schnova_pkg::*; #(
         gpr_raddr_o[1] = reg_map_i.phy_reg_rs2;
         fpr_raddr_o[0]   = reg_map_i.phy_reg_rs1;
         fpr_raddr_o[1] = reg_map_i.phy_reg_rs2;
-        fpr_raddr_o[2] = instr_dec_i[0].imm[RegAddrSize-1:0];
+        fpr_raddr_o[2] = reg_map_i.phy_reg_rs3;
       end
 
       // Operand A
