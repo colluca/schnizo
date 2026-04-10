@@ -1143,7 +1143,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   // TODO(colluca): probably we should remove the traces altogether in if LSU has no Xfrep (i.e. NofRss==0)
   issue_lsu_trace_t rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
   issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
-  issue_spatz_trace_t rss_spatz_traces [SpatzNofRss];  
+  issue_spatz_trace_t rss_spatz_traces [SpatzNofRss];
 
   // Traces for retirements
   retire_fu_trace_t csr_retirement;
@@ -1481,7 +1481,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
       if (Xfrep) begin : gen_spatz_traces_rss_resreq_frep
         assign spatz_resreq_traces[rss][con] = '{
           valid:          0,
-	        // valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+          // valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
           //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
           //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
           producer:       i_fu_stage.producer_to_string(
