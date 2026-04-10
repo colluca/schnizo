@@ -33,6 +33,8 @@ module schnova_free_list import schnova_pkg::*; #(
 
   // Calculate the current number of free physical registers
   logic [$clog2(NumPhysRegs):0] free_count;
+  logic [PipeWidth-1:0][PhysAddrWidth-1:0] read_idx;
+  logic [PipeWidth-1:0][PhysAddrWidth-1:0] write_idx;
 
   assign free_count = tail_ptr_raw - head_ptr_raw;
   assign freelist_ready_o = (free_count >= pop_count_i);
@@ -44,8 +46,9 @@ module schnova_free_list import schnova_pkg::*; #(
   always_comb begin
     allocated_regs_o = '0;
     for (int i = 0; i < PipeWidth; i++) begin
+      read_idx[i] = head_ptr + PhysAddrWidth'(i);
       if (i < pop_count_i) begin
-        allocated_regs_o[i] = free_list[(head_ptr+i)%NumPhysRegs];
+        allocated_regs_o[i] = free_list[read_idx[i]];
       end
     end
   end
@@ -73,8 +76,9 @@ module schnova_free_list import schnova_pkg::*; #(
       // Update tail on retirement
       if (push_i) begin
         for (int i = 0; i < PipeWidth; i++) begin
+          write_idx[i] = tail_ptr + PhysAddrWidth'(i);
           if (i < push_count_i) begin
-            free_list[(tail_ptr+i)%NumPhysRegs] <= retired_regs_i[i];
+            free_list[write_idx[i]] <= retired_regs_i[i];
           end
         end
         tail_ptr_raw <= tail_ptr_raw + push_count_i;
