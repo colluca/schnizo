@@ -16,9 +16,14 @@ def to_kge(area_um2):
     return to_ge(area_um2) / 1e3
 
 
+def to_mm2(area_kge):
+    return area_kge * 1e3 * GE / 1e6
+
+
 def results(dir=None):
     df = experiments.results(dir=dir)
 
+    df['timestamp'] = df['synth_results'].str['qor_summary'].str['timestamp']
     df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
     df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
     df['hierarchy_details'] = df['synth_results'].str['hierarchy_details']

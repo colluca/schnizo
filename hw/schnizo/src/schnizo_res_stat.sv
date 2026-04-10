@@ -16,6 +16,7 @@
 // RF:  Register File
 module schnizo_res_stat import schnizo_pkg::*; #(
   parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofConstants   = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
   parameter int unsigned NofResRspIfs   = 1,
@@ -34,6 +35,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
+  parameter type         ext_res_req_t  = logic,
+  parameter type         available_result_t = logic,
   parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic
 ) (
@@ -84,8 +87,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
-  // TODO(colluca): constrain NofRss and NofResRspIfs to be equal
-  output operand_req_t [NofRss-1:0] available_results_o,
+  output available_result_t [NofRss-1:0] available_results_o,
 
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -93,7 +95,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Result request interface - incoming - from each possible requester
-  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
+  input  ext_res_req_t [NofResRspIfs-1:0] res_reqs_i,
   input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
   output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
 
@@ -123,7 +125,10 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
 
+  // TODO(colluca): we could replace is_used and is_producer, with a single enum type variable
+  //                {Unused, Static, Dynamic}
   typedef struct packed {
+    logic         is_used;
     // The ID of the producer. Only valid if the isProduced flag is set. Otherwise this operand is
     // constant and fetched during LCP1 and LCP2.
     producer_id_t producer;
@@ -135,10 +140,6 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // Specifying in which iteration the producer generated the value. If set, the producer is in
     // the same iteration. If reset, this is a loop-carried dependency.
     logic         is_from_current_iter;
-    operand_t     value;
-    logic         is_valid;
-    // Set if we placed a request to the producer
-    logic         requested;
   } rss_operand_t;
 
   typedef struct packed {
@@ -235,6 +236,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Only accept it if we commit to the dispatch.
   assign disp_req_valid_guarded = disp_req_valid_i && !disp_req_valid_i_q && !rs_full_o &&
                                   instr_exec_commit_i;
+  // TODO(colluca): what does this mean? Is it still valid after we decoupled issue and dispatch
   // Do not signal ready until we are processing the request. This allows to handle branches where
   // the target address is only valid in the cycle the ALU computes it.
   // This is in the effective dispatch cycle because the ALU is single cycle.
@@ -279,7 +281,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic retire_at_issue;
 
   // Dispatch and result trip counter outputs
-  rss_idx_t disp_cnt, issue_cnt, result_cnt;
+  rss_cnt_t disp_cnt;
+  rss_idx_t disp_idx, issue_idx, result_idx;
   logic     last_disp;
   logic     trip_issue;
   logic     last_result, trip_result;
@@ -289,15 +292,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
-  rss_idx_t num_allocated_rss_d, num_allocated_rss_q;
+  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
   assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
+  assign rs_full_o = disp_cnt == NofRss;
+
   logic last_result_iter;
   assign last_result_iter = lep_result_iter_count == 1;
-
-  // TODO(colluca): do we need the state-dependent condition?
-  assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
 
   logic any_instr_captured;
   assign any_instr_captured = (num_allocated_rss_q != '0);
@@ -309,13 +311,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic lcp_finished;
   logic lep_finished_issue, lep_finished;
 
+  // TODO(colluca): rename this signal to what exactly the controller needs to know.
   // In LCP the loop controller knows when we are in the last loop iteration.
   // All it needs to know from the RS is if the FU has retired all instructions.
   // `fu_busy_i` is asserted also when the output of the FU is valid, but in this cycle
   // the instruction may already be retiring, so to not waste a cycle we separately
   // include this condition (result_hs).
   assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
-                        ((disp_cnt == result_cnt) && result_hs));
+                        ((disp_idx == result_idx) && result_hs));
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
@@ -362,6 +365,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //                res_stat and bypass everything internally?
   //                Well, maybe not, because of the cut.
 
+  // TODO(colluca): make this an enum to clearly understand who's being selected in the waves
   logic sel_disp_req_internal;
   assign sel_disp_req_internal = loop_state_i == LoopLep;
 
@@ -389,6 +393,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   schnizo_res_stat_slots #(
     .NofRss          (NofRss),
+    .NofConstants    (NofConstants),
     .NofOperands     (NofOperands),
     .NofResRspIfs    (NofResRspIfs),
     .ConsumerCount   (ConsumerCount),
@@ -407,16 +412,18 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .operand_req_t   (operand_req_t),
     .operand_t       (operand_t),
     .res_req_t       (res_req_t),
+    .ext_res_req_t   (ext_res_req_t),
+    .available_result_t   (available_result_t),
     .dest_mask_t     (dest_mask_t),
     .res_rsp_t       (res_rsp_t)
-  ) i_slots (
+  ) i_res_stat_slots (
     .clk_i,
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
     .loop_state_i      (loop_state_i),
-    .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
-    .issue_idx_i       (issue_cnt[NofRssWidth-1:0]),
+    .disp_idx_i        (disp_idx),
+    .issue_idx_i       (issue_idx),
     .last_issue_iter_i (lep_issue_iter_count == 1),
     .last_result_iter_i(last_result_iter),
     .retire_at_issue_o (retire_at_issue),
@@ -455,19 +462,23 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Counters //
   //////////////
 
+  // This counts the number of dispatched instructions, which can be as many as NofRss.
+  // The dispatch index on the other hand must point to a valid reservation station,
+  // so it should trip when it reaches NofRss-1.
   trip_counter #(
-    .WIDTH(NofRssWidth)
+    .WIDTH(NofRssWidthExt)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (disp_hs),
-    .delta_i (rss_idx_t'(1)),
-    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
+    .delta_i (rss_cnt_t'(1)),
+    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
     .last_o  (last_disp),
     .trip_o  ()
   );
+  assign disp_idx = (disp_cnt == NofRss) ? '0 : disp_cnt;
 
   trip_counter #(
     .WIDTH(NofRssWidth)
@@ -478,7 +489,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .en_i    (issue_hs),
     .delta_i (rss_idx_t'(1)),
     .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (issue_cnt),
+    .q_o     (issue_idx),
     .last_o  (),
     .trip_o  (trip_issue)
   );
@@ -497,7 +508,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .en_i    (retire_at_issue || result_hs),
     .delta_i (rss_idx_t'(retire_at_issue + result_hs)),
     .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (result_cnt),
+    .q_o     (result_idx),
     .last_o  (last_result),
     .trip_o  (trip_result)
   );
@@ -536,21 +547,35 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Assertions //
   ////////////////
 
-  // The inflight counters track the actual number of dispatched and issued instructions
-  // in flight. If we have a issue handshake without a previous dispatch handshake, or a
-  // result handshake without a previous issue handshake, the counters underflow and we
-  // raise an error. Additionally, there can only be at most one instruction dispatched
-  // but not yet issued.
-  // TODO(colluca): these assertions would trigger in time 0. Find a solution and fix these.
-  // rss_idx_t inflight_disp_d, inflight_disp_q;
-  // rss_idx_t inflight_issue_d, inflight_issue_q;
-  // assign inflight_disp_d  = restart_i ? '0 :
-  //                           inflight_disp_q  + rss_idx_t'(disp_hs)  - rss_idx_t'(issue_hs);
-  // assign inflight_issue_d = restart_i ? '0 :
-  //                           inflight_issue_q + rss_idx_t'(issue_hs) - rss_idx_t'(retire_at_issue + result_hs);
-  // `FFAR(inflight_disp_q,  inflight_disp_d,  '0, clk_i, rst_i)
-  // `FFAR(inflight_issue_q, inflight_issue_d, '0, clk_i, rst_i)
-  // `ASSERT(DispatchBeforeIssue, inflight_disp_q <= rss_idx_t'(1), clk_i, !rst_i)
-  // `ASSERT(IssueBeforeResult, inflight_issue_q < rss_idx_t'(NofRss), clk_i, !rst_i)
+  rss_cnt_t disp_in_flight_q, disp_in_flight_d;
+  // TODO(colluca): the size of this counter depends solely on the FU's maximum number of
+  //                outstanding instructions.
+  //                We should feed this parameter from outside and also use it to test that
+  //                issue_in_flight counter never exceeds this value.
+  logic [31:0] issue_in_flight_q, issue_in_flight_d;
+
+  `FFAR(disp_in_flight_q, disp_in_flight_d, '0, clk_i, rst_i)
+  `FFAR(issue_in_flight_q, issue_in_flight_d, '0, clk_i, rst_i)
+
+  always_comb begin
+    disp_in_flight_d = disp_in_flight_q;
+    issue_in_flight_d = issue_in_flight_q;
+
+    if (disp_hs) begin
+      disp_in_flight_d += 1;
+    end
+    if (issue_hs) begin
+      disp_in_flight_d -= 1;
+      issue_in_flight_d += 1;
+    end
+    if (retire_at_issue || result_hs) begin
+      issue_in_flight_d -= (retire_at_issue + result_hs);
+    end
+  end
+
+  `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_in_flight_q >= 1)), clk_i, rst_i)
+  `ASSERT(MaxDispatchIssueDistanceOne, disp_hs |-> (issue_hs || (disp_in_flight_q < 1)), clk_i, rst_i)
+  `ASSERT(RetireAtIssueImpliesIssue, retire_at_issue |-> issue_hs, clk_i, rst_i)
+  `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (issue_in_flight_q >= 1)), clk_i, rst_i)
 
 endmodule

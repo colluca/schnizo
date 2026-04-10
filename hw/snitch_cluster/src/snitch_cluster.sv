@@ -155,6 +155,12 @@ module snitch_cluster
   parameter int unsigned NumLsuRss [NrCores] = '{default: 0},
   /// Per-core number of Slots per FPU
   parameter int unsigned NumFpuRss [NrCores] = '{default: 0},
+  /// Per-core number of constants per ALU
+  parameter int unsigned NumAluConstants [NrCores] = '{default: 0},
+  /// Per-core number of constants per LSU
+  parameter int unsigned NumLsuConstants [NrCores] = '{default: 0},
+  /// Per-core number of constants per FPU
+  parameter int unsigned NumFpuConstants [NrCores] = '{default: 0},
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
@@ -1177,6 +1183,9 @@ module snitch_cluster
       .NumAluRss(NumAluRss[i]),
       .NumLsuRss(NumLsuRss[i]),
       .NumFpuRss(NumFpuRss[i]),
+      .NumAluConstants(NumAluConstants[i]),
+      .NumLsuConstants(NumLsuConstants[i]),
+      .NumFpuConstants(NumFpuConstants[i]),
       .NumAluRspPorts(NumAluRspPorts[i]),
       .NumLsuRspPorts(NumLsuRspPorts[i]),
       .NumFpuRspPorts(NumFpuRspPorts[i]),

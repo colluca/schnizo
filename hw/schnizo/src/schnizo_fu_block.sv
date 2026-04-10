@@ -22,6 +22,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   /// Reservation Station parameters
   parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofConstants   = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
   parameter int unsigned NofResRspIfs   = 1,
@@ -34,6 +35,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         res_req_t      = logic,
+  parameter type         ext_res_req_t  = logic,
+  parameter type         available_result_t  = logic,
   parameter type         dest_mask_t    = logic,
   parameter type         res_rsp_t      = logic
 ) (
@@ -85,7 +88,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
-  output operand_req_t [NofRss-1:0] available_results_o,
+  output available_result_t [cf_math_pkg::iomsb(NofRss):0] available_results_o,
 
   // TODO(colluca): use generic_reqrsp interfaces for all of these. Would then reduce to four signals:
   // operand_req_o, operand_rsp_i, result_req_i, result_rsp_o.
@@ -96,15 +99,15 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   output logic         [NofOperands-1:0] op_reqs_valid_o,
   input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
-  // Result request interface - incoming - from each possible requester
-  input  dest_mask_t [NofResRspIfs-1:0] res_reqs_i,
-  input  logic       [NofResRspIfs-1:0] res_reqs_valid_i,
-  output logic       [NofResRspIfs-1:0] res_reqs_ready_o,
+  // Result request interface - incoming - one per response port
+  input  ext_res_req_t [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_i,
+  input  logic       [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_valid_i,
+  output logic       [cf_math_pkg::iomsb(NofResRspIfs):0] res_reqs_ready_o,
 
-  // Result response interface - outgoing - result as operand response
-  output res_rsp_t [NofResRspIfs-1:0] res_rsps_o,
-  output logic     [NofResRspIfs-1:0] res_rsps_valid_o,
-  input  logic     [NofResRspIfs-1:0] res_rsps_ready_i,
+  // Result response interface - outgoing - one per response port
+  output res_rsp_t [cf_math_pkg::iomsb(NofResRspIfs):0] res_rsps_o,
+  output logic     [cf_math_pkg::iomsb(NofResRspIfs):0] res_rsps_valid_o,
+  input  logic     [cf_math_pkg::iomsb(NofResRspIfs):0] res_rsps_ready_i,
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOperands-1:0] op_rsps_i,
@@ -114,7 +117,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
 
   typedef logic [cf_math_pkg::idx_width(NofRss)-1:0] rs_tag_t;
 
-  if (Xfrep) begin : gen_superscalar
+  if (Xfrep && (NofRss > 0)) begin : gen_superscalar
     // Module global switch between regular execution and superscalar path
     logic sel_lxp_path;
     assign sel_lxp_path = in_lxp_i;
@@ -271,6 +274,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     // is calculated as max(wb_tag_t, rs_tag_t)? If not, just pass rs_tag_t here
     schnizo_res_stat #(
       .NofRss        (NofRss),
+      .NofConstants  (NofConstants),
       .NofOperands   (NofOperands),
       .NofResRspIfs  (NofResRspIfs),
       .ConsumerCount (ConsumerCount),
@@ -286,6 +290,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
+      .ext_res_req_t (ext_res_req_t),
+      .available_result_t   (available_result_t),
       .dest_mask_t   (dest_mask_t),
       .res_rsp_t     (res_rsp_t)
     ) i_res_stat (

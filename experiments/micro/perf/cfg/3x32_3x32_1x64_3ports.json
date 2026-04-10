@@ -1,4 +1,4 @@
-// Copyright 2025 ETH Zurich and University of Bologna.
+// Copyright 2023 ETH Zurich and University of Bologna.
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -116,14 +116,17 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 2,
-        num_alu_constants: 8,
+        num_alu_slots: 32,
+        num_alu_constants: 16,
         num_lsus: 3,
-        num_lsu_slots: 3,
-        num_lsu_constants: 8,
+        num_lsu_slots: 32,
+        num_lsu_constants: 64,
         num_fpus: 1,
-        num_fpu_slots: 4,
-        num_fpu_constants: 8,
+        num_fpu_slots: 64,
+        num_fpu_constants: 32,
+        num_alu_rsp_ports: 3,
+        num_lsu_rsp_ports: 3,
+        num_fpu_rsp_ports: 3,
     },
     dma_core_template: {
         isa: "rv32imafd",

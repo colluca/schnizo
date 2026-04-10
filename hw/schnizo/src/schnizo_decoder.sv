@@ -205,9 +205,10 @@ module schnizo_decoder import schnizo_pkg::*; #(
     instr_dec_o.rd_is_fp  = 0;
     instr_dec_o.rs1       = '0;
     instr_dec_o.rs1_is_fp = 0;
+    instr_dec_o.use_rs1   = 1'b0;
     instr_dec_o.rs2       = '0;
     instr_dec_o.rs2_is_fp = 0;
-    instr_dec_o.use_imm_as_rs3 = 1'b0;
+    instr_dec_o.use_rs2   = 1'b0;
     instr_dec_o.lsu_size       = Word;
     instr_dec_o.fpu_fmt_src    = fpnew_pkg::FP32;
     instr_dec_o.fpu_fmt_dst    = fpnew_pkg::FP32;
@@ -238,6 +239,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu = schnizo_pkg::ALU;
         imm_select = IIMM;
         instr_dec_o.rs1 = instr.itype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rd = instr.itype.rd;
         unique case (instr.itype.funct3)
           3'b000: instr_dec_o.alu_op = schnizo_pkg::AluOpAdd;  // ADDI
@@ -249,12 +251,12 @@ module schnizo_decoder import schnizo_pkg::*; #(
 
           3'b001: begin
             instr_dec_o.alu_op = schnizo_pkg::AluOpSll; // SLLI
-            if (instr.instr[31:25] != 7'b0) illegal_instr = 1'b1;
+            if (instr.rtype.funct7 != 7'b0) illegal_instr = 1'b1;
           end
           3'b101: begin
-            if (instr.instr[31:25] == 7'b0) begin
+            if (instr.rtype.funct7 == 7'b0) begin
               instr_dec_o.alu_op = schnizo_pkg::AluOpSrl; // SRLI
-            end else if (instr.instr[31:25] == 7'b010_0000) begin
+            end else if (instr.rtype.funct7 == 7'b010_0000) begin
               instr_dec_o.alu_op = schnizo_pkg::AluOpSra; // SRAI
             end else begin
               illegal_instr = 1'b1;
@@ -268,7 +270,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
       OpcodeOpReg: begin
         instr_dec_o.fu = schnizo_pkg::ALU;
         instr_dec_o.rs1 = instr.rtype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rs2 = instr.rtype.rs2;
+        instr_dec_o.use_rs2 = 1'b1;
         instr_dec_o.rd  = instr.rtype.rd;
 
         unique case ({instr.rtype.funct7, instr.rtype.funct3})
@@ -317,7 +321,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu = schnizo_pkg::STORE;
         imm_select = SIMM;
         instr_dec_o.rs1 = instr.stype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rs2 = instr.stype.rs2;
+        instr_dec_o.use_rs2 = 1'b1;
         instr_dec_o.lsu_op = schnizo_pkg::LsuOpStore;
         // determine store size
         instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
@@ -333,6 +339,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu = schnizo_pkg::LOAD;
         imm_select = IIMM;
         instr_dec_o.rs1 = instr.itype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rd = instr.itype.rd;
         instr_dec_o.lsu_op = schnizo_pkg::LsuOpLoad;
         // determine load size and signed type
@@ -355,7 +362,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu = schnizo_pkg::STORE;
         imm_select = SIMM;
         instr_dec_o.rs1 = instr.stype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rs2 = instr.stype.rs2;
+        instr_dec_o.use_rs2 = 1'b1;
         instr_dec_o.rs2_is_fp = 1'b1;
 
         // determine store size
@@ -374,6 +383,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu = schnizo_pkg::LOAD;
         imm_select = IIMM;
         instr_dec_o.rs1 = instr.itype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rd = instr.itype.rd;
         instr_dec_o.rd_is_fp = 1'b1;
 
@@ -396,13 +406,14 @@ module schnizo_decoder import schnizo_pkg::*; #(
         if (RVF || RVD) begin
           instr_dec_o.fu             = schnizo_pkg::FPU;
           instr_dec_o.rs1            = instr.r4type.rs1;
+          instr_dec_o.use_rs1        = 1'b1;
           instr_dec_o.rs1_is_fp      = 1'b1;
           instr_dec_o.rs2            = instr.r4type.rs2;
+          instr_dec_o.use_rs2        = 1'b1;
           instr_dec_o.rs2_is_fp      = 1'b1;
           instr_dec_o.rd             = instr.r4type.rd;
           instr_dec_o.rd_is_fp       = 1'b1;
-          imm_select                = RS3;
-          instr_dec_o.use_imm_as_rs3 = 1'b1;
+          imm_select                 = RS3;
 
           // Per default use the encoded format for src and dst (dst is not used for fused
           // operations). Whether this format is suppored (i.e. RVF/RVD) is checked below.
@@ -480,12 +491,15 @@ module schnizo_decoder import schnizo_pkg::*; #(
       // --------------------------------
       // Floating-Point Reg-Reg Operations
       // --------------------------------
+      // TODO(colluca): FMV instructions are arguably not reg-reg operations
       OpcodeOpFp: begin
         if (RVF || RVD) begin
           instr_dec_o.fu        = schnizo_pkg::FPU;
           instr_dec_o.rs1       = instr.rftype.rs1;
+          instr_dec_o.use_rs1   = 1'b1;
           instr_dec_o.rs1_is_fp = 1'b1;
           instr_dec_o.rs2       = instr.rftype.rs2;
+          instr_dec_o.use_rs2   = 1'b1;
           instr_dec_o.rs2_is_fp = 1'b1;
           instr_dec_o.rd        = instr.rftype.rd;
           instr_dec_o.rd_is_fp  = 1'b1;
@@ -550,6 +564,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b01000: begin
               // overwrite the destination format. Check the source format.
+              instr_dec_o.use_rs2 = 1'b0;
               unique case ({instr.rftype.fmt, instr.rftype.rs2})
                 7'b01_00000: begin
                   instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2F; // FCVT_D_S
@@ -564,6 +579,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b11000: begin
               instr_dec_o.rd_is_fp = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               unique case (instr.rftype.rs2)
                 5'b00000: instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2I;        //FCVT_W_S, FCVT_W_D
                 5'b00001: instr_dec_o.fpu_op = schnizo_pkg::FpuOpF2Iunsigned;//FCVT_WU_S, FCVT_WU_D
@@ -583,6 +599,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b11100: begin
               check_fpround_mode = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               unique case (instr.rftype.rm)
                 3'b000: begin
                   instr_dec_o.rd_is_fp = 1'b0;
@@ -601,6 +618,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             end
             5'b11010: begin
               instr_dec_o.rs1_is_fp  = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               unique case (instr.rftype.rs2)
                 5'b00000: instr_dec_o.fpu_op = schnizo_pkg::FpuOpI2F;        //FCVT_S_W, FCVT_D_W
                 5'b00001: instr_dec_o.fpu_op = schnizo_pkg::FpuOpI2Funsigned;//FCVT_S_WU, FCVT_D_WU
@@ -608,8 +626,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
               endcase
             end
             5'b11110: begin
+              instr_dec_o.rs1_is_fp = 1'b0;
+              instr_dec_o.use_rs2 = 1'b0;
               if (instr.rftype.rs2 == '0 && instr.rftype.rm == '0) begin
-              instr_dec_o.rs1_is_fp  = 1'b0;
                 instr_dec_o.fpu_op = schnizo_pkg::FpuOpFsgnj; // FMV_W_X
                 instr_dec_o.fpu_rnd_mode = fpnew_pkg::RUP; // passthrough
               end else begin
@@ -675,7 +694,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu        = schnizo_pkg::CTRL_FLOW;
         imm_select            = SBIMM;
         instr_dec_o.rs1       = instr.stype.rs1;
+        instr_dec_o.use_rs1   = 1'b1;
         instr_dec_o.rs2       = instr.stype.rs2;
+        instr_dec_o.use_rs2   = 1'b1;
 
         instr_dec_o.is_branch = 1'b1;
 
@@ -706,6 +727,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu      = schnizo_pkg::CTRL_FLOW;
         instr_dec_o.alu_op  = schnizo_pkg::AluOpAdd;
         instr_dec_o.rs1     = instr.itype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         imm_select          = IIMM;
         instr_dec_o.rd      = instr.itype.rd;
         instr_dec_o.is_jalr = 1'b1;
@@ -748,6 +770,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu = schnizo_pkg::CSR;
         instr_dec_o.rd = instr.itype.rd;
         instr_dec_o.rs1 = instr.itype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         case (instr.itype.funct3)
           3'b000: begin // non CSR related SYSTEM instructions
             unique case (instr.itype.imm)
@@ -787,6 +810,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             //         If rd = x0 do not read the CSR / do not cause any read side effects.
             imm_select = IIMM;
             instr_dec_o.use_rs1addr_as_op_a = 1'b1;
+            instr_dec_o.use_rs1 = 1'b1;
             if (instr.itype.rd == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpWrite;
             else instr_dec_o.csr_op = schnizo_pkg::CsrOpSwap;
           end
@@ -796,6 +820,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             //         just read.
             imm_select = IIMM;
             instr_dec_o.use_rs1addr_as_op_a = 1'b1;
+            instr_dec_o.use_rs1 = 1'b1;
             if (instr.itype.rs1 == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpRead;
             else instr_dec_o.csr_op = schnizo_pkg::CsrOpSet;
           end
@@ -805,6 +830,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             //         just read.
             imm_select = IIMM;
             instr_dec_o.use_rs1addr_as_op_a = 1'b1;
+            instr_dec_o.use_rs1 = 1'b1;
             if (instr.itype.rs1 == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpRead;
             else instr_dec_o.csr_op = schnizo_pkg::CsrOpClear;
           end
@@ -821,7 +847,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
               instr_dec_o.fu  = schnizo_pkg::DMA;
               instr_dec_o.rd  = instr.rtype.rd;
               instr_dec_o.rs1 = instr.rtype.rs1;
+              instr_dec_o.use_rs1 = 1'b1;
               instr_dec_o.rs2 = instr.rtype.rs2;
+              instr_dec_o.use_rs2 = 1'b1;
               // Check fixed bits
               unique case (instr.rtype.funct7)
                 7'b0000000,       // DMSRC
@@ -867,6 +895,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
           // The iterations are from a register specified by the max_iters field
           instr_dec_o.rs1_is_fp = 1'b0;
           instr_dec_o.rs1       = instr.freptype.max_iters_reg;
+          instr_dec_o.use_rs1   = 1'b1;
         end else begin
           illegal_instr = 1'b1;
         end
@@ -879,7 +908,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
         instr_dec_o.fu  = schnizo_pkg::LOAD;
         instr_dec_o.rd  = instr.atype.rd;
         instr_dec_o.rs1 = instr.atype.rs1;
+        instr_dec_o.use_rs1 = 1'b1;
         instr_dec_o.rs2 = instr.atype.rs2;
+        instr_dec_o.use_rs2 = 1'b1;
 
         instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
         // We only support the W size
@@ -959,6 +990,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
 
     // NOIMM, IIMM, SIMM, SBIMM, UIMM, JIMM, RS3
     // select immediate
+    instr_dec_o.use_imm = 1'b0;
+    instr_dec_o.use_imm_as_op_b = 1'b0;
+    instr_dec_o.use_imm_as_rs3 = 1'b0;
     case (imm_select)
       IIMM: begin
         instr_dec_o.imm = imm_i_type;
@@ -966,7 +1000,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
       end
       SIMM: begin
         instr_dec_o.imm = imm_s_type;
-        instr_dec_o.use_imm_as_op_b = 1'b1;
+        instr_dec_o.use_imm = 1'b1;
       end
       SBIMM: begin
         instr_dec_o.imm = imm_sb_type;
@@ -983,16 +1017,15 @@ module schnizo_decoder import schnizo_pkg::*; #(
       RS3: begin
         // imm holds address of fp operand rs3
         instr_dec_o.imm = {{XLEN - 5{1'b0}}, instr.r4type.rs3};
-        instr_dec_o.use_imm_as_op_b = 1'b0;
+        instr_dec_o.use_imm_as_rs3 = 1'b1;
       end
+      // TODO(colluca): this appears to be never used
       MUX_RD_RS3: begin
         // imm holds address of operand rs3 which is in rd field
         instr_dec_o.imm = {{XLEN - 5{1'b0}}, instr.rtype.rd};
-        instr_dec_o.use_imm_as_op_b = 1'b0;
       end
       default: begin
         instr_dec_o.imm = {XLEN{1'b0}};
-        instr_dec_o.use_imm_as_op_b = 1'b0;
       end
     endcase
   end

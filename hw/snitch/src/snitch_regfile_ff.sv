@@ -2,6 +2,8 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "common_cells/assertions.svh"
+
 // Author: Florian Zaruba <zarubaf@iis.ee.ethz.ch>
 // Description: Variable Register File
 // verilog_lint: waive module-filename
@@ -60,5 +62,12 @@ module snitch_regfile #(
   for (genvar i = 0; i < NrReadPorts; i++) begin : gen_read_port
     assign rdata_o[i] = mem[raddr_i[i]];
   end
+
+  ////////////////
+  // Assertions //
+  ////////////////
+
+  // Make sure that we never write back an unknown value to the register file
+  `ASSERT(RegWriteKnown, we_i & (waddr_i != 0) |-> !$isunknown(wdata_i))
 
 endmodule

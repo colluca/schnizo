@@ -13,7 +13,7 @@ module schnizo_res_stat_issue_memory #(
   localparam type         addr_t          = logic [cf_math_pkg::idx_width(NofRss)-1:0]
 ) (
   input  logic clk_i,
-  input  logic rst_i,
+  input  logic rst_ni,
 
   // Read port
   input  addr_t          raddr_i,
@@ -49,7 +49,7 @@ module schnizo_res_stat_issue_memory #(
       .impl_in_t(sram_cfg_t)
     ) i_mem (
       .clk_i  ({clk_i, clk_i}),
-      .rst_ni ({!rst_i, !rst_i}),
+      .rst_ni ({rst_ni, rst_ni}),
       .impl_i (cfg),
       .impl_o (),
       .req_i  ({1'b1, wen_i}),
@@ -77,7 +77,7 @@ module schnizo_res_stat_issue_memory #(
 
     // Instantiate FF-based slots
     for (genvar rss = 0; rss < NofRss; rss++) begin : gen_slot
-      `FFAR(slot_qs[rss], slot_ds[rss], '0, clk_i, rst_i);
+      `FF(slot_qs[rss], slot_ds[rss], '0);
     end
 
   end

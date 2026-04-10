@@ -19,10 +19,12 @@ def gen_experiments(designs=None):
     # Generate list of experiments
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
+        # Sn.
         {
             'design': 'snitch_synth',
             'name': 'snitch'
         },
+        # Sc.
         {
             'design': 'schnizo_synth',
             'name': 'scalar',
@@ -34,6 +36,7 @@ def gen_experiments(designs=None):
                 'MulInAlu0': 0,
             }
         },
+        # FP-Sc.
         {
             'design': 'schnizo_synth',
             'name': 'scalar+mul+fpu',
@@ -44,9 +47,10 @@ def gen_experiments(designs=None):
                 'NofFpus': 1,
             }
         },
+        # S
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_small',
+            'name': 'superscalar_1x1_1x1_1x1',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 1,
@@ -55,42 +59,95 @@ def gen_experiments(designs=None):
                 'AluNofRss': 1,
                 'LsuNofRss': 1,
                 'FpuNofRss': 1,
+                'AluNofConstants': 1,
+                'LsuNofConstants': 1,
+                'FpuNofConstants': 1,
             }
         },
+        # LA
         {
             'design': 'schnizo_synth',
-            'name': 'superscalar_medium',
-            'hdl_params': {
-                'Xfrep': 1,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-                'AluNofRss': 4,
-                'LsuNofRss': 4,
-                'FpuNofRss': 4,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'superscalar_medium_96slots',
-            'hdl_params': {
-                'Xfrep': 1,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-                'AluNofRss': 32,
-                'LsuNofRss': 32,
-                'FpuNofRss': 32,
-            }
-        },
-        {
-            'design': 'schnizo_synth',
-            'name': 'superscalar_large',
+            'name': 'superscalar_3x4_3x4_1x4',
             'hdl_params': {
                 'Xfrep': 1,
                 'NofAlus': 3,
                 'NofLsus': 3,
                 'NofFpus': 1,
+                'AluNofRss': 4,
+                'LsuNofRss': 4,
+                'FpuNofRss': 4,
+                'AluNofConstants': 4,
+                'LsuNofConstants': 4,
+                'FpuNofConstants': 4,
+            }
+        },
+        # MC
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_3x32_1x0_2x32',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 3,
+                'NofLsus': 1,
+                'NofFpus': 2,
+                'AluNofRss': 32,
+                'LsuNofRss': 0,
+                'FpuNofRss': 32,
+                'AluNofConstants': 16,
+                'LsuNofConstants': 4,  # Unused
+                'FpuNofConstants': 16,
+                'LsuNofResRspPorts': 0
+            }
+        },
+        # TR
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_2x32_1x32_2x32',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 2,
+                'NofLsus': 1,
+                'NofFpus': 2,
+                'AluNofRss': 32,
+                'LsuNofRss': 32,
+                'FpuNofRss': 32,
+                'AluNofConstants': 16,
+                'LsuNofConstants': 64,
+                'FpuNofConstants': 16,
+            }
+        },
+        # GP-M
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_1x128_1x32_1x64',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 1,
+                'NofLsus': 1,
+                'NofFpus': 1,
+                'AluNofRss': 128,
+                'LsuNofRss': 32,
+                'FpuNofRss': 64,
+                'AluNofConstants': 32,
+                'LsuNofConstants': 64,
+                'FpuNofConstants': 32,
+            }
+        },
+        # GP-L
+        {
+            'design': 'schnizo_synth',
+            'name': 'superscalar_3x32_3x32_1x64',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 3,
+                'NofLsus': 3,
+                'NofFpus': 1,
+                'AluNofRss': 32,
+                'LsuNofRss': 32,
+                'FpuNofRss': 64,
+                'AluNofConstants': 16,
+                'LsuNofConstants': 64,
+                'FpuNofConstants': 32,
             }
         },
     ]

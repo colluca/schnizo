@@ -267,10 +267,6 @@ static inline void vlogf_schnizo(float *a, double *b) {
                     "fmadd.d  fa7, ft8, fa4, fa7            \n" // y = y * r2 + (y0 + r)
                     "fmadd.d  ft3, ft9, fa5, ft3            \n" // y = y * r2 + (y0 + r)
                     "fmadd.d  ft4, ft10, fa6, ft4           \n" // y = y * r2 + (y0 + r)
-                    "lw       a0,  0(%[input])              \n" // ix = asuint (x)
-                    "lw       a4,  4(%[input])              \n" // ix = asuint (x)
-                    "lw       a5,  8(%[input])              \n" // ix = asuint (x)
-                    "lw       a6, 12(%[input])              \n" // ix = asuint (x)
                     "fsd      fa1, 0(%[output])             \n"
                     "fsd      fa7, 8(%[output])             \n"
                     "fsd      ft3, 16(%[output])            \n"

@@ -121,6 +121,8 @@ class ExperimentManager:
         experiment['run_dir'] = self.derive_dir(self.run_dir, experiment)
         experiment['power_dir'] = self.derive_dir(self.power_dir, experiment)
         experiment['synth_dir'] = self.derive_dir(self.synth_dir, experiment)
+        if 'app' in experiment:
+            experiment['elf'] = self.derive_elf(experiment)
 
     def derive_cdefines(self, experiment):
         return {}
@@ -146,25 +148,35 @@ class ExperimentManager:
 
         # Build hardware
         if 'hw' in self.actions or 'all' in self.actions:
-            for experiment in experiments:
+            # TODO(colluca): because of CFG_OVERRIDE, the hardware is rebuilt every time.
+            # To save time, we run it only once for every unique hw configuration.
+            unique_hw_experiments = {e['hw']: e for e in experiments}.values()
+            for experiment in unique_hw_experiments:
                 bin = self.derive_hw_bin(experiment)
                 print(colored('Generate hardware', 'black', attrs=['bold']),
                       colored(bin, 'cyan', attrs=['bold']))
                 vars = {
                     'SN_BIN_DIR': bin.parent,
-                    'VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
+                    'SN_VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
+                    'SN_WORK_DIR': self.dir / 'hw' / experiment['hw'] / 'work',
+                    # TODO(colluca): this is not supported since the path to `hw/generated` is
+                    # hardcoded in Bender.yml
+                    # 'SN_GEN_DIR': self.dir / 'hw' / experiment['hw'] / 'generated',
                     'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
-                    'DEBUG': 'ON'
+                    # 'DEBUG': 'ON'
                 }
-                flags = ['-j']
-                common.make(bin, vars, flags=flags, dry_run=dry_run)
+                # TODO(colluca): can't build hardware in parallel since we would have a race
+                # condition on cfg/lru.json. This would be fixed by using SN_CFG instead of
+                # CFG_OVERRIDE, but this doesn't work atm (see above).
+                # flags = ['-j']
+                # common.make(bin, vars, flags=flags, dry_run=dry_run)
+                common.make(bin, vars, dry_run=dry_run)
 
         # Build software
         if 'sw' in self.actions or 'all' in self.actions:
             processes = []
             for experiment in experiments:
                 target = experiment['app']
-                experiment['elf'] = self.derive_elf(experiment)
                 build_dir = experiment['elf'].parent
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
@@ -180,7 +192,10 @@ class ExperimentManager:
                 process = func(
                     target=target, build_dir=build_dir, defines=defines,
                     data_cfg=data_cfg, hw_cfg=hw_cfg, dry_run=dry_run,
-                    sync=True if self.args.n_procs == 1 else False
+                    # TODO(colluca): can't run in parallel if we're overriding the data_cfg since
+                    # we would have a race condition on cfg/lru.json. This would be fixed by using
+                    # SN_CFG instead of CFG_OVERRIDE, but this doesn't work atm (see above).
+                    sync=True if self.args.n_procs == 1 or 'hw' in experiment else False
                 )
                 processes.append(process)
             common.wait_processes(processes, dry_run=dry_run)
@@ -374,12 +389,10 @@ class ExperimentManager:
         axes = df['axes'].apply(pd.Series)
 
         # Create SimResults objects from 'run_dir' column
-        try:
+        if self.run_dir.exists():
             results = df['run_dir'].apply(lambda run_dir: SimResults(run_dir, source=source))
             results.rename('results', inplace=True)
             self.perf_results_available = True
-        except FileNotFoundError:
-            pass
 
         # Create PowerResults objects
         if 'PowerResults' in globals():
@@ -392,12 +405,10 @@ class ExperimentManager:
 
         # Create SynthResults objects
         if 'SynthResults' in globals():
-            try:
+            if self.synth_dir.exists():
                 synth_results = df['synth_dir'].apply(lambda synth_dir: SynthResults(synth_dir))
                 synth_results.rename('synth_results', inplace=True)
                 self.synth_results_available = True
-            except FileNotFoundError:
-                pass
 
         # Combine experiment axes and results into a new DataFrame
         columns = [axes]

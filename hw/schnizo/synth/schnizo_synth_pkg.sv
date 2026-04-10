@@ -61,8 +61,11 @@ package schnizo_synth_pkg;
     schnizo_pkg::csr_op_e   csr_op;
     schnizo_pkg::fpu_op_e   fpu_op;
     logic [OpLen-1:0]       operand_a;
+    logic                   use_operand_a;
     logic [OpLen-1:0]       operand_b;
+    logic                   use_operand_b;
     logic [OpLen-1:0]       imm;
+    logic                   use_imm;
     schnizo_pkg::lsu_size_e lsu_size;
     fpnew_pkg::fp_format_e  fpu_fmt_src;
     fpnew_pkg::fp_format_e  fpu_fmt_dst;
@@ -100,6 +103,11 @@ package schnizo_synth_pkg;
   } alu_result_t;
 
   typedef struct packed {
+    logic valid;
+    logic iteration;
+  } available_result_t;
+
+  typedef struct packed {
     logic        requested_iter;
     slot_id_t    slot_id;
   } res_req_t;
@@ -119,6 +127,11 @@ package schnizo_synth_pkg;
     dest_mask_t dest_mask;
     operand_t   operand;
   } res_rsp_t;
+
+  typedef struct packed {
+    dest_mask_t  dest_mask;
+    slot_id_t    slot_id;
+  } ext_res_req_t;
 
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
 
