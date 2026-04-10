@@ -13,7 +13,8 @@
 module schnova_scoreboard #(
   parameter int unsigned PipeWidth    = 1,
   parameter int unsigned NrReadPorts  = 2,
-  parameter int unsigned NrWritePorts = 1,
+  parameter int unsigned NrIntWritePorts = 1,
+  parameter int unsigned NrFpWritePorts  = 1,
   parameter int unsigned AddrWidth    = 4,
   parameter type         sb_disp_data_t = logic
 ) (
@@ -30,10 +31,10 @@ module schnova_scoreboard #(
   input  logic [NrReadPorts-1:0]                read_fp_i,
   output logic [NrReadPorts-1:0]                rdata_o,
   // Register writeback snooping
-  input  logic [NrWritePorts-1:0][AddrWidth-1:0]  wb_gpr_addr_i,
-  input  logic [NrWritePorts-1:0]                 wb_gpr_en_i,
-  input  logic [NrWritePorts-1:0][AddrWidth-1:0]  wb_fpr_addr_i,
-  input  logic [NrWritePorts-1:0]                 wb_fpr_en_i,
+  input  logic [NrIntWritePorts-1:0][AddrWidth-1:0] wb_gpr_addr_i,
+  input  logic [NrIntWritePorts-1:0]                wb_gpr_en_i,
+  input  logic [NrFpWritePorts-1:0][AddrWidth-1:0]  wb_fpr_addr_i,
+  input  logic [NrFpWritePorts-1:0]                 wb_fpr_en_i,
   // To controller
   output logic                                    registers_ready_o,
   output logic                                    sb_busy_o
@@ -43,8 +44,8 @@ module schnova_scoreboard #(
 
   logic [NumRegs-1:0] sbi_d, sbi_q, sbf_d, sbf_q;
   logic [PipeWidth-1:0][NumRegs-1:0] disp_dec;
-  logic [NrWritePorts-1:0][NumRegs-1:0] wb_gpr_dec;
-  logic [NrWritePorts-1:0][NumRegs-1:0] wb_fpr_dec;
+  logic [NrIntWritePorts-1:0][NumRegs-1:0] wb_gpr_dec;
+  logic [NrFpWritePorts-1:0][NumRegs-1:0] wb_fpr_dec;
 
   `FFAR(sbi_q, sbi_d, '0, clk_i, rst_i)
   `FFAR(sbf_q, sbf_d, '0, clk_i, rst_i)
@@ -59,7 +60,7 @@ module schnova_scoreboard #(
   end
 
   always_comb begin : wb_gpr_decoder
-    for (int unsigned j = 0; j < NrWritePorts; j++) begin
+    for (int unsigned j = 0; j < NrIntWritePorts; j++) begin
       for (int unsigned i = 0; i < NumRegs; i++) begin
         if (wb_gpr_addr_i[j] == i) wb_gpr_dec[j][i] = wb_gpr_en_i[j];
         else wb_gpr_dec[j][i] = 1'b0;
@@ -68,7 +69,7 @@ module schnova_scoreboard #(
   end
 
   always_comb begin : wb_fpr_decoder
-    for (int unsigned j = 0; j < NrWritePorts; j++) begin
+    for (int unsigned j = 0; j < NrFpWritePorts; j++) begin
       for (int unsigned i = 0; i < NumRegs; i++) begin
         if (wb_fpr_addr_i[j] == i) wb_fpr_dec[j][i] = wb_fpr_en_i[j];
         else wb_fpr_dec[j][i] = 1'b0;
@@ -95,7 +96,7 @@ module schnova_scoreboard #(
     end
 
     // We remove the busy bit for every write back that happens
-    for (int unsigned j = 0; j < NrWritePorts; j++) begin
+    for (int unsigned j = 0; j < NrIntWritePorts; j++) begin
         for (int unsigned i = 0; i < NumRegs; i++) begin
           if (wb_fpr_dec[j][i]) begin
             sbf_d[i] = 1'b0;
@@ -103,7 +104,7 @@ module schnova_scoreboard #(
         end
     end
 
-    for (int unsigned j = 0; j < NrWritePorts; j++) begin
+    for (int unsigned j = 0; j < NrFpWritePorts; j++) begin
         for (int unsigned i = 0; i < NumRegs; i++) begin
           if (wb_gpr_dec[j][i]) begin
             sbi_d[i] = 1'b0;
