@@ -78,6 +78,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   parameter type         issue_req_t    = logic,
   parameter type         alu_result_t   = logic,
+  parameter type         fpu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
@@ -151,22 +152,22 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic     [NofOperandIfs-1:0] op_rsps_valid_i,
   output logic     [NofOperandIfs-1:0] op_rsps_ready_o,
 
-  // Writeback ports. We only have one per FU type.
-  output alu_result_t alu_wb_result_o,
-  output instr_tag_t  alu_wb_result_tag_o,
-  output logic        alu_wb_result_valid_o,
-  input  logic        alu_wb_result_ready_i,
+  // FU results
+  output alu_result_t [NofAlus-1:0] alu_results_o,
+  output instr_tag_t  [NofAlus-1:0] alu_results_tag_o,
+  output logic        [NofAlus-1:0] alu_results_valid_o,
+  input  logic        [NofAlus-1:0] alu_results_ready_i,
   output alu_result_t branch_result_o,
 
-  output data_t      lsu_wb_result_o,
-  output instr_tag_t lsu_wb_result_tag_o,
-  output logic       lsu_wb_result_valid_o,
-  input  logic       lsu_wb_result_ready_i,
+  output data_t      [NofLsus-1:0] lsu_results_o,
+  output instr_tag_t [NofLsus-1:0] lsu_results_tag_o,
+  output logic       [NofLsus-1:0] lsu_results_valid_o,
+  input  logic       [NofLsus-1:0] lsu_results_ready_i,
 
-  output logic [FLEN-1:0] fpu_wb_result_o,
-  output instr_tag_t      fpu_wb_result_tag_o,
-  output logic            fpu_wb_result_valid_o,
-  input  logic            fpu_wb_result_ready_i
+  output fpu_result_t [NofFpus-1:0] fpu_results_o,
+  output instr_tag_t  [NofFpus-1:0] fpu_results_tag_o,
+  output logic        [NofFpus-1:0] fpu_results_valid_o,
+  input  logic        [NofFpus-1:0] fpu_results_ready_i
 );
 
   /////////////////////////////////////
@@ -322,15 +323,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // ALUs //
   //////////
 
-  typedef struct packed {
-    alu_result_t result;
-    instr_tag_t  tag;
-  } alu_result_and_tag_t;
-
-  alu_result_and_tag_t [NofAlus-1:0] alu_wbs_result_and_tag;
-  logic                [NofAlus-1:0] alu_wbs_result_valid;
-  logic                [NofAlus-1:0] alu_wbs_result_ready;
-
   logic [NofAlus-1:0] alu_rs_empty;
   logic [NofAlus-1:0] alu_rs_busy;
 
@@ -404,15 +396,15 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .op_rsps_ready_o    (alu_op_rsps_ready[alu])
     );
 
-    // Map the results fromn the FU to the writeback arbiter signals
-    assign alu_wbs_result_and_tag[alu].result = '{
+    // Map the results fromn the FU to the result ports
+    assign alu_results_o[alu] = '{
       result:      alu_result.result,
       compare_res: alu_result.compare_res
     };
-    assign alu_wbs_result_and_tag[alu].tag = alu_result_tag;
+    assign alu_results_tag_o[alu] = alu_result_tag;
 
-    assign alu_wbs_result_valid[alu] = alu_result_valid;
-    assign alu_result_ready = alu_wbs_result_ready[alu];
+    assign alu_results_valid_o[alu] = alu_result_valid;
+    assign alu_result_ready = alu_results_ready_i[alu];
 
     schnova_alu #(
       .XLEN         (XLEN),
@@ -475,29 +467,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // fallback into the HW loop mode. If we decide to crash if an unsupported instruction is
   // encountered, it is possible to optimize the timing by only forwarding the ALU result in
   // regular mode. This will gain around 10ps for a 1ns target clock cycle.
-  assign branch_result_o = alu_wbs_result_and_tag[0].result;
-
-  // ALU writeback arbiter
-  // The stream_arbiter has a feed through for 1 input so no special handling for disabled FREP
-  // is required.
-  alu_result_and_tag_t alu_wb_result_and_tag_out;
-  stream_arbiter #(
-    .DATA_T (alu_result_and_tag_t),
-    .N_INP  (NofAlus),
-    .ARBITER("prio")
-  ) i_alu_wb_arbiter (
-    .clk_i,
-    .rst_ni     (~rst_i),
-    .inp_data_i (alu_wbs_result_and_tag),
-    .inp_valid_i(alu_wbs_result_valid),
-    .inp_ready_o(alu_wbs_result_ready),
-    .oup_data_o (alu_wb_result_and_tag_out),
-    .oup_valid_o(alu_wb_result_valid_o),
-    .oup_ready_i(alu_wb_result_ready_i)
-  );
-
-  assign alu_wb_result_o     = alu_wb_result_and_tag_out.result;
-  assign alu_wb_result_tag_o = alu_wb_result_and_tag_out.tag;
+  assign branch_result_o = alu_results_o[0];
 
   //////////
   // LSUs //
@@ -505,16 +475,10 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // The LSU always returns a data_t value. Define a type for clarity.
   typedef data_t lsu_result_t;
-  typedef struct packed {
-    lsu_result_t result;
-    instr_tag_t  tag;
-  } lsu_result_and_tag_t;
 
   logic                [NofLsus-1:0] lsu_empty;
   logic                [NofLsus-1:0] lsu_addr_misaligned;
-  lsu_result_and_tag_t [NofLsus-1:0] lsu_wbs_result_and_tag;
-  logic                [NofLsus-1:0] lsu_wbs_result_valid;
-  logic                [NofLsus-1:0] lsu_wbs_result_ready;
+
 
   logic [NofLsus-1:0] lsu_rs_empty;
   logic [NofLsus-1:0] lsu_rs_busy;
@@ -590,11 +554,11 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     );
 
     // Map the results fromn the FU to the writeback arbiter signals
-    assign lsu_wbs_result_and_tag[lsu].result = lsu_result;
-    assign lsu_wbs_result_and_tag[lsu].tag    = lsu_result_tag;
+    assign lsu_results_o[lsu]     = lsu_result;
+    assign lsu_results_tag_o[lsu] = lsu_result_tag;
 
-    assign lsu_wbs_result_valid[lsu] = lsu_result_valid;
-    assign lsu_result_ready = lsu_wbs_result_ready[lsu];
+    assign lsu_results_valid_o[lsu] = lsu_result_valid;
+    assign lsu_result_ready = lsu_results_ready_i[lsu];
 
     schnova_lsu #(
       .XLEN               (XLEN),
@@ -663,46 +627,14 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign lsu_empty_o = (&lsu_empty);
   assign lsu_addr_misaligned_o =(|lsu_addr_misaligned);
 
-  // LSU writeback arbiter
-  // The stream_arbiter has a feed through for 1 input so no special handling for disabled FREP
-  // is required.
-  lsu_result_and_tag_t lsu_wb_result_and_tag_out;
-  stream_arbiter #(
-    .DATA_T (lsu_result_and_tag_t),
-    .N_INP  (NofLsus),
-    .ARBITER("prio")
-  ) i_lsu_wb_arbiter (
-    .clk_i,
-    .rst_ni     (~rst_i),
-    .inp_data_i (lsu_wbs_result_and_tag),
-    .inp_valid_i(lsu_wbs_result_valid),
-    .inp_ready_o(lsu_wbs_result_ready),
-    .oup_data_o (lsu_wb_result_and_tag_out),
-    .oup_valid_o(lsu_wb_result_valid_o),
-    .oup_ready_i(lsu_wb_result_ready_i)
-  );
-
-  assign lsu_wb_result_o     = lsu_wb_result_and_tag_out.result;
-  assign lsu_wb_result_tag_o = lsu_wb_result_and_tag_out.tag;
-
   //////////
   // FPUs //
   //////////
-
-  typedef logic [FLEN-1:0] fpu_result_t;
-
-  typedef struct packed {
-    fpu_result_t result;
-    instr_tag_t  tag;
-  } fpu_result_and_tag_t;
 
   // Keep the handshake signals to combine the fpu status
   logic                [NofFpus-1:0] fpu_result_valid;
   logic                [NofFpus-1:0] fpu_result_ready;
   fpnew_pkg::status_t  [NofFpus-1:0] fpu_status;
-  fpu_result_and_tag_t [NofFpus-1:0] fpu_wbs_result_and_tag;
-  logic                [NofFpus-1:0] fpu_wbs_result_valid;
-  logic                [NofFpus-1:0] fpu_wbs_result_ready;
 
   logic [NofFpus-1:0] fpu_rs_empty;
   logic [NofFpus-1:0] fpu_rs_busy;
@@ -774,11 +706,11 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     );
 
     // Map the results from the FU to the writeback arbiter signals
-    assign fpu_wbs_result_and_tag[fpu].result = fpu_result;
-    assign fpu_wbs_result_and_tag[fpu].tag    = fpu_result_tag;
+    assign fpu_results_o[fpu]     = fpu_result;
+    assign fpu_results_tag_o[fpu] = fpu_result_tag;
 
-    assign fpu_wbs_result_valid[fpu] = fpu_result_valid[fpu];
-    assign fpu_result_ready[fpu] = fpu_wbs_result_ready[fpu];
+    assign fpu_results_valid_o[fpu] = fpu_result_valid[fpu];
+    assign fpu_result_ready[fpu] = fpu_results_ready_i[fpu];
 
     schnova_fpu #(
       .FPUImplementation(FPUImplementation),
@@ -850,28 +782,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   assign fpu_status_o       = combined_fpu_status;
   assign fpu_status_valid_o = fpu_status_valid;
-
-  // FPU writeback arbiter
-  // The stream_arbiter has a feed through for 1 input so no special handling for disabled FREP
-  // is required.
-  fpu_result_and_tag_t fpu_wb_result_and_tag_out;
-  stream_arbiter #(
-    .DATA_T (fpu_result_and_tag_t),
-    .N_INP  (NofFpus),
-    .ARBITER("prio")
-  ) i_fpu_wb_arbiter (
-    .clk_i,
-    .rst_ni     (~rst_i),
-    .inp_data_i (fpu_wbs_result_and_tag),
-    .inp_valid_i(fpu_wbs_result_valid),
-    .inp_ready_o(fpu_wbs_result_ready),
-    .oup_data_o (fpu_wb_result_and_tag_out),
-    .oup_valid_o(fpu_wb_result_valid_o),
-    .oup_ready_i(fpu_wb_result_ready_i)
-  );
-
-  assign fpu_wb_result_o     = fpu_wb_result_and_tag_out.result;
-  assign fpu_wb_result_tag_o = fpu_wb_result_and_tag_out.tag;
 
   ////////////
   // Status //

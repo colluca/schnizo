@@ -136,9 +136,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
   localparam int unsigned NrIntReadPorts = 2;
-  localparam int unsigned NrIntWritePorts = 1;
+  localparam int unsigned NrIntWritePorts = PipeWidth;
   localparam int unsigned NrFpReadPorts = 3;
-  localparam int unsigned NrFpWritePorts = 1;
+  localparam int unsigned NrFpWritePorts = PipeWidth;
+  localparam int unsigned NrRobWritePorts = NrIntWritePorts + NrFpWritePorts;
 
   // We have to read out a mapping for every source operand and potentially
   // the destination operand if it takes multiple cycles except for the last destination operand
@@ -381,6 +382,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic         compare_res;
   } alu_result_t;
 
+  typedef logic [FLEN-1:0] fpu_result_t;
+
   typedef struct packed {
     phy_id_t  phy_reg; // which physical register we request
     logic     is_fp;   // if the physical register is a FPR
@@ -450,8 +453,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   block_ctrl_info_t blk_ctrl_info;
   block_ctrl_info_t blk_ctrl_info_masked;
 
-  alu_result_t alu_result;
-  instr_tag_t  alu_result_tag;
+  alu_result_t [NofAlus-1:0] alu_results;
+  instr_tag_t  [NofAlus-1:0] alu_results_tag;
   alu_result_t branch_result;
   logic [0:0]  lsu_empty;
   fpnew_pkg::status_t fpu_status;
@@ -504,8 +507,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   logic rob_ready;
 
-  logic [1:0]                   wb_valid;
-  logic [1:0][RobTagWidth-1:0]  wb_rob_idx;
+  logic [NrRobWritePorts-1:0]                   wb_valid;
+  logic [NrRobWritePorts-1:0][RobTagWidth-1:0]  wb_rob_idx;
 
   logic ctrl_instr_retired;
 
@@ -876,16 +879,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Functional Units //
   //////////////////////
 
-  logic            alu_result_valid;
-  logic            alu_result_ready;
-  logic            lsu_result_valid;
-  logic            lsu_result_ready;
-  instr_tag_t      lsu_result_tag;
-  data_t           lsu_result;
-  logic [FLEN-1:0] fpu_result;
-  logic            fpu_result_valid;
-  logic            fpu_result_ready;
-  instr_tag_t      fpu_result_tag;
+  logic            [NofAlus-1:0] alu_results_valid;
+  logic            [NofAlus-1:0] alu_results_ready;
+  logic            [NofLsus-1:0] lsu_results_valid;
+  logic            [NofLsus-1:0] lsu_results_ready;
+  instr_tag_t      [NofLsus-1:0] lsu_results_tag;
+  data_t           [NofLsus-1:0] lsu_results;
+  fpu_result_t     [NofFpus-1:0] fpu_results;
+  logic            [NofFpus-1:0] fpu_results_valid;
+  logic            [NofFpus-1:0] fpu_results_ready;
+  instr_tag_t      [NofFpus-1:0] fpu_results_tag;
 
   // Trace signals
   // pragma translate_off
@@ -951,6 +954,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_tag_t        (instr_tag_t),
     .issue_req_t        (issue_req_t),
     .alu_result_t       (alu_result_t),
+    .fpu_result_t       (fpu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
     .drsp_t             (drsp_t)
@@ -1012,21 +1016,21 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .op_rsps_valid_i(op_rsps_valid),
     .op_rsps_ready_o(op_rsps_ready),
     // ALU WB
-    .alu_wb_result_o      (alu_result),
-    .alu_wb_result_tag_o  (alu_result_tag),
-    .alu_wb_result_valid_o(alu_result_valid),
-    .alu_wb_result_ready_i(alu_result_ready),
+    .alu_results_o      (alu_results),
+    .alu_results_tag_o  (alu_results_tag),
+    .alu_results_valid_o(alu_results_valid),
+    .alu_results_ready_i(alu_results_ready),
     .branch_result_o      (branch_result),
     // LSU WB
-    .lsu_wb_result_o      (lsu_result),
-    .lsu_wb_result_tag_o  (lsu_result_tag),
-    .lsu_wb_result_valid_o(lsu_result_valid),
-    .lsu_wb_result_ready_i(lsu_result_ready),
+    .lsu_results_o      (lsu_results),
+    .lsu_results_tag_o  (lsu_results_tag),
+    .lsu_results_valid_o(lsu_results_valid),
+    .lsu_results_ready_i(lsu_results_ready),
     // FPU WB
-    .fpu_wb_result_o      (fpu_result),
-    .fpu_wb_result_tag_o  (fpu_result_tag),
-    .fpu_wb_result_valid_o(fpu_result_valid),
-    .fpu_wb_result_ready_i(fpu_result_ready)
+    .fpu_results_o      (fpu_results),
+    .fpu_results_tag_o  (fpu_results_tag),
+    .fpu_results_valid_o(fpu_results_valid),
+    .fpu_results_ready_i(fpu_results_ready)
   );
 
   // CSR FU & register file
@@ -1057,17 +1061,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ) i_csr (
     .clk_i(clk_i),
     .rst_i(rst_i),
-
     .issue_req_i        (issue_req),
     .issue_req_valid_i  (csr_disp_req_valid),
     .issue_req_ready_o  (csr_disp_req_ready),
     .illegal_csr_instr_o(csr_exception_raw),
-
     .result_o      (csr_result),
     .result_tag_o  (csr_result_tag),
     .result_valid_o(csr_result_valid),
     .result_ready_i(csr_result_ready),
-
     .irq_i                  (irq_i),
     .enter_wfi_i            (enter_wfi),
     .pc_i                   (pc),
@@ -1095,8 +1096,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fpu_status_valid_i     (fpu_status_valid),
     .fpu_rnd_mode_o         (fpu_rnd_mode),
     .fpu_fmt_mode_o         (fpu_fmt_mode),
-
-    .instr_retired_i(instr_retired)
+    .instr_retired_i        (instr_retired)
   );
 
   ////////////////
@@ -1120,19 +1120,24 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .RobTagWidth    (RobTagWidth),
     .XLEN           (XLEN),
     .FLEN           (FLEN),
+    .NofAlus        (NofAlus),
+    .NofLsus        (NofLsus),
+    .NofFpus        (NofFpus),
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
+    .NrRobWritePorts (NrRobWritePorts),
     .RegAddrSize    (PhysRegAddrSize),
     .instr_tag_t    (instr_tag_t),
     .alu_result_t   (alu_result_t),
+    .fpu_result_t   (fpu_result_t),
     .data_t         (data_t)
   ) i_writeback (
     .en_superscalar_i  (en_superscalar),
     // ALU interface
-    .alu_result_i      (alu_result),
-    .alu_result_tag_i  (alu_result_tag),
-    .alu_result_valid_i(alu_result_valid),
-    .alu_result_ready_o(alu_result_ready),
+    .alu_results_i      (alu_results),
+    .alu_results_tag_i  (alu_results_tag),
+    .alu_results_valid_i(alu_results_valid),
+    .alu_results_ready_o(alu_results_ready),
     // To ROB
     .wb_valid_o(wb_valid),
     .wb_rob_idx_o(wb_rob_idx),
@@ -1144,15 +1149,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .csr_result_valid_i(csr_result_valid),
     .csr_result_ready_o(csr_result_ready),
     // LSU interface
-    .lsu_result_i      (lsu_result),
-    .lsu_result_tag_i  (lsu_result_tag),
-    .lsu_result_valid_i(lsu_result_valid),
-    .lsu_result_ready_o(lsu_result_ready),
+    .lsu_results_i      (lsu_results),
+    .lsu_results_tag_i  (lsu_results_tag),
+    .lsu_results_valid_i(lsu_results_valid),
+    .lsu_results_ready_o(lsu_results_ready),
     // FPU interface
-    .fpu_result_i      (fpu_result),
-    .fpu_result_tag_i  (fpu_result_tag),
-    .fpu_result_valid_i(fpu_result_valid),
-    .fpu_result_ready_o(fpu_result_ready),
+    .fpu_results_i      (fpu_results),
+    .fpu_results_tag_i  (fpu_results_tag),
+    .fpu_results_valid_i(fpu_results_valid),
+    .fpu_results_ready_o(fpu_results_ready),
     // Accelerator interface
     .acc_result_i      (acc_result),
     .acc_result_tag_i  (acc_result_tag),
@@ -1221,6 +1226,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   schnova_reorder_buffer #(
     .PipeWidth(PipeWidth),
     .NofEntries(NofRobEntries),
+    .NrRobWritePorts(NrRobWritePorts),
     .phy_id_t(phy_id_t)
   ) i_rob (
     .clk_i,
@@ -1254,7 +1260,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   schnova_scoreboard #(
     .PipeWidth(PipeWidth),
     .NrReadPorts(NofOperandIfs),
-    .NrWritePorts(1),
+    .NrIntWritePorts(NrIntWritePorts),
+    .NrFpWritePorts(NrFpWritePorts),
     .AddrWidth(PhysRegAddrSize),
     .sb_disp_data_t(sb_disp_data_t)
   ) i_scoreboard (
@@ -1408,9 +1415,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   retire_fu_trace_t csr_retirement;
   retire_fu_trace_t acc_retirement;
   // Traces for writeback (regular and RSS)
-  wb_fu_trace_t alu_wb_trace;
-  wb_fu_trace_t lsu_wb_trace;
-  wb_fu_trace_t fpu_wb_trace;
+  wb_fu_trace_t alu_wb_trace [NofAlus];
+  wb_fu_trace_t lsu_wb_trace [NofLsus];
+  wb_fu_trace_t fpu_wb_trace [NofFpus];
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
 
@@ -1553,32 +1560,38 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   };
 
   // Writebacks
-  assign alu_wb_trace = '{
-    valid:        alu_result_valid && alu_result_ready,
-    fu_result:    alu_result.result,
-    fu_phy_rd:    alu_result_tag.dest_reg,
-    fu_rd_is_fp:  alu_result_tag.dest_reg_is_fp,
-    is_branch:    alu_result_tag.is_branch,
-    branch_taken: alu_result.compare_res
-  };
+  for (genvar alu = 0; alu < NofAlus; alu++) begin: gen_alu_wb_traces
+    assign alu_wb_trace[alu] = '{
+      valid:        alu_results_valid[alu] && alu_results_ready[alu],
+      fu_result:    alu_results[alu].result,
+      fu_phy_rd:    alu_results_tag[alu].dest_reg,
+      fu_rd_is_fp:  alu_results_tag[alu].dest_reg_is_fp,
+      is_branch:    alu_results_tag[alu].is_branch,
+      branch_taken: alu_results[alu].compare_res
+    };
+  end
 
-  assign lsu_wb_trace = '{
-    valid:       lsu_result_valid && lsu_result_ready,
-    fu_result:   lsu_result,
-    fu_phy_rd:       lsu_result_tag.dest_reg,
-    fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp,
-    is_branch:    1'b0,
-    branch_taken: 1'b0
-  };
+  for (genvar lsu = 0; lsu < NofLsus; lsu++) begin: gen_lsu_wb_traces
+    assign lsu_wb_trace[lsu] = '{
+      valid:       lsu_results_valid[lsu] && lsu_results_ready[lsu],
+      fu_result:   lsu_results[lsu],
+      fu_phy_rd:       lsu_results_tag[lsu].dest_reg,
+      fu_rd_is_fp: lsu_results_tag[lsu].dest_reg_is_fp,
+      is_branch:    1'b0,
+      branch_taken: 1'b0
+    };
+  end
 
-  assign fpu_wb_trace = '{
-    valid:       fpu_result_valid && fpu_result_ready,
-    fu_result:   fpu_result,
-    fu_phy_rd:       fpu_result_tag.dest_reg,
-    fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp,
-    is_branch:    1'b0,
-    branch_taken: 1'b0
-  };
+  for (genvar fpu = 0; fpu < NofFpus; fpu++) begin: gen_fpu_wb_traces
+    assign fpu_wb_trace[fpu] = '{
+      valid:       fpu_results_valid[fpu] && fpu_results_ready[fpu],
+      fu_result:   fpu_results[fpu],
+      fu_phy_rd:       fpu_results_tag[fpu].dest_reg,
+      fu_rd_is_fp: fpu_results_tag[fpu].dest_reg_is_fp,
+      is_branch:    1'b0,
+      branch_taken: 1'b0
+    };
+  end
 
   assign csr_wb_trace = '{
     valid:       csr_result_valid && csr_result_ready,

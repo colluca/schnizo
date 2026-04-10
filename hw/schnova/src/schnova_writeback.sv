@@ -32,21 +32,25 @@ module schnova_writeback import schnova_pkg::*; #(
   parameter int unsigned FLEN            = 64,
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
-  parameter int unsigned RmtNrClearPorts    = 1,
+  parameter int unsigned NrRobWritePorts  = 2,
+  parameter int unsigned NofAlus           = 1,
+  parameter int unsigned NofLsus           = 1,
+  parameter int unsigned NofFpus           = 1,
   parameter int unsigned RegAddrSize     = 5,
   parameter type         instr_tag_t     = logic,
   parameter type         alu_result_t    = logic,
+  parameter type         fpu_result_t    = logic,
   parameter type         data_t          = logic
 ) (
   input logic             en_superscalar_i,
   // ROB interface
-  output logic [1:0]                  wb_valid_o,
-  output logic [1:0][RobTagWidth-1:0] wb_rob_idx_o,
+  output logic [NrRobWritePorts-1:0]                  wb_valid_o,
+  output logic [NrRobWritePorts-1:0][RobTagWidth-1:0] wb_rob_idx_o,
   // ALU interface
-  input  alu_result_t     alu_result_i,
-  input  instr_tag_t      alu_result_tag_i,
-  input  logic            alu_result_valid_i,
-  output logic            alu_result_ready_o,
+  input  alu_result_t [NofAlus-1:0] alu_results_i,
+  input  instr_tag_t  [NofAlus-1:0] alu_results_tag_i,
+  input  logic        [NofAlus-1:0] alu_results_valid_i,
+  output logic        [NofAlus-1:0] alu_results_ready_o,
   input  logic [XLEN-1:0] consecutive_pc_i,
   // CSR interface
   input  logic [XLEN-1:0] csr_result_i,
@@ -55,16 +59,16 @@ module schnova_writeback import schnova_pkg::*; #(
   output logic            csr_result_ready_o,
 
   // LSU interface
-  input  data_t      lsu_result_i,
-  input  instr_tag_t lsu_result_tag_i,
-  input  logic       lsu_result_valid_i,
-  output logic       lsu_result_ready_o,
+  input  data_t      [NofLsus-1:0] lsu_results_i,
+  input  instr_tag_t [NofLsus-1:0] lsu_results_tag_i,
+  input  logic       [NofLsus-1:0] lsu_results_valid_i,
+  output logic       [NofLsus-1:0] lsu_results_ready_o,
 
   // FPU interface
-  input  logic [FLEN-1:0] fpu_result_i,
-  input  instr_tag_t      fpu_result_tag_i,
-  input  logic            fpu_result_valid_i,
-  output logic            fpu_result_ready_o,
+  input  fpu_result_t [NofFpus-1:0] fpu_results_i,
+  input  instr_tag_t  [NofFpus-1:0] fpu_results_tag_i,
+  input  logic        [NofFpus-1:0] fpu_results_valid_i,
+  output logic        [NofFpus-1:0] fpu_results_ready_o,
 
   // Accelerator interface
   input  logic [XLEN-1:0] acc_result_i,
@@ -88,194 +92,296 @@ module schnova_writeback import schnova_pkg::*; #(
   output logic retired_load_o,
   output logic retired_acc_o
 );
-  logic alu_gpr_valid; // The ALU only writes to the GPR
-  logic alu_gpr_ready;
+
+  // Valid/ready signal muxing
+  logic [NofAlus-1:0] alu_gpr_valid; // The ALU only writes to the GPR
+  logic [NofAlus-1:0] alu_gpr_ready;
   logic csr_gpr_valid; // The CSR only writes to the GPR
   logic csr_gpr_ready;
-  logic lsu_gpr_valid, lsu_fpr_valid;
-  logic lsu_gpr_ready, lsu_fpr_ready;
-  logic fpu_gpr_valid, fpu_fpr_valid;
-  logic fpu_gpr_ready, fpu_fpr_ready;
+  logic [NofLsus-1:0] lsu_gpr_valid, lsu_fpr_valid;
+  logic [NofLsus-1:0] lsu_gpr_ready, lsu_fpr_ready;
+  logic [NofFpus-1:0] fpu_gpr_valid, fpu_fpr_valid;
+  logic [NofFpus-1:0] fpu_gpr_ready, fpu_fpr_ready;
   logic acc_gpr_valid; // The accelerator only writes to the GPR
   logic acc_gpr_ready;
 
   logic rob_gpr_valid;
   logic rob_fpr_valid;
 
-  // MUX the valid/ready signals to the correct register file.
-  // TODO: This is probably unnecessary and stalls the core. However, the ALU should never
-  //        write to the FPR. How should we handle this case? -> Assertion?
-  assign alu_gpr_valid = alu_result_tag_i.dest_reg_is_fp ? 1'b0 : alu_result_valid_i;
-  // The ALU cannot write to the FPR -> no alu_valid_fpr
-  assign alu_result_ready_o = alu_result_tag_i.dest_reg_is_fp ? 1'b0 : alu_gpr_ready;
+  logic [NrIntWritePorts-1:0]                  wb_gpr_valid;
+  logic [NrIntWritePorts-1:0][RobTagWidth-1:0] wb_gpr_rob_idx;
+  logic [NrFpWritePorts-1:0]                   wb_fpr_valid;
+  logic [NrFpWritePorts-1:0][RobTagWidth-1:0]  wb_fpr_rob_idx;
 
-  // TODO: Same case as ALU. The CSR should never write to the FPR. -> Assertion?
-  assign csr_gpr_valid = csr_result_tag_i.dest_reg_is_fp ? 1'b0 : csr_result_valid_i;
-  assign csr_result_ready_o = csr_result_tag_i.dest_reg_is_fp ? 1'b0 : csr_gpr_ready;
+  always_comb begin: int_regfile_vld_rdy_mux
+    // ALU valid/ready muxing of GPR
+    for (int unsigned alu = 0; alu < NofAlus; alu++) begin
+      alu_gpr_valid[alu] = alu_results_valid_i[alu];
+      alu_results_ready_o[alu] = alu_gpr_ready[alu];
+    end
 
-  assign lsu_gpr_valid = lsu_result_tag_i.dest_reg_is_fp ? 1'b0               : lsu_result_valid_i;
-  assign lsu_fpr_valid = lsu_result_tag_i.dest_reg_is_fp ? lsu_result_valid_i : 1'b0;
-  assign lsu_result_ready_o = lsu_result_tag_i.dest_reg_is_fp ? lsu_fpr_ready : lsu_gpr_ready;
+    // CSR valid/ready muxing of GPR register
+    csr_gpr_valid = csr_result_valid_i;
+    csr_result_ready_o = csr_gpr_ready;
 
-  assign fpu_gpr_valid = fpu_result_tag_i.dest_reg_is_fp ? 1'b0               : fpu_result_valid_i;
-  assign fpu_fpr_valid = fpu_result_tag_i.dest_reg_is_fp ? fpu_result_valid_i : 1'b0;
-  assign fpu_result_ready_o = fpu_result_tag_i.dest_reg_is_fp ? fpu_fpr_ready : fpu_gpr_ready;
+    // LSU valid/ready muxing for GPR and FPR
+    for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+      lsu_gpr_valid[lsu] = lsu_results_tag_i[lsu].dest_reg_is_fp ? 1'b0
+                                                                : lsu_results_valid_i[lsu];
+      lsu_fpr_valid[lsu] = lsu_results_tag_i[lsu].dest_reg_is_fp ? lsu_results_valid_i[lsu]
+                                                                : 1'b0;
+      lsu_results_ready_o[lsu] = lsu_results_tag_i[lsu].dest_reg_is_fp  ? lsu_fpr_ready[lsu]
+                                                                      : lsu_gpr_ready[lsu];
+    end
 
-  // TODO: The Accelerator should never write to the FPR. -> Assertion?
-  assign acc_gpr_valid = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_result_valid_i;
-  assign acc_result_ready_o = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_gpr_ready;
+    // FPU valid/ready muxing for GPR register
+    for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+      fpu_gpr_valid[fpu] = fpu_results_tag_i[fpu].dest_reg_is_fp ? 1'b0
+                                                                : fpu_results_valid_i[fpu];
+      fpu_fpr_valid[fpu] = fpu_results_tag_i[fpu].dest_reg_is_fp ? fpu_results_valid_i[fpu]
+                                                                : 1'b0;
+      fpu_results_ready_o[fpu] = fpu_results_tag_i[fpu].dest_reg_is_fp  ? fpu_fpr_ready[fpu]
+                                                                      : fpu_gpr_ready[fpu];
+    end
 
-  // Port 0 is used for int writebacks if we are in superscalar
-  assign wb_valid_o[0] = rob_gpr_valid & en_superscalar_i;
-  // Port 1 is used for float writebacks if we are in superscalar
-  assign wb_valid_o[1] = rob_fpr_valid & en_superscalar_i;
+    // ACC valid/ready muxing for GPR
+    acc_gpr_valid = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_result_valid_i;
+    acc_result_ready_o = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_gpr_ready;
+  end
 
-  // Note: The register file must always be ready.
-  // Otherwise the valid/ready handshaking is not AXI conform anymore.
-  always_comb begin : int_regfile_writeback
-    gpr_we_o = 1'b0;
+  // ---------------------------
+  // Integer Regfile Writeback
+  // ---------------------------
+  // Each ALU, LSU and FPU can write to the GPR
+  // in addition the CSR and accelerator port can write to it
+  typedef struct packed {
+    logic [XLEN-1:0] data;
+    logic [RegAddrSize-1:0] addr;
+    logic [RobTagWidth-1:0] rob_tag;
+  } gpr_data_t;
+
+  localparam int unsigned NofGprSrcs = NofAlus + NofLsus + NofFpus + 2;
+  logic      [NofGprSrcs-1:0] gpr_valid;
+  logic      [NofGprSrcs-1:0] gpr_ready;
+  gpr_data_t [NofGprSrcs-1:0] gpr_data;
+
+  // The order here determines the priority of the access to the GPR
+  // Currently the priority is the same as for Schnizo
+  // 1) ALU
+  // 2) CSR
+  // 3) LSU
+  // 4) FPU
+  // 5) ACC
+  always_comb begin: int_wb_priority_encoding
+    // ALUs have the highest priority
+    automatic int unsigned i = 0;
+
+    for (int unsigned alu = 0; alu < NofAlus; alu++) begin
+      gpr_valid[i] = alu_gpr_valid[alu];
+      gpr_data[i]  = '{
+        data: alu_results_tag_i[alu].is_jump ? consecutive_pc_i
+                                            : alu_results_i[alu].result,
+        addr:     alu_results_tag_i[alu].dest_reg,
+        rob_tag:  alu_results_tag_i[alu].rob_tag
+      };
+      alu_gpr_ready[alu] = gpr_ready[i];
+      i++;
+    end
+
+    gpr_valid[i] = csr_gpr_valid;
+    gpr_data[i]  = '{
+        data:     csr_result_i,
+        addr:     csr_result_tag_i.dest_reg,
+        rob_tag:  csr_result_tag_i.rob_tag
+      };
+    csr_gpr_ready = gpr_ready[i];
+    i++;
+
+    for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+      gpr_valid[i] = lsu_gpr_valid[lsu];
+      gpr_data[i]  = '{
+        data:     lsu_results_i[lsu][XLEN-1:0],
+        addr:     lsu_results_tag_i[lsu].dest_reg,
+        rob_tag:  lsu_results_tag_i[lsu].rob_tag
+      };
+      lsu_gpr_ready[lsu] = gpr_ready[i];
+      i++;
+    end
+
+    for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+      gpr_valid[i] = fpu_gpr_valid[fpu];
+      gpr_data[i]  = '{
+        data:     fpu_results_i[fpu][XLEN-1:0],
+        addr:     fpu_results_tag_i[fpu].dest_reg,
+        rob_tag:  fpu_results_tag_i[fpu].rob_tag
+      };
+      fpu_gpr_ready[fpu] = gpr_ready[i];
+      i++;
+    end
+
+    gpr_valid[i] = acc_gpr_valid;
+    gpr_data[i]  = '{
+        data:     acc_result_i[XLEN-1:0],
+        addr:     acc_result_tag_i.dest_reg,
+        rob_tag:  acc_result_tag_i.rob_tag
+      };
+    acc_gpr_ready = gpr_ready[i];
+  end
+
+  // Signal to track which FU is assigned to which Port
+  logic [NofGprSrcs-1:0][NrIntWritePorts-1:0] gpr_port_grant;
+
+  always_comb begin : int_regfile_port_allocation
+      automatic int unsigned port_ptr = 0;
+
+      gpr_port_grant = '0;
+      gpr_ready      = '0;
+
+      for (int unsigned i = 0; i < NofGprSrcs; i++) begin
+        if (gpr_valid[i]) begin
+          if (gpr_data[i].addr == '0) begin
+            gpr_ready[i] = 1'b1; // x0 results don't need a port
+          end else if (port_ptr < NrIntWritePorts) begin
+            // This functional unit wins the write port the port_ptr currently points to
+            gpr_port_grant[i][port_ptr] = 1'b1;
+            gpr_ready[i]                = 1'b1;
+            port_ptr++;
+          end
+        end
+      end
+  end
+
+  always_comb begin: int_regfile_wb_mux
+    gpr_we_o    = '0;
     gpr_waddr_o = '0;
     gpr_wdata_o = '0;
+    wb_gpr_valid = '0;
+    wb_gpr_rob_idx =  '0;
 
-    // interfaces to FU writing back to the integer RF
-    alu_gpr_ready = '0;
-    csr_gpr_ready = '0;
-    lsu_gpr_ready = '0;
-    fpu_gpr_ready = '0;
-    acc_gpr_ready = '0;
-
-    // ROB signals
-    wb_rob_idx_o[0] = '0;
-    rob_gpr_valid = 1'b0;
-
-    // If we have a valid request from the ALU, we have to check whether we actually want to write
-    // to a register. Any instruction which is retiring without a register write has the
-    // destination register set to rd = x0 (rd = 0, rd_is_fp = 0) as this register is not
-    // writeable.
-    // However, these requests still have to be acknowledged (assert the ready signal) as any
-    // combinatorial FU direclty feeds through the ready signal from the write back to the
-    // dispatcher. If these were not acknowledged the whole pipeline would stall forever.
-    if (alu_gpr_valid && alu_result_tag_i.dest_reg != '0) begin
-      gpr_we_o = 1'b1;
-      gpr_waddr_o = alu_result_tag_i.dest_reg;
-      // Signal the ROB this entry is done
-      rob_gpr_valid = 1'b1;
-      wb_rob_idx_o[0] = alu_result_tag_i.rob_tag;
-      // Select the data to write into rd.
-      // This can either be the ALU result or the consecutive PC (for JAL / JALR)
-      if (alu_result_tag_i.is_jump) begin
-        gpr_wdata_o = consecutive_pc_i;
-      end else begin
-        gpr_wdata_o = alu_result_i.result;
-      end
-
-      alu_gpr_ready = 1'b1;
-    end else begin
-      // We have no actual write request from the ALU but we still have to handle any ALU request
-      // without a write back (i.e. rd = 0 or branch instr).
-      if (alu_gpr_valid && alu_result_tag_i.dest_reg == '0) begin
-        alu_gpr_ready = 1'b1;
-      end
-      // The CSR writeback is similar to the ALU write back. Handle actual write requests and
-      // always acknowledge all other requests.
-      if (csr_gpr_valid && csr_result_tag_i.dest_reg != '0) begin
-        gpr_we_o = 1'b1;
-        gpr_waddr_o = csr_result_tag_i.dest_reg;
-        gpr_wdata_o = csr_result_i;
-
-        rob_gpr_valid = 1'b1;
-        wb_rob_idx_o[0] = csr_result_tag_i.rob_tag;
-
-        csr_gpr_ready = 1'b1;
-      end else begin
-      // If there is no actual write request, we can serve a LSU or FPU request.
-        if (csr_gpr_valid && csr_result_tag_i.dest_reg == '0) begin
-          csr_gpr_ready = 1'b1;
-        end
-        if (lsu_gpr_valid) begin
-          gpr_we_o = 1'b1;
-          gpr_waddr_o = lsu_result_tag_i.dest_reg;
-          gpr_wdata_o = lsu_result_i[XLEN-1:0];
-
-          rob_gpr_valid = 1'b1;
-          wb_rob_idx_o[0] = lsu_result_tag_i.rob_tag;
-
-          lsu_gpr_ready = 1'b1;
-        end else if (fpu_gpr_valid) begin
-          gpr_we_o = 1'b1;
-          gpr_waddr_o = fpu_result_tag_i.dest_reg;
-          gpr_wdata_o = fpu_result_i[XLEN-1:0];
-
-          rob_gpr_valid = 1'b1;
-          wb_rob_idx_o[0] = fpu_result_tag_i.rob_tag;
-
-          fpu_gpr_ready = 1'b1;
-        end else if (acc_gpr_valid) begin
-          gpr_we_o = 1'b1;
-          gpr_waddr_o = acc_result_tag_i.dest_reg;
-          gpr_wdata_o = acc_result_i[XLEN-1:0];
-
-          rob_gpr_valid = 1'b1;
-          wb_rob_idx_o[0] = acc_result_tag_i.rob_tag;
-
-          acc_gpr_ready = 1'b1;
+    for (int unsigned port = 0; port < NrIntWritePorts; port++) begin
+      for (int unsigned src = 0; src < NofGprSrcs; src++) begin
+        if (gpr_port_grant[src][port]) begin
+          gpr_we_o[port]    = 1'b1;
+          gpr_waddr_o[port] = gpr_data[src].addr;
+          gpr_wdata_o[port] = gpr_data[src].data;
+          // Only update the ROB in superscalar mode
+          wb_gpr_valid[port]  = en_superscalar_i;
+          wb_gpr_rob_idx[port] = gpr_data[src].rob_tag;
         end
       end
     end
   end
 
-  always_comb begin : fp_regfile_writeback
-    fpr_we_o = 1'b0;
+  // ---------------------------
+  // Float Regfile Writeback
+  // ---------------------------
+  // Each LSU and FPU can potentially writeback to the
+  // floating point register file
+  typedef struct packed {
+    logic [FLEN-1:0] data;
+    logic [RegAddrSize-1:0] addr;
+    logic [RobTagWidth-1:0] rob_tag;
+  } fpr_data_t;
+
+  localparam int unsigned NofFprSrcs = NofLsus + NofFpus;
+  logic      [NofFprSrcs-1:0] fpr_valid;
+  logic      [NofFprSrcs-1:0] fpr_ready;
+  fpr_data_t [NofFprSrcs-1:0] fpr_data;
+
+  // The order here determines the priority of the access to the GPR
+  // Currently the priority is the same as for Schnizo
+  // 1) LSU
+  // 2) FPU
+  always_comb begin: fp_wb_priority_encoding
+    automatic int unsigned i = 0;
+
+    for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+      fpr_valid[i] = lsu_fpr_valid[lsu];
+      fpr_data[i]  = '{
+        data:     lsu_results_i[lsu][FLEN-1:0],
+        addr:     lsu_results_tag_i[lsu].dest_reg,
+        rob_tag:  lsu_results_tag_i[lsu].rob_tag
+      };
+      lsu_fpr_ready[lsu] = fpr_ready[i];
+      i++;
+    end
+
+    for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+      fpr_valid[i] = fpu_fpr_valid[fpu];
+      fpr_data[i]  = '{
+        data:     fpu_results_i[fpu][FLEN-1:0],
+        addr:     fpu_results_tag_i[fpu].dest_reg,
+        rob_tag:  fpu_results_tag_i[fpu].rob_tag
+      };
+      fpu_fpr_ready[fpu] = fpr_ready[i];
+      i++;
+    end
+  end
+
+  // Signal to track which FU is assigned to which Port
+  logic [NofFprSrcs-1:0][NrFpWritePorts-1:0] fpr_port_grant;
+
+  always_comb begin : fpr_regfile_port_allocation
+      automatic int unsigned port_ptr = 0;
+      fpr_port_grant = '0;
+      fpr_ready      = '0;
+
+      for (int i = 0; i < NofFprSrcs; i++) begin
+        if (fpr_valid[i]) begin
+          if (port_ptr < NrFpWritePorts) begin
+            // This functional unit wins the write port the port_ptr currently points to
+            fpr_port_grant[i][port_ptr] = 1'b1;
+            fpr_ready[i]                = 1'b1;
+            port_ptr++;
+          end
+        end
+      end
+  end
+
+  always_comb begin: fp_regfile_wb_mux
+    fpr_we_o    = '0;
     fpr_waddr_o = '0;
     fpr_wdata_o = '0;
+    wb_fpr_valid = '0;
+    wb_fpr_rob_idx =  '0;
 
-    // interfaces to FU writing back to the integer RF
-    lsu_fpr_ready = '0;
-    fpu_fpr_ready = '0;
-
-    // ROB signals
-    wb_rob_idx_o[1] = '0;
-    rob_fpr_valid = 1'b0;
-
-    if (lsu_fpr_valid) begin
-      fpr_we_o = 1'b1;
-      fpr_waddr_o = lsu_result_tag_i.dest_reg;
-      fpr_wdata_o = lsu_result_i[FLEN-1:0];
-
-      rob_fpr_valid = 1'b1;
-      wb_rob_idx_o[1] = lsu_result_tag_i.rob_tag;
-
-      lsu_fpr_ready = 1'b1;
-    end else if (fpu_fpr_valid) begin
-      fpr_we_o = 1'b1;
-      fpr_waddr_o = fpu_result_tag_i.dest_reg;
-      fpr_wdata_o = fpu_result_i[FLEN-1:0];
-
-      rob_fpr_valid = 1'b1;
-      wb_rob_idx_o[1] = fpu_result_tag_i.rob_tag;
-
-      fpu_fpr_ready = 1'b1;
+    for (int unsigned port = 0; port < NrFpWritePorts; port++) begin
+      for (int unsigned src = 0; src < NofFprSrcs; src++) begin
+        if (fpr_port_grant[src][port]) begin
+          fpr_we_o[port]    = 1'b1;
+          fpr_waddr_o[port] = fpr_data[src].addr;
+          fpr_wdata_o[port] = fpr_data[src].data;
+          // Only update the ROB in superscalar mode
+          wb_fpr_valid[port]   = en_superscalar_i;
+          wb_fpr_rob_idx[port] = fpr_data[src].rob_tag;
+        end
+      end
     end
   end
 
+  // Only ALU0 can retire control instructions
   always_comb begin : ctr_instr_retirement
     // Per default no control instruction is being retired
     ctrl_instr_retired_o = 1'b0;
-    if (alu_gpr_valid && (alu_result_tag_i.is_jump || alu_result_tag_i.is_branch)) begin
+    if (alu_gpr_valid[0] && (alu_results_tag_i[0].is_jump || alu_results_tag_i[0].is_branch)) begin
       // If we have a valid result and the tag hints to a jump or branch instruction
       // we have retired a ctrl instruction this cycle.
       ctrl_instr_retired_o = 1'b1;
     end
   end
 
+  assign wb_valid_o = {wb_fpr_valid, wb_gpr_valid};
+  assign wb_rob_idx_o = {wb_fpr_rob_idx, wb_gpr_rob_idx};
+
   // ---------------------------
   // Core Events
   // ---------------------------
   // Capture all retirements in regard to their type.
-  assign retired_single_cycle_o = (alu_gpr_valid & alu_gpr_ready) ||
+  // TODO: Rework core events
+  assign retired_single_cycle_o = (alu_gpr_valid[0] & alu_gpr_ready[0]) ||
                                   (csr_gpr_valid & csr_gpr_ready);
-  assign retired_load_o         = (lsu_gpr_valid & lsu_gpr_ready) ||
-                                  (lsu_fpr_valid & lsu_fpr_ready);
+  assign retired_load_o         = (lsu_gpr_valid[0] & lsu_gpr_ready[0]) ||
+                                  (lsu_fpr_valid[0] & lsu_fpr_ready[0]);
   // In Snitch this signal would also capture the retired FPU instructions.
   assign retired_acc_o          = (acc_gpr_valid & acc_gpr_ready);
 

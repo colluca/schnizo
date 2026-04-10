@@ -8,6 +8,7 @@
 module schnova_reorder_buffer import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned NofEntries  = 64,
+  parameter int unsigned NrRobWritePorts  = 2,
   parameter type         phy_id_t = logic,
   localparam int unsigned TagWidth = $clog2(NofEntries)
 ) (
@@ -22,8 +23,8 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   output logic [PipeWidth-1:0][TagWidth-1:0] rob_idx_o,
   output logic                               rob_ready_o,
   // Writeback Interface
-  input logic [1:0]                wb_valid_i,
-  input logic [1:0][TagWidth-1:0]  wb_rob_idx_i,
+  input logic [NrRobWritePorts-1:0]                wb_valid_i,
+  input logic [NrRobWritePorts-1:0][TagWidth-1:0]  wb_rob_idx_i,
   // Freelist interface
   output logic freelist_push_o,
   output [$clog2(PipeWidth):0] gpr_push_count_o,
@@ -40,7 +41,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   } rob_entry_t;
 
   rob_entry_t [NofEntries-1:0] rob;
-  logic [1:0][NofEntries-1:0] wb_dec;
+  logic [NrRobWritePorts:0][NofEntries-1:0] wb_dec;
 
   logic [TagWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
   logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
@@ -52,7 +53,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   logic [$clog2(PipeWidth):0] pop_count;
 
   always_comb begin : wb_decoder
-    for (int unsigned j = 0; j < 2; j++) begin
+    for (int unsigned j = 0; j < NrRobWritePorts; j++) begin
       for (int unsigned i = 0; i < NofEntries; i++) begin
         if (wb_rob_idx_i[j] == i) wb_dec[j][i] = wb_valid_i[j];
         else wb_dec[j][i] = 1'b0;
@@ -162,7 +163,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
     end else begin
 
       // Update the ROB when a writeback happens
-      for (int unsigned j = 0; j < 2; j++) begin
+      for (int unsigned j = 0; j < NrRobWritePorts; j++) begin
         for (int unsigned i = 0; i < NofEntries; i++) begin
           // If the wb decoder hits, we set the done bit
           if (wb_dec[j][i]) begin

@@ -35,9 +35,9 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  retire_fu_trace_t        fpu_retirements [NofFpus],
   input  retire_fu_trace_t        csr_retirement,
   input  retire_fu_trace_t        acc_retirement,
-  input  wb_fu_trace_t            alu_wb_trace,
-  input  wb_fu_trace_t            lsu_wb_trace,
-  input  wb_fu_trace_t            fpu_wb_trace,
+  input  wb_fu_trace_t            alu_wb_trace [NofAlus],
+  input  wb_fu_trace_t            lsu_wb_trace [NofLsus],
+  input  wb_fu_trace_t            fpu_wb_trace [NofFpus],
   input  wb_fu_trace_t            csr_wb_trace,
   input  wb_fu_trace_t            acc_wb_trace
 );
@@ -182,15 +182,21 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
                           dispatch_trace[0].valid && (csr_trace.valid || acc_trace.valid));
       end
       // Writeback events - We must consider all writebacks at all times.
-      write_trace_event(file_id, trace_header, "writeback",
-                        format_wb_fu_trace(alu_wb_trace, "ALU"),
-                        alu_wb_trace.valid);
-      write_trace_event(file_id, trace_header, "writeback",
-                        format_wb_fu_trace(lsu_wb_trace, "LSU"),
-                        lsu_wb_trace.valid);
-      write_trace_event(file_id, trace_header, "writeback",
-                        format_wb_fu_trace(fpu_wb_trace, "FPU"),
-                        fpu_wb_trace.valid);
+      for (int alu = 0; alu < NofAlus; alu++) begin
+        write_trace_event(file_id, trace_header, "writeback",
+                          format_wb_fu_trace(alu_wb_trace[alu], "ALU"),
+                          alu_wb_trace[alu].valid);
+      end
+      for (int lsu = 0; lsu < NofLsus; lsu++) begin
+        write_trace_event(file_id, trace_header, "writeback",
+                          format_wb_fu_trace(lsu_wb_trace[lsu], "LSU"),
+                          lsu_wb_trace[lsu].valid);
+      end
+      for (int fpu = 0; fpu < NofFpus; fpu++) begin
+        write_trace_event(file_id, trace_header, "writeback",
+                          format_wb_fu_trace(fpu_wb_trace[fpu], "FPU"),
+                          fpu_wb_trace[fpu].valid);
+      end
       write_trace_event(file_id, trace_header, "writeback",
                         format_wb_fu_trace(csr_wb_trace, "CSR"),
                         csr_wb_trace.valid);
