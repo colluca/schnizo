@@ -46,6 +46,9 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   logic [TagWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
   logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
 
+  logic [PipeWidth-1:0][TagWidth-1:0] read_idx;
+  logic [PipeWidth-1:0][TagWidth-1:0] write_idx;
+
   logic [TagWidth:0] free_count;
   logic [TagWidth:0] allocated_entries;
 
@@ -58,6 +61,13 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
         if (wb_rob_idx_i[j] == i) wb_dec[j][i] = wb_valid_i[j];
         else wb_dec[j][i] = 1'b0;
       end
+    end
+  end
+
+  always_comb begin : idx_calculation
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      read_idx[i] = head_ptr + TagWidth'(i);
+      write_idx[i] = tail_ptr + TagWidth'(i);
     end
   end
 
@@ -84,7 +94,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       if (i == 0) begin
         pop_valid[i] = rob[head_ptr].done;
       end else begin
-        pop_valid[i] = pop_valid[i-1] && rob[(head_ptr+i)%NofEntries].done;
+        pop_valid[i] = pop_valid[i-1] && rob[read_idx[i]].done;
       end
     end
   end
@@ -105,13 +115,13 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
     fpr_retired_regs_o = '0;
 
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (pop_valid[i] && rob[(head_ptr+i)%NofEntries].rd_is_fp) begin
-        fpr_retired_regs_o[commit_fpr_idx] = rob[(head_ptr+i)%NofEntries].phy_reg_rd_old;
+      if (pop_valid[i] && rob[read_idx[i]].rd_is_fp) begin
+        fpr_retired_regs_o[commit_fpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
         fpr_commit_valid[i] = 1'b1;
 
         commit_fpr_idx = commit_fpr_idx + 1;
-      end else if (pop_valid[i] && !rob[(head_ptr+i)%NofEntries].rd_is_fp) begin
-        gpr_retired_regs_o[commit_gpr_idx] = rob[(head_ptr+i)%NofEntries].phy_reg_rd_old;
+      end else if (pop_valid[i] && !rob[read_idx[i]].rd_is_fp) begin
+        gpr_retired_regs_o[commit_gpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
         gpr_commit_valid[i] = 1'b1;
 
         commit_gpr_idx = commit_gpr_idx + 1;
@@ -140,12 +150,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   assign freelist_push_o = |pop_valid;
 
   // When ever we allocate a rob index, it has to be forwarded
-  always_comb begin: forward_rob_index
-    // The current rob index is just the tail pointer itself
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      rob_idx_o[i] = (tail_ptr + i)%NofEntries;
-    end
-  end
+  assign rob_idx_o = write_idx;
 
   // Sequential updates, that includes pointer calculations and retirements
   always_ff @(posedge clk_i or posedge rst_i) begin
@@ -175,10 +180,10 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       // Update the ROB upon push
       if(rob_push_i && rob_ready_o) begin
         for (int i = 0; i < PipeWidth; i++) begin
-            rob[(tail_ptr+i)%NofEntries].valid <= 1'b1;
-            rob[(tail_ptr+i)%NofEntries].done  <= 1'b0;
-            rob[(tail_ptr+i)%NofEntries].phy_reg_rd_old  <= rob_phy_reg_rd_old_i[i];
-            rob[(tail_ptr+i)%NofEntries].rd_is_fp        <= rob_phy_reg_rd_old_is_fp_i[i];
+            rob[write_idx[i]].valid <= 1'b1;
+            rob[write_idx[i]].done  <= 1'b0;
+            rob[write_idx[i]].phy_reg_rd_old  <= rob_phy_reg_rd_old_i[i];
+            rob[write_idx[i]].rd_is_fp        <= rob_phy_reg_rd_old_is_fp_i[i];
         end
 
          // Advance the pointers
@@ -188,8 +193,8 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       // Clear the ROB entries on commit
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         if (pop_valid[i]) begin
-          rob[(head_ptr+i)%NofEntries].valid <= 1'b0;
-          rob[(head_ptr+i)%NofEntries].done  <= 1'b0;
+          rob[read_idx[i]].valid <= 1'b0;
+          rob[read_idx[i]].done  <= 1'b0;
         end
       end
 
