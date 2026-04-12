@@ -5,7 +5,7 @@
 // pragma translate_off
 
 // Schnizo core tracer.
-module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
+module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   parameter int unsigned NofAlus            = 3,
   parameter int unsigned NofLsus            = 1,
   parameter int unsigned NofFpus            = 1,
@@ -33,7 +33,7 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   input  issue_alu_trace_t        rss_alu_traces [NofAlus][AluNofRss],
   input  issue_lsu_trace_t        rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
   input  issue_fpu_trace_t        rss_fpu_traces [NofFpus][FpuNofRss],
-  input  issue_spatz_trace_t      rss_spatz_traces [SpatzNofRss],  
+  input  issue_spatz_trace_t      rss_spatz_traces [SpatzNofRss],
   input  issue_csr_trace_t        csr_trace,
   input  issue_acc_trace_t        acc_trace,
   input  retire_fu_trace_t        alu_retirements [NofAlus],
@@ -49,11 +49,11 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   input  wb_fu_trace_t                 acc_wb_trace,
   input  wb_fu_trace_t                 spatz_wb_trace,
   input  resreq_trace_t                alu_resreq_traces   [NofAlus][AluNofRss][NofOperandIfs],
-  input  resreq_trace_t                lsu_resreq_traces   [NofLsus][LsuNofRss][NofOperandIfs],
+  input  resreq_trace_t                lsu_resreq_traces   [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs],
   input  resreq_trace_t                fpu_resreq_traces   [NofFpus][FpuNofRss][NofOperandIfs],
   input  resreq_trace_t                spatz_resreq_traces [SpatzNofRss][NofOperandIfs],
   input  rescap_trace_t                alu_rescap_traces   [NofAlus][AluNofRss],
-  input  rescap_trace_t                lsu_rescap_traces   [NofLsus][LsuNofRss],
+  input  rescap_trace_t                lsu_rescap_traces   [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
   input  rescap_trace_t                fpu_rescap_traces   [NofFpus][FpuNofRss],
   input  rescap_trace_t                spatz_rescap_traces [SpatzNofRss],
   input  op_e                          spatz_instrs_names  [NrParallelInstructions],

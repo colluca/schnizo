@@ -36,10 +36,10 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned FpuNofResRspPorts = 1,
   // Spatz Parameter
   parameter int unsigned SpatzNofRss       = 1,
+  parameter int unsigned SpatzNofConstants = 4,
   parameter int unsigned SpatzNofOperands  = 2,
-  parameter int unsigned SpatzNofOpPorts   = 1,
   parameter int unsigned SpatzNofResReqIfs = 1,
-  parameter int unsigned SpatzNofResRspIfs = 1,
+  parameter int unsigned SpatzNofResRspPorts = 1,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
@@ -107,7 +107,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned TCDMPorts           = RVV ? NumMemPortsPerSpatz + NofLsus : NofLsus,
 
   localparam type addr_t = logic [AddrWidth-1:0],
-  localparam type data_t = logic [DataWidth-1:0]
+  localparam type data_t = logic [DataWidth-1:0],
+  // TODO add as normal paramter?
+  localparam NofSpatz = 1
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
@@ -237,17 +239,19 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // Operand distribution network
   // ---------------------------
 
-  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus;
+  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus + NofSpatz;
   localparam int unsigned TotalNofRss = NofAlus * AluNofRss +
                                         NofLsus * LsuNofRss +
-                                        NofFpus * FpuNofRss;
+                                        NofFpus * FpuNofRss +
+                                        NofSpatz * SpatzNofRss;
   localparam int unsigned TotalNofResRspPorts = NofAlus * AluNofResRspPorts +
                                                 NofLsus * LsuNofResRspPorts +
-                                                NofFpus * FpuNofResRspPorts;
+                                                NofFpus * FpuNofResRspPorts +
+                                                NofSpatz + SpatzNofResRspPorts;
 
   typedef int unsigned rs_param_array_t [NofRs-1:0];
 
-  function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam);
+  function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam, int SpatzParam);
     rs_param_array_t tmp;
     int unsigned k;
 
@@ -264,13 +268,17 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       tmp[k] = FpuParam;
       k++;
     end
+    for (int unsigned i = 0; i < NofSpatz; i++) begin
+      tmp[k] = SpatzParam;
+      k++;
+    end
 
     return tmp;
   endfunction
 
-  localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss);
+  localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss, SpatzNofRss);
   localparam rs_param_array_t NofRspPorts = gen_rs_param_array(AluNofResRspPorts,
-    LsuNofResRspPorts, FpuNofResRspPorts);
+    LsuNofResRspPorts, FpuNofResRspPorts, SpatzNofResRspPorts);
 
   typedef struct packed {
     logic valid;
@@ -333,9 +341,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned LsuOpIdOffset = AluOpIdOffset +
                                               NofAlus * AluNofOperands;
   localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset +
-                                              NofLsus * (LsuNofOperands * LsuNofOpPorts);
+                                              NofLsus * LsuNofOperands;
   localparam integer unsigned SpatzOpIdOffset = FpuOpIdOffset +
-                                              NofFpus * (FpuNofOperands * FpuNofOpPorts);
+                                              NofFpus * FpuNofOperands;
 
   ////////////////////////////////////////
   // Operand distribution network (ODN) //
@@ -384,9 +392,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
-  operand_req_t [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs;
-  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_valid;
-  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_ready;
+  operand_req_t [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_reqs;
+  logic         [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_valid;
+  logic         [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_ready;
   operand_req_t [SpatzNofRss-1:0]                            spatz_available_results;
   dest_mask_t   [SpatzNofRss-1:0]                            spatz_res_reqs;
   logic         [SpatzNofRss-1:0]                            spatz_res_reqs_valid;
@@ -394,9 +402,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   res_rsp_t     [SpatzNofRss-1:0]                            spatz_res_rsps;
   logic         [SpatzNofRss-1:0]                            spatz_res_rsps_valid;
   logic         [SpatzNofRss-1:0]                            spatz_res_rsps_ready;
-  operand_t     [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps;
-  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_valid;
-  logic         [SpatzNofOpPorts-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_ready;
+  operand_t     [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_rsps;
+  logic         [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_valid;
+  logic         [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_ready;
 
   operand_req_t [NofOperandIfs-1:0] op_reqs;
   logic         [NofOperandIfs-1:0] op_reqs_valid;
@@ -485,7 +493,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       end
       // Spatz integration
       if(RVV) begin
-        for (int port = 0; port < SpatzNofOpPorts; port++) begin
+        for (int port = 0; port < NofSpatz; port++) begin
           for (int op = 0; op < SpatzNofOperands; op++) begin
             // operand requests
             op_reqs[ope_if]                    = spatz_op_reqs[port][op];
@@ -1214,8 +1222,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .res_req_t     (res_req_t),
-      .ext_res_req_t (ext_res_req_t),
-      .available_result_t (available_result_t),
       .dest_mask_t   (dest_mask_t),
       .res_rsp_t     (res_rsp_t)
     ) i_fu_block (
@@ -1394,9 +1400,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .result_t      (spatz_result_t),
     .instr_tag_t   (instr_tag_t),
     .NofRss        (SpatzNofRss),
+    .NofConstants  (SpatzNofConstants),
     .NofOperands   (SpatzNofOperands),
-    .NofOpPorts    (SpatzNofOpPorts),
-    .NofResRspIfs  (SpatzNofRss),
+    .NofResRspIfs  (SpatzNofResRspPorts),
     .ConsumerCount (ConsumerCount),
     .RegAddrWidth  (RegAddrWidth),
     .MaxIterationsW(MaxIterationsW),
@@ -1647,12 +1653,10 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       consumer = consumer - LsuOpIdOffset;
       fu_name = "LSU";
     end else if (consumer < SpatzOpIdOffset) begin
-      num_ports = FpuNofOpPorts;
       num_ops = FpuNofOperands;
       consumer = consumer - FpuOpIdOffset;
       fu_name = "FPU";
     end else begin
-      num_ports = SpatzNofOpPorts;
       num_ops = SpatzNofOperands;
       consumer = consumer - SpatzOpIdOffset;
       fu_name = "SPATZ";

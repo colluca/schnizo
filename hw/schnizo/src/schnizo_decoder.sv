@@ -377,7 +377,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
             3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
             default: illegal_instr = 1'b1;
-          endcasey decoding before scalar FP store decode
+          endcase
         if (RVV) begin
           logic vector_store_handled;
           vector_store_handled = 1'b0;
