@@ -204,7 +204,6 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
                         format_wb_fu_trace(acc_wb_trace, "ACC"),
                         acc_wb_trace.valid);
 
-      // Result capture events - We can always capture them
       // Retirement events - Always active to complete any issue.
       for (int alu = 0; alu < NofAlus; alu++) begin
         write_trace_event(file_id, trace_header, "retirement",

@@ -242,9 +242,9 @@ module schnova_dispatcher import schnova_pkg::*; #(
         fpu_rank[i] = '0;
       end else begin
         // We decrease the rank for every previous instruction that needs the same FU type.
-        alu_rank[i] = disp_to_alu[i] ? alu_rank[i-1] + 1'b1 : alu_rank[i-1];
-        lsu_rank[i] = disp_to_lsu[i] ? lsu_rank[i-1] + 1'b1 : lsu_rank[i-1];
-        fpu_rank[i] = disp_to_fpu[i] ? fpu_rank[i-1] + 1'b1 : fpu_rank[i-1];
+        alu_rank[i] = disp_to_alu[i-1] ? alu_rank[i-1] + 1'b1 : alu_rank[i-1];
+        lsu_rank[i] = disp_to_lsu[i-1] ? lsu_rank[i-1] + 1'b1 : lsu_rank[i-1];
+        fpu_rank[i] = disp_to_fpu[i-1] ? fpu_rank[i-1] + 1'b1 : fpu_rank[i-1];
       end
     end
   end
