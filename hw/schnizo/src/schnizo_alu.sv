@@ -59,13 +59,7 @@ module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       AluOpSltu,
       AluOpSll,
       AluOpSrl,
-      AluOpSra,
-      AluOpEq,
-      AluOpNeq,
-      AluOpLt,
-      AluOpLtu,
-      AluOpGe,
-      AluOpGeu: sel_mul = 1'b0;
+      AluOpSra: sel_mul = 1'b0;
       default:  sel_mul = 1'b1;
     endcase
   end

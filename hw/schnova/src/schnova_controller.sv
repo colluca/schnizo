@@ -56,6 +56,11 @@ module schnova_controller import schnova_pkg::*; #(
   output logic dispatch_instr_valid_o,
   input  logic dispatch_instr_ready_i,
   output logic instr_exec_commit_o,
+  // Commit signal for FPU in regular mode: same as instr_exec_commit but exclued
+  // instr_addr_misaligned_o, which is always 0 for FP instructions (they are never branches).
+  // This breaks the false timing path: ALU adder -> branch compare -> consecutive_pc ->
+  // instr_addr_misaligned_o -> exception_o -> instr_exec_commit -> fpu_exec_commit.
+  output logic fpu_instr_exec_commit_o,
   output logic stall_o,
   // From rename
   input logic freelist_ready_i,
@@ -96,6 +101,8 @@ module schnova_controller import schnova_pkg::*; #(
   logic instr_dispatched;
   logic csr_exception;
   logic [PipeWidth-1:0] instr_valid;
+  logic frep_exception;
+  logic frep_exec_commit;
 
   block_ctrl_info_t blk_ctrl_info_masked;
 
@@ -142,7 +149,7 @@ module schnova_controller import schnova_pkg::*; #(
     // Only in scalar execution mode is it legal to observe an frep instruction
     // hence we can take the first instruction
     .loop_start_req_i      (instr_decoded_i[0].is_frep & instr_valid_i[0]),
-    .loop_start_commit_i   (instr_decoded_i[0].is_frep & instr_exec_commit_o),
+    .loop_start_commit_i   (instr_decoded_i[0].is_frep & frep_exec_commit),
     .loop_bodysize_i       (loop_bodysize),
     .loop_iterations_i     (loop_iterations),
     .frep_mode_i           (instr_decoded_i[0].frep_mode),
@@ -278,6 +285,14 @@ module schnova_controller import schnova_pkg::*; #(
                    | frep_sw_error;
                    //  | (dtlb_page_fault & dtlb_trans_valid)
                    //  | (itlb_page_fault & itlb_trans_valid);
+
+  // For FREP, only interrupts and FREP-specific software errors can block commit. All other
+  // exceptions in exception_o are structurally impossible when the current instruction is FREP
+  // (wrong opcode, wrong FU, no branch/jump). In particular, instr_addr_misaligned_o sits in the
+  // timing cone of exception_o via alu_compare_res_i -> consecutive_pc, creating a false timing
+  // path to loop_start_commit_i. Using a separate frep_exception breaks that path.
+  assign frep_exception = interrupt_i | frep_sw_error;
+
   // In case of an exception we flush the entire backend
   // TODO(sorderma): When to restart controllably
   assign flush_backend_o = exception_o;
@@ -423,6 +438,15 @@ module schnova_controller import schnova_pkg::*; #(
   logic instr_exec_commit;
   assign instr_exec_commit = dispatch_instr_valid_o & !exception_o;
   assign instr_exec_commit_o = instr_exec_commit;
+  assign fpu_instr_exec_commit_o = dispatch_instr_valid_o &&
+                                  !(instr_illegal_o |
+                                    ecall_o         |
+                                    ebreak_o        |
+                                    csr_exception   |
+                                    interrupt_i     |
+                                    frep_sw_error);
+
+  assign frep_exec_commit = dispatch_instr_valid_o && !frep_exception;
 
   // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
   // performed successfully. The signal instr_dispatched signals that the current instruction has

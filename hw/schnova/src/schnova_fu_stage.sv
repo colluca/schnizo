@@ -111,6 +111,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // The FU blocks do not require a commit signal as when we won't commit we have an exception
   // and thus anyway abort the LxP and reset the RS and RSSs.
   input  logic                    instr_exec_commit_i,
+  // FPU-specific commit: same as instr_exec_commit_i but without instr_addr_misaligned_o in its
+  // timing cone (FP instructions are never branches, so instr_addr_misaligned_o is always 0).
+  input  logic                    fpu_instr_exec_commit_i,
   input  disp_req_t [NofAlus-1:0] alu_disp_reqs_i,
   input  logic      [NofAlus-1:0] alu_disp_reqs_valid_i,
   output logic      [NofAlus-1:0] alu_disp_reqs_ready_o,
@@ -689,7 +692,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .disp_req_i         (fpu_disp_reqs_i[fpu]),
       .disp_req_valid_i   (fpu_disp_reqs_valid_i[fpu]),
       .disp_req_ready_o   (fpu_disp_reqs_ready_o[fpu]),
-      .instr_exec_commit_i(instr_exec_commit_i),
+      .instr_exec_commit_i(fpu_instr_exec_commit_i),
       .disp_rsp_o         (fpu_disp_rsp_o[fpu]),
       // To FU
       .issue_req_o        (fpu_issue_req),

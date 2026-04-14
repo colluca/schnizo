@@ -172,12 +172,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic                         rd_is_fp; // set if rd is a FP register
     logic [RegAddrSize-1:0]       rs1;
     logic                         rs1_is_fp; // set if rs1 is a FP register
+    logic                         use_rs1;
     logic [RegAddrSize-1:0]       rs2;
     logic                         rs2_is_fp; // set if rs2 is a FP register
+    logic                         use_rs2;
     // Imm field: for unfinished floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the address of the third operand (rs3) from the floating-point regfile
     logic [XLEN-1:0]              imm;
     logic                         use_imm_as_rs3; // set if rs3 is a FP register
+    logic                         use_imm;
     lsu_size_e                    lsu_size; // The bit width the LSU operates on, 2 bit
     fpnew_pkg::fp_format_e        fpu_fmt_src; // The FPU format field. 3 bit
     fpnew_pkg::fp_format_e        fpu_fmt_dst; // The FPU format field. 3 but
@@ -232,10 +235,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     csr_op_e               csr_op;
     fpu_op_e               fpu_op;
     logic [OpLen-1:0]      operand_a;
+    logic                  use_operand_a;
     logic [OpLen-1:0]      operand_b;
+    logic                  use_operand_b;
     // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the value of the third operand
     logic [OpLen-1:0]      imm;
+    logic                  use_imm;
     lsu_size_e             lsu_size;
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
@@ -446,6 +452,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic dispatch_instr_valid;
   logic dispatch_instr_ready;
   logic instr_exec_commit;
+  logic fpu_instr_exec_commit;
 
   fpnew_pkg::roundmode_e fpu_rnd_mode;
   fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
@@ -710,6 +717,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .dispatch_instr_valid_o (dispatch_instr_valid),
     .dispatch_instr_ready_i (dispatch_instr_ready),
     .instr_exec_commit_o    (instr_exec_commit),
+    .fpu_instr_exec_commit_o(fpu_instr_exec_commit),
     .stall_o                (stall),
     // Writeback interface
     .ctrl_instr_retired_i(ctrl_instr_retired),
@@ -968,6 +976,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .all_rs_finish_o      (all_rs_finish),
     // Global commit signal
     .instr_exec_commit_i  (instr_exec_commit),
+    .fpu_instr_exec_commit_i(fpu_instr_exec_commit),
     // Trace
     // pragma translate_off
     .alu_trace_o          (alu_trace),

@@ -281,7 +281,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic retire_at_issue;
 
   // Dispatch and result trip counter outputs
-  rss_idx_t disp_cnt, issue_cnt, result_cnt;
+  rss_cnt_t disp_cnt;
+  rss_idx_t disp_idx, issue_idx, result_idx;
   logic     last_disp;
   logic     trip_issue;
   logic     last_result, trip_result;
@@ -291,15 +292,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
-  rss_idx_t num_allocated_rss_d, num_allocated_rss_q;
+  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
   assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
+  assign rs_full_o = disp_cnt == NofRss;
+
   logic last_result_iter;
   assign last_result_iter = lep_result_iter_count == 1;
-
-  // TODO(colluca): do we need the state-dependent condition?
-  assign rs_full_o = (loop_state_i == LoopLcp1) && last_disp;
 
   logic any_instr_captured;
   assign any_instr_captured = (num_allocated_rss_q != '0);
@@ -311,13 +311,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic lcp_finished;
   logic lep_finished_issue, lep_finished;
 
+  // TODO(colluca): rename this signal to what exactly the controller needs to know.
   // In LCP the loop controller knows when we are in the last loop iteration.
   // All it needs to know from the RS is if the FU has retired all instructions.
   // `fu_busy_i` is asserted also when the output of the FU is valid, but in this cycle
   // the instruction may already be retiring, so to not waste a cycle we separately
   // include this condition (result_hs).
   assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
-                        ((disp_cnt == result_cnt) && result_hs));
+                        ((disp_idx == result_idx) && result_hs));
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
@@ -392,6 +393,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   schnizo_res_stat_slots #(
     .NofRss          (NofRss),
+    .NofConstants    (NofConstants),
     .NofOperands     (NofOperands),
     .NofResRspIfs    (NofResRspIfs),
     .ConsumerCount   (ConsumerCount),
@@ -410,16 +412,18 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .operand_req_t   (operand_req_t),
     .operand_t       (operand_t),
     .res_req_t       (res_req_t),
+    .ext_res_req_t   (ext_res_req_t),
+    .available_result_t   (available_result_t),
     .dest_mask_t     (dest_mask_t),
     .res_rsp_t       (res_rsp_t)
-  ) i_slots (
+  ) i_res_stat_slots (
     .clk_i,
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
     .loop_state_i      (loop_state_i),
-    .disp_idx_i        (disp_cnt[NofRssWidth-1:0]),
-    .issue_idx_i       (issue_cnt[NofRssWidth-1:0]),
+    .disp_idx_i        (disp_idx),
+    .issue_idx_i       (issue_idx),
     .last_issue_iter_i (lep_issue_iter_count == 1),
     .last_result_iter_i(last_result_iter),
     .retire_at_issue_o (retire_at_issue),
@@ -458,15 +462,18 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Counters //
   //////////////
 
+  // This counts the number of dispatched instructions, which can be as many as NofRss.
+  // The dispatch index on the other hand must point to a valid reservation station,
+  // so it should trip when it reaches NofRss-1.
   trip_counter #(
-    .WIDTH(NofRssWidth)
+    .WIDTH(NofRssWidthExt)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (disp_hs),
-    .delta_i (rss_idx_t'(1)),
-    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
+    .delta_i (rss_cnt_t'(1)),
+    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
     .q_o     (disp_cnt),
     .last_o  (last_disp),
     .trip_o  ()
@@ -482,7 +489,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .en_i    (issue_hs),
     .delta_i (rss_idx_t'(1)),
     .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (issue_cnt),
+    .q_o     (issue_idx),
     .last_o  (),
     .trip_o  (trip_issue)
   );
@@ -501,7 +508,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .en_i    (retire_at_issue || result_hs),
     .delta_i (rss_idx_t'(retire_at_issue + result_hs)),
     .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (result_cnt),
+    .q_o     (result_idx),
     .last_o  (last_result),
     .trip_o  (trip_result)
   );
