@@ -241,10 +241,26 @@ module schnova_dispatcher import schnova_pkg::*; #(
         lsu_rank[i] = '0;
         fpu_rank[i] = '0;
       end else begin
-        // We decrease the rank for every previous instruction that needs the same FU type.
-        alu_rank[i] = disp_to_alu[i-1] ? alu_rank[i-1] + 1'b1 : alu_rank[i-1];
-        lsu_rank[i] = disp_to_lsu[i-1] ? lsu_rank[i-1] + 1'b1 : lsu_rank[i-1];
-        fpu_rank[i] = disp_to_fpu[i-1] ? fpu_rank[i-1] + 1'b1 : fpu_rank[i-1];
+        // In case the rank is not larger than the number of functional units of that type
+        // we can increase the rank for the next instruction that dispatches to the same
+        // functional unit.
+        // If the rank of the previous instruction is larger than the number of functional units
+        // - 1. Then we have already assigned a rank to as many instructions as there are functional units
+        // we then assign an abitrary rank for all younger instructions. That way the instruction
+        // hazard logic will naturally stall these instructions from dispatching. As they have not yet
+        // got a valid port they can dispatch to.
+        // The reason this is done, is that in case of the number of functional units are not a power of two
+        // the if this condition is not met it could lead to multiple warp arounds. In that case the logic that
+        // calculates the wrap around with a single substraction would be wrong.
+        if (alu_rank[i-1] < NofAlus - 1) begin
+          alu_rank[i] = disp_to_alu[i-1] ? alu_rank[i-1] + 1'b1 : alu_rank[i-1];
+        end
+        if (lsu_rank[i-1] < NofLsus -1) begin
+          lsu_rank[i] = disp_to_lsu[i-1] ? lsu_rank[i-1] + 1'b1 : lsu_rank[i-1];
+        end
+        if (fpu_rank[i-1] < NofFpus -1) begin
+          fpu_rank[i] = disp_to_fpu[i-1] ? fpu_rank[i-1] + 1'b1 : fpu_rank[i-1];
+        end
       end
     end
   end
@@ -749,13 +765,5 @@ module schnova_dispatcher import schnova_pkg::*; #(
         sb_disp_data_o[i].use_imm_as_rs3 = instr_dec_i[i].use_imm_as_rs3;
     end
   end
-
-  `ASSERT_INIT(
-    DispPipeWidthTooLarge,
-    (NofAlusIsPow2 || (PipeWidth <= 2 * NofAlus)) &&
-    (NofLsusIsPow2 || (PipeWidth <= 2 * NofLsus)) &&
-    (NofFpusIsPow2 || (PipeWidth <= 2 * NofFpus)),
-    "PipeWidth is too large for single-subtraction wrap logic."
-  );
 
 endmodule
