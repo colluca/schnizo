@@ -56,6 +56,12 @@ __thread double one = 1.0;
 __thread double two = 2.0;
 __thread double three = 3.0;
 
+// Estimate final result and calculate error
+double actual_result;
+double golden_result;
+
+uint32_t nof_samples = N_SAMPLES;
+
 static inline uint32_t calculate_psum_naive(PRNG_T *prng,
                                             unsigned int n_samples) {
     // Only compute cores follow
@@ -700,9 +706,6 @@ int main() {
             hit += reduction_array[i];
         }
 
-        // Estimate final result and calculate error
-        double actual_result;
-        double golden_result;
 #if APPLICATION == APPLICATION_PI
         actual_result = (double)(4 * hit) / (double)N_SAMPLES;
         golden_result = M_PI;
@@ -711,9 +714,11 @@ int main() {
         golden_result = 2.083333333;
 #endif
 
+#ifdef BIST
         // Check result
         double err = fabs(actual_result - golden_result);
         if (err > 0.1) return 1;
+#endif
     }
 
     return 0;
