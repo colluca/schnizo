@@ -227,6 +227,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
       fpr_we_o = 1'b1;
       fpr_waddr_o = spatz_result_tag_i.dest_reg;
       fpr_wdata_o = spatz_result_i[FLEN-1:0];
+      spatz_fpr_ready = 1'b1;
     end
   end
 
@@ -240,5 +241,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
                                   (lsu_fpr_valid & lsu_fpr_ready);
   // In Snitch this signal would also capture the retired FPU instructions.
   assign retired_acc_o          = (acc_gpr_valid & acc_gpr_ready);
+  assign retired_spatz_o        = (spatz_gpr_valid & spatz_gpr_ready) ||
+                                  (spatz_fpr_valid & spatz_fpr_ready);
 
 endmodule

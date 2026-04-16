@@ -154,6 +154,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
 
   // Result metadata and counters — updated by res_req_handling and result_capture.
   typedef struct packed {
+    // Raw instruction for Spatz
+    logic [31:0]                    spatz_raw_instr;
     // How many consumers use the result of this instruction.
     logic [ConsumerCountWidth-1:0]  consumer_count;
     // A counter to keep track how many times the current result has been captured.
@@ -188,6 +190,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     lsu_op_e                        lsu_op;
     fpu_op_e                        fpu_op;
     lsu_size_e                      lsu_size;
+
+    logic [31:0]                    spatz_raw_instr;
+
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;

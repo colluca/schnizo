@@ -247,7 +247,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam int unsigned TotalNofResRspPorts = NofAlus * AluNofResRspPorts +
                                                 NofLsus * LsuNofResRspPorts +
                                                 NofFpus * FpuNofResRspPorts +
-                                                NofSpatz + SpatzNofResRspPorts;
+                                                NofSpatz * SpatzNofResRspPorts;
 
   typedef int unsigned rs_param_array_t [NofRs-1:0];
 

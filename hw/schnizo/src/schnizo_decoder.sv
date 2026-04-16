@@ -12,7 +12,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
   /// Enable D Extension (double).
   parameter bit          RVD         = 0,
   /// Spatz: Enable RVV Extension (vector).
-  parameter bit          RVV          = 1,
+  parameter bit          RVV         = 1,
   parameter bit          XF16        = 0,
   parameter bit          XF16ALT     = 0,
   parameter bit          XF8         = 0,
@@ -362,22 +362,22 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
       // --------------------------------
       OpcodeStoreFp: begin // STORE-FP
         // Added vector store (RVV) dependenc  imm_select = IIMM;
-          instr_dec_o.rs1 = instr.itype.rs1;
-          instr_dec_o.use_rs1 = 1'b1;
-          instr_dec_o.rd = instr.itype.rd;
-          instr_dec_o.rd_is_fp = 1'b1;
+          // instr_dec_o.rs1 = instr.itype.rs1;
+          // instr_dec_o.use_rs1 = 1'b1;
+          // instr_dec_o.rd = instr.itype.rd;
+          // instr_dec_o.rd_is_fp = 1'b1;
 
-          // determine load size
-          instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
-          instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
-          unique case (instr.itype.funct3)
-            // Only process instruction if corresponding extension is active (static)
-            3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FLB
-            3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FLH
-            3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
-            3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
-            default: illegal_instr = 1'b1;
-          endcase
+          // // determine load size
+          // instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
+          // instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
+          // unique case (instr.itype.funct3)
+          //   // Only process instruction if corresponding extension is active (static)
+          //   3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FLB
+          //   3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FLH
+          //   3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
+          //   3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
+          //   default: illegal_instr = 1'b1;
+          // endcase
         if (RVV) begin
           logic vector_store_handled;
           vector_store_handled = 1'b0;

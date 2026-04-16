@@ -109,6 +109,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
     fpu_op:           FpuOpFadd,
     lsu_size:         Byte,
+    spatz_raw_instr:   '0,
     fpu_fmt_src:      fpnew_pkg::FP32,
     fpu_fmt_dst:      fpnew_pkg::FP32,
     fpu_rnd_mode:     fpnew_pkg::RNE,
@@ -173,12 +174,14 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       lsu_op:           disp_req_i.fu_data.lsu_op,
       fpu_op:           disp_req_i.fu_data.fpu_op,
       lsu_size:         disp_req_i.fu_data.lsu_size,
+      spatz_raw_instr:  disp_req_i.fu_data.raw_instr,
       fpu_fmt_src:      disp_req_i.fu_data.fpu_fmt_src,
       fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
       fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
       instruction_iter: 1'b0,
-      no_dest:          (disp_req_i.fu_data.fu == STORE) &&
-                        (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
+      no_dest:          ((disp_req_i.fu_data.fu == STORE) &&
+                        (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})) ||
+                        (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp),
       operands:         '0
     };
 
@@ -275,10 +278,12 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         slot_result_o = '{
           consumer_count: '0,
           consumed_by:    '0,
+          spatz_raw_instr: disp_req_i.fu_data.raw_instr,
           result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
           // TODO(colluca): can't we just use dest x0 to communicate this info?
           no_dest:        (disp_req_i.fu_data.fu == STORE) &&
-                          (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore}),
+                          (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})||
+                          (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp),
           dest_id:        disp_req_i.tag.dest_reg,
           dest_is_fp:     disp_req_i.tag.dest_reg_is_fp,
           do_writeback:   1'b0
@@ -308,6 +313,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   always_comb begin: const_op_allocation
     automatic int unsigned port = 0;
 
+    alloc_const_op_slot.spatz_raw_instr = disp_req_i.fu_data.raw_instr; // Spatz needs raw instruction
+    
     alloc_const_op_slot = selected_slot;
     alloc_const_op_valid_o = '0;
     alloc_const_op_data_o = '0;
@@ -473,6 +480,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     // results can come back OoO from the FU (as is the case for the FPU).
     issue_req_o                      = '0;
     issue_req_o.fu_data.fu           = NONE; // Not required by FU
+    issue_req_o.fu_data.raw_instr    = alloc_const_op_slot.spatz_raw_instr;
     issue_req_o.fu_data.alu_op       = alloc_const_op_slot.alu_op;
     issue_req_o.fu_data.lsu_op       = alloc_const_op_slot.lsu_op;
     issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP

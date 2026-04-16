@@ -134,6 +134,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
 
   rs_slot_result_t slot_result_reset;
   assign slot_result_reset = '{
+    spatz_raw_instr: '0,
     consumer_count: '0,
     consumed_by:    '0,
     // We ignore the result part - the iteration flag could be X.
