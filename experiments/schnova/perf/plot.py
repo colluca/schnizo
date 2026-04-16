@@ -102,77 +102,87 @@ def kernel_scaling_plot(df, app, show=True):
 
 
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
-    """Compare scalar and superscalar results across applications"""
-    df = df[df['hw'] == '3x32_3x32_1x64']
-    # Pivot data to get utilization from the run with max size per app and mode
-    idx_max_size = df.groupby(['app', 'mode'])['size'].idxmax()
-    plot_df = df.loc[idx_max_size].pivot(index='app', columns='mode', values=metric)
-    plot_df.columns = [col.capitalize() for col in plot_df.columns]
+    """
+    Compare Schnizo (Scalar/Superscalar) vs. Schnvoa Widths (1, 2, 4, 8)
+    with shared Ideal IPC lines.
+    """
+    schnizo_hw = '3x32_3x32_1x64'
+    schnvoa_widths = ['sv_1_3x1_3x1_1x1', 'sv_2_3x1_3x1_1x1', 
+                      'sv_4_3x1_3x1_1x1', 'sv_8_3x1_3x1_1x1']
+    
+    # 1. Filter: Schnizo (both modes) + Schnvoa (superscalar only)
+    mask_schnizo = (df['hw'] == schnizo_hw)
+    mask_schnvoa = (df['hw'].isin(schnvoa_widths)) & (df['mode'] == 'superscalar')
+    plot_df = df[mask_schnizo | mask_schnvoa].copy()
 
-    # Calculate asymptotes for superscalar mode
-    asymptotes = []
-    for app in plot_df.index:
-        app_df = df[(df['app'] == app) & (df['mode'] == 'superscalar')].sort_values('size')
-        n_vals = app_df['size'].to_numpy(dtype=float)
-        util_vals = app_df[metric].to_numpy(dtype=float)
-        _, _, a, b, _ = fit_inverse_function(n_vals, util_vals, x_lim=8192)
-        asymptotes.append(a / b)
+    def identify_config(row):
+        if row['hw'] == schnizo_hw:
+            return f"Schnizo {row['mode'].capitalize()}"
+        # Extract width and label as Schnvoa
+        width = row['hw'].split('_')[1]
+        return f"Schnvoa Width {width}"
 
-    # Create grouped bar chart
-    fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax, zorder=3)
+    plot_df['config'] = plot_df.apply(identify_config, axis=1)
+    
+    # Pivot for plotting
+    idx_max_size = plot_df.groupby(['app', 'config'])['size'].idxmax()
+    plot_df = plot_df.loc[idx_max_size].pivot(index='app', columns='config', values=metric)
 
-    # Get the bar containers for each mode
-    bar_containers = ax.containers
-    superscalar_bars = bar_containers[list(plot_df.columns).index('Superscalar')]
+    # Force logical ordering: Schnizo first, then Schnvoa scaling
+    ordered_cols = [
+        'Schnizo Scalar', 'Schnizo Superscalar', 
+        'Schnvoa Width 1', 'Schnvoa Width 2', 'Schnvoa Width 4', 'Schnvoa Width 8'
+    ]
+    plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
 
-    # # Add theoretical markers on top of scalar bars
-    # scalar_bars = bar_containers[list(plot_df.columns).index('Scalar')]
-    # labeled = False
-    # for bar, app in zip(scalar_bars, plot_df.index):
-    #     if metric == 'fpu_util':
-    #         if app in model.theoretical_metrics()[metric]['scalar']:
-    #             theoretical = model.theoretical_metrics()[metric]['scalar'][app]
-    #             ax.scatter(bar.get_x() + bar.get_width() / 2., theoretical,
-    #                        color='black', marker='D', zorder=4,
-    #                        label='Theoretical' if not labeled else '')
-    #             labeled = True
+    # 2. Create the Bar Chart
+    fig, ax = plt.subplots(figsize=(14, 7))
+    plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.85)
 
-    # Add asymptote markers on top of superscalar bars
-    for i, (bar, asymptote) in enumerate(zip(superscalar_bars, asymptotes)):
-        ax.scatter(bar.get_x() + bar.get_width() / 2., asymptote,
-                   color='black', marker='*', zorder=4,
-                   label='Asymptote' if i == 0 else '')
-
-    # Add ideal IPC lines on top of superscalar bars
-    labeled = False
+    # 3. Add Ideal IPC lines (using Schnizo XL theoreticals for all superscalar)
     if metric == 'ipc':
-        for bar, app in zip(superscalar_bars, plot_df.index):
-            if app in model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']:
-                ideal = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar'][app]
-                ax.plot([bar.get_x(), bar.get_x() + bar.get_width()], [ideal, ideal],
-                        color='tab:red', zorder=3,
-                        label='Ideal' if not labeled else '')
-                labeled = True
+        labeled = False
+        theoretical_data = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']
+        
+        for i, col_name in enumerate(plot_df.columns):
+            # Apply to all Superscalar/Schnvoa columns, skip Schnizo Scalar
+            if 'Scalar' in col_name:
+                continue
+                
+            container = ax.containers[i]
+            for bar, app in zip(container, plot_df.index):
+                if app in theoretical_data:
+                    ideal = theoretical_data[app]
+                    ax.plot([bar.get_x(), bar.get_x() + bar.get_width()], 
+                            [ideal, ideal],
+                            color='tab:red', linewidth=2.0, zorder=5,
+                            label='Ideal IPC' if not labeled else '')
+                    labeled = True
 
-    # Reference line at y=1
-    ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
-
-    # Format plot
+    # 4. Final Formatting
+    ax.axhline(y=1, color='black', linewidth=0.8, zorder=2.5)
+    ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
     ax.set_xlabel('')
-    ax.set_ylabel(METRIC_LABELS[metric])
-    labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
-    ax.set_xticklabels(labels, rotation=15, ha='right')
-    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0, loc='upper left')
-    ax.set_axisbelow(True)
+    
+    clean_labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
+    ax.set_xticklabels(clean_labels, rotation=15, ha='right')
+    
+    ax.legend(title="Core Architecture", loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
-    ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
-    if metric == 'fpu_util':
-        ax.set_ylim(top=1.3)
+    
+    # Set Y-limits
+    if metric == 'ipc':
+        ax.set_ylim(bottom=0, top=max(plot_df.max().max() * 1.15, 8.5))
+    elif metric == 'fpu_util':
+        ax.set_ylim(bottom=0, top=1.3)
+
     fig.tight_layout()
 
-    geomean_superscalar_metric = format_metric(gmean(plot_df['Superscalar']), metric)
-    print(f'Geomean superscalar {metric}: {geomean_superscalar_metric}')
+    # Console Output for quick verification
+    print(f"\n--- Geomean {metric} Performance ---")
+    for col in plot_df.columns:
+        gm = gmean(plot_df[col].dropna())
+        print(f"{col:18}: {format_metric(gm, metric)}")
 
     if show:
         plt.show()

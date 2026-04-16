@@ -65,15 +65,11 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    #cfgs = ['3x32_3x32_1x64_1port', '3x32_3x32_1x64_2ports', '3x32_3x32_1x64_3ports',
-    #        '3x32_3x32_1x64', '1x128_1x32_1x64', '3x4_3x4_1x4', '3x32_1x0_2x32',
-    #        '2x32_1x32_2x32',
-    #        'sv_1_1x1_1x1_1x1', 'sv_2_1x1_1x1_1x1', 'sv_4_1x1_1x1_1x1', 'sv_8_1x1_1x1_1x1',
-    #        'sv_1_3x1_3x1_1x1',]
-    cfgs = ['sv_1_3x1_3x1_1x1',]
+    cfgs = ['3x32_3x32_1x64',
+            'sv_1_3x1_3x1_1x1', 'sv_2_3x1_3x1_1x1', 'sv_4_3x1_3x1_1x1', 'sv_8_3x1_3x1_1x1']
     modes = ['scalar', 'superscalar']
     #sizes = [256, 512, 1024, 2048, 4096]
-    sizes = [256, ]
+    sizes = [4096]
     app_filter = None
 
     core = None
@@ -173,7 +169,8 @@ def gen_experiments(ci=False):
                                     'n': size,
                                     'func_ptr': 'calculate_psum_schnizo',
                                 },
-                                'cmd': [sim_bin, "${elf}"],
+                                'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),
+                                        sim_bin, "${elf}"],
                                 'roi': Path("roi/pi_estimation.json.tpl")
                             })
 
