@@ -1,0 +1,144 @@
+// Copyright 2023 ETH Zurich and University of Bologna.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+{
+    cluster: {
+        cluster_base_addr: 0x10000000,
+        cluster_base_offset: 0,
+        cluster_base_hartid: 0,
+        addr_width: 48,
+        data_width: 64,
+        atomic_id_width: 5,
+        tcdm: {
+            size: 128,
+            banks: 32,
+        },
+        cluster_periph_size: 60, // kB
+        zero_mem_size: 64, // kB
+        alias_region_enable: true,
+        dma_data_width: 512,
+        dma_axi_req_fifo_depth: 24,
+        dma_req_fifo_depth: 8,
+        narrow_trans: 4,
+        wide_trans: 32,
+        // We don't need debugging in Schnizo
+        enable_debug: false,
+        // We don't need Schnizo (core-internal) virtual memory support
+        vm_support: false,
+        // Memory configuration inputs
+        sram_cfg_expose: true,
+        sram_cfg_fields: {
+            ema: 3,
+            emaw: 2,
+            emas: 1
+        },
+        // Timing parameters
+        timing: {
+            lat_comp_fp32: 2,
+            lat_comp_fp64: 3,
+            lat_comp_fp16: 1,
+            lat_comp_fp16_alt: 1,
+            lat_comp_fp8: 1,
+            lat_comp_fp8_alt: 1,
+            lat_noncomp: 1,
+            lat_conv: 2,
+            lat_sdotp: 3,
+            fpu_pipe_config: "BEFORE",
+            narrow_xbar_latency: "CUT_ALL_PORTS",
+            wide_xbar_latency: "CUT_ALL_PORTS",
+            // Isolate the core for any memory access.
+            register_core_req: true,
+            register_core_rsp: true,
+            // Cut the request & response to any accelerator
+            register_offload_req: true,
+            register_offload_rsp: true,
+            // This has no effect in Schnizo.
+            register_fpu_req: false,
+            // In Snitch any FPU instruction is offloaded via the accelerator interface.
+            // This results in an actual FPU latency of 6 cycles.
+            // However, Snitch makes use of the sequencer which is already in the accelerator.
+            // This reduces the latency to 4 cycles (actual FPU latency). In Schnizo, there must not
+            // be any cut between dispatch & FPU to achieve a 4 cycle latency.
+            register_fpu_in: false,
+            // Don't register the output. In the FP SS the output goes directly to the FP register file.
+            register_fpu_out: false,
+            register_ext_narrow: false,
+            register_ext_wide: false
+        },
+        hives: [
+            // Hive 0
+            {
+                icache: {
+                    size: 16, // total instruction cache size in kByte
+                    ways: 2, // number of ways
+                    cacheline: 512, // word size in bits
+                    fetch_data_width: 256, // number of bits that get fetched per request (has to be a multiple of 32)
+                },
+                cores: [
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/dma_core_template" },
+                ]
+            }
+        ]
+    },
+    external_addr_regions: [
+        {
+            name: "dram",
+            address: 0x80000000,
+            length: 0x80000000,
+            cacheable: true
+        },
+        {
+            name: "clint",
+            address: 0xFFFF0000,
+            length: 0x1000
+        },
+    ],
+    // Templates.
+    compute_core_template: {
+        isa: "rv32imafd",
+        xfrep: true, // enables the superscalar feature
+        dyn_scheduling: true, // true: schnova core is used, false: schnizo is used
+        xdma: false,
+        xf16: false,
+        xf16alt: false,
+        xf8: false,
+        xf8alt: false,
+        xfdotp: false,
+        xfvec: false,
+        num_int_outstanding_loads: 4,
+        num_int_outstanding_mem: 4,
+        // Superscalar configuration
+        num_alus: 3,
+        num_alu_slots: 1,
+        num_lsus: 3,
+        num_lsu_slots: 1,
+        num_fpus: 1,
+        num_fpu_slots: 1,
+    },
+    dma_core_template: {
+        isa: "rv32imafd",
+        xdma: true,
+        dyn_scheduling: true, // true: schnova core is used, false: schnizo is used
+        xssr: false,
+        xfrep: false,
+        xf16: false,
+        xf16alt: false,
+        xf8: false,
+        xf8alt: false,
+        xfdotp: false,
+        xfvec: false,
+        num_int_outstanding_loads: 4,
+        num_int_outstanding_mem: 4,
+        num_fp_outstanding_loads: 4,
+        num_fp_outstanding_mem: 4,
+    }
+}

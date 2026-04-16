@@ -71,6 +71,8 @@ class ExperimentManager:
         self.power_dir = self.dir / 'power'
         self.synth_dir = self.dir / 'synth'
 
+        
+
         # Get experiments
         if experiments is not None:
             self.experiments = experiments
@@ -224,7 +226,10 @@ class ExperimentManager:
                 }
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
-                common.make('traces', vars, flags=flags)
+                if experiment['core'] == 'schnova':
+                    common.make('sv-traces', vars, flags=flags)
+                else:
+                    common.make('traces', vars, flags=flags)
 
         # Annotate traces
         if 'annotate' in self.actions or 'all' in self.actions:
@@ -242,7 +247,10 @@ class ExperimentManager:
                 vars = {'SIM_DIR': experiment['run_dir']}
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
-                process = common.make('perf', vars, flags=flags, sync=False)
+                if experiment['core'] == 'schnova':
+                    process = common.make('sv-perf', vars, flags=flags, sync=False)
+                else:
+                    process = common.make('perf', vars, flags=flags, sync=False)
                 processes.append(process)
 
             common.wait_processes(processes)
@@ -286,7 +294,10 @@ class ExperimentManager:
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
-                        process = common.make('roi', vars, dry_run=dry_run, sync=sync)
+                        if experiment['core'] == 'schnova':
+                            process = common.make('sv-roi', vars, dry_run=dry_run, sync=sync)
+                        else:
+                            process = common.make('roi', vars, dry_run=dry_run, sync=sync)
                         processes.append(process)
 
                     if 'visual-trace' in self.actions:
@@ -387,12 +398,13 @@ class ExperimentManager:
 
         # Expand the 'axes' column into separate columns
         axes = df['axes'].apply(pd.Series)
-
         # Create SimResults objects from 'run_dir' column
         if self.run_dir.exists():
             results = df['run_dir'].apply(lambda run_dir: SimResults(run_dir, source=source))
             results.rename('results', inplace=True)
             self.perf_results_available = True
+        else:
+            print()
 
         # Create PowerResults objects
         if 'PowerResults' in globals():

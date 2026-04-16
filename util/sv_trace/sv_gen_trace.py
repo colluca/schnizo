@@ -226,6 +226,16 @@ def handle_retirement_event(cycle, priv_lvl, extras,
         try:
             fu_id = extras['producer'].split('.')[0]
             if (extras['producer'].startswith(FU_LSU)):
+                if not lsu_pipelines[fu_id]:
+                    # DIAGNOSTIC PRINT
+                    print(f"\n--- LSU RETIREMENT ERROR ---")
+                    print(f"Cycle: {cycle}")
+                    print(f"Producer trying to retire: {fu_id}")
+                    print(f"Current Pipelines in memory: {list(lsu_pipelines.keys())}")
+                    for k, v in lsu_pipelines.items():
+                        print(f"  {k} queue depth: {len(v)}")
+                    print(f"Full Event Data: {extras}")
+                    print(f"----------------------------\n")
                 start_time, is_fp = lsu_pipelines[fu_id].pop()
                 # We define the latency as the number of cycles we need, i.e., the duration
                 # Thus we do +1
