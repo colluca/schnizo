@@ -103,35 +103,35 @@ def kernel_scaling_plot(df, app, show=True):
 
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """
-    Compare Schnizo (Scalar/Superscalar) vs. Schnvoa Widths (1, 2, 4, 8)
+    Compare Schnizo (Scalar/Superscalar) vs. Schnova Widths (1, 2, 4, 8)
     with shared Ideal IPC lines.
     """
     schnizo_hw = '3x32_3x32_1x64'
-    schnvoa_widths = ['sv_1_3x1_3x1_1x1', 'sv_2_3x1_3x1_1x1', 
+    Schnova_widths = ['sv_1_3x1_3x1_1x1', 'sv_2_3x1_3x1_1x1',
                       'sv_4_3x1_3x1_1x1', 'sv_8_3x1_3x1_1x1']
-    
-    # 1. Filter: Schnizo (both modes) + Schnvoa (superscalar only)
+
+    # 1. Filter: Schnizo (both modes) + Schnova (superscalar only)
     mask_schnizo = (df['hw'] == schnizo_hw)
-    mask_schnvoa = (df['hw'].isin(schnvoa_widths)) & (df['mode'] == 'superscalar')
-    plot_df = df[mask_schnizo | mask_schnvoa].copy()
+    mask_Schnova = (df['hw'].isin(Schnova_widths)) & (df['mode'] == 'superscalar')
+    plot_df = df[mask_schnizo | mask_Schnova].copy()
 
     def identify_config(row):
         if row['hw'] == schnizo_hw:
             return f"Schnizo {row['mode'].capitalize()}"
-        # Extract width and label as Schnvoa
+        # Extract width and label as Schnova
         width = row['hw'].split('_')[1]
-        return f"Schnvoa Width {width}"
+        return f"Schnova Width {width}"
 
     plot_df['config'] = plot_df.apply(identify_config, axis=1)
-    
+
     # Pivot for plotting
     idx_max_size = plot_df.groupby(['app', 'config'])['size'].idxmax()
     plot_df = plot_df.loc[idx_max_size].pivot(index='app', columns='config', values=metric)
 
-    # Force logical ordering: Schnizo first, then Schnvoa scaling
+    # Force logical ordering: Schnizo first, then Schnova scaling
     ordered_cols = [
-        'Schnizo Scalar', 'Schnizo Superscalar', 
-        'Schnvoa Width 1', 'Schnvoa Width 2', 'Schnvoa Width 4', 'Schnvoa Width 8'
+        'Schnizo Scalar', 'Schnizo Superscalar',
+        'Schnova Width 1', 'Schnova Width 2', 'Schnova Width 4', 'Schnova Width 8'
     ]
     plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
 
@@ -143,17 +143,17 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     if metric == 'ipc':
         labeled = False
         theoretical_data = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']
-        
+
         for i, col_name in enumerate(plot_df.columns):
-            # Apply to all Superscalar/Schnvoa columns, skip Schnizo Scalar
+            # Apply to all Superscalar/Schnova columns, skip Schnizo Scalar
             if 'Scalar' in col_name:
                 continue
-                
+
             container = ax.containers[i]
             for bar, app in zip(container, plot_df.index):
                 if app in theoretical_data:
                     ideal = theoretical_data[app]
-                    ax.plot([bar.get_x(), bar.get_x() + bar.get_width()], 
+                    ax.plot([bar.get_x(), bar.get_x() + bar.get_width()],
                             [ideal, ideal],
                             color='tab:red', linewidth=2.0, zorder=5,
                             label='Ideal IPC' if not labeled else '')
@@ -163,13 +163,13 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     ax.axhline(y=1, color='black', linewidth=0.8, zorder=2.5)
     ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
     ax.set_xlabel('')
-    
+
     clean_labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
     ax.set_xticklabels(clean_labels, rotation=15, ha='right')
-    
+
     ax.legend(title="Core Architecture", loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
-    
+
     # Set Y-limits
     if metric == 'ipc':
         ax.set_ylim(bottom=0, top=max(plot_df.max().max() * 1.15, 8.5))

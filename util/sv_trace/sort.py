@@ -1,13 +1,19 @@
+# Copyright 2025 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
 import ast
 import sys
 
+
 def sort_dasm(input_file, output_file):
     lines_with_cycles = []
-    
+
     print(f"Reading {input_file}...")
     with open(input_file, 'r') as f:
         for line in f:
-            if not line.strip(): continue
+            if not line.strip(): 
+                continue
             try:
                 # ast.literal_eval is safe for string-to-dict conversion
                 data = ast.literal_eval(line.strip())
@@ -23,6 +29,7 @@ def sort_dasm(input_file, output_file):
     with open(output_file, 'w') as f:
         for _, _, original_line in lines_with_cycles:
             f.write(original_line)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

@@ -71,8 +71,6 @@ class ExperimentManager:
         self.power_dir = self.dir / 'power'
         self.synth_dir = self.dir / 'synth'
 
-        
-
         # Get experiments
         if experiments is not None:
             self.experiments = experiments

@@ -6,7 +6,7 @@
 # Stefan Odermatt <soderma@student.ethz.ch>
 
 import sys
-import numpy as np 
+import numpy as np
 
 from snitch.util.sim.verif_utils import Verifier
 
@@ -26,6 +26,7 @@ class MontecarloVerifier(Verifier):
 
         dynamic_atol = 3.0 / np.sqrt(n_samples)
         return super().check_results(*args, atol=dynamic_atol)
+
 
 if __name__ == "__main__":
     sys.exit(MontecarloVerifier().main())
