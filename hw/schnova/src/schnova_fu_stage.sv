@@ -20,17 +20,14 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned AluNofRss         = 3,
   parameter int unsigned AluNofOperands    = 2,
   parameter int unsigned AluNofResReqIfs   = 3,
-  parameter int unsigned AluNofResRspPorts = 1,
   parameter int unsigned NofLsus           = 1,
   parameter int unsigned LsuNofRss         = 3,
   parameter int unsigned LsuNofOperands    = 4,
   parameter int unsigned LsuNofResReqIfs   = 3,
-  parameter int unsigned LsuNofResRspPorts = 1,
   parameter int unsigned NofFpus           = 1,
   parameter int unsigned FpuNofRss         = 2,
   parameter int unsigned FpuNofOperands    = 3,
   parameter int unsigned FpuNofResReqIfs   = 3,
-  parameter int unsigned FpuNofResRspPorts = 1,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
@@ -185,9 +182,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   localparam int unsigned TotalNofRss = NofAlus * AluNofRss +
                                         NofLsus * LsuNofRss +
                                         NofFpus * FpuNofRss;
-  localparam int unsigned TotalNofResRspPorts = NofAlus * AluNofResRspPorts +
-                                                NofLsus * LsuNofResRspPorts +
-                                                NofFpus * FpuNofResRspPorts;
 
   typedef int unsigned rs_param_array_t [NofRs-1:0];
 
@@ -213,8 +207,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   endfunction
 
   localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss);
-  localparam rs_param_array_t NofRspPorts = gen_rs_param_array(AluNofResRspPorts,
-    LsuNofResRspPorts, FpuNofResRspPorts);
 
   // ---------------------------
   // RS ID generation
@@ -361,7 +353,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_tag_t   (instr_tag_t),
       .NofRss        (AluNofRss),
       .NofOperands   (AluNofOperands),
-      .NofResRspIfs  (AluNofRss),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
@@ -518,7 +509,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_tag_t   (instr_tag_t),
       .NofRss        (LsuNofRss),
       .NofOperands   (LsuNofOperands),
-      .NofResRspIfs  (LsuNofRss),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),
@@ -670,7 +660,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_tag_t   (instr_tag_t),
       .NofRss        (FpuNofRss),
       .NofOperands   (FpuNofOperands),
-      .NofResRspIfs  (FpuNofRss),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .producer_id_t (producer_id_t),

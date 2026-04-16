@@ -62,10 +62,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
   parameter bit          MulInAlu0  = 1'b1,
-  /// Response XBAR configuration
-  parameter integer unsigned AluNofResRspPorts = 1,
-  parameter integer unsigned LsuNofResRspPorts = 1,
-  parameter integer unsigned FpuNofResRspPorts = 1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -915,17 +911,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
     .AluNofResReqIfs    (AluNofResReqIfs),
-    .AluNofResRspPorts  (AluNofResRspPorts),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
     .LsuNofOperands     (LsuNofOperands),
     .LsuNofResReqIfs    (LsuNofResReqIfs),
-    .LsuNofResRspPorts  (LsuNofResRspPorts),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
     .FpuNofOperands     (FpuNofOperands),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
-    .FpuNofResRspPorts  (FpuNofResRspPorts),
     .NofOperandIfs      (NofOperandIfs),
     .NofResReqIfs       (NofResReqIfs),
     .XLEN               (XLEN),
@@ -1470,8 +1463,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.disp_req_valid_i &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.disp_req_ready_o &&
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
                           (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
@@ -1490,8 +1483,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.disp_req_valid_i &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.disp_req_ready_o &&
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
                           (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
@@ -1517,8 +1510,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.disp_req_valid_i &&
-                      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.disp_req_ready_o &&
+          valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
+                      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
                       (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
           producer:    i_fu_stage.producer_to_string(
                         i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),

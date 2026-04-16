@@ -9,7 +9,6 @@
 module schnova_res_stat_slots import schnova_pkg::*; #(
   parameter  int unsigned     NofRss           = 4,
   parameter  int unsigned     NofOperands      = 3,
-  parameter  int unsigned     NofResRspIfs     = 1,
   parameter  int unsigned     RegAddrWidth     = 5,
   parameter  bit              UseSram          = 1'b0,
   parameter  type             rs_slot_issue_t  = logic,

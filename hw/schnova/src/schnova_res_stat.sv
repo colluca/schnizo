@@ -18,7 +18,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
-  parameter int unsigned NofResRspIfs   = 1,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
@@ -202,7 +201,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   schnova_res_stat_slots #(
     .NofRss          (NofRss),
     .NofOperands     (NofOperands),
-    .NofResRspIfs    (NofResRspIfs),
     .RegAddrWidth    (RegAddrWidth),
     .UseSram         (UseSram),
     .rs_slot_issue_t (rs_slot_issue_t),

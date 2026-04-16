@@ -72,9 +72,6 @@ module schnova_cc #(
   parameter int unsigned NumAluRss          = 3,
   parameter int unsigned NumLsuRss          = 2,
   parameter int unsigned NumFpuRss          = 4,
-  parameter int unsigned NumAluRspPorts     = 1,
-  parameter int unsigned NumLsuRspPorts     = 1,
-  parameter int unsigned NumFpuRspPorts     = 1,
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
@@ -237,9 +234,6 @@ module schnova_cc #(
     .AluNofRss             (NumAluRss),
     .LsuNofRss             (NumLsuRss),
     .FpuNofRss             (NumFpuRss),
-    .AluNofResRspPorts     (NumAluRspPorts),
-    .LsuNofResRspPorts     (NumLsuRspPorts),
-    .FpuNofResRspPorts     (NumFpuRspPorts),
     .NumOutstandingLoads   (NumIntOutstandingLoads), // Use the int value for all LSUs
     .NumOutstandingMem     (NumIntOutstandingMem),
     .SnitchPMACfg          (SnitchPMACfg),
