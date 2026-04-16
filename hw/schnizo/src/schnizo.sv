@@ -1129,6 +1129,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   // Tracer //
   ////////////
 
+  // pragma translate_off
+
   // Core and dispatch traces
   schnizo_core_trace_t     core_trace;
   schnizo_dispatch_trace_t dispatch_trace;

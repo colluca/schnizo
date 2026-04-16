@@ -12,12 +12,11 @@
 #define ALIGN_UP(addr, size) (((addr) + (size)-1) & ~((size)-1))
 #define ALIGN_UP_TCDM(addr) ALIGN_UP(addr, TCDM_ALIGNMENT)
 
-
 #define ADDI_COMPILE_DYN(a0, a1, inc) "addi"
 
 // configurable array stride
-static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *y,
-                             double *z, int increment) {
+static inline void axpy_frep_increment(uint32_t n, double a, double *x,
+                                       double *y, double *z, int increment) {
     int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
     int frac = n / num_cores;
@@ -32,23 +31,22 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x, double *
     double *z_addr = &z[offset];
 
     snrt_mcycle();
-    asm volatile (
+    asm volatile(
         // Code
         "frep.o  %[n_frep], 7, 0, 0\n"
         "fld     ft0,   0(%[xa])          \n"
         "fld     ft1,   0(%[ya])          \n"
-        "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
-        "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
+        "add     %[xa], %[xa],   %[inc]   \n"  // move adds before fmadd to hide it beneath the fld
+        "add     %[ya], %[ya],   %[inc]   \n"  // latency. This reduces the LCP overhead.
         "fmadd.d ft0,   %[a],    ft0,   ft1\n"
         "fsd     ft0,   0(%[za])          \n"
         "add     %[za], %[za],   %[inc]   \n"
         // Outputs
-        : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
+        : [xa] "+r"(x_addr), [ya] "+r"(y_addr), [za] "+r"(z_addr)
         // Inputs
-        : [n_frep]"r"(frac-1), [a]"f"(a), [inc]"r"(increment * num_cores)
+        : [n_frep] "r"(frac - 1), [a] "f"(a), [inc] "r"(increment * num_cores)
         // Clobbers
-        : "t0", "ft0", "ft1", "memory"
-    );
+        : "t0", "ft0", "ft1", "memory");
     snrt_mcycle();
 }
 
@@ -59,15 +57,13 @@ static inline void axpy_frep(uint32_t n, double a, double *x, double *y,
 }
 
 static inline void axpy_vec_naive(uint32_t n, double a, double *x, double *y,
-                double *z) {
-    
+                                  double *z) {
     int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
     unsigned int vl;
     unsigned int avl = n / num_cores;
     int offset = core_idx * avl;
     int start, end;
-
 
     double *x_addr = &x[offset];
     double *y_addr = &y[offset];
@@ -77,7 +73,7 @@ static inline void axpy_vec_naive(uint32_t n, double a, double *x, double *y,
 
     // Stripmine and accumulate a partial vector
     do {
-    // Set the vl
+        // Set the vl
         asm volatile("vsetvli %0, %1, e64, m1, ta, ma" : "=r"(vl) : "r"(avl));
 
         // Load vectors
@@ -102,30 +98,25 @@ static inline void axpy_vec_naive(uint32_t n, double a, double *x, double *y,
     snrt_mcycle();
 }
 
-
-
 // The matrixes are placed contiguously in memory.
 static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
-                             double *z) {
+                                 double *z) {
     int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
     int frac = n / num_cores;
     int offset = core_idx * frac;
     int start, end;
 
-
     double *x_addr = &x[offset];
     double *y_addr = &y[offset];
     double *z_addr = &z[offset];
 
-
     unsigned int max_vl;
     asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m2, ta, ma       \n"
-                  : [rvl]"+r"(max_vl)
-                  : [rdvl]"r"(-1)
-    );
+                 : [rvl] "+r"(max_vl)
+                 : [rdvl] "r"(-1));
 
-    int increment = sizeof(double)*max_vl;
+    int increment = sizeof(double) * max_vl;
 
     unsigned int n_vec_whole_iter = frac / max_vl;
     unsigned int n_remaining_elems = frac % max_vl;
@@ -133,54 +124,48 @@ static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
     snrt_mcycle();
 
     if (n_vec_whole_iter) {
-        asm volatile (
-        // Code
-        "frep.o  %[n_frep], 7, 0, 0\n"
-        "vle64.v  v0,    (%[xa])          \n"
-        "vle64.v  v8,    (%[ya])          \n"
-        "add     %[xa], %[xa],   %[inc]   \n" // move adds before fmadd to hide it beneath the fld
-        "add     %[ya], %[ya],   %[inc]   \n" // latency. This reduces the LCP overhead.
-        "vfmacc.vf v8,    %[a],    v0     \n"
-        "vse64.v  v8,    (%[za])          \n"
-        "add     %[za], %[za],   %[inc]   \n"
-        // Outputs
-        : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
-        // Inputs
-        : [n_frep]"r"(n_vec_whole_iter - 1), [a]"f"(a), [inc]"r"(increment)
-        // Clobbers
-        : "memory"
-        );
-    } 
+        asm volatile(
+            // Code
+            "frep.o  %[n_frep], 7, 0, 0\n"
+            "vle64.v  v0,    (%[xa])          \n"
+            "vle64.v  v8,    (%[ya])          \n"
+            "add     %[xa], %[xa],   %[inc]   \n"  // move adds before fmadd to hide it beneath the fld
+            "add     %[ya], %[ya],   %[inc]   \n"  // latency. This reduces the LCP overhead.
+            "vfmacc.vf v8,    %[a],    v0     \n"
+            "vse64.v  v8,    (%[za])          \n"
+            "add     %[za], %[za],   %[inc]   \n"
+            // Outputs
+            : [xa] "+r"(x_addr), [ya] "+r"(y_addr), [za] "+r"(z_addr)
+            // Inputs
+            :
+            [n_frep] "r"(n_vec_whole_iter - 1), [a] "f"(a), [inc] "r"(increment)
+            // Clobbers
+            : "memory");
+    }
 
     if (n_remaining_elems) {
-
         asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m2, ta, ma       \n"
-                    : [rvl]"+r"(max_vl)
-                    : [rdvl]"r"(n_remaining_elems)
-        );
+                     : [rvl] "+r"(max_vl)
+                     : [rdvl] "r"(n_remaining_elems));
 
-        asm volatile (
-        // Code
-        "vle64.v  v0,    (%[xa])          \n"
-        "vle64.v  v8,    (%[ya])          \n"
-        "vfmacc.vf v8,    %[a],    v0     \n"
-        "vse64.v  v8,    (%[za])          \n"
-        // Outputs
-        : [xa]"+r"(x_addr), [ya]"+r"(y_addr), [za]"+r"(z_addr)
-        // Inputs
-        : [a]"f"(a)
-        // Clobbers
-        : "memory"
-        );
-
-        
+        asm volatile(
+            // Code
+            "vle64.v  v0,    (%[xa])          \n"
+            "vle64.v  v8,    (%[ya])          \n"
+            "vfmacc.vf v8,    %[a],    v0     \n"
+            "vse64.v  v8,    (%[za])          \n"
+            // Outputs
+            : [xa] "+r"(x_addr), [ya] "+r"(y_addr), [za] "+r"(z_addr)
+            // Inputs
+            : [a] "f"(a)
+            // Clobbers
+            : "memory");
     }
-    
+
     asm volatile("fence");
 
     snrt_mcycle();
 }
-
 
 static inline void axpy_naive(uint32_t n, double a, double *x, double *y,
                               double *z) {
@@ -194,8 +179,8 @@ static inline void axpy_naive(uint32_t n, double a, double *x, double *y,
     snrt_fpu_fence();
 }
 
-static inline void axpy_naive_unrolled(uint32_t n, double a, double *x, double *y,
-    double *z) {
+static inline void axpy_naive_unrolled(uint32_t n, double a, double *x,
+                                       double *y, double *z) {
     int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
     int frac = n / num_cores;
@@ -242,8 +227,8 @@ static inline void axpy_fma(uint32_t n, double a, double *x, double *y,
 
     for (int i = offset; i < n; i += snrt_cluster_compute_core_num()) {
         asm volatile("fmadd.d %[z], %[a], %[x], %[y] \n"
-                     : [ z ] "=f"(z[i])
-                     : [ a ] "f"(a), [ x ] "f"(x[i]), [ y ] "f"(y[i]));
+                     : [z] "=f"(z[i])
+                     : [a] "f"(a), [x] "f"(x[i]), [y] "f"(y[i]));
     }
     snrt_fpu_fence();
 }
@@ -267,7 +252,7 @@ static inline void axpy_opt(uint32_t n, double a, double *x, double *y,
         "frep.o %[n_frep], 1, 0, 0 \n"
         "fmadd.d ft2, %[a], ft0, ft1\n"
         :
-        : [ n_frep ] "r"(frac - 1), [ a ] "f"(a)
+        : [n_frep] "r"(frac - 1), [a] "f"(a)
         : "ft0", "ft1", "ft2", "memory");
 
     snrt_fpu_fence();
@@ -403,7 +388,6 @@ static inline void axpy_job(axpy_args_t *args) {
     snrt_mcycle();
 }
 
-
 // instead of consecutive bank access, we align the arrays such that each array
 // is on a separate bank. This requires 48 banks for double buffering but we only
 // have 32 -> double buffering is disabled.
@@ -418,8 +402,7 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
     double *remote_x, *remote_y, *remote_z;
     uint32_t iterations, i, i_dma_in, i_compute, i_dma_out, buff_idx;
 
-
-    int double_buffer = 0; // double buffering is only possible with 48 banks
+    int double_buffer = 0;  // double buffering is only possible with 48 banks
 
 #ifndef JOB_ARGS_PRELOADED
     // Allocate space for job arguments in TCDM
@@ -445,7 +428,7 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
     int num_cores = snrt_cluster_compute_core_num();
     local_x0_addr = ALIGN_UP_TCDM((uint64_t)args + sizeof(axpy_args_t));
     local_y0_addr = local_x0_addr + num_cores * BANK_ALIGNMENT;
-    local_z0_addr = local_x0_addr + 2*num_cores * BANK_ALIGNMENT;
+    local_z0_addr = local_x0_addr + 2 * num_cores * BANK_ALIGNMENT;
     local_x[0] = (double *)local_x0_addr;
     local_y[0] = (double *)local_y0_addr;
     local_z[0] = (double *)local_z0_addr;
@@ -471,10 +454,12 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
                 remote_y = args->y + offset;
 
                 // Copy job operands in TCDM
-                snrt_dma_start_2d(local_x[buff_idx], remote_x, num_cores * sizeof(double),
-                                  TCDM_ALIGNMENT, num_cores * sizeof(double), size / num_cores);
-                snrt_dma_start_2d(local_y[buff_idx], remote_y, num_cores * sizeof(double),
-                                  TCDM_ALIGNMENT, num_cores * sizeof(double), size / num_cores);
+                snrt_dma_start_2d(local_x[buff_idx], remote_x,
+                                  num_cores * sizeof(double), TCDM_ALIGNMENT,
+                                  num_cores * sizeof(double), size / num_cores);
+                snrt_dma_start_2d(local_y[buff_idx], remote_y,
+                                  num_cores * sizeof(double), TCDM_ALIGNMENT,
+                                  num_cores * sizeof(double), size / num_cores);
                 snrt_dma_wait_all();
 
                 snrt_mcycle();
@@ -497,8 +482,10 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
                 remote_z = args->z + offset;
 
                 // Copy job outputs from TCDM
-                snrt_dma_start_2d(remote_z, local_z[buff_idx], num_cores * sizeof(double),
-                                  num_cores * sizeof(double), TCDM_ALIGNMENT, size / num_cores);
+                snrt_dma_start_2d(remote_z, local_z[buff_idx],
+                                  num_cores * sizeof(double),
+                                  num_cores * sizeof(double), TCDM_ALIGNMENT,
+                                  size / num_cores);
                 snrt_dma_wait_all();
 
                 snrt_mcycle();
@@ -519,8 +506,9 @@ static inline void axpy_job_distributed(axpy_args_t *args) {
 
                 // Perform tile computation
                 axpy_fp_t fp = args->funcptr;
-                axpy_frep_increment(frac, args->a, local_x[buff_idx], local_y[buff_idx],
-                                    local_z[buff_idx], TCDM_ALIGNMENT);
+                axpy_frep_increment(frac, args->a, local_x[buff_idx],
+                                    local_y[buff_idx], local_z[buff_idx],
+                                    TCDM_ALIGNMENT);
 
                 snrt_mcycle();
             }

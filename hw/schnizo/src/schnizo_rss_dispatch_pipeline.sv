@@ -314,7 +314,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     automatic int unsigned port = 0;
 
     alloc_const_op_slot.spatz_raw_instr = disp_req_i.fu_data.raw_instr; // Spatz needs raw instruction
-    
+
     alloc_const_op_slot = selected_slot;
     alloc_const_op_valid_o = '0;
     alloc_const_op_data_o = '0;

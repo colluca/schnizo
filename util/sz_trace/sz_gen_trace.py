@@ -364,9 +364,14 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
         if (extras['lsu_is_store']):
             # The instruction ends in this cycle. Thus the event is at the end of this cycle.
             trace.end_insn(fu_str_for_trace, (cycle+1) * CLOCK_PERIOD_NS)
-    # Immediately end SPATZ instructions as they have no retirement event
+    # Register non-stalled external SPATZ instructions for deferred retirement via the
+    # matching internal_spatz_retirement event. Stalled dispatches have no corresponding
+    # internal retirement, so end their slice immediately.
     elif (fu_str.startswith(FU_SPATZ)):
-        trace.end_insn(fu_str_for_trace, (cycle+1) * CLOCK_PERIOD_NS)
+        if extras['stall']:
+            trace.end_insn(fu_str_for_trace, (cycle+1) * CLOCK_PERIOD_NS)
+        else:
+            trace.register_spatz_external(extras['internal_spatz_id'], fu_str_for_trace)
 
 
 def gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
@@ -392,7 +397,6 @@ def gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
 
 def gen_internal_spatz_issue_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
     """Handle internal Spatz issue events for Perfetto tracing."""
-    # Use the internal_spatz_id to create a unique track
     fu_str = f"SPATZ_INT_{extras['id']}"
     mnemonic = extras['op']
     annotations = {'internal_id': extras['id']}
@@ -403,6 +407,8 @@ def gen_internal_spatz_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state
     """Handle internal Spatz retirement events for Perfetto tracing."""
     fu_str = f"SPATZ_INT_{extras['id']}"
     trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
+    # Retire the corresponding external SPATZ instruction
+    trace.retire_spatz_external(extras['id'], (cycle+1) * CLOCK_PERIOD_NS)
 
 
 def gen_trace_line(line, mc_exec,

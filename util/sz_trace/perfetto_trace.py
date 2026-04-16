@@ -184,6 +184,8 @@ class PerfettoInstructionTrace(PerfettoTrace):
         self.outstanding_insns = defaultdict(deque)
         self.ipc = 0
         self.ipc_time = None
+        # Maps internal_spatz_id -> (fu_string, insn_uuid) of the corresponding external insn
+        self.spatz_internal_map = {}
 
         self.add_track('Instructions')
         self.add_track('NONE', 'Instructions')
@@ -249,6 +251,37 @@ class PerfettoInstructionTrace(PerfettoTrace):
 
         # Update IPC
         self.update_ipc(timestamp)
+
+    def register_spatz_external(self, internal_spatz_id, fu):
+        """Register an external SPATZ dispatch under its internal_spatz_id.
+
+        Must be called immediately after start_insn for a SPATZ dispatch.
+        The internal_spatz_id comes directly from the dispatch event extras.
+        In LEP (FREP) mode the same slot id is reused across iterations, so a
+        per-slot FIFO queue is maintained to preserve issue order.
+        """
+        fu_string, _ = extract_fu_details(fu)
+        # start_insn uses appendleft, so index 0 is the newest outstanding insn
+        insn_uuid = self.outstanding_insns[fu_string][0]
+        key = int(internal_spatz_id)
+        if key not in self.spatz_internal_map:
+            self.spatz_internal_map[key] = deque()
+        # appendleft so pop() (from the right) yields the oldest entry (FIFO)
+        self.spatz_internal_map[key].appendleft((fu_string, insn_uuid))
+
+    def retire_spatz_external(self, internal_id, timestamp):
+        """End the external SPATZ instruction mapped to the given internal id.
+
+        Must be called when an internal Spatz retirement event is processed.
+        """
+        key = int(internal_id)
+        if key in self.spatz_internal_map and self.spatz_internal_map[key]:
+            fu_string, insn_uuid = self.spatz_internal_map[key].pop()
+            try:
+                self.outstanding_insns[fu_string].remove(insn_uuid)
+            except ValueError:
+                pass
+            self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)
 
     def end_insn(self, fu, timestamp):
         """Record the end of an instruction execution.
