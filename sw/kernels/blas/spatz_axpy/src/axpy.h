@@ -42,9 +42,10 @@ static inline void axpy_frep_increment(uint32_t n, double a, double *x,
         "fsd     ft0,   0(%[za])          \n"
         "add     %[za], %[za],   %[inc]   \n"
         // Outputs
-        : [xa] "+r"(x_addr), [ya] "+r"(y_addr), [za] "+r"(z_addr)
+        : [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr), [ za ] "+r"(z_addr)
         // Inputs
-        : [n_frep] "r"(frac - 1), [a] "f"(a), [inc] "r"(increment * num_cores)
+        : [ n_frep ] "r"(frac - 1), [ a ] "f"(a),
+          [ inc ] "r"(increment * num_cores)
         // Clobbers
         : "t0", "ft0", "ft1", "memory");
     snrt_mcycle();
@@ -113,8 +114,8 @@ static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
 
     unsigned int max_vl;
     asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m2, ta, ma       \n"
-                 : [rvl] "+r"(max_vl)
-                 : [rdvl] "r"(-1));
+                 : [ rvl ] "+r"(max_vl)
+                 : [ rdvl ] "r"(-1));
 
     int increment = sizeof(double) * max_vl;
 
@@ -135,18 +136,18 @@ static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
             "vse64.v  v8,    (%[za])          \n"
             "add     %[za], %[za],   %[inc]   \n"
             // Outputs
-            : [xa] "+r"(x_addr), [ya] "+r"(y_addr), [za] "+r"(z_addr)
+            : [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr), [ za ] "+r"(z_addr)
             // Inputs
-            :
-            [n_frep] "r"(n_vec_whole_iter - 1), [a] "f"(a), [inc] "r"(increment)
+            : [ n_frep ] "r"(n_vec_whole_iter - 1), [ a ] "f"(a),
+              [ inc ] "r"(increment)
             // Clobbers
             : "memory");
     }
 
     if (n_remaining_elems) {
         asm volatile("vsetvli  %[rvl],  %[rdvl], e64, m2, ta, ma       \n"
-                     : [rvl] "+r"(max_vl)
-                     : [rdvl] "r"(n_remaining_elems));
+                     : [ rvl ] "+r"(max_vl)
+                     : [ rdvl ] "r"(n_remaining_elems));
 
         asm volatile(
             // Code
@@ -155,9 +156,9 @@ static inline void axpy_vec_frep(uint32_t n, double a, double *x, double *y,
             "vfmacc.vf v8,    %[a],    v0     \n"
             "vse64.v  v8,    (%[za])          \n"
             // Outputs
-            : [xa] "+r"(x_addr), [ya] "+r"(y_addr), [za] "+r"(z_addr)
+            : [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr), [ za ] "+r"(z_addr)
             // Inputs
-            : [a] "f"(a)
+            : [ a ] "f"(a)
             // Clobbers
             : "memory");
     }
@@ -227,8 +228,8 @@ static inline void axpy_fma(uint32_t n, double a, double *x, double *y,
 
     for (int i = offset; i < n; i += snrt_cluster_compute_core_num()) {
         asm volatile("fmadd.d %[z], %[a], %[x], %[y] \n"
-                     : [z] "=f"(z[i])
-                     : [a] "f"(a), [x] "f"(x[i]), [y] "f"(y[i]));
+                     : [ z ] "=f"(z[i])
+                     : [ a ] "f"(a), [ x ] "f"(x[i]), [ y ] "f"(y[i]));
     }
     snrt_fpu_fence();
 }
@@ -252,7 +253,7 @@ static inline void axpy_opt(uint32_t n, double a, double *x, double *y,
         "frep.o %[n_frep], 1, 0, 0 \n"
         "fmadd.d ft2, %[a], ft0, ft1\n"
         :
-        : [n_frep] "r"(frac - 1), [a] "f"(a)
+        : [ n_frep ] "r"(frac - 1), [ a ] "f"(a)
         : "ft0", "ft1", "ft2", "memory");
 
     snrt_fpu_fence();
