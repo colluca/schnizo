@@ -66,7 +66,7 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments(ci=False):
     # Define experiment axes
     cfgs = ['3x32_3x32_1x64',
-            'sv_1_3x1_3x1_1x1', 'sv_2_3x1_3x1_1x1', 'sv_4_3x1_3x1_1x1', 'sv_8_3x1_3x1_1x1']
+            'sv_1_3x32_3x32_1x64', 'sv_2_3x32_3x32_1x64', 'sv_4_3x32_3x32_1x64', 'sv_8_3x32_3x32_1x64']
     modes = ['scalar', 'superscalar']
     # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]
@@ -169,8 +169,7 @@ def gen_experiments(ci=False):
                                     'n': size,
                                     'func_ptr': 'calculate_psum_schnizo',
                                 },
-                                'cmd': [str(MK_DIR / 
-                                        'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),
+                                'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),
                                         sim_bin, "${elf}"],
                                 'roi': Path("roi/pi_estimation.json.tpl")
                             })

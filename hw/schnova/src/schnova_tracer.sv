@@ -131,7 +131,6 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
       end else begin
         // Format the single dispatch event but capture the producer by taking RSS issue trace.
         // There should also be one FU issue request active. Invalid traces are formated as "".
-
           for (int alu = 0; alu < NofAlus; alu++) begin
             for (int rss = 0; rss < AluNofRss; rss++) begin
               if (rss_alu_traces[alu][rss].valid) begin

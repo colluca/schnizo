@@ -136,6 +136,7 @@ module schnova_res_stat import schnova_pkg::*; #(
   assign disp_req_valid_guarded = disp_req_valid_i &&
                                   instr_exec_commit_i;
 
+  // Only assert ready when the reservation station is not full
   assign disp_req_ready_o = disp_req_ready_o_raw &&
                             instr_exec_commit_i;
 
@@ -150,6 +151,7 @@ module schnova_res_stat import schnova_pkg::*; #(
     .ready_o(disp_req_ready_o_raw),
     .data_i (disp_req_i),
     .valid_o(disp_req_valid_i_q),
+    // The rs is always ready to accept a new instruction on this side
     .ready_i(disp_req_ready_o_q),
     .data_o (disp_req_i_q)
   );
@@ -160,13 +162,9 @@ module schnova_res_stat import schnova_pkg::*; #(
 
   // Generates the instruction dispatch, issue, retire & writeback control signals and handles
   // the LEP iterations.
-
-  // TODO(colluca): why do we need counters at all for the LCPx phases? The schnova_controller
-  //                already has these, and if it needs other information this is all we should
-  //                provide it with.
-
   logic dispatch_hs;
-  assign dispatch_hs = disp_req_valid_i && disp_req_ready_o;
+  logic issue_hs;
+  assign issue_hs = issue_req_valid_o && issue_req_ready_i;
 
   // An instruction retires as soon as the result is handshaked, i.e.:
   // assign retiring = result_valid_i && result_ready_o;
@@ -175,6 +173,7 @@ module schnova_res_stat import schnova_pkg::*; #(
   logic retiring;
 
   // Number of allocated RSS
+  rss_idx_t dispatch_idx, issue_idx;
   rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
   `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
 
@@ -217,12 +216,15 @@ module schnova_res_stat import schnova_pkg::*; #(
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
-    .disp_idx_i        ('0),
+    .disp_idx_i        (dispatch_idx),
+    .issue_idx_i       (issue_idx),
     .retiring_o        (retiring),
     .disp_req_i        (disp_req_i_q),
     .disp_req_valid_i  (disp_req_valid_i_q),
     .disp_req_ready_o  (disp_req_ready_o_q),
+    .disp_hs_o         (dispatch_hs),
     .disp_rsp_o        (disp_rsp_o),
+    .rs_full_i         (rs_full_o),
     .issue_req_o,
     .issue_req_valid_o,
     .issue_req_ready_i,
@@ -233,6 +235,34 @@ module schnova_res_stat import schnova_pkg::*; #(
     .op_rsps_i,
     .op_rsps_valid_i,
     .op_rsps_ready_o
+  );
+
+  trip_counter #(
+    .WIDTH(NofRssWidth)
+  ) i_dispatch_counter (
+    .clk_i,
+    .rst_ni(!rst_i),
+    .clear_i(restart_i),
+    .en_i(dispatch_hs),
+    .delta_i(rss_idx_t'(1)),
+    .bound_i (rss_idx_t'(NofRss - 1)),
+    .q_o(dispatch_idx),
+    .last_o  (),
+    .trip_o  ()
+  );
+
+  trip_counter #(
+    .WIDTH(NofRssWidth)
+  ) i_issue_counter (
+    .clk_i,
+    .rst_ni(!rst_i),
+    .clear_i(restart_i),
+    .en_i(issue_hs),
+    .delta_i(rss_idx_t'(1)),
+    .bound_i (rss_idx_t'(NofRss - 1)),
+    .q_o(issue_idx),
+    .last_o  (),
+    .trip_o  ()
   );
 
 endmodule

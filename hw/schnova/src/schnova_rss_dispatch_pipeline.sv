@@ -18,12 +18,17 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
 ) (
   // Control
   input  logic            restart_i,
-  input  producer_id_t    producer_id_i,
+  input  producer_id_t    disp_producer_id_i,
+  input  producer_id_t    issue_producer_id_i,
+  input  rss_idx_t        disp_idx_i,
+  input  rss_idx_t        issue_idx_i,
   input  disp_req_t       disp_req_i,
   input  logic            disp_req_valid_i,
   output logic            disp_req_ready_o,
+  input  logic            rs_full_i,
+  output logic            disp_hs_o,
   input  rs_slot_issue_t  slot_issue_i,
-  output rs_slot_issue_t  slot_issue_o,
+  output rs_slot_issue_t  slot_disp_o,
 
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -122,9 +127,10 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   always_comb begin : slot_selection
     // Update the slot depending on the state.
     selected_slot = slot_issue_i;
-    // If we have a valid dispatch request this cycle
+    // If we dispatch an isntraction into this slot this cycle
+    // and the disp and index pointer are the same
     // the slot is forwarded from the dispatch request.
-    if (disp_req_valid_i) begin
+    if (disp_hs_o && (disp_idx_i == issue_idx_i)) begin
       selected_slot = slot_init;
     end
     // Slot initialization has highest priority
@@ -132,6 +138,9 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
       selected_slot = slot_issue_reset_val;
     end
   end
+
+  // We forward/store the initialzied slot with the dispatch information
+  assign slot_disp_o = slot_init;
 
   ///////////////////////////
   // Operand req generation//
@@ -176,7 +185,6 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   logic [NofOperands-1:0] operand_valid;
   logic                   all_operands_valid;
   logic                   issue_hs;
-  rs_slot_issue_t slot_issue_req;
 
   always_comb begin : issue_req
     // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
@@ -204,21 +212,12 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
     assign operand_valid[i] = slot_op_rsp.operands[i].is_valid;
   end
   assign all_operands_valid = &operand_valid;
-  assign issue_req_valid_o = disp_req_valid_i && slot_op_rsp.is_occupied && all_operands_valid;
+  assign issue_req_valid_o = slot_op_rsp.is_occupied && all_operands_valid;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
-  // TODO(colluca): does this need to depend on both ready and valid? might affect critical path
-  assign disp_req_ready_o = issue_hs;
   assign issue_hs_o = issue_hs;
 
-  always_comb begin
-    slot_issue_req = slot_op_rsp;
-    // If we are issuing, the slot will be updated in the same cycle with the new state after issue
-    if (issue_hs) begin
-      slot_issue_req.is_occupied = 1'b0;
-    end
-  end
-
-  // Forward the slot directly
-  assign slot_issue_o = slot_issue_req;
+    // The RSS is ready to accept a dispatch request as long as the reservation station is not full
+  assign disp_req_ready_o = !rs_full_i;
+  assign disp_hs_o = disp_req_valid_i && disp_req_ready_o;
 
 endmodule

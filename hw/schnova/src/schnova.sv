@@ -1465,7 +1465,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
         assign rss_alu_traces[alu][rss] = '{
           valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
                           i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
+                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
           alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
@@ -1485,7 +1485,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
         assign rss_lsu_traces[lsu][rss] = '{
           valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
                           i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
                             i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
@@ -1512,7 +1512,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
         assign rss_fpu_traces[fpu][rss] = '{
           valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
                       i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.disp_idx_i == rss),
+                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_idx_i == rss),
           producer:    i_fu_stage.producer_to_string(
                         i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
           fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,

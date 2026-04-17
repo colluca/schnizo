@@ -32,6 +32,7 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   input  producer_id_t producer_id_i,
   input  logic         restart_i,
   input  rss_idx_t     disp_idx_i,
+  input  rss_idx_t     issue_idx_i,
   output logic         retiring_o,
 
   // Dispatch
@@ -40,6 +41,8 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   output logic         disp_req_ready_o,
   // producer id of the slot that was dispatched to
   output producer_id_t disp_rsp_o,
+  output logic         disp_hs_o,
+  input logic          rs_full_i,
 
   // Issue
   output issue_req_t issue_req_o,
@@ -63,8 +66,8 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   /////////////////
 
 
-  rs_slot_issue_t               slot_issue_q;      // registered issue state for the selected slot
-  rs_slot_issue_t               slot_issue_d;      // post-dispatch-pipeline issue state for the selected slot
+  rs_slot_issue_t               slot_issue_rdata;      // registered issue state for the selected slot
+  rs_slot_issue_t               slot_disp_wdata;      // post-dispatch-pipeline issue state for the selected slot
   logic                         issue_hs;          // issue handshake from the dispatch pipeline
 
   // We retire the current slot, as soon as we successfully
@@ -78,19 +81,23 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
 
+  logic rs_write_entry_enable;
+  logic rs_clear_entry_enable;
+
   // Issue slots
-  schnova_res_stat_issue_memory #(
+  schnova_res_stat_memory #(
     .NofRss         (NofRss),
     .UseSram        (UseSram),
     .rs_slot_issue_t(rs_slot_issue_t)
   ) i_issue_slots (
     .clk_i,
     .rst_i,
-    .raddr_i(disp_idx_i),
-    .rdata_o(slot_issue_q),
-    .wen_i  (disp_req_valid_i),
+    .raddr_i(issue_idx_i),
+    .rdata_o(slot_issue_rdata),
+    .clear_entry_i(issue_hs),
+    .wen_i  (disp_hs_o),
     .waddr_i(disp_idx_i),
-    .wdata_i(slot_issue_d)
+    .wdata_i(slot_disp_wdata)
   );
 
   // Generate the ids of all the reservation station slots
@@ -106,9 +113,6 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   // Dispatch pipeline //
   ///////////////////////
 
-  logic disp_req_ready_pipeline;
-  assign disp_req_ready_o = disp_req_ready_pipeline;
-
   logic       issue_req_valid_raw;
   issue_req_t issue_req_raw;
 
@@ -121,15 +125,21 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .rss_operand_t   (rss_operand_t),
     .operand_req_t   (operand_req_t),
     .operand_t       (operand_t),
-    .issue_req_t     (issue_req_t)
+    .issue_req_t     (issue_req_t),
+    .rss_idx_t       (rss_idx_t)
   ) i_dispatch_pipeline (
     .restart_i              (restart_i),
-    .producer_id_i          (rss_ids[disp_idx_i]),
+    .disp_producer_id_i     (rss_ids[disp_idx_i]),
+    .issue_producer_id_i    (rss_ids[issue_idx_i]),
+    .disp_idx_i             (disp_idx_i),
+    .issue_idx_i            (issue_idx_i),
     .disp_req_i             (disp_req_i),
     .disp_req_valid_i       (disp_req_valid_i),
-    .disp_req_ready_o       (disp_req_ready_pipeline),
-    .slot_issue_i           (slot_issue_q),
-    .slot_issue_o           (slot_issue_d),
+    .disp_req_ready_o       (disp_req_ready_o),
+    .rs_full_i              (rs_full_i),
+    .disp_hs_o              (disp_hs_o),
+    .slot_issue_i           (slot_issue_rdata),
+    .slot_disp_o            (slot_disp_wdata),
     .op_reqs_o              (op_reqs_o),
     .op_reqs_valid_o        (op_reqs_valid_o),
     .op_reqs_ready_i        (op_reqs_ready_i),

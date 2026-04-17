@@ -105,9 +105,6 @@ module schnova_writeback import schnova_pkg::*; #(
   logic acc_gpr_valid; // The accelerator only writes to the GPR
   logic acc_gpr_ready;
 
-  logic rob_gpr_valid;
-  logic rob_fpr_valid;
-
   logic [NrIntWritePorts-1:0]                  wb_gpr_valid;
   logic [NrIntWritePorts-1:0][RobTagWidth-1:0] wb_gpr_rob_idx;
   logic [NrFpWritePorts-1:0]                   wb_fpr_valid;

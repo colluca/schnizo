@@ -107,8 +107,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     with shared Ideal IPC lines.
     """
     schnizo_hw = '3x32_3x32_1x64'
-    Schnova_widths = ['sv_1_3x1_3x1_1x1', 'sv_2_3x1_3x1_1x1',
-                      'sv_4_3x1_3x1_1x1', 'sv_8_3x1_3x1_1x1']
+    Schnova_widths = ['sv_1_3x32_3x32_1x64', 'sv_2_3x32_3x32_1x64',
+                      'sv_4_3x32_3x32_1x64', 'sv_8_3x32_3x32_1x64']
 
     # 1. Filter: Schnizo (both modes) + Schnova (superscalar only)
     mask_schnizo = (df['hw'] == schnizo_hw)
@@ -168,7 +168,7 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     ax.set_xticklabels(clean_labels, rotation=15, ha='right')
 
     ax.legend(title="Core Architecture", loc='upper left', bbox_to_anchor=(1, 1))
-    ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
+    ax.grid(True, axis='y', color='gray', linewidth=0.5, alpha=1.0)
 
     # Set Y-limits
     if metric == 'ipc':
