@@ -1087,7 +1087,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             end
 
             // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are vector ---
-            VFADD_VV, VADD_VV, VSUB_VV, VMIN_VV, VMINU_VV, VMAX_VV, VMAXU_VV,
+            VADD_VV, VSUB_VV, VMIN_VV, VMINU_VV, VMAX_VV, VMAXU_VV,
             VAND_VV, VOR_VV, VXOR_VV,
             VADC_VVM, VMADC_VV, VSLL_VV, VSRL_VV, VSRA_VV, //Attenzione a VADC_VVM e VMADC_VV TODO
             VMSEQ_VV, VMSNE_VV, VMSLTU_VV, VMSLT_VV, VMSLEU_VV, VMSLE_VV,

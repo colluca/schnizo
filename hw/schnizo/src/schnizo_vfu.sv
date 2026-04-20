@@ -98,8 +98,9 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   assign vrf_re   [NrReadPorts-1]  = '0;
   assign vrf_raddr[NrReadPorts-1]  = '0;
 
-  // Fixed SIMD vtype/vl: 256-bit / 4-lane / e64 ? exactly one VRF word per cycle.
-  // VLEN=256, ELEN=64 ? vl=4 elements regardless of any vsetvl* instruction.
+  // Fixed SIMD vtype/vl: always fill the full 256-bit VRF word.
+  // vl = VLEN >> (3 + vsew): e8?32, e16?16, e32?8, e64?4.
+  // SimdVl (e64 baseline, 4 elements) is only used for the VLSU which ignores vl anyway.
   localparam vlen_t  SimdVl       = vlen_t'(VLEN / ELEN);
   localparam vtype_t DefaultVtype = '{vill: 1'b0, vma: 1'b0, vta: 1'b0,
                                       vsew: MAXEW, vlmul: LMUL_1};
@@ -198,16 +199,29 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     localparam int unsigned WD      = i;           // VRF write port index
     localparam int unsigned RD_BASE = 3*i;         // VRF read port base (vs2, vs1, vd)
 
-    // Use decoded spatz_req, override vl (SIMD fixed length) and id (port index).
-    always_comb begin
-      vfu_spatz_req[i]    = dec_rsp[PORT].spatz_req;
-      vfu_spatz_req[i].vl = SimdVl;
-      vfu_spatz_req[i].id = spatz_id_t'(i);
-    end
-
-    // Detect VCFG (vsetvl/vsetvli/vsetivli): bypass spatz_vfu, return fixed vl=4.
+    // Detect VCFG (vsetvl/vsetvli/vsetivli): bypass spatz_vfu entirely.
     logic is_vcfg;
     assign is_vcfg = (dec_rsp[PORT].spatz_req.op == VCFG);
+
+    // Track current vsew ? updated on every accepted VCFG, defaults to MAXEW (e64).
+    // spatz_decoder leaves spatz_req.vtype.vsew=EW_8 for arithmetic (Spatz controller
+    // normally patches this from its CSR; schnizo has no controller, so we do it here).
+    vew_e vsew_q;
+    always_ff @(posedge clk_i or posedge rst_i) begin
+      if (rst_i)
+        vsew_q <= MAXEW;
+      else if (is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT])
+        vsew_q <= dec_rsp[PORT].spatz_req.vtype.vsew;
+    end
+
+    // Use decoded spatz_req; patch vtype.vsew and vl so the VFU always processes
+    // all 256 bits: vl = VLEN >> (3 + vsew).
+    always_comb begin
+      vfu_spatz_req[i]            = dec_rsp[PORT].spatz_req;
+      vfu_spatz_req[i].vtype.vsew = vsew_q;
+      vfu_spatz_req[i].vl         = vlen_t'(VLEN >> (3 + vsew_q));
+      vfu_spatz_req[i].id         = spatz_id_t'(i);
+    end
 
     // VFU executes speculatively. VCFG bypasses spatz_vfu entirely.
     assign vfu_spatz_req_valid[i]  = issue_req_valid_i[PORT] && !is_vcfg;
@@ -241,10 +255,12 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .fpu_status_o      (/* unused */                     )
     );
 
-    // VCFG returns fixed vl=VLEN/ELEN=4 as scalar result immediately.
+    // VCFG: return vl = VLEN >> (3 + new_vsew) so callers see the correct element count.
     // Arithmetic: gate dest_reg with wb to avoid clobbering scalar GPRs with
     //   vector register addresses (vfu_rsp.rd = vd_addr, not a scalar reg).
-    assign result_o[PORT]       = is_vcfg ? ELEN'(VLEN/ELEN) : vfu_rsp[i].result;
+    assign result_o[PORT]       = is_vcfg
+        ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
+        : vfu_rsp[i].result;
     assign result_valid_o[PORT] = is_vcfg ? issue_req_valid_i[PORT] : vfu_rsp_valid[i];
     assign tag_o[PORT] = '{
       dest_reg:       is_vcfg ? issue_req_i[PORT].tag.dest_reg :

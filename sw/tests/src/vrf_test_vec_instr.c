@@ -9,7 +9,7 @@ int main() {
     if (snrt_global_core_idx() == 0) {
         const int N = 4;                     // 4 elements per 256?bit vector (64?bit each)
         double x[N] = {1.0, 2.0, 3.0, 4.0};
-        double y[N] = {2.0, 0.0, 4.0, 5.0};
+        double y[N] = {2.0, 3.0, 4.0, 5.0};
         double z[N];
         int errors = 0;
 
