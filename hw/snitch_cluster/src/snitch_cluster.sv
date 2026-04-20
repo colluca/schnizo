@@ -275,9 +275,11 @@ module snitch_cluster
   /// Width of the external DCA interface
   parameter int unsigned DcaDataWidth       = WideDataWidth,
   // SPATZ
-  // Spatz parameters
+  // VFU parameters
   parameter int                          unsigned        NumSpatzFPUs             = 4,
   parameter int                          unsigned        NumSpatzIPUs             = 1,
+  parameter int                          unsigned        NofVFU                   = 1,
+  parameter int                          unsigned        NofVLSU                  = 1,
 
   /// Derived parameter *Do not override*
   parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
@@ -389,7 +391,7 @@ module snitch_cluster
   localparam int unsigned DcaLaneDataWidth = NarrowDataWidth;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return RVV[core] ? NumMemPortsPerSpatz + NumLsus[core] : NumLsus[core];
+    return RVV[core] ? NofVLSU*NumMemPortsPerSpatz + NumLsus[core] : NumLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1234,10 +1236,14 @@ module snitch_cluster
       .CaqTagWidth (CaqTagWidth),
       .DebugSupport (DebugSupport),
       .TCDMAliasEnable (AliasRegionEnable),
-      .TCDMAliasStart (TCDMAliasStart)
+      .TCDMAliasStart (TCDMAliasStart),
+      .NumSpatzFPUs (NumSpatzFPUs),
+      .NumSpatzIPUs (NumSpatzIPUs),
+      .NofVFU (NofVFU),
+      .NofVLSU (NofVLSU)
       // TODO(colluca): add collectives and DCA to Schnizo
       // .CollectiveWidth (CollectiveWidth),
-      // .EnableDca (EnableDca)  
+      // .EnableDca (EnableDca)
     ) i_snitch_cc (
       .clk_i,
       .clk_d2_i (clk_d2),

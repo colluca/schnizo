@@ -24,7 +24,8 @@ package schnizo_pkg;
     CSR,
     FPU,
     DMA,
-    SPATZ
+    VFU,    // Vector arithmetic unit
+    VLSU    // Vector load/store unit
   } fu_t;
 
   // Accelerators available in the Schnizo Cluster / Hive.
@@ -254,7 +255,8 @@ package schnizo_pkg;
       schnizo_pkg::FPU:       name = "FPU";
       schnizo_pkg::MULDIV:    name = "MULDIV"; // shared muldiv unit from hive
       schnizo_pkg::DMA:       name = "DMA";
-      schnizo_pkg::SPATZ:     name = "SPATZ";
+      schnizo_pkg::VFU:       name = "VFU";
+      schnizo_pkg::VLSU:      name = "VLSU";
       default:                name = "???";
     endcase
     return name;

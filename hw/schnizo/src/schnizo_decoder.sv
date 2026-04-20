@@ -390,7 +390,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V,
             // Indexed ordered (segment) stores
             VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
-              instr_dec_o.fu        = schnizo_pkg::SPATZ;
+              instr_dec_o.fu        = schnizo_pkg::VLSU;
               instr_dec_o.rs1       = instr.stype.rs1; // base integer register
               // rd left at x0 (no writeback)
               vector_store_handled  = 1'b1;
@@ -451,7 +451,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V,
               // Indexed ordered (segment) loads
               VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
-                instr_dec_o.fu        = schnizo_pkg::SPATZ;
+                instr_dec_o.fu        = schnizo_pkg::VLSU;
                 instr_dec_o.rs1       = instr.itype.rs1; // base integer register
                 vector_load_handled   = 1'b1;
               end
@@ -1057,8 +1057,8 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
       end
       OpcodeVec: begin
         if (RVV) begin
-          // Tag as SPATZ functional unit.
-          instr_dec_o.fu = schnizo_pkg::SPATZ;
+          // Tag as vector arithmetic unit.
+          instr_dec_o.fu = schnizo_pkg::VFU;
           // Dependency-only partial decode of a subset of RVV instructions.
           // Vector registers are flagged with *_is_fp = 1'b1 (single scoreboard domain with FP).
           unique casez (instr.instr)

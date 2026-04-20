@@ -34,12 +34,19 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned FpuNofOperands    = 3,
   parameter int unsigned FpuNofResReqIfs   = 3,
   parameter int unsigned FpuNofResRspPorts = 1,
-  // Spatz Parameter
-  parameter int unsigned SpatzNofRss       = 1,
-  parameter int unsigned SpatzNofConstants = 4,
-  parameter int unsigned SpatzNofOperands  = 2,
-  parameter int unsigned SpatzNofResReqIfs = 1,
-  parameter int unsigned SpatzNofResRspPorts = 1,
+  // VLSU FU-block parameters (ports 0..NofVLSU-1) ? one block per vector load/store unit
+  parameter int unsigned VlsuNofRss         = 1,
+  parameter int unsigned VlsuNofConstants   = 4,
+  parameter int unsigned VlsuNofOperands    = 2,
+  parameter int unsigned VlsuNofResRspPorts = 1,
+  // VFU arithmetic FU-block parameters (ports NofVLSU..VfuNumFuPorts-1) ? one block per vector ALU
+  parameter int unsigned VfuNofRss          = 1,
+  parameter int unsigned VfuNofConstants    = 4,
+  parameter int unsigned VfuNofOperands     = 2,
+  parameter int unsigned VfuNofResRspPorts  = 1,
+  // Number of VFU / VLSU units inside schnizo_vfu
+  parameter int unsigned NofVFU  = 1,
+  parameter int unsigned NofVLSU = 1,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
@@ -87,11 +94,11 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
-  // Spatz Result can be floating point or integer
+  // VFU result (ELEN-wide; identical width to FLEN when FLEN=64)
   parameter type         spatz_result_t = logic [FLEN-1:0],
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
-  // SPATZ Parameters
+  // VFU Parameters
   parameter bit          RVV            = 1,
   parameter int unsigned NumSpatzFPUs   = 4,
   parameter int unsigned NumSpatzIPUs   = 1,
@@ -104,12 +111,13 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   /// Derived parameter *Do not override*
   parameter int unsigned NumSpatzFUs         = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
   parameter int unsigned NumMemPortsPerSpatz = NumSpatzFUs,
-  parameter int unsigned TCDMPorts           = RVV ? NumMemPortsPerSpatz + NofLsus : NofLsus,
+  // NofVLSU VLSUs × NumMemPortsPerSpatz TCDM ports each, plus scalar LSU ports
+  parameter int unsigned TCDMPorts           = RVV ? NofVLSU*NumMemPortsPerSpatz + NofLsus : NofLsus,
 
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0],
-  // TODO add as normal paramter?
-  localparam NofSpatz = 1
+  // Total FU ports exposed by schnizo_vfu
+  localparam int unsigned VfuNumFuPorts = NofVFU + NofVLSU
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
@@ -170,12 +178,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output fpnew_pkg::status_t fpu_status_o,
   output logic               fpu_status_valid_o,
 
-  // Minimum amount of signals for spatz. May need to add more if required.
-  input  logic      spatz_disp_reqs_valid_i,
-  output logic      spatz_disp_reqs_ready_o,
-  output disp_rsp_t spatz_disp_rsp_o,
-  output logic      spatz_loop_finish_o,
-  output logic      spatz_rs_full_o,
+  // VFU (schnizo_vfu) dispatch ? one FU block per VFU port
+  input  logic               [VfuNumFuPorts-1:0] vfu_disp_reqs_valid_i,
+  output logic               [VfuNumFuPorts-1:0] vfu_disp_reqs_ready_o,
+  output disp_rsp_t          [VfuNumFuPorts-1:0] vfu_disp_rsp_o,
+  output logic                                   vfu_loop_finish_o,
+  output logic               [VfuNumFuPorts-1:0] vfu_rs_full_o,
 
   // Writeback ports. We only have one per FU type.
   output alu_result_t alu_wb_result_o,
@@ -194,18 +202,15 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output logic            fpu_wb_result_valid_o,
   input  logic            fpu_wb_result_ready_i,
 
-  // Spatz writeback signals
+  // VFU writeback ? arbiter combines all VFU-port results into one port
+  output spatz_result_t   vfu_wb_result_o,
+  output instr_tag_t      vfu_wb_result_tag_o,
+  output logic            vfu_wb_result_valid_o,
+  input  logic            vfu_wb_result_ready_i,
 
-  output spatz_result_t   spatz_wb_result_o, // TODO: Understand what width is needed here
-  output instr_tag_t      spatz_wb_result_tag_o,
-  output logic            spatz_wb_result_valid_o,
-  input  logic            spatz_wb_result_ready_i,
-
-  output logic            spatz_running_instrs_o,
-
-  // SPATZ TCDM Ports
-  output tcdm_req_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_req_o,
-  input  tcdm_rsp_t    [NumMemPortsPerSpatz-1:0] spatz_tcdm_rsp_i
+  // VFU TCDM Ports (NofVLSU × NumMemPortsPerSpatz)
+  output tcdm_req_t    [NofVLSU*NumMemPortsPerSpatz-1:0] vfu_tcdm_req_o,
+  input  tcdm_rsp_t    [NofVLSU*NumMemPortsPerSpatz-1:0] vfu_tcdm_rsp_i
 
 );
 
@@ -233,25 +238,27 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned ConsumerCount = AluNofOperands * AluNofRss * NofAlus +
                                               LsuNofOperands * LsuNofRss * NofLsus +
                                               FpuNofOperands * FpuNofRss * NofFpus +
-                                              (RVV ? (SpatzNofOperands * SpatzNofRss * 1) : 0); // only 1 Spatz
+                                              (RVV ? (VlsuNofOperands * VlsuNofRss * NofVLSU +
+                                                      VfuNofOperands  * VfuNofRss  * NofVFU) : 0);
 
   // ---------------------------
   // Operand distribution network
   // ---------------------------
 
-  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus + NofSpatz;
+  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus + (RVV ? VfuNumFuPorts : 0);
   localparam int unsigned TotalNofRss = NofAlus * AluNofRss +
                                         NofLsus * LsuNofRss +
                                         NofFpus * FpuNofRss +
-                                        NofSpatz * SpatzNofRss;
+                                        (RVV ? NofVLSU * VlsuNofRss + NofVFU * VfuNofRss : 0);
   localparam int unsigned TotalNofResRspPorts = NofAlus * AluNofResRspPorts +
                                                 NofLsus * LsuNofResRspPorts +
                                                 NofFpus * FpuNofResRspPorts +
-                                                NofSpatz * SpatzNofResRspPorts;
+                                                (RVV ? NofVLSU * VlsuNofResRspPorts + NofVFU * VfuNofResRspPorts : 0);
 
   typedef int unsigned rs_param_array_t [NofRs-1:0];
 
-  function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam, int SpatzParam);
+  function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam,
+                                                          int VlsuParam, int VfuParam);
     rs_param_array_t tmp;
     int unsigned k;
 
@@ -268,17 +275,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       tmp[k] = FpuParam;
       k++;
     end
-    for (int unsigned i = 0; i < NofSpatz; i++) begin
-      tmp[k] = SpatzParam;
+    for (int unsigned i = 0; i < NofVLSU; i++) begin
+      tmp[k] = VlsuParam;
+      k++;
+    end
+    for (int unsigned i = 0; i < NofVFU; i++) begin
+      tmp[k] = VfuParam;
       k++;
     end
 
     return tmp;
   endfunction
 
-  localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss, SpatzNofRss);
+  localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss,
+    VlsuNofRss, VfuNofRss);
   localparam rs_param_array_t NofRspPorts = gen_rs_param_array(AluNofResRspPorts,
-    LsuNofResRspPorts, FpuNofResRspPorts, SpatzNofResRspPorts);
+    LsuNofResRspPorts, FpuNofResRspPorts, VlsuNofResRspPorts, VfuNofResRspPorts);
 
   typedef struct packed {
     logic valid;
@@ -392,19 +404,35 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
-  operand_req_t      [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_reqs;
-  logic              [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_valid;
-  logic              [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_reqs_ready;
-  available_result_t [NofSpatz-1:0][SpatzNofRss-1:0]         spatz_available_results;
-  ext_res_req_t      [NofSpatz-1:0][SpatzNofResRspPorts-1:0]  spatz_res_reqs;
-  logic              [NofSpatz-1:0][SpatzNofResRspPorts-1:0]  spatz_res_reqs_valid;
-  logic              [NofSpatz-1:0][SpatzNofResRspPorts-1:0]  spatz_res_reqs_ready;
-  res_rsp_t          [NofSpatz-1:0][SpatzNofResRspPorts-1:0]  spatz_res_rsps;
-  logic              [NofSpatz-1:0][SpatzNofResRspPorts-1:0]  spatz_res_rsps_valid;
-  logic              [NofSpatz-1:0][SpatzNofResRspPorts-1:0]  spatz_res_rsps_ready;
-  operand_t     [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_rsps;
-  logic         [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_valid;
-  logic         [NofSpatz-1:0][SpatzNofOperands-1:0]  spatz_op_rsps_ready;
+  // VLSU FU-block ODN signals (ports 0..NofVLSU-1)
+  operand_req_t      [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_reqs;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_reqs_valid;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_reqs_ready;
+  available_result_t [NofVLSU-1:0][VlsuNofRss-1:0]         vlsu_available_results;
+  ext_res_req_t      [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_reqs;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_reqs_valid;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_reqs_ready;
+  res_rsp_t          [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_rsps;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_rsps_valid;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_rsps_ready;
+  operand_t          [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_rsps;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_rsps_valid;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_rsps_ready;
+
+  // VFU arithmetic FU-block ODN signals (ports NofVLSU..VfuNumFuPorts-1)
+  operand_req_t      [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_reqs;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_reqs_valid;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_reqs_ready;
+  available_result_t [NofVFU-1:0][VfuNofRss-1:0]         vfu_arith_available_results;
+  ext_res_req_t      [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_reqs;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_reqs_valid;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_reqs_ready;
+  res_rsp_t          [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_rsps;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_rsps_valid;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_rsps_ready;
+  operand_t          [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_rsps;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_rsps_valid;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_rsps_ready;
 
   operand_req_t [NofOperandIfs-1:0] op_reqs;
   logic         [NofOperandIfs-1:0] op_reqs_valid;
@@ -435,22 +463,25 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     always_comb begin : fu_op_reqs_rsps
       automatic integer ope_if = 0;
 
-      op_reqs           = '0;
-      op_reqs_valid     = '0;
-      alu_op_reqs_ready = '0;
-      lsu_op_reqs_ready = '0;
-      fpu_op_reqs_ready = '0;
-      spatz_op_reqs_ready = '0;
+      op_reqs                  = '0;
+      op_reqs_valid            = '0;
+      alu_op_reqs_ready        = '0;
+      lsu_op_reqs_ready        = '0;
+      fpu_op_reqs_ready        = '0;
+      vlsu_op_reqs_ready       = '0;
+      vfu_arith_op_reqs_ready  = '0;
 
-      op_rsps_ready     = '0;
-      alu_op_rsps       = '0;
-      alu_op_rsps_valid = '0;
-      lsu_op_rsps       = '0;
-      lsu_op_rsps_valid = '0;
-      fpu_op_rsps       = '0;
-      fpu_op_rsps_valid = '0;
-      spatz_op_rsps     = '0;
-      spatz_op_rsps_valid = '0;
+      op_rsps_ready            = '0;
+      alu_op_rsps              = '0;
+      alu_op_rsps_valid        = '0;
+      lsu_op_rsps              = '0;
+      lsu_op_rsps_valid        = '0;
+      fpu_op_rsps              = '0;
+      fpu_op_rsps_valid        = '0;
+      vlsu_op_rsps             = '0;
+      vlsu_op_rsps_valid       = '0;
+      vfu_arith_op_rsps        = '0;
+      vfu_arith_op_rsps_valid  = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
         for (int op = 0; op < AluNofOperands; op++) begin
@@ -491,18 +522,28 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           ope_if = ope_if + 1;
         end
       end
-      // Spatz integration
-      if(RVV) begin
-        for (int port = 0; port < NofSpatz; port++) begin
-          for (int op = 0; op < SpatzNofOperands; op++) begin
-            // operand requests
-            op_reqs[ope_if]                    = spatz_op_reqs[port][op];
-            op_reqs_valid[ope_if]              = spatz_op_reqs_valid[port][op];
-            spatz_op_reqs_ready[port][op]      = op_reqs_ready[ope_if];
-            // operand responses
-            spatz_op_rsps[port][op]            = op_rsps[ope_if];
-            spatz_op_rsps_valid[port][op]      = op_rsps_valid[ope_if];
-            op_rsps_ready[ope_if]              = spatz_op_rsps_ready[port][op];
+      // VLSU FU-block operands (ports 0..NofVLSU-1)
+      if (RVV) begin
+        for (int port = 0; port < NofVLSU; port++) begin
+          for (int op = 0; op < VlsuNofOperands; op++) begin
+            op_reqs[ope_if]                  = vlsu_op_reqs[port][op];
+            op_reqs_valid[ope_if]            = vlsu_op_reqs_valid[port][op];
+            vlsu_op_reqs_ready[port][op]     = op_reqs_ready[ope_if];
+            vlsu_op_rsps[port][op]           = op_rsps[ope_if];
+            vlsu_op_rsps_valid[port][op]     = op_rsps_valid[ope_if];
+            op_rsps_ready[ope_if]            = vlsu_op_rsps_ready[port][op];
+            ope_if = ope_if + 1;
+          end
+        end
+        // VFU arithmetic FU-block operands (ports NofVLSU..VfuNumFuPorts-1)
+        for (int port = 0; port < NofVFU; port++) begin
+          for (int op = 0; op < VfuNofOperands; op++) begin
+            op_reqs[ope_if]                      = vfu_arith_op_reqs[port][op];
+            op_reqs_valid[ope_if]                = vfu_arith_op_reqs_valid[port][op];
+            vfu_arith_op_reqs_ready[port][op]    = op_reqs_ready[ope_if];
+            vfu_arith_op_rsps[port][op]          = op_rsps[ope_if];
+            vfu_arith_op_rsps_valid[port][op]    = op_rsps_valid[ope_if];
+            op_rsps_ready[ope_if]                = vfu_arith_op_rsps_ready[port][op];
             ope_if = ope_if + 1;
           end
         end
@@ -518,19 +559,21 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       automatic integer rss = 0;
       automatic integer rsp_if = 0;
 
-      res_reqs_ready     = '0;
-      alu_res_reqs       = '0;
-      alu_res_reqs_valid = '0;
-      lsu_res_reqs       = '0;
-      fpu_res_reqs       = '0;
-      spatz_res_reqs     = '0;
+      res_reqs_ready           = '0;
+      alu_res_reqs             = '0;
+      alu_res_reqs_valid       = '0;
+      lsu_res_reqs             = '0;
+      fpu_res_reqs             = '0;
+      vlsu_res_reqs            = '0;
+      vfu_arith_res_reqs       = '0;
 
-      res_rsps           = '0;
-      res_rsps_valid     = '0;
-      alu_res_rsps_ready = '0;
-      lsu_res_rsps_ready = '0;
-      fpu_res_rsps_ready = '0;
-      spatz_res_rsps_ready = '0;
+      res_rsps                 = '0;
+      res_rsps_valid           = '0;
+      alu_res_rsps_ready       = '0;
+      lsu_res_rsps_ready       = '0;
+      fpu_res_rsps_ready       = '0;
+      vlsu_res_rsps_ready      = '0;
+      vfu_arith_res_rsps_ready = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
         for (int alu_rss = 0; alu_rss < AluNofRss; alu_rss++) begin
@@ -593,24 +636,41 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         end
       end
       if (RVV) begin
-        //SPATZ
-        for (int spatz = 0; spatz < NofSpatz; spatz++) begin
-          for (int spatz_rss = 0; spatz_rss < SpatzNofRss; spatz_rss++) begin
-            available_results[rss] = spatz_available_results[spatz][spatz_rss];
+        // VLSU FU-blocks (ports 0..NofVLSU-1)
+        for (int vp = 0; vp < NofVLSU; vp++) begin
+          for (int vp_rss = 0; vp_rss < VlsuNofRss; vp_rss++) begin
+            available_results[rss] = vlsu_available_results[vp][vp_rss];
             rss = rss + 1;
           end
-          for (int spatz_req_if = 0; spatz_req_if < SpatzNofResRspPorts; spatz_req_if++) begin
-            // requests
-            spatz_res_reqs[spatz][spatz_req_if]       = res_reqs[req_if];
-            spatz_res_reqs_valid[spatz][spatz_req_if] = res_reqs_valid[req_if];
-            res_reqs_ready[req_if]                    = spatz_res_reqs_ready[spatz][spatz_req_if];
+          for (int vp_req_if = 0; vp_req_if < VlsuNofResRspPorts; vp_req_if++) begin
+            vlsu_res_reqs[vp][vp_req_if]       = res_reqs[req_if];
+            vlsu_res_reqs_valid[vp][vp_req_if] = res_reqs_valid[req_if];
+            res_reqs_ready[req_if]             = vlsu_res_reqs_ready[vp][vp_req_if];
             req_if = req_if + 1;
           end
-          for (int rsp = 0; rsp < SpatzNofResRspPorts; rsp++) begin
-            // responses
-            res_rsps[rsp_if]                    = spatz_res_rsps[spatz][rsp];
-            res_rsps_valid[rsp_if]              = spatz_res_rsps_valid[spatz][rsp];
-            spatz_res_rsps_ready[spatz][rsp]    = res_rsps_ready[rsp_if];
+          for (int rsp = 0; rsp < VlsuNofResRspPorts; rsp++) begin
+            res_rsps[rsp_if]              = vlsu_res_rsps[vp][rsp];
+            res_rsps_valid[rsp_if]        = vlsu_res_rsps_valid[vp][rsp];
+            vlsu_res_rsps_ready[vp][rsp]  = res_rsps_ready[rsp_if];
+            rsp_if = rsp_if + 1;
+          end
+        end
+        // VFU arithmetic FU-blocks (ports NofVLSU..VfuNumFuPorts-1)
+        for (int vp = 0; vp < NofVFU; vp++) begin
+          for (int vp_rss = 0; vp_rss < VfuNofRss; vp_rss++) begin
+            available_results[rss] = vfu_arith_available_results[vp][vp_rss];
+            rss = rss + 1;
+          end
+          for (int vp_req_if = 0; vp_req_if < VfuNofResRspPorts; vp_req_if++) begin
+            vfu_arith_res_reqs[vp][vp_req_if]       = res_reqs[req_if];
+            vfu_arith_res_reqs_valid[vp][vp_req_if] = res_reqs_valid[req_if];
+            res_reqs_ready[req_if]                  = vfu_arith_res_reqs_ready[vp][vp_req_if];
+            req_if = req_if + 1;
+          end
+          for (int rsp = 0; rsp < VfuNofResRspPorts; rsp++) begin
+            res_rsps[rsp_if]                   = vfu_arith_res_rsps[vp][rsp];
+            res_rsps_valid[rsp_if]             = vfu_arith_res_rsps_valid[vp][rsp];
+            vfu_arith_res_rsps_ready[vp][rsp]  = res_rsps_ready[rsp_if];
             rsp_if = rsp_if + 1;
           end
         end
@@ -679,7 +739,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign alu_op_reqs_ready = '0;
     assign lsu_op_reqs_ready = '0;
     assign fpu_op_reqs_ready = '0;
-    assign spatz_op_reqs_ready = '0;
+    assign vfu_op_reqs_ready = '0;
 
     assign op_rsps_ready     = '0;
     assign alu_op_rsps       = '0;
@@ -688,22 +748,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign lsu_op_rsps_valid = '0;
     assign fpu_op_rsps       = '0;
     assign fpu_op_rsps_valid = '0;
-    assign spatz_op_rsps     = '0;
-    assign spatz_op_rsps_valid = '0;
+    assign vfu_op_rsps       = '0;
+    assign vfu_op_rsps_valid = '0;
 
     assign res_reqs_ready     = '0;
     assign alu_res_reqs       = '0;
     assign alu_res_reqs_valid = '0;
     assign lsu_res_reqs       = '0;
     assign fpu_res_reqs       = '0;
-    assign spatz_res_reqs     = '0;
+    assign vfu_res_reqs       = '0;
 
     assign res_rsps           = '0;
     assign res_rsps_valid     = '0;
     assign alu_res_rsps_ready = '0;
     assign lsu_res_rsps_ready = '0;
     assign fpu_res_rsps_ready = '0;
-    assign spatz_res_rsps_ready = '0;
+    assign vfu_res_rsps_ready = '0;
 
     assign op_reqs_ready  = '0;
     assign res_reqs       = '0;
@@ -1376,223 +1436,280 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign fpu_wb_result_tag_o = fpu_wb_result_and_tag_out.tag;
 
   ///////////
-  // Spatz //
+  // VFU   //
   ///////////
 
   if (RVV) begin: gen_rvv_block
-  // Signals connecting the FU block and the actual FU
-  issue_req_t   spatz_issue_req;
-  logic         spatz_issue_req_valid;
-  logic         spatz_issue_req_ready;
-  logic         spatz_exec_commit;
-  spatz_result_t spatz_result;
-  instr_tag_t   spatz_result_tag;
-  logic         spatz_result_valid;
-  logic         spatz_result_ready;
-  logic         spatz_busy;
 
-  // Producer ID for the SPATZ RS
-  producer_id_t spatz_producer_start_id;
-  assign spatz_producer_start_id = producer_id_t'{
-    slot_id: '0, // single-slot //TODO: Is not single slot, fix this
-    rs_id:   rs_id_t'(SpatzRsIdOffset + 0)
-  };
+    // Per-port signals between FU blocks and schnizo_vfu
+    issue_req_t    [VfuNumFuPorts-1:0] vfu_issue_req;
+    logic          [VfuNumFuPorts-1:0] vfu_issue_req_valid;
+    logic          [VfuNumFuPorts-1:0] vfu_issue_req_ready;
+    logic          [VfuNumFuPorts-1:0] vfu_exec_commit;
+    spatz_result_t [VfuNumFuPorts-1:0] vfu_result;
+    instr_tag_t    [VfuNumFuPorts-1:0] vfu_result_tag;
+    logic          [VfuNumFuPorts-1:0] vfu_result_valid;
+    logic          [VfuNumFuPorts-1:0] vfu_result_ready;
+    logic          [VfuNumFuPorts-1:0] vfu_busy;
 
-  // Reservation station and ODN wrapper
-  schnizo_fu_block #(
-    .Xfrep         (Xfrep),
-    .disp_req_t    (disp_req_t),
-    .disp_rsp_t    (disp_rsp_t),
-    .issue_req_t   (issue_req_t),
-    .result_t      (spatz_result_t),
-    .instr_tag_t   (instr_tag_t),
-    .NofRss        (SpatzNofRss),
-    .NofConstants  (SpatzNofConstants),
-    .NofOperands   (SpatzNofOperands),
-    .NofResRspIfs  (SpatzNofResRspPorts),
-    .ConsumerCount (ConsumerCount),
-    .RegAddrWidth  (RegAddrWidth),
-    .MaxIterationsW(MaxIterationsW),
-    .producer_id_t (producer_id_t),
-    .slot_id_t     (slot_id_t),
-    .operand_req_t (operand_req_t),
-    .operand_t     (operand_t),
-    .res_req_t     (res_req_t),
-    .ext_res_req_t (ext_res_req_t),
-    .available_result_t (available_result_t),
-    .dest_mask_t   (dest_mask_t),
-    .res_rsp_t     (res_rsp_t)
-  ) i_spatz_block (
-    .clk_i,
-    .rst_i,
-    /// RS control signals
-    .producer_id_i      (spatz_producer_start_id),
-    .restart_i          (restart_i),
-    .loop_state_i       (loop_state_i),
-    .in_lxp_i           (in_lxp),
-    .lep_iterations_i   (lep_iterations_i),
-    .goto_lcp2_i        (goto_lcp2_i),
-    .fu_busy_i          (spatz_busy),
-    .loop_finish_o      (spatz_loop_finish_o),
-    .rs_full_o          (spatz_rs_full_o),
-    /// Instruction stream
-    // From dispatcher
-    .disp_req_i         (disp_req_i),
-    .disp_req_valid_i   (spatz_disp_reqs_valid_i),
-    .disp_req_ready_o   (spatz_disp_reqs_ready_o),
-    .instr_exec_commit_i(instr_exec_commit_i),
-    .disp_rsp_o         (spatz_disp_rsp_o),
-    // To FU
-    .issue_req_o        (spatz_issue_req),
-    .issue_req_valid_o  (spatz_issue_req_valid),
-    .issue_req_ready_i  (spatz_issue_req_ready),
-    .instr_exec_commit_o(spatz_exec_commit),
-    // From FU
-    .result_i           (spatz_result),
-    .result_tag_i       (spatz_result_tag),
-    .result_valid_i     (spatz_result_valid),
-    .result_ready_o     (spatz_result_ready),
-    // To writeback
-    .wb_result_o        (spatz_wb_result_o),
-    .wb_result_tag_o    (spatz_wb_result_tag_o),
-    .wb_result_valid_o  (spatz_wb_result_valid_o),
-    .wb_result_ready_i  (spatz_wb_result_ready_i),
-    /// Operand distribution network
-    .available_results_o(spatz_available_results[0]),
-    .op_reqs_o          (spatz_op_reqs[0]),
-    .op_reqs_valid_o    (spatz_op_reqs_valid[0]),
-    .op_reqs_ready_i    (spatz_op_reqs_ready[0]),
-    .res_reqs_i         (spatz_res_reqs[0]),
-    .res_reqs_valid_i   (spatz_res_reqs_valid[0]),
-    .res_reqs_ready_o   (spatz_res_reqs_ready[0]),
-    .res_rsps_o         (spatz_res_rsps[0]),
-    .res_rsps_valid_o   (spatz_res_rsps_valid[0]),
-    .res_rsps_ready_i   (spatz_res_rsps_ready[0]),
-    .op_rsps_i          (spatz_op_rsps[0]),
-    .op_rsps_valid_i    (spatz_op_rsps_valid[0]),
-    .op_rsps_ready_o    (spatz_op_rsps_ready[0])
-  );
+    // WB arbiter inputs
+    typedef struct packed {
+      spatz_result_t result;
+      instr_tag_t    tag;
+    } vfu_result_and_tag_t;
 
+    vfu_result_and_tag_t [VfuNumFuPorts-1:0] vfu_wbs_result_and_tag;
+    logic                [VfuNumFuPorts-1:0] vfu_wbs_result_valid;
+    logic                [VfuNumFuPorts-1:0] vfu_wbs_result_ready;
 
-  //TODO: Build the accelerator request based on the decoded instruction
+    // One schnizo_fu_block per VLSU port (ports 0..NofVLSU-1)
+    for (genvar p = 0; p < NofVLSU; p++) begin : gen_vlsu_blocks
+      spatz_result_t vlsu_wb_result;
+      instr_tag_t    vlsu_wb_result_tag;
 
-  typedef struct packed {
-    logic [5:0] id;
-    logic [31:0] data_op;
-    data_t data_arga;
-    data_t data_argb;
-    data_t data_argc;
-  } spatz_issue_req_t;
+      producer_id_t vlsu_producer_id;
+      assign vlsu_producer_id = producer_id_t'{
+        slot_id: '0,
+        rs_id:   rs_id_t'(SpatzRsIdOffset + p)
+      };
 
-  typedef struct packed {
-    logic accept;
-    logic writeback;
-    logic loadstore;
-    logic exception;
-    logic isfloat;
-  } spatz_issue_rsp_t;
+      schnizo_fu_block #(
+        .Xfrep              (Xfrep),
+        .disp_req_t         (disp_req_t),
+        .disp_rsp_t         (disp_rsp_t),
+        .issue_req_t        (issue_req_t),
+        .result_t           (spatz_result_t),
+        .instr_tag_t        (instr_tag_t),
+        .NofRss             (VlsuNofRss),
+        .NofConstants       (VlsuNofConstants),
+        .NofOperands        (VlsuNofOperands),
+        .NofResRspIfs       (VlsuNofResRspPorts),
+        .ConsumerCount      (ConsumerCount),
+        .RegAddrWidth       (RegAddrWidth),
+        .MaxIterationsW     (MaxIterationsW),
+        .producer_id_t      (producer_id_t),
+        .slot_id_t          (slot_id_t),
+        .operand_req_t      (operand_req_t),
+        .operand_t          (operand_t),
+        .res_req_t          (res_req_t),
+        .ext_res_req_t      (ext_res_req_t),
+        .available_result_t (available_result_t),
+        .dest_mask_t        (dest_mask_t),
+        .res_rsp_t          (res_rsp_t)
+      ) i_vlsu_block (
+        .clk_i,
+        .rst_i,
+        .producer_id_i      (vlsu_producer_id),
+        .restart_i          (restart_i),
+        .loop_state_i       (loop_state_i),
+        .in_lxp_i           (in_lxp),
+        .lep_iterations_i   (lep_iterations_i),
+        .goto_lcp2_i        (goto_lcp2_i),
+        .fu_busy_i          (vfu_busy[p]),
+        .loop_finish_o      (/* VLSU has no loop state */),
+        .rs_full_o          (vfu_rs_full_o[p]),
+        .disp_req_i         (disp_req_i),
+        .disp_req_valid_i   (vfu_disp_reqs_valid_i[p]),
+        .disp_req_ready_o   (vfu_disp_reqs_ready_o[p]),
+        .instr_exec_commit_i(instr_exec_commit_i),
+        .disp_rsp_o         (vfu_disp_rsp_o[p]),
+        .issue_req_o        (vfu_issue_req[p]),
+        .issue_req_valid_o  (vfu_issue_req_valid[p]),
+        .issue_req_ready_i  (vfu_issue_req_ready[p]),
+        .instr_exec_commit_o(vfu_exec_commit[p]),
+        .result_i           (vfu_result[p]),
+        .result_tag_i       (vfu_result_tag[p]),
+        .result_valid_i     (vfu_result_valid[p]),
+        .result_ready_o     (vfu_result_ready[p]),
+        .wb_result_o        (vlsu_wb_result),
+        .wb_result_tag_o    (vlsu_wb_result_tag),
+        .wb_result_valid_o  (vfu_wbs_result_valid[p]),
+        .wb_result_ready_i  (vfu_wbs_result_ready[p]),
+        .available_results_o(vlsu_available_results[p]),
+        .op_reqs_o          (vlsu_op_reqs[p]),
+        .op_reqs_valid_o    (vlsu_op_reqs_valid[p]),
+        .op_reqs_ready_i    (vlsu_op_reqs_ready[p]),
+        .res_reqs_i         (vlsu_res_reqs[p]),
+        .res_reqs_valid_i   (vlsu_res_reqs_valid[p]),
+        .res_reqs_ready_o   (vlsu_res_reqs_ready[p]),
+        .res_rsps_o         (vlsu_res_rsps[p]),
+        .res_rsps_valid_o   (vlsu_res_rsps_valid[p]),
+        .res_rsps_ready_i   (vlsu_res_rsps_ready[p]),
+        .op_rsps_i          (vlsu_op_rsps[p]),
+        .op_rsps_valid_i    (vlsu_op_rsps_valid[p]),
+        .op_rsps_ready_o    (vlsu_op_rsps_ready[p])
+      );
 
-  typedef struct packed {
-    logic [5:0] id;
-    logic error;
-    data_t data;
-    logic is_fp;
-  } spatz_rsp_t;
+      assign vfu_wbs_result_and_tag[p].result = vlsu_wb_result;
+      assign vfu_wbs_result_and_tag[p].tag    = vlsu_wb_result_tag;
+      assign vfu_busy[p] = ~vfu_issue_req_ready[p];
+    end : gen_vlsu_blocks
 
+    // One schnizo_fu_block per VFU arithmetic port (ports NofVLSU..VfuNumFuPorts-1)
+    for (genvar p = 0; p < NofVFU; p++) begin : gen_vfu_arith_blocks
+      spatz_result_t vfu_arith_wb_result;
+      instr_tag_t    vfu_arith_wb_result_tag;
 
-  spatz_issue_req_t acc_spatz_req;
-  spatz_issue_rsp_t acc_spatz_resp;
-  spatz_rsp_t       acc_resp;
+      producer_id_t vfu_arith_producer_id;
+      assign vfu_arith_producer_id = producer_id_t'{
+        slot_id: '0,
+        rs_id:   rs_id_t'(SpatzRsIdOffset + (NofVLSU + p))
+      };
 
+      schnizo_fu_block #(
+        .Xfrep              (Xfrep),
+        .disp_req_t         (disp_req_t),
+        .disp_rsp_t         (disp_rsp_t),
+        .issue_req_t        (issue_req_t),
+        .result_t           (spatz_result_t),
+        .instr_tag_t        (instr_tag_t),
+        .NofRss             (VfuNofRss),
+        .NofConstants       (VfuNofConstants),
+        .NofOperands        (VfuNofOperands),
+        .NofResRspIfs       (VfuNofResRspPorts),
+        .ConsumerCount      (ConsumerCount),
+        .RegAddrWidth       (RegAddrWidth),
+        .MaxIterationsW     (MaxIterationsW),
+        .producer_id_t      (producer_id_t),
+        .slot_id_t          (slot_id_t),
+        .operand_req_t      (operand_req_t),
+        .operand_t          (operand_t),
+        .res_req_t          (res_req_t),
+        .ext_res_req_t      (ext_res_req_t),
+        .available_result_t (available_result_t),
+        .dest_mask_t        (dest_mask_t),
+        .res_rsp_t          (res_rsp_t)
+      ) i_vfu_arith_block (
+        .clk_i,
+        .rst_i,
+        .producer_id_i      (vfu_arith_producer_id),
+        .restart_i          (restart_i),
+        .loop_state_i       (loop_state_i),
+        .in_lxp_i           (in_lxp),
+        .lep_iterations_i   (lep_iterations_i),
+        .goto_lcp2_i        (goto_lcp2_i),
+        .fu_busy_i          (vfu_busy[(NofVLSU + p)]),
+        .loop_finish_o      (/* VFU arith has no loop state */),
+        .rs_full_o          (vfu_rs_full_o[(NofVLSU + p)]),
+        .disp_req_i         (disp_req_i),
+        .disp_req_valid_i   (vfu_disp_reqs_valid_i[(NofVLSU + p)]),
+        .disp_req_ready_o   (vfu_disp_reqs_ready_o[(NofVLSU + p)]),
+        .instr_exec_commit_i(instr_exec_commit_i),
+        .disp_rsp_o         (vfu_disp_rsp_o[(NofVLSU + p)]),
+        .issue_req_o        (vfu_issue_req[(NofVLSU + p)]),
+        .issue_req_valid_o  (vfu_issue_req_valid[(NofVLSU + p)]),
+        .issue_req_ready_i  (vfu_issue_req_ready[(NofVLSU + p)]),
+        .instr_exec_commit_o(vfu_exec_commit[(NofVLSU + p)]),
+        .result_i           (vfu_result[(NofVLSU + p)]),
+        .result_tag_i       (vfu_result_tag[(NofVLSU + p)]),
+        .result_valid_i     (vfu_result_valid[(NofVLSU + p)]),
+        .result_ready_o     (vfu_result_ready[(NofVLSU + p)]),
+        .wb_result_o        (vfu_arith_wb_result),
+        .wb_result_tag_o    (vfu_arith_wb_result_tag),
+        .wb_result_valid_o  (vfu_wbs_result_valid[(NofVLSU + p)]),
+        .wb_result_ready_i  (vfu_wbs_result_ready[(NofVLSU + p)]),
+        .available_results_o(vfu_arith_available_results[p]),
+        .op_reqs_o          (vfu_arith_op_reqs[p]),
+        .op_reqs_valid_o    (vfu_arith_op_reqs_valid[p]),
+        .op_reqs_ready_i    (vfu_arith_op_reqs_ready[p]),
+        .res_reqs_i         (vfu_arith_res_reqs[p]),
+        .res_reqs_valid_i   (vfu_arith_res_reqs_valid[p]),
+        .res_reqs_ready_o   (vfu_arith_res_reqs_ready[p]),
+        .res_rsps_o         (vfu_arith_res_rsps[p]),
+        .res_rsps_valid_o   (vfu_arith_res_rsps_valid[p]),
+        .res_rsps_ready_i   (vfu_arith_res_rsps_ready[p]),
+        .op_rsps_i          (vfu_arith_op_rsps[p]),
+        .op_rsps_valid_i    (vfu_arith_op_rsps_valid[p]),
+        .op_rsps_ready_o    (vfu_arith_op_rsps_ready[p])
+      );
 
-  assign acc_spatz_req = '{
-    id:        spatz_issue_req.tag.dest_reg,
-    data_op:   spatz_issue_req.fu_data.raw_instr,
-    data_arga: spatz_issue_req.fu_data.operand_a,
-    data_argb: spatz_issue_req.fu_data.operand_b,
-    data_argc: '0 // ignored, Spatz can receive at most two scalar values
-  };
+      assign vfu_wbs_result_and_tag[(NofVLSU + p)].result = vfu_arith_wb_result;
+      assign vfu_wbs_result_and_tag[(NofVLSU + p)].tag    = vfu_arith_wb_result_tag;
+      assign vfu_busy[(NofVLSU + p)] = ~vfu_issue_req_ready[(NofVLSU + p)];
+    end : gen_vfu_arith_blocks
 
-  assign spatz_result = acc_resp.data;
-  assign spatz_result_tag = '{
-    dest_reg: acc_resp.id,
-    dest_reg_is_fp: acc_resp.is_fp,
-    is_branch: '0,
-    is_jump: '0
-  };
+    // Internal TCDM channel signals (schnizo_vfu uses chan types internally)
+    localparam int unsigned VfuTCDMPorts = NofVLSU * NumMemPortsPerSpatz;
 
+    tcdm_req_chan_t [VfuTCDMPorts-1:0] vfu_tcdm_req_chan;
+    logic           [VfuTCDMPorts-1:0] vfu_tcdm_req_valid_chan;
+    logic           [VfuTCDMPorts-1:0] vfu_tcdm_req_ready_chan;
+    tcdm_rsp_chan_t [VfuTCDMPorts-1:0] vfu_tcdm_rsp_chan;
+    logic           [VfuTCDMPorts-1:0] vfu_tcdm_rsp_valid_chan;
 
+    // schnizo_vfu instance
+    schnizo_vfu #(
+      .NofVFU             (NofVFU),
+      .NofVLSU            (NofVLSU),
+      .NumFPUs            (NumSpatzFPUs),
+      .NumIPUs            (NumSpatzIPUs),
+      .FPUImplementation  (FPUImplementation),
+      .issue_req_t        (issue_req_t),
+      .tcdm_req_chan_t    (tcdm_req_chan_t),
+      .tcdm_rsp_chan_t    (tcdm_rsp_chan_t)
+    ) i_schnizo_vfu (
+      .clk_i,
+      .rst_i,
+      .issue_req_i        (vfu_issue_req),
+      .issue_req_valid_i  (vfu_issue_req_valid),
+      .issue_commit_i     (vfu_exec_commit),
+      .issue_req_ready_o  (vfu_issue_req_ready),
+      .result_o           (vfu_result),
+      .result_valid_o     (vfu_result_valid),
+      .result_ready_i     (vfu_result_ready),
+      .tag_o              (vfu_result_tag),
+      .tcdm_req_o         (vfu_tcdm_req_chan),
+      .tcdm_req_valid_o   (vfu_tcdm_req_valid_chan),
+      .tcdm_req_ready_i   (vfu_tcdm_req_ready_chan),
+      .tcdm_rsp_i         (vfu_tcdm_rsp_chan),
+      .tcdm_rsp_valid_i   (vfu_tcdm_rsp_valid_chan),
+      .busy_o             (/* covered by ~issue_req_ready per port */)
+    );
 
-  assign spatz_busy = !spatz_issue_req_ready; // if we cannot dispatch, we are busy
+    // Wire internal chan signals to external tcdm_req_t / tcdm_rsp_t ports
+    for (genvar p = 0; p < VfuTCDMPorts; p++) begin : gen_vfu_tcdm
+      assign vfu_tcdm_req_o[p] = '{
+        q      : vfu_tcdm_req_chan[p],
+        q_valid: vfu_tcdm_req_valid_chan[p]
+      };
+      assign vfu_tcdm_req_ready_chan[p] = vfu_tcdm_rsp_i[p].q_ready;
+      assign vfu_tcdm_rsp_chan[p]       = vfu_tcdm_rsp_i[p].p;
+      assign vfu_tcdm_rsp_valid_chan[p] = vfu_tcdm_rsp_i[p].p_valid;
+    end : gen_vfu_tcdm
 
-  tcdm_req_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_req;
-  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_req_valid;
-  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_req_ready;
-  tcdm_rsp_chan_t [NumMemPortsPerSpatz-1:0] spatz_mem_rsp;
-  logic           [NumMemPortsPerSpatz-1:0] spatz_mem_rsp_valid;
+    // WB arbiter ? merges all VFU-port results into a single writeback port
+    vfu_result_and_tag_t vfu_wb_result_and_tag_out;
+    stream_arbiter #(
+      .DATA_T  (vfu_result_and_tag_t),
+      .N_INP   (VfuNumFuPorts),
+      .ARBITER ("prio")
+    ) i_vfu_wb_arbiter (
+      .clk_i,
+      .rst_ni      (~rst_i),
+      .inp_data_i  (vfu_wbs_result_and_tag),
+      .inp_valid_i (vfu_wbs_result_valid),
+      .inp_ready_o (vfu_wbs_result_ready),
+      .oup_data_o  (vfu_wb_result_and_tag_out),
+      .oup_valid_o (vfu_wb_result_valid_o),
+      .oup_ready_i (vfu_wb_result_ready_i)
+    );
 
-  fpnew_pkg::status_t spatz_fpu_status;
+    assign vfu_wb_result_o   = vfu_wb_result_and_tag_out.result;
+    assign vfu_wb_result_tag_o = vfu_wb_result_and_tag_out.tag;
 
-  fpnew_pkg::fmt_mode_t spatz_fmt_mode;
-  assign spatz_fmt_mode = '{
-    src: spatz_issue_req.fu_data.fpu_fmt_src,
-    dst: spatz_issue_req.fu_data.fpu_fmt_dst
-  };
+    // VFU has no hardware-loop state machine; always signal finished
+    assign vfu_loop_finish_o = 1'b1;
 
-  spatz #(
-    .NrMemPorts         (4     ),
-    .NumOutstandingLoads(8),
-    .FPUImplementation  (FPUImplementation),
-    .RegisterRsp        ('0     ),
-    .dreq_t             (dreq_t                  ),
-    .drsp_t             (drsp_t                  ),
-    .spatz_mem_req_t    (tcdm_req_chan_t       ),
-    .spatz_mem_rsp_t    (tcdm_rsp_chan_t       ),
-    .spatz_issue_req_t  (spatz_issue_req_t         ),
-    .spatz_issue_rsp_t  (spatz_issue_rsp_t         ),
-    .spatz_rsp_t        (spatz_rsp_t               )
-  ) i_spatz (
-    .clk_i                   (clk_i                 ),
-    .rst_ni                  (~rst_i                ),
-    .testmode_i              ('0                    ),
-    .hart_id_i               (hard_id_i             ),
-    .issue_valid_i           (spatz_issue_req_valid  ),
-    .issue_ready_o           (spatz_issue_req_ready  ),
-    .issue_req_i             (acc_spatz_req        ), //Special care
-    .issue_rsp_o             (acc_spatz_resp       ), //Special care
-    .rsp_valid_o             (spatz_result_valid   ),
-    .rsp_ready_i             (spatz_result_ready   ),
-    .rsp_o                   (acc_resp              ), //Special care
-    .running_instrs_o        (spatz_running_instrs_o),
-    .spatz_mem_req_o         (spatz_mem_req         ),
-    .spatz_mem_req_valid_o   (spatz_mem_req_valid   ),
-    .spatz_mem_req_ready_i   (spatz_mem_req_ready   ),
-    .spatz_mem_rsp_i         (spatz_mem_rsp         ),
-    .spatz_mem_rsp_valid_i   (spatz_mem_rsp_valid   ),
-    .spatz_mem_finished_o    (    ),
-    .spatz_mem_str_finished_o(),
-    .fp_lsu_mem_req_o        (        ),
-    .fp_lsu_mem_rsp_i        ('0        ),
-    .fpu_rnd_mode_i          (spatz_issue_req.fu_data.fpu_rnd_mode),
-    .fpu_fmt_mode_i          (spatz_fmt_mode),
-    .fpu_status_o            (spatz_fpu_status)
-  );
+  end else begin : gen_no_rvv_block
 
-  // The first indices are assigned to the LSUs, the next to the SPATZ.
-   for (genvar p = 0; p < NumMemPortsPerSpatz; p++) begin: gen_tcdm_assignment
-    assign spatz_tcdm_req_o[p] = '{
-         q      : spatz_mem_req[p],
-         q_valid: spatz_mem_req_valid[p]
-       };
-    assign spatz_mem_req_ready[p] = spatz_tcdm_rsp_i[p].q_ready;
-
-    assign spatz_mem_rsp[p]       = spatz_tcdm_rsp_i[p].p;
-    assign spatz_mem_rsp_valid[p] = spatz_tcdm_rsp_i[p].p_valid;
-  end
-
-  end else begin
-
-    assign spatz_loop_finish_o = '1;
+    assign vfu_loop_finish_o      = 1'b1;
+    assign vfu_disp_reqs_ready_o  = '0;
+    assign vfu_disp_rsp_o         = '0;
+    assign vfu_rs_full_o          = '0;
+    assign vfu_wb_result_o        = '0;
+    assign vfu_wb_result_tag_o    = '0;
+    assign vfu_wb_result_valid_o  = 1'b0;
+    assign vfu_tcdm_req_o         = '0;
 
   end
 
@@ -1601,7 +1718,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish, &spatz_loop_finish_o};
+  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish, vfu_loop_finish_o};
 
   ////////////////////
   // Tracer helpers //
@@ -1623,7 +1740,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       fu_name = "FPU";
       fu_id = rs_id - NofAlus - NofLsus;
     end else begin
-      fu_name = "SPATZ";
+      fu_name = "VFU";
       fu_id = rs_id - NofAlus - NofLsus - NofFpus;
     end
 
@@ -1666,9 +1783,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       consumer = consumer - FpuOpIdOffset;
       fu_name = "FPU";
     end else begin
-      num_ops = SpatzNofOperands;
+      num_ops = VlsuNofOperands; // conservative: VLSU and VFU arith have same operand count
       consumer = consumer - SpatzOpIdOffset;
-      fu_name = "SPATZ";
+      fu_name = "VFU";
     end
 
     rs_id = consumer / num_ops;

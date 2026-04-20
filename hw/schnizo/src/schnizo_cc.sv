@@ -88,10 +88,12 @@ module schnizo_cc #(
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
-  // SPATZ specific parameters
+  // VFU specific parameters
   parameter int unsigned NumSpatzFPUs           = 4,
   parameter int unsigned NumSpatzIPUs           = 1,
-  /// Derived parameter for Spatz *Do not override*
+  parameter int unsigned NofVFU                 = 2,
+  parameter int unsigned NofVLSU                = 2,
+  /// Derived parameter *Do not override*
   parameter int unsigned NumSpatzFUs            = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
   parameter int unsigned NumMemPortsPerSpatz    = NumSpatzFUs,
   /// Add isochronous clock-domain crossings e.g., make it possible to operate
@@ -120,7 +122,7 @@ module schnizo_cc #(
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
   /// Derived parameter Spatz *Do not override*
-  parameter int unsigned TCDMPorts = RVV ? NumMemPortsPerSpatz + NumLsus : NumLsus,
+  parameter int unsigned TCDMPorts = RVV ? NofVLSU*NumMemPortsPerSpatz + NumLsus : NumLsus,
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
@@ -224,9 +226,9 @@ module schnizo_cc #(
   dreq_t [NofLsus-1:0] schnizo_dreq;
   drsp_t [NofLsus-1:0] schnizo_drsp;
 
-  // Spatz TDCM Interface
-  tcdm_req_t [NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_req;
-  tcdm_rsp_t [NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_rsp;
+  // VFU TCDM Interface
+  tcdm_req_t [NofVLSU*NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_req;
+  tcdm_rsp_t [NofVLSU*NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_rsp;
 
   if (RVV) begin
     assign tcdm_req_o[TCDMPorts-1 : NumLsus] = spatz_tcdm_req;
@@ -285,7 +287,9 @@ module schnizo_cc #(
     .RegisterFPUOut        (RegisterFPUOut),
     .RVV                   (RVV),
     .NumSpatzFPUs          (NumSpatzFPUs),
-    .NumSpatzIPUs          (NumSpatzIPUs)
+    .NumSpatzIPUs          (NumSpatzIPUs),
+    .NofVFU                (NofVFU),
+    .NofVLSU               (NofVLSU)
   ) i_schnizo (
     .clk_i           (clk_d2_i), // if necessary operate on half the frequency
     .rst_i           (~rst_ni),

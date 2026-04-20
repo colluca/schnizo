@@ -67,11 +67,13 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   parameter int unsigned AluNofRss       = 3,
   parameter int unsigned LsuNofRss       = 2,
   parameter int unsigned FpuNofRss       = 4,
-  parameter int unsigned SpatzNofRss     = 6,
+  parameter int unsigned VlsuNofRss      = 6,
+  parameter int unsigned VfuNofRss       = 6,
   parameter int unsigned AluNofConstants = 4,
   parameter int unsigned LsuNofConstants = 4,
   parameter int unsigned FpuNofConstants = 4,
-  parameter int unsigned SpatzNofConstants = 4,
+  parameter int unsigned VlsuNofConstants = 4,
+  parameter int unsigned VfuNofConstants  = 4,
   parameter bit          MulInAlu0       = 1'b1,
   /// Response XBAR configuration
   // TODO(colluca): either use int or integer, but consistently
@@ -98,20 +100,23 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   /// Register the signals directly after the FPnew instance
   parameter bit RegisterFPUOut = 0,
 
-  // SPATZ Parameters
+  // VFU Parameters
 
   parameter bit          RVV          = 1,
   parameter int unsigned NumSpatzFPUs = 4,
   parameter int unsigned NumSpatzIPUs = 1,
+  parameter int unsigned NofVFU       = 1,
+  parameter int unsigned NofVLSU      = 1,
 
 
   /// Derived parameter *Do not override*
   parameter int unsigned NumSpatzFUs         = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
   parameter int unsigned NumMemPortsPerSpatz = NumSpatzFUs,
-  parameter int unsigned TCDMPorts           = RVV ? NumMemPortsPerSpatz + NofLsus : NofLsus,
+  parameter int unsigned TCDMPorts           = RVV ? NofVLSU*NumMemPortsPerSpatz + NofLsus : NofLsus,
 
   localparam type addr_t = logic [AddrWidth-1:0],
-  localparam type data_t = logic [DataWidth-1:0]
+  localparam type data_t = logic [DataWidth-1:0],
+  localparam int unsigned VfuNumFuPorts = NofVFU + NofVLSU
 ) (
   input  logic          clk_i,
   input  logic          rst_i,
@@ -149,9 +154,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   output logic barrier_o,
   input  logic barrier_i,
 
-  // SPATZ TCDM Ports
-  output tcdm_req_t    [NumMemPortsPerSpatz-1:0] tcdm_req_o,
-  input  tcdm_rsp_t    [NumMemPortsPerSpatz-1:0] tcdm_rsp_i
+  // VFU TCDM Ports
+  output tcdm_req_t    [NofVLSU*NumMemPortsPerSpatz-1:0] tcdm_req_o,
+  input  tcdm_rsp_t    [NofVLSU*NumMemPortsPerSpatz-1:0] tcdm_rsp_i
 );
 
   ///////////////////////
@@ -265,7 +270,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofOperands = 3;
-  localparam integer unsigned SpatzNofOperands = 2;
+  localparam integer unsigned VlsuNofOperands = 2;
+  localparam integer unsigned VfuNofOperands  = 2;
 
   // ---------------------------
   // Operand distribution network definitions
@@ -297,7 +303,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperands +
                                               NofLsus * LsuNofOperands +
                                               NofFpus * FpuNofOperands +
-                                              (RVV ? SpatzNofOperands : 0);
+                                              (RVV ? NofVLSU * VlsuNofOperands + NofVFU * VfuNofOperands : 0);
 
   // We differentiate between result requests and result responses.
   // Each reservation station has a result request crossbar output which is shared among the slots.
@@ -307,19 +313,22 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   localparam integer unsigned AluNofResReqIfs = 1;
   localparam integer unsigned LsuNofResReqIfs = 1;
   localparam integer unsigned FpuNofResReqIfs = 1;
-  localparam integer unsigned SpatzNofResReqIfs = RVV ? 1 : 0;
+  localparam integer unsigned SpatzNofResReqIfs = RVV ? 1 : 0; // per VFU FU-block port
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
                                              NofFpus * FpuNofResReqIfs +
-                                             SpatzNofResReqIfs;
-  localparam integer unsigned SpatzNofResRspPorts = RVV ? 1 : 0;
+                                             VfuNumFuPorts * SpatzNofResReqIfs;
+  localparam integer unsigned VlsuNofResRspPorts = RVV ? 1 : 0;
+  localparam integer unsigned VfuNofResRspPorts  = RVV ? 1 : 0;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
   localparam integer unsigned NofResReqIfsW  = cf_math_pkg::idx_width(NofResReqIfs);
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
+
+  localparam int unsigned MaxVfuNofRss = cf_math_pkg::max(VlsuNofRss, VfuNofRss);
 
   localparam int unsigned MaxNofRss =
     RVV
@@ -329,7 +338,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
               LsuNofRss,
               cf_math_pkg::max(
                   FpuNofRss,
-                  SpatzNofRss
+                  MaxVfuNofRss
               )
           )
       )
@@ -558,8 +567,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   logic [FrepMaxItersWidth-1:0] lep_iterations;
   logic                         all_rs_finish;
 
-  logic spatz_running_instrs;
-
   schnizo_controller #(
     .Xfrep          (Xfrep),
     .XLEN           (XLEN),
@@ -628,7 +635,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .gpr_waddr_i            (gpr_waddr),
     .fpr_we_i               (fpr_we),
     .fpr_waddr_i            (fpr_waddr),
-    .spatz_running_instrs_i (RVV ? spatz_running_instrs : '0)
+    .spatz_running_instrs_i ('0)
 );
 
   //////////////
@@ -652,11 +659,30 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
   logic      [NofFpus-1:0] fpu_rs_full;
 
-  // SPATZ
-  logic                   spatz_disp_req_valid;
-  logic                   spatz_disp_req_ready;
-  disp_rsp_t              spatz_disp_rsp;
-  logic                   spatz_rs_full;
+  // VFU fu_stage dispatch signals ? sized for VfuNumFuPorts ports
+  // Ports [0..NofVLSU-1] feed the VLSU FU-blocks; [NofVLSU..VfuNumFuPorts-1] feed VFU FU-blocks.
+  logic      [VfuNumFuPorts-1:0] vfu_disp_req_valid;
+  logic      [VfuNumFuPorts-1:0] vfu_disp_req_ready;
+  disp_rsp_t [VfuNumFuPorts-1:0] vfu_disp_rsp;
+  logic      [VfuNumFuPorts-1:0] vfu_rs_full;
+  // Per-type arrays from dispatcher (NofVLSU / NofVFU wide)
+  logic      [NofVLSU-1:0] vlsu_disp_req_valid;
+  logic      [NofVLSU-1:0] vlsu_disp_req_ready;
+  disp_rsp_t [NofVLSU-1:0] vlsu_disp_rsp;
+  logic      [NofVLSU-1:0] vlsu_rs_full;
+  logic      [NofVFU-1:0]  vfu_arith_disp_req_valid;
+  logic      [NofVFU-1:0]  vfu_arith_disp_req_ready;
+  disp_rsp_t [NofVFU-1:0]  vfu_arith_disp_rsp;
+  logic      [NofVFU-1:0]  vfu_arith_rs_full;
+  // Wire VLSU ports to fu_stage ports [0..NofVLSU-1] and VFU to [NofVLSU..VfuNumFuPorts-1]
+  assign vfu_disp_req_valid[NofVLSU-1:0]          = vlsu_disp_req_valid;
+  assign vfu_disp_req_valid[VfuNumFuPorts-1:NofVLSU] = vfu_arith_disp_req_valid;
+  assign vlsu_disp_req_ready                       = vfu_disp_req_ready[NofVLSU-1:0];
+  assign vfu_arith_disp_req_ready                  = vfu_disp_req_ready[VfuNumFuPorts-1:NofVLSU];
+  assign vlsu_disp_rsp                             = vfu_disp_rsp[NofVLSU-1:0];
+  assign vfu_arith_disp_rsp                        = vfu_disp_rsp[VfuNumFuPorts-1:NofVLSU];
+  assign vlsu_rs_full                              = vfu_rs_full[NofVLSU-1:0];
+  assign vfu_arith_rs_full                         = vfu_rs_full[VfuNumFuPorts-1:NofVLSU];
 
   schnizo_dispatcher #(
     .RegAddrSize(RegAddrSize),
@@ -668,7 +694,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
     .fu_data_t  (fu_data_t),
-    .acc_req_t  (acc_req_t)
+    .acc_req_t  (acc_req_t),
+    .NofVLSU    (NofVLSU),
+    .NofVFU     (NofVFU)
   ) i_dispatcher (
     .clk_i,
     .rst_i,
@@ -698,11 +726,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
     .fpu_rs_full_i       (fpu_rs_full),
-    // SPATZ
-    .spatz_disp_req_valid_o(spatz_disp_req_valid),
-    .spatz_disp_req_ready_i(spatz_disp_req_ready),
-    .spatz_disp_rsp_i      (spatz_disp_rsp),
-    .spatz_rs_full_i       (spatz_rs_full),
+    // VLSU (vector loads/stores) ? NofVLSU ports
+    .vlsu_disp_req_valid_o(vlsu_disp_req_valid),
+    .vlsu_disp_req_ready_i(vlsu_disp_req_ready),
+    .vlsu_disp_rsp_i      (vlsu_disp_rsp),
+    .vlsu_rs_full_i       (vlsu_rs_full),
+    // VFU arithmetic ? NofVFU ports
+    .vfu_disp_req_valid_o (vfu_arith_disp_req_valid),
+    .vfu_disp_req_ready_i (vfu_arith_disp_req_ready),
+    .vfu_disp_rsp_i       (vfu_arith_disp_rsp),
+    .vfu_rs_full_i        (vfu_arith_rs_full),
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
@@ -736,11 +769,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   logic            fpu_result_ready;
   instr_tag_t      fpu_result_tag;
 
-  // SPATZ
-  logic            spatz_result_valid;
-  logic            spatz_result_ready;
-  instr_tag_t      spatz_result_tag;
-  logic [FLEN-1:0] spatz_result;
+  // VFU WB
+  logic            vfu_result_valid;
+  logic            vfu_result_ready;
+  instr_tag_t      vfu_result_tag;
+  logic [FLEN-1:0] vfu_result;
 
   // Trace signals
   // pragma translate_off
@@ -773,11 +806,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .FpuNofOperands     (FpuNofOperands),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
     .FpuNofResRspPorts  (FpuNofResRspPorts),
-    .SpatzNofRss        (SpatzNofRss),
-    .SpatzNofConstants  (SpatzNofConstants),
-    .SpatzNofOperands   (SpatzNofOperands),
-    .SpatzNofResReqIfs  (SpatzNofResReqIfs),
-    .SpatzNofResRspPorts(SpatzNofResRspPorts),
+    .VlsuNofRss         (VlsuNofRss),
+    .VlsuNofConstants   (VlsuNofConstants),
+    .VlsuNofOperands    (VlsuNofOperands),
+    .VlsuNofResRspPorts (VlsuNofResRspPorts),
+    .VfuNofRss          (VfuNofRss),
+    .VfuNofConstants    (VfuNofConstants),
+    .VfuNofOperands     (VfuNofOperands),
+    .VfuNofResRspPorts  (VfuNofResRspPorts),
+    .NofVFU             (NofVFU),
+    .NofVLSU            (NofVLSU),
     .NofOperandIfs      (NofOperandIfs),
     .NofResReqIfs       (NofResReqIfs),
     .XLEN               (XLEN),
@@ -871,12 +909,12 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .fpu_status_o         (fpu_status),
     .fpu_status_valid_o   (fpu_status_valid),
 
-    // SPATZ
-    .spatz_disp_reqs_valid_i(spatz_disp_req_valid),
-    .spatz_disp_reqs_ready_o(spatz_disp_req_ready),
-    .spatz_disp_rsp_o      (spatz_disp_rsp),
-    .spatz_loop_finish_o   (), // unused because of all_rs_finish_i TODO: Capire meglio
-    .spatz_rs_full_o       (spatz_rs_full),
+    // VFU
+    .vfu_disp_reqs_valid_i(vfu_disp_req_valid),
+    .vfu_disp_reqs_ready_o(vfu_disp_req_ready),
+    .vfu_disp_rsp_o       (vfu_disp_rsp),
+    .vfu_loop_finish_o    (),
+    .vfu_rs_full_o        (vfu_rs_full),
 
     // ALU WB
     .alu_wb_result_o      (alu_result),
@@ -894,17 +932,15 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .fpu_wb_result_tag_o  (fpu_result_tag),
     .fpu_wb_result_valid_o(fpu_result_valid),
     .fpu_wb_result_ready_i(fpu_result_ready),
-    // SPATZ WB
-    .spatz_wb_result_o      (spatz_result),
-    .spatz_wb_result_tag_o  (spatz_result_tag),
-    .spatz_wb_result_valid_o(spatz_result_valid),
-    .spatz_wb_result_ready_i(spatz_result_ready),
+    // VFU WB
+    .vfu_wb_result_o      (vfu_result),
+    .vfu_wb_result_tag_o  (vfu_result_tag),
+    .vfu_wb_result_valid_o(vfu_result_valid),
+    .vfu_wb_result_ready_i(vfu_result_ready),
 
-    .spatz_running_instrs_o (spatz_running_instrs),
-
-    // SPATZ TCDM interface
-    .spatz_tcdm_req_o       (tcdm_req_o),
-    .spatz_tcdm_rsp_i       (tcdm_rsp_i)
+    // VFU TCDM interface
+    .vfu_tcdm_req_o       (tcdm_req_o),
+    .vfu_tcdm_rsp_i       (tcdm_rsp_i)
   );
 
   // CSR FU & register file
@@ -1024,11 +1060,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .fpu_result_tag_i  (fpu_result_tag),
     .fpu_result_valid_i(fpu_result_valid),
     .fpu_result_ready_o(fpu_result_ready),
-    // SPATZ interface
-    .spatz_result_i      (spatz_result),
-    .spatz_result_tag_i  (spatz_result_tag),
-    .spatz_result_valid_i(spatz_result_valid),
-    .spatz_result_ready_o(spatz_result_ready),
+    // VFU WB interface
+    .spatz_result_i      (vfu_result),
+    .spatz_result_tag_i  (vfu_result_tag),
+    .spatz_result_valid_i(vfu_result_valid),
+    .spatz_result_ready_o(vfu_result_ready),
     // Accelerator interface
     .acc_result_i      (acc_result),
     .acc_result_tag_i  (acc_result_tag),
@@ -1132,526 +1168,526 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   // pragma translate_off
 
   // Core and dispatch traces
-  schnizo_core_trace_t     core_trace;
-  schnizo_dispatch_trace_t dispatch_trace;
-  int unsigned             dispatch_rs_id;
+  // schnizo_core_trace_t     core_trace;
+  // schnizo_dispatch_trace_t dispatch_trace;
+  // int unsigned             dispatch_rs_id;
 
-  // Traces for regular execution
-  issue_csr_trace_t csr_trace;
-  issue_acc_trace_t acc_trace;
-  issue_spatz_trace_t spatz_trace;
+  // // Traces for regular execution
+  // issue_csr_trace_t csr_trace;
+  // issue_acc_trace_t acc_trace;
+  // issue_spatz_trace_t spatz_trace;
 
-  // Traces for RSS issues
-  issue_alu_trace_t rss_alu_traces [NofAlus][AluNofRss];
-  // TODO(colluca): probably we should remove the traces altogether in if LSU has no Xfrep (i.e. NofRss==0)
-  issue_lsu_trace_t rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
-  issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
-  issue_spatz_trace_t rss_spatz_traces [SpatzNofRss];
+  // // Traces for RSS issues
+  // issue_alu_trace_t rss_alu_traces [NofAlus][AluNofRss];
+  // // TODO(colluca): probably we should remove the traces altogether in if LSU has no Xfrep (i.e. NofRss==0)
+  // issue_lsu_trace_t rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
+  // issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
+  // issue_spatz_trace_t rss_spatz_traces [SpatzNofRss];
 
-  // Traces for retirements
-  retire_fu_trace_t csr_retirement;
-  retire_fu_trace_t acc_retirement;
-  internal_retire_spatz_trace_t spatz_retirement [NrParallelInstructions];
-  // Traces for writeback (regular and RSS)
-  wb_fu_trace_t alu_wb_trace;
-  wb_fu_trace_t lsu_wb_trace;
-  wb_fu_trace_t fpu_wb_trace;
-  wb_fu_trace_t csr_wb_trace;
-  wb_fu_trace_t acc_wb_trace;
-  wb_fu_trace_t spatz_wb_trace;
-  // Traces for result requests (each RSS has one signal per request crossbar output)
-  resreq_trace_t alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs];
-  resreq_trace_t lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
-  resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
-  resreq_trace_t spatz_resreq_traces [SpatzNofRss][NofOperandIfs];
+  // // Traces for retirements
+  // retire_fu_trace_t csr_retirement;
+  // retire_fu_trace_t acc_retirement;
+  // internal_retire_spatz_trace_t spatz_retirement [NrParallelInstructions];
+  // // Traces for writeback (regular and RSS)
+  // wb_fu_trace_t alu_wb_trace;
+  // wb_fu_trace_t lsu_wb_trace;
+  // wb_fu_trace_t fpu_wb_trace;
+  // wb_fu_trace_t csr_wb_trace;
+  // wb_fu_trace_t acc_wb_trace;
+  // wb_fu_trace_t spatz_wb_trace;
+  // // Traces for result requests (each RSS has one signal per request crossbar output)
+  // resreq_trace_t alu_resreq_traces [NofAlus][AluNofRss][NofOperandIfs];
+  // resreq_trace_t lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
+  // resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofRss][NofOperandIfs];
+  // resreq_trace_t spatz_resreq_traces [SpatzNofRss][NofOperandIfs];
 
-  // Traces for result captures (each RSS has one signal)
-  rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
-  rescap_trace_t lsu_rescap_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
-  rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
-  rescap_trace_t spatz_rescap_traces [SpatzNofRss];
+  // // Traces for result captures (each RSS has one signal)
+  // rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
+  // rescap_trace_t lsu_rescap_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
+  // rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
+  // rescap_trace_t spatz_rescap_traces [SpatzNofRss];
 
-  // Internal traces for SPATZ
+  // // Internal traces for SPATZ
 
-  internal_issue_spatz_trace_t internal_spatz_traces [NrParallelInstructions];
+  // internal_issue_spatz_trace_t internal_spatz_traces [NrParallelInstructions];
 
-  op_e spatz_instrs_names [NrParallelInstructions];
+  // op_e spatz_instrs_names [NrParallelInstructions];
 
-  if (RVV) begin: gen_rvv_instr_names
-    always_comb begin
-      for(int i = 0; i < NrParallelInstructions; i++) begin
-          spatz_instrs_names[i] = i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.op;
-      end
-    end
-  end
+  // if (RVV) begin: gen_rvv_instr_names
+  //   always_comb begin
+  //     for(int i = 0; i < NrParallelInstructions; i++) begin
+  //         spatz_instrs_names[i] = i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.op;
+  //     end
+  //   end
+  // end
 
-  assign core_trace = '{
-    priv_level: priv_lvl,
-    state:      loop_state,
-    iteration:  loop_iteration,
-    stall:      stall,
-    exception:  exception
-  };
+  // assign core_trace = '{
+  //   priv_level: priv_lvl,
+  //   state:      loop_state,
+  //   iteration:  loop_iteration,
+  //   stall:      stall,
+  //   exception:  exception
+  // };
 
-  assign dispatch_trace = '{
-    valid:        i_controller.instr_dispatched || exception,
-    pc_q:         i_controller.pc_q,
-    pc_d:         i_controller.pc_d,
-    instr_data:   instr_fetch_data_i,
-    rs1:          instr_decoded.rs1,
-    rs2:          instr_decoded.rs2,
-    rs3:          instr_decoded.imm, // fused FPU instructions use imm as operand
-    rd:           instr_decoded.rd,
-    rs1_is_fp:    instr_decoded.rs1_is_fp,
-    rs2_is_fp:    instr_decoded.rs2_is_fp,
-    rd_is_fp:     instr_decoded.rd_is_fp,
-    is_branch:    instr_decoded.is_branch,
-    branch_taken: alu_result.compare_res,
-    fu_type:      schnizo_pkg::fu_to_string(instr_decoded.fu),
-    disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response.producer)
-  };
+  // assign dispatch_trace = '{
+  //   valid:        i_controller.instr_dispatched || exception,
+  //   pc_q:         i_controller.pc_q,
+  //   pc_d:         i_controller.pc_d,
+  //   instr_data:   instr_fetch_data_i,
+  //   rs1:          instr_decoded.rs1,
+  //   rs2:          instr_decoded.rs2,
+  //   rs3:          instr_decoded.imm, // fused FPU instructions use imm as operand
+  //   rd:           instr_decoded.rd,
+  //   rs1_is_fp:    instr_decoded.rs1_is_fp,
+  //   rs2_is_fp:    instr_decoded.rs2_is_fp,
+  //   rd_is_fp:     instr_decoded.rd_is_fp,
+  //   is_branch:    instr_decoded.is_branch,
+  //   branch_taken: alu_result.compare_res,
+  //   fu_type:      schnizo_pkg::fu_to_string(instr_decoded.fu),
+  //   disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response.producer)
+  // };
 
-  assign dispatch_rs_id = i_dispatcher.fu_response.producer.rs_id;
+  // assign dispatch_rs_id = i_dispatcher.fu_response.producer.rs_id;
 
-  for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
-    // Issue and rescap traces: one per RSS slot
-    for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
-      // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_alu_traces_rss_trace
-        assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
-                          // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
-                          // after porting issue slots to SRAM
-          instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
-          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
-        };
-        assign alu_rescap_traces[alu][rss] = '{
-          // TODO(colluca): this combined signal should be derived inside the slot, not here. Do the same for other logic
-          // sparse here in the tracer.
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
-                          !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-          result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
-          rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
-          rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
-          result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
-        };
-      end else begin : gen_alu_traces_rss_no_trace
-        assign rss_alu_traces[alu][rss]    = '{default: '0};
-        assign alu_rescap_traces[alu][rss] = '{default: '0};
-      end
-      // verilog_lint: waive-stop line-length
-    end
-    // Resreq traces: one per response port
-    for (genvar port = 0; port < AluNofResRspPorts; port++) begin : gen_alu_traces_rsp_ports
-      // verilog_lint: waive-start line-length
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rsp_port_resreq
-        if (Xfrep) begin : gen_alu_traces_rsp_port_resreq_frep
-          assign alu_resreq_traces[alu][port][con] = '{
-            valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
-                            i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
-            producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
-                                i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
-            consumer:       i_fu_stage.consumer_to_string(con),
-            // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
-                              i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
-          };
-        end else begin : gen_alu_traces_rsp_port_no_resreq
-          assign alu_resreq_traces[alu][port][con] = '{default: '0};
-        end
-      end
-      // verilog_lint: waive-stop line-length
-    end
-  end
+  // for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
+  //   // Issue and rescap traces: one per RSS slot
+  //   for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
+  //     // verilog_lint: waive-start line-length
+  //     if (Xfrep) begin : gen_alu_traces_rss_trace
+  //       assign rss_alu_traces[alu][rss] = '{
+  //         valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+  //                         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+  //                         (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
+  //                         // TODO(colluca): this only applies to the currently selected slot, this model no longer applies
+  //                         // after porting issue slots to SRAM
+  //         instr_iter:     i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
+  //         producer:       i_fu_stage.producer_to_string(
+  //                           i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //         alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
+  //         alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
+  //       };
+  //       assign alu_rescap_traces[alu][rss] = '{
+  //         // TODO(colluca): this combined signal should be derived inside the slot, not here. Do the same for other logic
+  //         // sparse here in the tracer.
+  //         valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
+  //                         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
+  //                         !i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
+  //                         (i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
+  //         producer:       i_fu_stage.producer_to_string(
+  //                           i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //         result_iter:    i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
+  //         rd:             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
+  //         rd_is_fp:       i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
+  //         result:         i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
+  //       };
+  //     end else begin : gen_alu_traces_rss_no_trace
+  //       assign rss_alu_traces[alu][rss]    = '{default: '0};
+  //       assign alu_rescap_traces[alu][rss] = '{default: '0};
+  //     end
+  //     // verilog_lint: waive-stop line-length
+  //   end
+  //   // Resreq traces: one per response port
+  //   for (genvar port = 0; port < AluNofResRspPorts; port++) begin : gen_alu_traces_rsp_ports
+  //     // verilog_lint: waive-start line-length
+  //     // each consumer can place a result request simultaneously
+  //     for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_alu_traces_rsp_port_resreq
+  //       if (Xfrep) begin : gen_alu_traces_rsp_port_resreq_frep
+  //         assign alu_resreq_traces[alu][port][con] = '{
+  //           valid:          i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+  //                           i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+  //                           i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
+  //           producer:       i_fu_stage.producer_to_string(
+  //                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+  //                               i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
+  //           consumer:       i_fu_stage.consumer_to_string(con),
+  //           // we only forward requests which we can serve. Thus we can take the current result iteration.
+  //           requested_iter: i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
+  //                             i_fu_stage.gen_alus[alu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
+  //         };
+  //       end else begin : gen_alu_traces_rsp_port_no_resreq
+  //         assign alu_resreq_traces[alu][port][con] = '{default: '0};
+  //       end
+  //     end
+  //     // verilog_lint: waive-stop line-length
+  //   end
+  // end
 
-  for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsu_traces
-    // Issue and rescap traces: one per RSS slot
-    for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
-      // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_lsu_traces_rss_trace
-        assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
-          instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-          // Directly access the LSU because theses signals are decoded in the LSU. This requires
-          // that there is no cut between the RSS and the LSU.
-          lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
-          lsu_is_float:   i_fu_stage.gen_lsus[lsu].i_lsu.do_nan_boxing, // misuse this signal
-          lsu_is_load:    !i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
-          lsu_is_store:   i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
-          lsu_addr:       i_fu_stage.gen_lsus[lsu].i_lsu.address_sys,
-          lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
-          lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
-        };
-        assign lsu_rescap_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
-                          !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-          result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
-          rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
-          rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
-          result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
-        };
-      end else begin : gen_lsu_traces_rss_no_trace
-        assign rss_lsu_traces[lsu][rss]    = '{default: '0};
-        assign lsu_rescap_traces[lsu][rss] = '{default: '0};
-      end
-      // verilog_lint: waive-stop line-length
-    end
-    // Resreq traces: one per response port
-    for (genvar port = 0; port < LsuNofResRspPorts; port++) begin : gen_lsu_traces_rsp_ports
-      // verilog_lint: waive-start line-length
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rsp_port_resreq
-        if (Xfrep) begin : gen_lsu_traces_rsp_port_resreq_frep
-          assign lsu_resreq_traces[lsu][port][con] = '{
-            valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
-            producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
-                                i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
-            consumer:       i_fu_stage.consumer_to_string(con),
-            // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
-                              i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
-          };
-        end else begin : gen_lsu_traces_rsp_port_no_resreq
-          assign lsu_resreq_traces[lsu][port][con] = '{default: '0};
-        end
-      end
-      // verilog_lint: waive-stop line-length
-    end
-  end
+  // for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsu_traces
+  //   // Issue and rescap traces: one per RSS slot
+  //   for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
+  //     // verilog_lint: waive-start line-length
+  //     if (Xfrep) begin : gen_lsu_traces_rss_trace
+  //       assign rss_lsu_traces[lsu][rss] = '{
+  //         valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+  //                         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+  //                         (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
+  //         instr_iter:     i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
+  //         producer:       i_fu_stage.producer_to_string(
+  //                           i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //         // Directly access the LSU because theses signals are decoded in the LSU. This requires
+  //         // that there is no cut between the RSS and the LSU.
+  //         lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
+  //         lsu_is_float:   i_fu_stage.gen_lsus[lsu].i_lsu.do_nan_boxing, // misuse this signal
+  //         lsu_is_load:    !i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+  //         lsu_is_store:   i_fu_stage.gen_lsus[lsu].i_lsu.is_store,
+  //         lsu_addr:       i_fu_stage.gen_lsus[lsu].i_lsu.address_sys,
+  //         lsu_size:       i_fu_stage.gen_lsus[lsu].i_lsu.ls_size,
+  //         lsu_amo:        i_fu_stage.gen_lsus[lsu].i_lsu.ls_amo
+  //       };
+  //       assign lsu_rescap_traces[lsu][rss] = '{
+  //         valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
+  //                         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
+  //                         !i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
+  //                         (i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
+  //         producer:       i_fu_stage.producer_to_string(
+  //                           i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //         result_iter:    i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
+  //         rd:             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
+  //         rd_is_fp:       i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
+  //         result:         i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
+  //       };
+  //     end else begin : gen_lsu_traces_rss_no_trace
+  //       assign rss_lsu_traces[lsu][rss]    = '{default: '0};
+  //       assign lsu_rescap_traces[lsu][rss] = '{default: '0};
+  //     end
+  //     // verilog_lint: waive-stop line-length
+  //   end
+  //   // Resreq traces: one per response port
+  //   for (genvar port = 0; port < LsuNofResRspPorts; port++) begin : gen_lsu_traces_rsp_ports
+  //     // verilog_lint: waive-start line-length
+  //     // each consumer can place a result request simultaneously
+  //     for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_lsu_traces_rsp_port_resreq
+  //       if (Xfrep) begin : gen_lsu_traces_rsp_port_resreq_frep
+  //         assign lsu_resreq_traces[lsu][port][con] = '{
+  //           valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+  //                           i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+  //                           i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
+  //           producer:       i_fu_stage.producer_to_string(
+  //                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+  //                               i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
+  //           consumer:       i_fu_stage.consumer_to_string(con),
+  //           // we only forward requests which we can serve. Thus we can take the current result iteration.
+  //           requested_iter: i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
+  //                             i_fu_stage.gen_lsus[lsu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
+  //         };
+  //       end else begin : gen_lsu_traces_rsp_port_no_resreq
+  //         assign lsu_resreq_traces[lsu][port][con] = '{default: '0};
+  //       end
+  //     end
+  //     // verilog_lint: waive-stop line-length
+  //   end
+  // end
 
-  for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpu_traces
-    // Issue and rescap traces: one per RSS slot
-    for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
-      // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_fpu_traces_rss_trace
-        assign rss_fpu_traces[fpu][rss] = '{
-          valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
-                       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
-          instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
-          producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
-          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b,
-          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.imm,
-          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.fpu_fmt_src,
-          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.fpu_fmt_dst,
-          // Directly access the FPU because theses signals are decoded in the FPU. This requires
-          // that there is no cut between the RSS and the FPU.
-          fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
-        };
-        assign fpu_rescap_traces[fpu][rss] = '{
-          valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
-                          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
-                          !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
-                          (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-          result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
-          rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
-          rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
-          result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
-        };
-      end else begin : gen_fpu_traces_rss_no_trace
-        assign rss_fpu_traces[fpu][rss]    = '{default: '0};
-        assign fpu_rescap_traces[fpu][rss] = '{default: '0};
-      end
-      // verilog_lint: waive-stop line-length
-    end
-    // Resreq traces: one per response port
-    for (genvar port = 0; port < FpuNofResRspPorts; port++) begin : gen_fpu_traces_rsp_ports
-      // verilog_lint: waive-start line-length
-      // each consumer can place a result request simultaneously
-      for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rsp_port_resreq
-        if (Xfrep) begin : gen_fpu_traces_rsp_port_resreq_frep
-          assign fpu_resreq_traces[fpu][port][con] = '{
-            valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
-                            i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
-            producer:       i_fu_stage.producer_to_string(
-                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
-                                i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
-            consumer:       i_fu_stage.consumer_to_string(con),
-            // we only forward requests which we can serve. Thus we can take the current result iteration.
-            requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
-                              i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
-          };
-        end else begin : gen_fpu_traces_rsp_port_no_resreq
-          assign fpu_resreq_traces[fpu][port][con] = '{default: '0};
-        end
-      end
-      // verilog_lint: waive-stop line-length
-    end
-  end
+  // for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpu_traces
+  //   // Issue and rescap traces: one per RSS slot
+  //   for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
+  //     // verilog_lint: waive-start line-length
+  //     if (Xfrep) begin : gen_fpu_traces_rss_trace
+  //       assign rss_fpu_traces[fpu][rss] = '{
+  //         valid:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+  //                      i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+  //                     (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
+  //         instr_iter:  i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
+  //         producer:    i_fu_stage.producer_to_string(
+  //                       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //         fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
+  //         fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b,
+  //         fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.imm,
+  //         fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.fpu_fmt_src,
+  //         fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.fpu_fmt_dst,
+  //         // Directly access the FPU because theses signals are decoded in the FPU. This requires
+  //         // that there is no cut between the RSS and the FPU.
+  //         fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
+  //       };
+  //       assign fpu_rescap_traces[fpu][rss] = '{
+  //         valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
+  //                         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
+  //                         !i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
+  //                         (i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
+  //         producer:       i_fu_stage.producer_to_string(
+  //                           i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //         result_iter:    i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
+  //         rd:             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
+  //         rd_is_fp:       i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
+  //         result:         i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
+  //       };
+  //     end else begin : gen_fpu_traces_rss_no_trace
+  //       assign rss_fpu_traces[fpu][rss]    = '{default: '0};
+  //       assign fpu_rescap_traces[fpu][rss] = '{default: '0};
+  //     end
+  //     // verilog_lint: waive-stop line-length
+  //   end
+  //   // Resreq traces: one per response port
+  //   for (genvar port = 0; port < FpuNofResRspPorts; port++) begin : gen_fpu_traces_rsp_ports
+  //     // verilog_lint: waive-start line-length
+  //     // each consumer can place a result request simultaneously
+  //     for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_fpu_traces_rsp_port_resreq
+  //       if (Xfrep) begin : gen_fpu_traces_rsp_port_resreq_frep
+  //         assign fpu_resreq_traces[fpu][port][con] = '{
+  //           valid:          i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+  //                           i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+  //                           i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
+  //           producer:       i_fu_stage.producer_to_string(
+  //                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+  //                               i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
+  //           consumer:       i_fu_stage.consumer_to_string(con),
+  //           // we only forward requests which we can serve. Thus we can take the current result iteration.
+  //           requested_iter: i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.available_results_o[
+  //                             i_fu_stage.gen_fpus[fpu].i_fu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
+  //         };
+  //       end else begin : gen_fpu_traces_rsp_port_no_resreq
+  //         assign fpu_resreq_traces[fpu][port][con] = '{default: '0};
+  //       end
+  //     end
+  //     // verilog_lint: waive-stop line-length
+  //   end
+  // end
 
-  // SPATZ Traces
-  generate
-    if (RVV) begin : gen_spatz_trace
-      assign spatz_trace = '{
-        valid:       i_fu_stage.gen_rvv_block.spatz_issue_req_valid &&
-                      i_fu_stage.gen_rvv_block.spatz_issue_req_ready,
-        instr_iter:  '0, // does not apply in regular execution
-        producer: "SPATZ", // There is no address on the response.
-        spatz_opa: i_fu_stage.gen_rvv_block.spatz_issue_req.fu_data.operand_a,
-        spatz_opb: i_fu_stage.gen_rvv_block.spatz_issue_req.fu_data.operand_b,
-        internal_spatz_id: i_fu_stage.gen_rvv_block.i_spatz.i_controller.next_insn_id
-      };
-    end else begin : gen_spatz_trace_empty
-      assign spatz_trace = '{default: '0};;
-    end
-  endgenerate
+  // // SPATZ Traces
+  // generate
+  //   if (RVV) begin : gen_spatz_trace
+  //     assign spatz_trace = '{
+  //       valid:       i_fu_stage.gen_rvv_block.spatz_issue_req_valid &&
+  //                     i_fu_stage.gen_rvv_block.spatz_issue_req_ready,
+  //       instr_iter:  '0, // does not apply in regular execution
+  //       producer: "SPATZ", // There is no address on the response.
+  //       spatz_opa: i_fu_stage.gen_rvv_block.spatz_issue_req.fu_data.operand_a,
+  //       spatz_opb: i_fu_stage.gen_rvv_block.spatz_issue_req.fu_data.operand_b,
+  //       internal_spatz_id: i_fu_stage.gen_rvv_block.i_spatz.i_controller.next_insn_id
+  //     };
+  //   end else begin : gen_spatz_trace_empty
+  //     assign spatz_trace = '{default: '0};;
+  //   end
+  // endgenerate
 
-  if (RVV) begin: gen_rvv_traces
-  always_comb begin : spatz_retirement_trace
+  // if (RVV) begin: gen_rvv_traces
+  // always_comb begin : spatz_retirement_trace
 
-    for(int i = 0; i < NrParallelInstructions; i++) begin
-      spatz_retirement[i] = '{
-        valid:    1'b0,
-        id: i
-      };
-    end
+  //   for(int i = 0; i < NrParallelInstructions; i++) begin
+  //     spatz_retirement[i] = '{
+  //       valid:    1'b0,
+  //       id: i
+  //     };
+  //   end
 
-    if (i_fu_stage.gen_rvv_block.i_spatz.vfu_rsp_valid) begin
-      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vfu_rsp.id].valid    = 1'b1;
-    end
-    if (i_fu_stage.gen_rvv_block.i_spatz.vlsu_rsp_valid) begin
-      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vlsu_rsp.id].valid    = 1'b1;
-    end
-    if (i_fu_stage.gen_rvv_block.i_spatz.vsldu_rsp_valid) begin
-      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vsldu_rsp.id].valid    = 1'b1;
-    end
-    // TODO: We assume that CSR instructions retire in the same cycle they are issued inside spatz. That is way as an id we use the one from the request. May not be always true
-    if (i_fu_stage.gen_rvv_block.i_spatz.i_controller.retire_csr) begin
-      spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].valid    = 1'b1;
-    end
+  //   if (i_fu_stage.gen_rvv_block.i_spatz.vfu_rsp_valid) begin
+  //     spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vfu_rsp.id].valid    = 1'b1;
+  //   end
+  //   if (i_fu_stage.gen_rvv_block.i_spatz.vlsu_rsp_valid) begin
+  //     spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vlsu_rsp.id].valid    = 1'b1;
+  //   end
+  //   if (i_fu_stage.gen_rvv_block.i_spatz.vsldu_rsp_valid) begin
+  //     spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.vsldu_rsp.id].valid    = 1'b1;
+  //   end
+  //   // TODO: We assume that CSR instructions retire in the same cycle they are issued inside spatz. That is way as an id we use the one from the request. May not be always true
+  //   if (i_fu_stage.gen_rvv_block.i_spatz.i_controller.retire_csr) begin
+  //     spatz_retirement[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].valid    = 1'b1;
+  //   end
 
-  end
+  // end
 
-  for (genvar rss = 0; rss < SpatzNofRss; rss++) begin : gen_spatz_traces_rss
-    // verilog_lint: waive-start line-length
-    if (Xfrep) begin : gen_spatz_traces_rss_trace
-      assign rss_spatz_traces[rss] = '{
-        valid:       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
-                     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
-                    (i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
-        instr_iter:  i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
-        producer:    i_fu_stage.producer_to_string(
-                      i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-        spatz_opa:     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
-        spatz_opb:     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b,
-        internal_spatz_id: i_fu_stage.gen_rvv_block.i_spatz.i_controller.next_insn_id
-      };
-      assign spatz_rescap_traces[rss] = '{
-        valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
-                        i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
-                        !i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
-                        (i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
-        producer:       i_fu_stage.producer_to_string(
-                          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
-        result_iter:    i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
-        // enable_rf_wb:   i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
-        rd:             i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
-        rd_is_fp:       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
-        result:         i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
-      };
-    end else begin : gen_spatz_traces_no_rss
-      assign rss_spatz_traces[rss]    = '{default: '0};
-      assign spatz_rescap_traces[rss] = '{default: '0};
-    end
-  end
+  // for (genvar rss = 0; rss < SpatzNofRss; rss++) begin : gen_spatz_traces_rss
+  //   // verilog_lint: waive-start line-length
+  //   if (Xfrep) begin : gen_spatz_traces_rss_trace
+  //     assign rss_spatz_traces[rss] = '{
+  //       valid:       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+  //                    i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+  //                   (i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
+  //       instr_iter:  i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
+  //       producer:    i_fu_stage.producer_to_string(
+  //                     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //       spatz_opa:     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
+  //       spatz_opb:     i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b,
+  //       internal_spatz_id: i_fu_stage.gen_rvv_block.i_spatz.i_controller.next_insn_id
+  //     };
+  //     assign spatz_rescap_traces[rss] = '{
+  //       valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
+  //                       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
+  //                       !i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
+  //                       (i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
+  //       producer:       i_fu_stage.producer_to_string(
+  //                         i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+  //       result_iter:    i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
+  //       // enable_rf_wb:   i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.gen_rss[rss].i_rss.enable_rf_writeback,
+  //       rd:             i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
+  //       rd_is_fp:       i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
+  //       result:         i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
+  //     };
+  //   end else begin : gen_spatz_traces_no_rss
+  //     assign rss_spatz_traces[rss]    = '{default: '0};
+  //     assign spatz_rescap_traces[rss] = '{default: '0};
+  //   end
+  // end
 
-  // Spatz only ever has a single ODN Port since it can only wait for Operands, not produce them
-  for (genvar port = 0; port < SpatzNofResRspPorts; port++) begin : gen_spatz_traces_rsp_ports
-    // each consumer can place a result request simultaneously
-    for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_spatz_traces_rsp_port_resreq
-      if (Xfrep) begin : gen_spatz_traces_rss_resreq_frep
-        assign spatz_resreq_traces[port][con] = '{
-          valid:          0,
-          // valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
-          //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
-          //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
-          producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
-                              i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
-          consumer:       i_fu_stage.consumer_to_string(con),
-          // we only forward requests which we can serve. Thus we can take the current result iteration.
-          requested_iter: i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.available_results_o[
-                            i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
-        };
-      end else begin : gen_spatz_traces_rsp_port_no_resreq
-        assign spatz_resreq_traces[port][con] = '{default: '0};
-      end
-    end
-    // verilog_lint: waive-stop line-length
-  end
+  // // Spatz only ever has a single ODN Port since it can only wait for Operands, not produce them
+  // for (genvar port = 0; port < SpatzNofResRspPorts; port++) begin : gen_spatz_traces_rsp_ports
+  //   // each consumer can place a result request simultaneously
+  //   for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_spatz_traces_rsp_port_resreq
+  //     if (Xfrep) begin : gen_spatz_traces_rss_resreq_frep
+  //       assign spatz_resreq_traces[port][con] = '{
+  //         valid:          0,
+  //         // valid:          i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_valid[rss] &&
+  //         //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks_ready[rss] &&
+  //         //                i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.dest_masks[rss][con],
+  //         producer:       i_fu_stage.producer_to_string(
+  //                           i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+  //                             i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
+  //         consumer:       i_fu_stage.consumer_to_string(con),
+  //         // we only forward requests which we can serve. Thus we can take the current result iteration.
+  //         requested_iter: i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.available_results_o[
+  //                           i_fu_stage.gen_rvv_block.i_spatz_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
+  //       };
+  //     end else begin : gen_spatz_traces_rsp_port_no_resreq
+  //       assign spatz_resreq_traces[port][con] = '{default: '0};
+  //     end
+  //   end
+  //   // verilog_lint: waive-stop line-length
+  // end
 
-  // Create spatz internal traces
+  // // Create spatz internal traces
 
-  always_comb begin
-    for(int i = 0; i < NrParallelInstructions; i++) begin
-    internal_spatz_traces[i] = '{
-      valid: '0,
-      name: "null"
-    };
-    end
-    if (i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req_valid) begin
-        internal_spatz_traces[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].valid = '1;
-        internal_spatz_traces[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].name = i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.op.name();
-    end
-  end
+  // always_comb begin
+  //   for(int i = 0; i < NrParallelInstructions; i++) begin
+  //   internal_spatz_traces[i] = '{
+  //     valid: '0,
+  //     name: "null"
+  //   };
+  //   end
+  //   if (i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req_valid) begin
+  //       internal_spatz_traces[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].valid = '1;
+  //       internal_spatz_traces[i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.id].name = i_fu_stage.gen_rvv_block.i_spatz.i_controller.spatz_req.op.name();
+  //   end
+  // end
 
-  end
+  // end
 
-  assign csr_trace = '{
-    valid:          csr_disp_req_valid && csr_disp_req_ready,
-    producer:       "CSR",
-    csr_addr:       i_csr.csr_addr.address,
-    csr_read_data:  i_csr.csr_rdata,
-    csr_write_data: i_csr.csr_wdata
-  };
+  // assign csr_trace = '{
+  //   valid:          csr_disp_req_valid && csr_disp_req_ready,
+  //   producer:       "CSR",
+  //   csr_addr:       i_csr.csr_addr.address,
+  //   csr_read_data:  i_csr.csr_rdata,
+  //   csr_write_data: i_csr.csr_wdata
+  // };
 
-  // The CSR is fixed to the ALU0
-  assign csr_retirement = '{
-    // The CSR does not always write back to the register file. But all instructions are single
-    // cycle. Thus we can use the CSR dispatch request to determine the retirement.
-    valid: csr_disp_req_valid && csr_disp_req_ready,
-    producer: "CSR"
-  };
+  // // The CSR is fixed to the ALU0
+  // assign csr_retirement = '{
+  //   // The CSR does not always write back to the register file. But all instructions are single
+  //   // cycle. Thus we can use the CSR dispatch request to determine the retirement.
+  //   valid: csr_disp_req_valid && csr_disp_req_ready,
+  //   producer: "CSR"
+  // };
 
-  assign acc_trace = '{
-    valid:    acc_qvalid_o && acc_qready_i,
-    producer: "ACC", // There is no address on the response.
-    acc_addr: acc_qreq_o.addr,
-    acc_arga: acc_qreq_o.data_arga,
-    acc_argb: acc_qreq_o.data_argb,
-    acc_argc: acc_qreq_o.data_argc
-  };
+  // assign acc_trace = '{
+  //   valid:    acc_qvalid_o && acc_qready_i,
+  //   producer: "ACC", // There is no address on the response.
+  //   acc_addr: acc_qreq_o.addr,
+  //   acc_arga: acc_qreq_o.data_arga,
+  //   acc_argb: acc_qreq_o.data_argb,
+  //   acc_argc: acc_qreq_o.data_argc
+  // };
 
-  assign acc_retirement = '{
-    valid:    acc_pvalid_i && acc_pready_o,
-    producer: "ACC" // There is no address on the response.
-  };
+  // assign acc_retirement = '{
+  //   valid:    acc_pvalid_i && acc_pready_o,
+  //   producer: "ACC" // There is no address on the response.
+  // };
 
-  // Writebacks
-  assign alu_wb_trace = '{
-    valid:       alu_result_valid && alu_result_ready,
-    fu_result:   alu_result.result,
-    fu_rd:       alu_result_tag.dest_reg,
-    fu_rd_is_fp: alu_result_tag.dest_reg_is_fp
-  };
+  // // Writebacks
+  // assign alu_wb_trace = '{
+  //   valid:       alu_result_valid && alu_result_ready,
+  //   fu_result:   alu_result.result,
+  //   fu_rd:       alu_result_tag.dest_reg,
+  //   fu_rd_is_fp: alu_result_tag.dest_reg_is_fp
+  // };
 
-  assign lsu_wb_trace = '{
-    valid:       lsu_result_valid && lsu_result_ready,
-    fu_result:   lsu_result,
-    fu_rd:       lsu_result_tag.dest_reg,
-    fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp
-  };
+  // assign lsu_wb_trace = '{
+  //   valid:       lsu_result_valid && lsu_result_ready,
+  //   fu_result:   lsu_result,
+  //   fu_rd:       lsu_result_tag.dest_reg,
+  //   fu_rd_is_fp: lsu_result_tag.dest_reg_is_fp
+  // };
 
-  assign fpu_wb_trace = '{
-    valid:       fpu_result_valid && fpu_result_ready,
-    fu_result:   fpu_result,
-    fu_rd:       fpu_result_tag.dest_reg,
-    fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp
-  };
+  // assign fpu_wb_trace = '{
+  //   valid:       fpu_result_valid && fpu_result_ready,
+  //   fu_result:   fpu_result,
+  //   fu_rd:       fpu_result_tag.dest_reg,
+  //   fu_rd_is_fp: fpu_result_tag.dest_reg_is_fp
+  // };
 
-  assign csr_wb_trace = '{
-    valid:       csr_result_valid && csr_result_ready,
-    fu_result:   csr_result,
-    fu_rd:       csr_result_tag.dest_reg,
-    fu_rd_is_fp: csr_result_tag.dest_reg_is_fp
-  };
+  // assign csr_wb_trace = '{
+  //   valid:       csr_result_valid && csr_result_ready,
+  //   fu_result:   csr_result,
+  //   fu_rd:       csr_result_tag.dest_reg,
+  //   fu_rd_is_fp: csr_result_tag.dest_reg_is_fp
+  // };
 
-  assign acc_wb_trace  = '{
-    valid:       acc_pvalid_i && acc_pready_o,
-    fu_result:   acc_result,
-    fu_rd:       acc_result_tag.dest_reg,
-    fu_rd_is_fp: acc_result_tag.dest_reg_is_fp
-  };
+  // assign acc_wb_trace  = '{
+  //   valid:       acc_pvalid_i && acc_pready_o,
+  //   fu_result:   acc_result,
+  //   fu_rd:       acc_result_tag.dest_reg,
+  //   fu_rd_is_fp: acc_result_tag.dest_reg_is_fp
+  // };
 
-  assign spatz_wb_trace = '{
-    valid:       spatz_result_valid && spatz_result_ready,
-    fu_result:   spatz_result,
-    fu_rd:       spatz_result_tag.dest_reg,
-    fu_rd_is_fp: spatz_result_tag.dest_reg_is_fp
-  };
+  // assign spatz_wb_trace = '{
+  //   valid:       spatz_result_valid && spatz_result_ready,
+  //   fu_result:   spatz_result,
+  //   fu_rd:       spatz_result_tag.dest_reg,
+  //   fu_rd_is_fp: spatz_result_tag.dest_reg_is_fp
+  // };
 
-  schnizo_tracer #(
-    .NofAlus              (NofAlus),
-    .NofLsus              (NofLsus),
-    .NofFpus              (NofFpus),
-    .AluNofRss            (AluNofRss),
-    .LsuNofRss            (LsuNofRss),
-    .FpuNofRss            (FpuNofRss),
-    .SpatzNofRss          (SpatzNofRss),
-    .NrParallelInstructions (NrParallelInstructions),
-    .AluNofResRspPorts    (AluNofResRspPorts),
-    .LsuNofResRspPorts    (LsuNofResRspPorts),
-    .FpuNofResRspPorts    (FpuNofResRspPorts),
-    .NofOperandIfs        (NofOperandIfs),
-    .Xfrep                (Xfrep)
-  ) i_tracer (
-    .clk_i              (clk_i),
-    .rst_i              (rst_i),
-    .hart_id_i          (hart_id_i),
-    .dispatch_rs_id     (dispatch_rs_id),
-    .core_trace         (core_trace),
-    .dispatch_trace     (dispatch_trace),
-    .alu_trace          (alu_trace),
-    .lsu_trace          (lsu_trace),
-    .fpu_trace          (fpu_trace),
-    .spatz_trace        (spatz_trace),
-    .rss_alu_traces     (rss_alu_traces),
-    .rss_lsu_traces     (rss_lsu_traces),
-    .rss_fpu_traces     (rss_fpu_traces),
-    .rss_spatz_traces   (rss_spatz_traces),
-    .csr_trace          (csr_trace),
-    .acc_trace          (acc_trace),
-    .alu_retirements    (alu_retirements),
-    .lsu_retirements    (lsu_retirements),
-    .fpu_retirements    (fpu_retirements),
-    .csr_retirement     (csr_retirement),
-    .acc_retirement     (acc_retirement),
-    .spatz_retirement   (spatz_retirement),
-    .alu_wb_trace       (alu_wb_trace),
-    .lsu_wb_trace       (lsu_wb_trace),
-    .fpu_wb_trace       (fpu_wb_trace),
-    .csr_wb_trace       (csr_wb_trace),
-    .acc_wb_trace       (acc_wb_trace),
-    .spatz_wb_trace     (spatz_wb_trace),
-    .alu_resreq_traces  (alu_resreq_traces),
-    .lsu_resreq_traces  (lsu_resreq_traces),
-    .fpu_resreq_traces  (fpu_resreq_traces),
-    .spatz_resreq_traces(spatz_resreq_traces),
-    .alu_rescap_traces  (alu_rescap_traces),
-    .lsu_rescap_traces  (lsu_rescap_traces),
-    .fpu_rescap_traces  (fpu_rescap_traces),
-    .spatz_rescap_traces(spatz_rescap_traces),
-    .spatz_instrs_names (spatz_instrs_names),
-    .internal_spatz_traces(internal_spatz_traces)
-  );
+  // schnizo_tracer #(
+  //   .NofAlus              (NofAlus),
+  //   .NofLsus              (NofLsus),
+  //   .NofFpus              (NofFpus),
+  //   .AluNofRss            (AluNofRss),
+  //   .LsuNofRss            (LsuNofRss),
+  //   .FpuNofRss            (FpuNofRss),
+  //   .SpatzNofRss          (SpatzNofRss),
+  //   .NrParallelInstructions (NrParallelInstructions),
+  //   .AluNofResRspPorts    (AluNofResRspPorts),
+  //   .LsuNofResRspPorts    (LsuNofResRspPorts),
+  //   .FpuNofResRspPorts    (FpuNofResRspPorts),
+  //   .NofOperandIfs        (NofOperandIfs),
+  //   .Xfrep                (Xfrep)
+  // ) i_tracer (
+  //   .clk_i              (clk_i),
+  //   .rst_i              (rst_i),
+  //   .hart_id_i          (hart_id_i),
+  //   .dispatch_rs_id     (dispatch_rs_id),
+  //   .core_trace         (core_trace),
+  //   .dispatch_trace     (dispatch_trace),
+  //   .alu_trace          (alu_trace),
+  //   .lsu_trace          (lsu_trace),
+  //   .fpu_trace          (fpu_trace),
+  //   .spatz_trace        (spatz_trace),
+  //   .rss_alu_traces     (rss_alu_traces),
+  //   .rss_lsu_traces     (rss_lsu_traces),
+  //   .rss_fpu_traces     (rss_fpu_traces),
+  //   .rss_spatz_traces   (rss_spatz_traces),
+  //   .csr_trace          (csr_trace),
+  //   .acc_trace          (acc_trace),
+  //   .alu_retirements    (alu_retirements),
+  //   .lsu_retirements    (lsu_retirements),
+  //   .fpu_retirements    (fpu_retirements),
+  //   .csr_retirement     (csr_retirement),
+  //   .acc_retirement     (acc_retirement),
+  //   .spatz_retirement   (spatz_retirement),
+  //   .alu_wb_trace       (alu_wb_trace),
+  //   .lsu_wb_trace       (lsu_wb_trace),
+  //   .fpu_wb_trace       (fpu_wb_trace),
+  //   .csr_wb_trace       (csr_wb_trace),
+  //   .acc_wb_trace       (acc_wb_trace),
+  //   .spatz_wb_trace     (spatz_wb_trace),
+  //   .alu_resreq_traces  (alu_resreq_traces),
+  //   .lsu_resreq_traces  (lsu_resreq_traces),
+  //   .fpu_resreq_traces  (fpu_resreq_traces),
+  //   .spatz_resreq_traces(spatz_resreq_traces),
+  //   .alu_rescap_traces  (alu_rescap_traces),
+  //   .lsu_rescap_traces  (lsu_rescap_traces),
+  //   .fpu_rescap_traces  (fpu_rescap_traces),
+  //   .spatz_rescap_traces(spatz_rescap_traces),
+  //   .spatz_instrs_names (spatz_instrs_names),
+  //   .internal_spatz_traces(internal_spatz_traces)
+  // );
 
   // pragma translate_on
 
