@@ -395,6 +395,13 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               // rd left at x0 (no writeback)
               vector_store_handled  = 1'b1;
             end
+            // Strided stores - rs2 holds the stride
+            VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V: begin
+              instr_dec_o.fu        = schnizo_pkg::VLSU;
+              instr_dec_o.rs1       = instr.stype.rs1;
+              instr_dec_o.rs2       = instr.rtype.rs2;
+              vector_store_handled  = 1'b1;
+            end
             default: ;
           endcase
           if (vector_store_handled) begin
@@ -453,6 +460,13 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
                 instr_dec_o.fu        = schnizo_pkg::VLSU;
                 instr_dec_o.rs1       = instr.itype.rs1; // base integer register
+                vector_load_handled   = 1'b1;
+              end
+              // Strided loads - rs2 holds the stride
+              VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V: begin
+                instr_dec_o.fu        = schnizo_pkg::VLSU;
+                instr_dec_o.rs1       = instr.itype.rs1;
+                instr_dec_o.rs2       = instr.rtype.rs2;
                 vector_load_handled   = 1'b1;
               end
               default: ;
@@ -1080,33 +1094,53 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.rd        = instr.rtype.rd;          // integer rd
             end
 
-            //TODO: All the float vector instructions are missing
-
-            VMACC_VX: begin
-              instr_dec_o.rs1       = instr.rtype.rs1;
-            end
-
-            // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are vector ---
+            // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are vector; no integer rs1 ---
             VADD_VV, VSUB_VV, VMIN_VV, VMINU_VV, VMAX_VV, VMAXU_VV,
             VAND_VV, VOR_VV, VXOR_VV,
-            VADC_VVM, VMADC_VV, VSLL_VV, VSRL_VV, VSRA_VV, //Attenzione a VADC_VVM e VMADC_VV TODO
+            VSLL_VV, VSRL_VV, VSRA_VV,
             VMSEQ_VV, VMSNE_VV, VMSLTU_VV, VMSLT_VV, VMSLEU_VV, VMSLE_VV,
             VDIV_VV, VDIVU_VV, VREM_VV, VREMU_VV,
+            VMUL_VV, VMULH_VV, VMULHU_VV, VMULHSU_VV,
             VWMUL_VV, VWMULU_VV, VWMULSU_VV,
-            VWMACC_VV, VWMACCU_VV, VWMACCSU_VV: begin
+            VWADD_VV, VWADDU_VV, VWSUB_VV, VWSUBU_VV,
+            VMACC_VV, VNMSAC_VV, VMADD_VV, VNMSUB_VV,
+            VWMACC_VV, VWMACCU_VV, VWMACCSU_VV,
+            // Carry/borrow VV and VM forms (no integer scalar)
+            VADC_VVM,
+            VMADC_VV, VMADC_VVM,
+            VSBC_VVM,
+            VMSBC_VV, VMSBC_VVM,
+            // Merge and move VV form
+            VMERGE_VVM, VMV_V_V,
+            // Integer reductions (VS format, no integer scalar)
+            VREDSUM_VS, VREDAND_VS, VREDOR_VS, VREDXOR_VS,
+            VREDMIN_VS, VREDMINU_VS, VREDMAX_VS, VREDMAXU_VS: begin
             end
 
-            // --- Vector-Scalar integer (VX): rs1 integer, rs2 vector ---
+            // --- Vector-Scalar integer (VX): rs1 integer scalar ---
             VADD_VX, VSUB_VX, VRSUB_VX,
             VAND_VX, VOR_VX, VXOR_VX,
             VSLL_VX, VSRL_VX, VSRA_VX,
             VMIN_VX, VMINU_VX, VMAX_VX, VMAXU_VX,
             VMSEQ_VX, VMSNE_VX, VMSLTU_VX, VMSLT_VX, VMSLEU_VX, VMSLE_VX,
+            VMSGT_VX, VMSGTU_VX,
             VDIV_VX, VDIVU_VX, VREM_VX, VREMU_VX,
             VMUL_VX, VMULH_VX, VMULHU_VX, VMULHSU_VX,
             VWMUL_VX, VWMULU_VX, VWMULSU_VX,
-            VWMACC_VX, VWMACCU_VX, VWMACCSU_VX, VWMACCUS_VX: begin
-              instr_dec_o.rs1       = instr.rtype.rs1;  // integer scalar
+            VWADD_VX, VWADDU_VX, VWSUB_VX, VWSUBU_VX,
+            VMACC_VX, VNMSAC_VX, VMADD_VX, VNMSUB_VX,
+            VWMACC_VX, VWMACCU_VX, VWMACCSU_VX, VWMACCUS_VX,
+            // Carry/borrow VX and VXM forms
+            VADC_VXM,
+            VMADC_VX, VMADC_VXM,
+            VSBC_VXM,
+            VMSBC_VX, VMSBC_VXM,
+            // Merge, move, and slide VX forms
+            VMERGE_VXM, VMV_V_X, VMV_S_X,
+            VSLIDEUP_VX, VSLIDE1UP_VX,
+            VSLIDEDOWN_VX, VSLIDE1DOWN_VX: begin
+              instr_dec_o.rs1     = instr.rtype.rs1;  // integer scalar
+              instr_dec_o.use_rs1 = 1'b1;
             end
 
             // --- Vector-Immediate (VI): rs1 field is immediate => no rs1 reg ---
@@ -1114,7 +1148,11 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VAND_VI, VOR_VI, VXOR_VI,
             VSLL_VI, VSRL_VI, VSRA_VI,
             VMSEQ_VI, VMSNE_VI, VMSLE_VI, VMSLEU_VI, VMV_V_I,
-            VMSGT_VI, VMSGTU_VI: begin
+            VMSGT_VI, VMSGTU_VI,
+            // Carry/borrow VI forms
+            VADC_VIM, VMADC_VI, VMADC_VIM,
+            // Merge and slide VI forms
+            VMERGE_VIM, VSLIDEUP_VI, VSLIDEDOWN_VI: begin
             end
 
             // --- Vector loads: base rs1 (integer), rd vector ---
