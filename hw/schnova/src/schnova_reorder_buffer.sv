@@ -41,7 +41,7 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   } rob_entry_t;
 
   rob_entry_t [NofEntries-1:0] rob;
-  logic [NrRobWritePorts:0][NofEntries-1:0] wb_dec;
+  logic [NrRobWritePorts-1:0][NofEntries-1:0] wb_dec;
 
   logic [TagWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
   logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
@@ -92,9 +92,9 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       // ROB entries to commit them all simultaneously
       // Note commit in schnova does just entail freeing the ROB entry and physical register
       if (i == 0) begin
-        pop_valid[i] = rob[head_ptr].done;
+        pop_valid[i] = rob[read_idx[i]].done && rob[read_idx[i]].valid;
       end else begin
-        pop_valid[i] = pop_valid[i-1] && rob[read_idx[i]].done;
+        pop_valid[i] = pop_valid[i-1] && rob[read_idx[i]].done && rob[read_idx[i]].valid;
       end
     end
   end
@@ -180,13 +180,15 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       // Update the ROB upon push
       if(rob_push_i && rob_ready_o) begin
         for (int i = 0; i < PipeWidth; i++) begin
+          if (i < rob_push_count_i) begin
             rob[write_idx[i]].valid <= 1'b1;
             rob[write_idx[i]].done  <= 1'b0;
             rob[write_idx[i]].phy_reg_rd_old  <= rob_phy_reg_rd_old_i[i];
             rob[write_idx[i]].rd_is_fp        <= rob_phy_reg_rd_old_is_fp_i[i];
+          end
         end
 
-         // Advance the pointers
+        // Advance the pointers
         tail_ptr_raw <= (tail_ptr_raw + rob_push_count_i);
       end
 

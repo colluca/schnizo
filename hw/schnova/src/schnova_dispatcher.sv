@@ -252,15 +252,12 @@ module schnova_dispatcher import schnova_pkg::*; #(
         // The reason this is done, is that in case of the number of functional units are not a power of two
         // the if this condition is not met it could lead to multiple warp arounds. In that case the logic that
         // calculates the wrap around with a single substraction would be wrong.
-        if (alu_rank[i-1] < NofAlus - 1) begin
-          alu_rank[i] = disp_to_alu[i-1] ? alu_rank[i-1] + 1'b1 : alu_rank[i-1];
-        end
-        if (lsu_rank[i-1] < NofLsus -1) begin
-          lsu_rank[i] = disp_to_lsu[i-1] ? lsu_rank[i-1] + 1'b1 : lsu_rank[i-1];
-        end
-        if (fpu_rank[i-1] < NofFpus -1) begin
-          fpu_rank[i] = disp_to_fpu[i-1] ? fpu_rank[i-1] + 1'b1 : fpu_rank[i-1];
-        end
+        alu_rank[i] = disp_to_alu[i-1] && (alu_rank[i-1] < NofAlus - 1) ? alu_rank[i-1] + 1'b1
+                                                                        : alu_rank[i-1];
+        lsu_rank[i] = disp_to_lsu[i-1] && (lsu_rank[i-1] < NofLsus - 1) ? lsu_rank[i-1] + 1'b1
+                                                                        : lsu_rank[i-1];
+        fpu_rank[i] = disp_to_fpu[i-1] && (fpu_rank[i-1] < NofFpus - 1) ? fpu_rank[i-1] + 1'b1
+                                                                        : fpu_rank[i-1];
       end
     end
   end
