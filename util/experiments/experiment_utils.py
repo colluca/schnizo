@@ -222,12 +222,19 @@ class ExperimentManager:
                     'SIM_DIR': experiment['run_dir'],
                     'DEBUG': 'ON'
                 }
+                
+                sv_vars = {
+                    'SIM_DIR': experiment['run_dir'],
+                    'DEBUG': 'ON',
+                    'CORE': 'schnova'
+                }
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
                 if experiment['core'] == 'schnova':
-                    common.make('sv-traces', vars, flags=flags)
+                    common.make('traces', sv_vars, flags=flags)
                 else:
                     common.make('traces', vars, flags=flags)
+                
 
         # Annotate traces
         if 'annotate' in self.actions or 'all' in self.actions:
@@ -243,10 +250,12 @@ class ExperimentManager:
                     colored(experiment['run_dir'], 'cyan', attrs=['bold'])
                 )
                 vars = {'SIM_DIR': experiment['run_dir']}
+                sv_vars = {'SIM_DIR': experiment['run_dir'],
+                           'CORE': 'schnova'}
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
                 if experiment['core'] == 'schnova':
-                    process = common.make('sv-perf', vars, flags=flags, sync=False)
+                    process = common.make('perf', sv_vars, flags=flags, sync=False)
                 else:
                     process = common.make('perf', vars, flags=flags, sync=False)
                 processes.append(process)
@@ -292,9 +301,14 @@ class ExperimentManager:
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
+                        sv_vars = {
+                            'SIM_DIR': experiment['run_dir'],
+                            'ROI_SPEC': rendered_spec,
+                            'CORE': 'schnova'
+                        }
                         if experiment['core'] == 'schnova':
-                            process = common.make('sv-roi', vars, dry_run=dry_run, sync=sync)
-                        else:
+                            process = common.make('roi', sv_vars, dry_run=dry_run, sync=sync)
+                        else :
                             process = common.make('roi', vars, dry_run=dry_run, sync=sync)
                         processes.append(process)
 

@@ -60,7 +60,7 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     #0;
 `endif // VERILATOR
     $system("mkdir logs -p");
-    $sformat(file_name, "logs/sv_trace_hart_%05x.dasm", hart_id_i);
+    $sformat(file_name, "logs/sz_trace_hart_%05x.dasm", hart_id_i);
     file_id = $fopen(file_name, "w");
     $display("[Tracer] Logging Hart %d to %s", hart_id_i, file_name);
   end
