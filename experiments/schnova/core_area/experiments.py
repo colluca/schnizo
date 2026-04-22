@@ -19,6 +19,17 @@ def gen_experiments(designs=None):
     # Generate list of experiments
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
+        # FP-Sc.
+        {
+            'design': 'schnizo_synth',
+            'name': 'scalar+mul+fpu',
+            'hdl_params': {
+                'Xfrep': 0,
+                'NofAlus': 1,
+                'NofLsus': 1,
+                'NofFpus': 1,
+            }
+        },
         # Small schnova
         {
             'design': 'schnova_synth',

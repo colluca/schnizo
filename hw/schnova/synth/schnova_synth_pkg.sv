@@ -16,6 +16,9 @@ package schnova_synth_pkg;
     localparam int unsigned DataWidth = 64;
     localparam int unsigned CoreUserWidth = 64;
 
+    localparam integer unsigned FLEN = 64;
+    localparam integer unsigned XLEN = 32;
+
     typedef logic [DataWidth-1:0] data_t;
     typedef logic [AddrWidth-1:0] addr_t;
     typedef logic [DataWidth/8-1:0] strb_t;

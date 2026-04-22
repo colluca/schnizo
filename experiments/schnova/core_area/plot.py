@@ -3,7 +3,11 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
-from . import experiments
+try:
+    from . import experiments
+except ImportError:
+    import experiments
+
 
 GE = 0.121
 

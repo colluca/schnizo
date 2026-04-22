@@ -73,7 +73,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Number of address bits for the physical register
   parameter int unsigned PhysRegAddrSize = 6,
   /// The amount of rob entries
-  parameter int unsigned NofRobEntries = 32,
+  parameter int unsigned NofRobEntries = 64,
   // Physical memory attributes
   parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '{default: 0},
   /// Consistency Address Queue (CAQ) parameters

@@ -322,7 +322,7 @@ sources:
   - target: gf12
     files:
       - hw/schnizo/synth/schnizo_synth_pkg.sv
-      - hw/schnizo/synth/schnova_synth_pkg.sv
+      - hw/schnova/synth/schnova_synth_pkg.sv
       - hw/schnizo/synth/schnizo_res_stat_synth.sv
       - hw/schnizo/synth/schnizo_req_xbar_synth.sv
       - hw/schnizo/synth/schnizo_rsp_xbar_synth.sv

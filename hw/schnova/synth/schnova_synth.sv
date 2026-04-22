@@ -54,7 +54,7 @@ module schnova_synth #(
 		.FLEN(schnova_synth_pkg::FLEN),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
 		.dreq_t(schnova_synth_pkg::data_req_t),
-		.drsp_t(schnova_osynth_pkg::data_rsp_t),
+		.drsp_t(schnova_synth_pkg::data_rsp_t),
 		.acc_req_t(schnova_synth_pkg::acc_req_t),
 		.acc_resp_t(schnova_synth_pkg::acc_resp_t),
 		.NofAlus(NofAlus),
