@@ -229,7 +229,7 @@ class ExperimentManager:
                 }
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
-                if experiment['core'] == 'schnova':
+                if experiment.get('core') == 'schnova':
                     common.make('traces', sv_vars, flags=flags)
                 else:
                     common.make('traces', vars, flags=flags)
@@ -251,7 +251,7 @@ class ExperimentManager:
                            'CORE': 'schnova'}
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
-                if experiment['core'] == 'schnova':
+                if experiment.get('core') == 'schnova':
                     process = common.make('perf', sv_vars, flags=flags, sync=False)
                 else:
                     process = common.make('perf', vars, flags=flags, sync=False)
@@ -303,11 +303,12 @@ class ExperimentManager:
                             'ROI_SPEC': rendered_spec,
                             'CORE': 'schnova'
                         }
-                        if experiment['core'] == 'schnova':
+                        if experiment.get('core') == 'schnova':
                             process = common.make('roi', sv_vars, dry_run=dry_run, sync=sync)
-                        else :
+                        else:
                             process = common.make('roi', vars, dry_run=dry_run, sync=sync)
                         processes.append(process)
+
                     if 'visual-trace' in self.actions:
                         # Build visual trace
                         hw_cfg = self.derive_hw_cfg(experiment)

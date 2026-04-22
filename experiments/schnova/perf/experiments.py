@@ -160,21 +160,20 @@ def gen_experiments(ci=False):
                     for mc_app in ['pi', 'poly']:
                         for mc_prng in ['lcg', 'xoshiro128p']:
                             experiments.append({
-                            # TODO(colluca): rename app montecarlo
-                            'app': 'pi_estimation',
-                            'hw': cfg,
-                            'mc_app': mc_app,
-                            'mc_prng': mc_prng,
-                            'mode': mode,
-                            'core': core,
-                            'data_cfg': {
-                                'n': size,
-                                'func_ptr': 'calculate_psum_schnova',
-                            },
-                            'cmd': [str(MK_DIR / 
-                                    'sw/kernels/misc/montecarlos/pi_estimation/scripts/verify.py'),
-                                    sim_bin, "${elf}"],
-                            'roi': Path("roi/pi_estimation.json.tpl")
+                                # TODO(colluca): rename app montecarlo
+                                'app': 'pi_estimation',
+                                'hw': cfg,
+                                'mc_app': mc_app,
+                                'mc_prng': mc_prng,
+                                'mode': mode,
+                                'core': core,
+                                'data_cfg': {
+                                    'n': size,
+                                    'func_ptr': 'calculate_psum_schnova',
+                                },
+                                'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
+                                        sim_bin, "${elf}"],
+                                'roi': Path("roi/pi_estimation.json.tpl")
                             })
 
     # Filter by apps

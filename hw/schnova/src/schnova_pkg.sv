@@ -11,11 +11,7 @@ package schnova_pkg;
   // We use double the amount of physical registers as the amount of
   // of architectural registers.
   localparam int unsigned RegAddrSize = 5;
-  localparam int unsigned PhysRegAddrSize = 6;
-
-  // The amount of rob entries
-  localparam int unsigned NofRobEntries = 32;
-
+  
   //---------------------------
   // Types & Enums
   //---------------------------

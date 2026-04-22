@@ -70,6 +70,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned NumOutstandingMem = 0,
   /// Number of bits that get fetched per fetch request
   parameter int unsigned ICacheFetchDataWidth      = 0,
+  /// Number of address bits for the physical register
+  parameter int unsigned PhysRegAddrSize = 6,
+  /// The amount of rob entries
+  parameter int unsigned NofRobEntries = 32,
   // Physical memory attributes
   parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '{default: 0},
   /// Consistency Address Queue (CAQ) parameters
