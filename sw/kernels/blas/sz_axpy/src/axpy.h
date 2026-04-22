@@ -148,6 +148,42 @@ static inline void axpy_schnizo(uint32_t n, double a, double *x, double *y,
     snrt_mcycle();
 }
 
+static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
+                                double *z) {
+    int core_idx = snrt_cluster_core_idx();
+    int num_cores = snrt_cluster_compute_core_num();
+    int frac = n / num_cores;
+    int offset = core_idx;
+
+    double *x_addr = &x[offset];
+    double *y_addr = &y[offset];
+    double *z_addr = &z[offset];
+
+    snrt_mcycle();
+    
+    // For schnova, we add nops to align to an address that is a multiple of 64 byte (8 instructions)
+    // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
+    // in a single cycle for maximum performance
+    asm volatile(
+        "nop                          \n"
+        "nop                          \n"
+        "nop                          \n"
+        "nop                          \n"
+        "frep.o  %[n_frep], 7, 0, 0   \n"
+        "fld     ft0, 0(%[xa])        \n"
+        "fld     ft1, 0(%[ya])        \n"
+        "add     %[xa], %[xa], %[inc] \n"  // move adds before fmadd to hide it beneath the fld
+        "add     %[ya], %[ya], %[inc] \n"  // latency. This reduces the LCP overhead.
+        "fmadd.d ft0, %[a], ft0, ft1  \n"
+        "fsd     ft0, 0(%[za])        \n"
+        "add     %[za], %[za], %[inc] \n"
+        : [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr), [ za ] "+r"(z_addr)
+        : [ n_frep ] "r"(frac - 1), [ a ] "f"(a),
+          [ inc ] "r"(sizeof(double) * num_cores)
+        : "t0", "ft0", "ft1", "memory");
+    snrt_mcycle();
+}
+
 static inline void axpy_job(axpy_args_t *args) {
     snrt_mcycle();
     uint32_t frac, offset, size;

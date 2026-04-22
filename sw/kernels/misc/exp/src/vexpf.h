@@ -9,9 +9,10 @@
 #define IMPL_OPTIMIZED 2
 #define IMPL_OPTIMIZED_V2 3
 #define IMPL_SCHNIZO 4
+#define IMPL_SCHNOVA 5
 
 #ifndef IMPL
-#define IMPL IMPL_SCHNIZO
+#define IMPL IMPL_SCHNOVA
 #endif
 
 #if IMPL == IMPL_NAIVE
@@ -24,6 +25,8 @@
 #define FUNC_PTR vexpf_optimized_v2
 #elif IMPL == IMPL_SCHNIZO
 #define FUNC_PTR vexpf_schnizo
+#elif IMPL == IMPL_SCHNOVA
+#define FUNC_PTR vexpf_schnova
 #endif
 
 #define ALLOCATE_BUFFER(type, size) \
@@ -56,6 +59,7 @@ __thread const double C[4] = {0x1.c6af84b912394p-5 / N / N / N,
 #include "vexpf_optimized.h"
 #include "vexpf_optimized_v2.h"
 #include "vexpf_schnizo.h"
+#include "vexpf_schnova.h"
 static inline void vexpf_kernel(double *a, double *b) {
     snrt_mcycle();
     FUNC_PTR(a, b);

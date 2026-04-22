@@ -17,7 +17,7 @@
 #endif
 
 #ifndef FUNC_PTR
-#define FUNC_PTR calculate_psum_schnizo
+#define FUNC_PTR calculate_psum_schnova
 #endif
 
 #ifndef N_CORES
@@ -660,6 +660,7 @@ static inline uint32_t calculate_psum_optimized_v2(PRNG_T *prngs,
 }
 
 #include "mc_schnizo.h"
+#include "mc_schnova.h"
 
 int main() {
     uint32_t n_seq_per_core, n_seq;

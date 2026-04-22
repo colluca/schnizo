@@ -84,15 +84,14 @@ def gen_experiments(ci=False):
     for cfg in cfgs:
         # Check if this config targets the schnova core
         is_schnova_core = cfg.startswith('sv')
-        if is_schnova_core:
-            core = 'schnova'
+        core = 'schnova' if is_schnova_core else None
         app_class = _HW_APP_CLASS.get(cfg)
         compatible = set(APPLICATION_CLASS[app_class] if app_class else APPLICATION_CLASS['GP'])
         for mode in modes:
             # Scalar experiments do not depend on the response xbar configuration
             # And it does not make sense to test scalar code with a scalar pipeline in schnova
             if mode == 'scalar':
-                if not (cfg == '3x32_3x32_1x64' or cfg.startswith('sv_1')):
+                if cfg != '3x32_3x32_1x64':
                     continue
             for size in sizes:
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
@@ -105,7 +104,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnizo',
+                                'funcptr': 'dot_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -118,7 +117,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnizo',
+                                'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -167,7 +166,7 @@ def gen_experiments(ci=False):
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_schnizo',
+                                    'func_ptr': 'calculate_psum_schnova',
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),
                                         sim_bin, "${elf}"],
