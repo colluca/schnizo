@@ -12,7 +12,7 @@ def sort_dasm(input_file, output_file):
     print(f"Reading {input_file}...")
     with open(input_file, 'r') as f:
         for line in f:
-            if not line.strip(): 
+            if not line.strip():
                 continue
             try:
                 # ast.literal_eval is safe for string-to-dict conversion

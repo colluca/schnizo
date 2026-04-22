@@ -160,7 +160,7 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
     double *z_addr = &z[offset];
 
     snrt_mcycle();
-    
+
     // For schnova, we add nops to align to an address that is a multiple of 64 byte (8 instructions)
     // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
     // in a single cycle for maximum performance

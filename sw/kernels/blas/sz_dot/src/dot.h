@@ -149,11 +149,11 @@ static inline void dot_schnova(uint32_t n, double *x, double *y,
     int n_iter_m1 = (n / unroll) - 1;
     double *x_addr = &x[0];
     double *y_addr = &y[0];
-    
-    // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions 
+
+    // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions
     // after each other then schnova can only dispatch one per cycle if it has 1 FPU. Because it has to
-    // dispatch these instructions in order. For performance 
-    // it is better to group different types of instructions (ALU, LSU and FPU) together in order to 
+    // dispatch these instructions in order. For performance
+    // it is better to group different types of instructions (ALU, LSU and FPU) together in order to
     // maximize the amount of instructions that can be dispatched per cycle
     // Note: This of can be optimized to a specific hardware configuration
     asm volatile(

@@ -86,10 +86,10 @@ static inline void vexpf_schnova(double *a, double *b) {
                 comp_a_ptr = a_buffers[comp_idx];
                 comp_b_ptr = b_buffers[comp_idx];
 
-                // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions 
+                // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions
                 // after each other then schnova can only dispatch one per cycle if it has 1 FPU. Because it has to
-                // dispatch these instructions in order. For performance 
-                // it is better to group different types of instructions (ALU, LSU and FPU) together in order to 
+                // dispatch these instructions in order. For performance
+                // it is better to group different types of instructions (ALU, LSU and FPU) together in order to
                 // maximize the amount of instructions that can be dispatched per cycle
                 // Note: This optimized for a config with 3 ALUs, 3 LSUs (only one active), 1 FPU
                 asm volatile(

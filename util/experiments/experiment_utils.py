@@ -222,7 +222,6 @@ class ExperimentManager:
                     'SIM_DIR': experiment['run_dir'],
                     'DEBUG': 'ON'
                 }
-                
                 sv_vars = {
                     'SIM_DIR': experiment['run_dir'],
                     'DEBUG': 'ON',
@@ -234,8 +233,6 @@ class ExperimentManager:
                     common.make('traces', sv_vars, flags=flags)
                 else:
                     common.make('traces', vars, flags=flags)
-                
-
         # Annotate traces
         if 'annotate' in self.actions or 'all' in self.actions:
             for experiment in experiments:
@@ -311,7 +308,6 @@ class ExperimentManager:
                         else :
                             process = common.make('roi', vars, dry_run=dry_run, sync=sync)
                         processes.append(process)
-
                     if 'visual-trace' in self.actions:
                         # Build visual trace
                         hw_cfg = self.derive_hw_cfg(experiment)

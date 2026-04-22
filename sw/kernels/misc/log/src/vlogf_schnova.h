@@ -85,10 +85,10 @@ static inline void vlogf_schnova(float *a, double *b) {
                 // We don't need to map all load/stores to a single LSU
                 // since memory accesses are guaranteed not to alias.
 
-                // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions 
+                // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions
                 // after each other then schnova can only dispatch one per cycle if it has 1 FPU. Because it has to
-                // dispatch these instructions in order. For performance 
-                // it is better to group different types of instructions (ALU, LSU and FPU) together in order to 
+                // dispatch these instructions in order. For performance
+                // it is better to group different types of instructions (ALU, LSU and FPU) together in order to
                 // maximize the amount of instructions that can be dispatched per cycle
                 // // Note: This optimized for a config with 3 ALUs, 3 LSUs, 1 FPU
                 asm volatile(
