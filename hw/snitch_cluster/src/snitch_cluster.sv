@@ -83,6 +83,8 @@ module snitch_cluster
   parameter bit          ICacheL1DataScm [NrHives] = '{default: 1'b0},
   /// Number of bits that get fetched per fetch request
   parameter int unsigned ICacheFetchDataWidth      = 0,
+  /// Number of lines for the L0 Instruction cache
+  parameter int unsigned ICacheL0LineCount = 0,
   /// Enable virtual memory support.
   parameter bit          VMSupport          = 1,
   /// Enable wide collective operations.
@@ -1443,6 +1445,7 @@ module snitch_cluster
       .ICacheLineCount (ICacheLineCount[i]),
       .ICacheWays (ICacheWays[i]),
       .ICacheFetchDataWidth (ICacheFetchDataWidth),
+      .ICacheL0LineCount(ICacheL0LineCount),
       .ICacheL1TagScm (ICacheL1TagScm[i]),
       .ICacheL1DataScm (ICacheL1DataScm[i]),
       .IsoCrossing (IsoCrossing),

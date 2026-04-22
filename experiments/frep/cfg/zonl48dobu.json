@@ -64,7 +64,9 @@
                 icache: {
                     size: 8, // total instruction cache size in kByte
                     ways: 2, // number of ways
-                    cacheline: 256 // word size in bits
+                    cacheline: 256, // word size in bits
+                    l0_cacheline_count: 8, // Number of cache lines in L0 ICache
+                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },

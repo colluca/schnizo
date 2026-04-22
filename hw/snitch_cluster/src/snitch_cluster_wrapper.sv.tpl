@@ -137,6 +137,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .ICacheLineCount (${cfg['cluster']['name']}_pkg::ICacheLineCount),
     .ICacheWays (${cfg['cluster']['name']}_pkg::ICacheWays),
     .ICacheFetchDataWidth (${cfg['cluster']['name']}_pkg::ICacheFetchDataWidth),
+    .ICacheL0LineCount(${cfg['cluster']['name']}_pkg::ICacheL0LineCount),  
     .ICacheL1TagScm (${cfg['cluster']['name']}_pkg::ICacheL1TagScm),
     .ICacheL1DataScm (${cfg['cluster']['name']}_pkg::ICacheL1DataScm),
     .VMSupport (${int(cfg['cluster']['vm_support'])}),

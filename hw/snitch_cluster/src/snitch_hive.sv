@@ -18,6 +18,8 @@ module snitch_hive import snitch_icache_pkg::*; #(
   parameter int unsigned ICacheWays         = 4,
   /// Number of bits that get fetched per fetch request
   parameter int unsigned ICacheFetchDataWidth = 32,
+  /// Number of lines for the L0 Instruction cache
+  parameter int unsigned ICacheL0LineCount  = 8,
   parameter bit          ICacheL1TagScm     = 1'b0,
   parameter bit          ICacheL1DataScm    = 1'b0,
   parameter bit          IsoCrossing        = 1,
@@ -90,7 +92,7 @@ module snitch_hive import snitch_icache_pkg::*; #(
   
   snitch_icache #(
     .NR_FETCH_PORTS     ( CoreCount            ),
-    .L0_LINE_COUNT      ( 8                    ),
+    .L0_LINE_COUNT      ( ICacheL0LineCount    ),
     .LINE_WIDTH         ( ICacheLineWidth      ),
     .LINE_COUNT         ( ICacheLineCount      ),
     .WAY_COUNT          ( ICacheWays           ),
