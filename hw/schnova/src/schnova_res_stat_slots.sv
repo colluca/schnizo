@@ -81,9 +81,6 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
 
-  logic rs_write_entry_enable;
-  logic rs_clear_entry_enable;
-
   // Issue slots
   schnova_res_stat_memory #(
     .NofRss         (NofRss),

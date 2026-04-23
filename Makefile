@@ -253,6 +253,7 @@ traces: sn-traces
 annotate: sn-annotate
 perf: sn-perf
 roi: sn-roi
+alloc: sn-alloc
 visual-trace: sn-visual-trace
 clean-traces: sn-clean-traces
 clean-annotate: sn-clean-annotate

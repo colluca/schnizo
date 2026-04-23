@@ -34,7 +34,7 @@ except ImportError as e:
 
 
 ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
-           'elab', 'synth', 'none']
+           'elab', 'synth', 'alloc', 'none']
 
 
 class ExperimentManager:
@@ -367,6 +367,19 @@ class ExperimentManager:
                 process = func(experiment['design'], experiment.get('hdl_params', {}))
                 processes.append(process)
             common.wait_processes(processes)
+
+        # Generate joint allocation metrics summary
+        if 'alloc' in self.actions or 'all' in self.actions:
+            for experiment in experiments:
+                print(colored('Generate allocation metrics', 'black', attrs=['bold']),
+                      colored(experiment['run_dir'], 'cyan', attrs=['bold']))
+                vars = {
+                    'SIM_DIR': experiment['run_dir'],
+                }
+                if self.args.n_procs:
+                    flags = ['-j', self.args.n_procs]
+                if experiment.get('core') == 'schnova':
+                    common.make('alloc', vars, flags=flags)
 
     def export_experiments(self, path='experiments.yaml'):
         # Save power experiments to a YAML file

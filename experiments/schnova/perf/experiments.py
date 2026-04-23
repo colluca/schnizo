@@ -74,7 +74,6 @@ def gen_experiments(ci=False):
     # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]
     app_filter = None
-
     core = None
 
     # Drop failing tests at 256 when running in CI

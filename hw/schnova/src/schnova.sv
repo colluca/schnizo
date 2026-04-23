@@ -71,9 +71,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Number of bits that get fetched per fetch request
   parameter int unsigned ICacheFetchDataWidth      = 0,
   /// Number of address bits for the physical register
-  parameter int unsigned PhysRegAddrSize = 6,
+  parameter int unsigned PhysRegAddrSize = 7,
   /// The amount of rob entries
-  parameter int unsigned NofRobEntries = 64,
+  parameter int unsigned NofRobEntries = 128,
   // Physical memory attributes
   parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '{default: 0},
   /// Consistency Address Queue (CAQ) parameters
@@ -1626,6 +1626,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .LsuNofRss      (LsuNofRss),
     .FpuNofRss      (FpuNofRss),
     .NofOperandIfs  (NofOperandIfs),
+    .EnableAllocTrace(1'b1),
+    .NofPhysReg     (2**PhysRegAddrSize),
     .Xfrep          (Xfrep)
   ) i_tracer (
     .clk_i              (clk_i),

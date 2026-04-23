@@ -7,6 +7,16 @@ cd ./experiments/schnova/perf/
 source clean_experiments.sh
 ./experiments.py --actions hw sw run roi -j
 ```
+## Allocation metrics
+1. Make sure to use enough slots, physcial registers and ROB entries
+1. Tests were run with 32 ALU/LSU slots, 64 FPU slots, 128 ROB entries, 128 physical registers
+1. Run the experiments like normal with the alloc flag
+
+```
+cd ./experiments/schnova/perf/
+source clean_experiments.sh
+./experiments.py --actions hw sw run roi alloc -j
+```
 
 ## Power
 1. Run the experiments in a regular fashion
