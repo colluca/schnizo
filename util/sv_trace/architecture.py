@@ -18,9 +18,9 @@ REG_ABI_NAMES_F = (*('ft{}'.format(i) for i in range(0, 8)), 'fs0', 'fs1',
                      for i in range(2, 12)), *('ft{}'.format(i)
                                                for i in range(8, 12)))
 
-REG_PHYS_NAMES_I = tuple('PI{}'.format(i) for i in range(128))
+REG_PHYS_NAMES_I = tuple('PI{}'.format(i) for i in range(256))
 
-REG_PHYS_NAMES_F = tuple('PF{}'.format(i) for i in range(128))
+REG_PHYS_NAMES_F = tuple('PF{}'.format(i) for i in range(256))
 
 LSU_SIZES = ('Byte', 'Half', 'Word', 'Doub')
 LSU_SIZE_TO_FLOAT = (3, 2, 0, 1)
