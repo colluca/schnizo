@@ -275,11 +275,11 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       tmp[k] = FpuParam;
       k++;
     end
-    for (int unsigned i = 0; i < NofVLSU; i++) begin
+    for (int unsigned i = 0; i < (RVV ? NofVLSU : 0); i++) begin
       tmp[k] = VlsuParam;
       k++;
     end
-    for (int unsigned i = 0; i < NofVFU; i++) begin
+    for (int unsigned i = 0; i < (RVV ? NofVFU : 0); i++) begin
       tmp[k] = VfuParam;
       k++;
     end

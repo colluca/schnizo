@@ -25,7 +25,7 @@ yosys plugin -i slang.so
 # default from yosys_common.tcl: top_design=../snitch_cluster; sv_flist=snitch.flist
 yosys read_slang --top $top_design -F $sv_flist \
         --compat-mode --keep-hierarchy \
-        --allow-use-before-declare --ignore-unknown-modules
+        --allow-use-before-declare --ignore-unknown-modules --ignore-assertions
 
 # preserve hierarchy of selected modules/instances
 # 't' means type as in select all instances of this type/module
