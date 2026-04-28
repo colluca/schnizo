@@ -118,9 +118,14 @@ module schnizo_writeback import schnizo_pkg::*; #(
   assign fpu_fpr_valid = fpu_result_tag_i.dest_reg_is_fp ? fpu_result_valid_i : 1'b0;
   assign fpu_result_ready_o = fpu_result_tag_i.dest_reg_is_fp ? fpu_fpr_ready : fpu_gpr_ready;
 
-  assign spatz_gpr_valid = spatz_result_tag_i.dest_reg_is_fp ? 1'b0               : spatz_result_valid_i;
+  // Vector register destinations are handled entirely inside the VFU (written to VRF directly).
+  // Neither GPR nor FPR writeback is needed; just ACK the result immediately.
+  assign spatz_gpr_valid = (!spatz_result_tag_i.dest_reg_is_fp &&
+                            !spatz_result_tag_i.dest_reg_is_vec) ? spatz_result_valid_i : 1'b0;
   assign spatz_fpr_valid = spatz_result_tag_i.dest_reg_is_fp ? spatz_result_valid_i : 1'b0;
-  assign spatz_result_ready_o = spatz_result_tag_i.dest_reg_is_fp ? spatz_fpr_ready : spatz_gpr_ready;
+  assign spatz_result_ready_o = spatz_result_tag_i.dest_reg_is_fp  ? spatz_fpr_ready :
+                                spatz_result_tag_i.dest_reg_is_vec ? 1'b1 :
+                                                                      spatz_gpr_ready;
 
   // TODO: The Accelerator should never write to the FPR. -> Assertion?
   assign acc_gpr_valid = acc_result_tag_i.dest_reg_is_fp ? 1'b0 : acc_result_valid_i;

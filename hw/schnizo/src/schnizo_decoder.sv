@@ -205,11 +205,14 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
     // we target register x0. x0 is read only and thus we have encoded that we have no write.
     instr_dec_o.rd        = '0;
     instr_dec_o.rd_is_fp  = 0;
+    instr_dec_o.rd_is_vec = 0;
     instr_dec_o.rs1       = '0;
     instr_dec_o.rs1_is_fp = 0;
+    instr_dec_o.rs1_is_vec = 0;
     instr_dec_o.use_rs1   = 1'b0;
     instr_dec_o.rs2       = '0;
     instr_dec_o.rs2_is_fp = 0;
+    instr_dec_o.rs2_is_vec = 0;
     instr_dec_o.use_rs2   = 1'b0;
     instr_dec_o.lsu_size       = Word;
     instr_dec_o.fpu_fmt_src    = fpnew_pkg::FP32;
@@ -384,22 +387,30 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
           // Vector stores use Store-FP major opcode (0100111)
           // Only track dependencies (base rs1 integer, data rs2 vector)
           casez (instr.instr)
-            // Basic element stores
-            VSE8_V, VSE16_V, VSE32_V, VSE64_V,
-            // Indexed unordered stores
-            VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V,
-            // Indexed ordered (segment) stores
-            VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
-              instr_dec_o.fu        = schnizo_pkg::VLSU;
-              instr_dec_o.rs1       = instr.stype.rs1; // base integer register
-              // rd left at x0 (no writeback)
-              vector_store_handled  = 1'b1;
+            // Unit-stride stores: vs3 (data) is in the rd/vd field [11:7], NOT in rs2 [24:20].
+            // rs2 [24:20] is lumop (00000 for unit-stride) and carries no data dependency.
+            VSE8_V, VSE16_V, VSE32_V, VSE64_V: begin
+              instr_dec_o.fu         = schnizo_pkg::VLSU;
+              instr_dec_o.rs1        = instr.stype.rs1; // base integer register
+              instr_dec_o.rs2        = instr.rtype.rd;  // vs3 = store data (in vd/rd field)
+              instr_dec_o.rs2_is_vec = 1'b1;
+              vector_store_handled   = 1'b1;
             end
-            // Strided stores - rs2 holds the stride
+            // Indexed stores: rs2 [24:20] = vs2 (index vector); vs3 (data) in rd field.
+            // Only vs2 (index) is tracked here; vs3 dependency is a known gap.
+            VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V,
+            VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
+              instr_dec_o.fu         = schnizo_pkg::VLSU;
+              instr_dec_o.rs1        = instr.stype.rs1; // base integer register
+              instr_dec_o.rs2        = instr.stype.rs2; // vs2 = index vector register
+              instr_dec_o.rs2_is_vec = 1'b1;
+              vector_store_handled   = 1'b1;
+            end
+            // Strided stores - rs2 holds the stride (integer), rd field holds vs3 data
             VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V: begin
               instr_dec_o.fu        = schnizo_pkg::VLSU;
               instr_dec_o.rs1       = instr.stype.rs1;
-              instr_dec_o.rs2       = instr.rtype.rs2;
+              instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
               vector_store_handled  = 1'b1;
             end
             default: ;
@@ -460,13 +471,17 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
                 instr_dec_o.fu        = schnizo_pkg::VLSU;
                 instr_dec_o.rs1       = instr.itype.rs1; // base integer register
+                instr_dec_o.rd        = instr.itype.rd;  // vd
+                instr_dec_o.rd_is_vec = 1'b1;
                 vector_load_handled   = 1'b1;
               end
-              // Strided loads - rs2 holds the stride
+              // Strided loads - rs2 holds the stride (integer)
               VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V: begin
                 instr_dec_o.fu        = schnizo_pkg::VLSU;
                 instr_dec_o.rs1       = instr.itype.rs1;
-                instr_dec_o.rs2       = instr.rtype.rs2;
+                instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
+                instr_dec_o.rd        = instr.itype.rd;  // vd
+                instr_dec_o.rd_is_vec = 1'b1;
                 vector_load_handled   = 1'b1;
               end
               default: ;
@@ -1073,28 +1088,30 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
         if (RVV) begin
           // Tag as vector arithmetic unit.
           instr_dec_o.fu = schnizo_pkg::VFU;
-          // Dependency-only partial decode of a subset of RVV instructions.
-          // Vector registers are flagged with *_is_fp = 1'b1 (single scoreboard domain with FP).
+          // Most VFU instructions write vd (rd field) to the VRF. Set as default and
+          // override below for instructions that write to scalar GPR/FPR instead.
+          instr_dec_o.rd        = instr.rtype.rd;
+          instr_dec_o.rd_is_vec = 1'b1;
           unique casez (instr.instr)
             // --- Configuration / setup (integer destination) ---
             VSETIVLI: begin
-              instr_dec_o.rd        = instr.rtype.rd;
+              instr_dec_o.rd_is_vec = 1'b0; // writes to integer rd
             end
             VSETVLI: begin
-              instr_dec_o.rd        = instr.rtype.rd;
+              instr_dec_o.rd_is_vec = 1'b0; // writes to integer rd
               instr_dec_o.rs1       = instr.rtype.rs1; // AVL in integer reg
             end
             VSETVL: begin
-              instr_dec_o.rd        = instr.rtype.rd;
+              instr_dec_o.rd_is_vec = 1'b0; // writes to integer rd
               instr_dec_o.rs1       = instr.rtype.rs1;
               instr_dec_o.rs2       = instr.rtype.rs2;
             end
             // Move scalar from vector element to integer
             VMV_X_S: begin
-              instr_dec_o.rd        = instr.rtype.rd;          // integer rd
+              instr_dec_o.rd_is_vec = 1'b0; // writes to integer rd
             end
 
-            // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are vector; no integer rs1 ---
+            // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are all vector ---
             VADD_VV, VSUB_VV, VMIN_VV, VMINU_VV, VMAX_VV, VMAXU_VV,
             VAND_VV, VOR_VV, VXOR_VV,
             VSLL_VV, VSRL_VV, VSRA_VV,
@@ -1115,9 +1132,13 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             // Integer reductions (VS format, no integer scalar)
             VREDSUM_VS, VREDAND_VS, VREDOR_VS, VREDXOR_VS,
             VREDMIN_VS, VREDMINU_VS, VREDMAX_VS, VREDMAXU_VS: begin
+              instr_dec_o.rs1        = instr.rtype.rs1; // vs1
+              instr_dec_o.rs1_is_vec = 1'b1;
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-            // --- Vector-Scalar integer (VX): rs1 integer scalar ---
+            // --- Vector-Scalar integer (VX): rs1 integer scalar, vs2 = rs2 ---
             VADD_VX, VSUB_VX, VRSUB_VX,
             VAND_VX, VOR_VX, VXOR_VX,
             VSLL_VX, VSRL_VX, VSRA_VX,
@@ -1139,11 +1160,13 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VMERGE_VXM, VMV_V_X, VMV_S_X,
             VSLIDEUP_VX, VSLIDE1UP_VX,
             VSLIDEDOWN_VX, VSLIDE1DOWN_VX: begin
-              instr_dec_o.rs1     = instr.rtype.rs1;  // integer scalar
-              instr_dec_o.use_rs1 = 1'b1;
+              instr_dec_o.rs1        = instr.rtype.rs1;  // integer scalar
+              instr_dec_o.use_rs1    = 1'b1;
+              instr_dec_o.rs2        = instr.rtype.rs2;  // vs2
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-            // --- Vector-Immediate (VI): rs1 field is immediate => no rs1 reg ---
+            // --- Vector-Immediate (VI): rs1 field is immediate; vs2 = rs2 ---
             VADD_VI, VRSUB_VI,
             VAND_VI, VOR_VI, VXOR_VI,
             VSLL_VI, VSRL_VI, VSRA_VI,
@@ -1153,25 +1176,31 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VADC_VIM, VMADC_VI, VMADC_VIM,
             // Merge and slide VI forms
             VMERGE_VIM, VSLIDEUP_VI, VSLIDEDOWN_VI: begin
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-            // --- Vector loads: base rs1 (integer), rd vector ---
+            // --- Vector loads (OP-V encoded): base rs1 (integer), rd = vd ---
             VLE8_V, VLE16_V, VLE32_V, VLE64_V,
             VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V,
             VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
-              instr_dec_o.rs1       = instr.rtype.rs1; // base integer
+              instr_dec_o.rs1 = instr.rtype.rs1; // base integer
             end
 
-            // --- Vector stores: base rs1 (integer), rs2 vector (data) ---
+            // --- Vector stores (OP-V encoded): base rs1 (integer), vs2 = data ---
             VSE8_V, VSE16_V, VSE32_V, VSE64_V,
             VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V,
             VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
-              instr_dec_o.rs1       = instr.rtype.rs1; // base integer
+              instr_dec_o.rd_is_vec  = 1'b0;            // no vector destination
+              instr_dec_o.rd         = '0;
+              instr_dec_o.rs1        = instr.rtype.rs1; // base integer
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2 = data
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
 
           /// VECTOR FLOATING POINT INSTRUCTIONS: TODO: Double check, they were made with GPT
-            // --- Vector-Float vector-scalar (VF): rs1 is FP scalar ---
+            // --- Vector-Float vector-scalar (VF): rs1 is FP scalar, vs2 = rs2, vd = rd ---
             VFADD_VF, VFSUB_VF, VFMIN_VF, VFMAX_VF,
             VFSGNJ_VF, VFSGNJN_VF, VFSGNJX_VF,
             VFSLIDE1UP_VF, VFSLIDE1DOWN_VF,
@@ -1182,17 +1211,21 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VFMACC_VF, VFNMACC_VF, VFMSAC_VF, VFNMSAC_VF,
             VFWADD_VF, VFWSUB_VF, VFWADD_WF, VFWSUB_WF,
             VFWMUL_VF, VFWDOTP_VF, VFWMACC_VF, VFWNMACC_VF, VFWMSAC_VF, VFWNMSAC_VF: begin
-              instr_dec_o.rs1       = instr.rtype.rs1;  // FP scalar
-              instr_dec_o.rs1_is_fp = 1'b1;
+              instr_dec_o.rs1        = instr.rtype.rs1;  // FP scalar
+              instr_dec_o.rs1_is_fp  = 1'b1;
+              instr_dec_o.rs2        = instr.rtype.rs2;  // vs2
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
             // --- Vector-Float move from vector element to FP scalar ---
             VFMV_F_S: begin
-              instr_dec_o.rd        = instr.rtype.rd;   // FP scalar destination
-              instr_dec_o.rd_is_fp  = 1'b1;
+              instr_dec_o.rd_is_vec  = 1'b0;            // FP scalar destination
+              instr_dec_o.rd_is_fp   = 1'b1;
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2 (source vector element)
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-            // --- Vector-Float vector-vector (VV) ops and reductions (no scalar deps) ---
+            // --- Vector-Float vector-vector (VV) ops and reductions (vd, vs1, vs2 all vector) ---
             VFADD_VV, VFSUB_VV, VFMIN_VV, VFMAX_VV,
             VFSGNJ_VV, VFSGNJN_VV, VFSGNJX_VV,
             VFDIV_VV, VFMUL_VV,
@@ -1203,9 +1236,13 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VFWMACC_VV, VFWNMACC_VV, VFWMSAC_VV, VFWNMSAC_VV,
             VFREDUSUM_VS, VFREDOSUM_VS, VFREDMIN_VS, VFREDMAX_VS,
             VFWREDUSUM_VS, VFWREDOSUM_VS: begin
+              instr_dec_o.rs1        = instr.rtype.rs1; // vs1
+              instr_dec_o.rs1_is_vec = 1'b1;
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-            // --- Vector-Float conversions and misc (no scalar deps) ---
+            // --- Vector-Float conversions and misc (vs2 = rs2, vd = rd) ---
             VFSQRT_V, VFRSQRT7_V, VFREC7_V, VFCLASS_V,
             VFCVT_XU_F_V, VFCVT_X_F_V, VFCVT_F_XU_V, VFCVT_F_X_V,
             VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V,
@@ -1213,6 +1250,8 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VFWCVT_F_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V,
             VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W,
             VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W: begin
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2 (source)
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
             default: illegal_instr = 1'b1;

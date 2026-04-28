@@ -204,12 +204,15 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     // rd and rs_is_fp must be set to all zero to encoded that there is
     // no write back for this instruction.
     logic [RegAddrSize-1:0]       rd;
-    logic                         rd_is_fp; // set if rd is a FP register
+    logic                         rd_is_fp;  // set if rd is a FP register
+    logic                         rd_is_vec; // set if rd is a vector register (VRF)
     logic [RegAddrSize-1:0]       rs1;
-    logic                         rs1_is_fp; // set if rs1 is a FP register
+    logic                         rs1_is_fp;  // set if rs1 is a FP register
+    logic                         rs1_is_vec; // set if rs1 is a vector register (VRF)
     logic                         use_rs1;
     logic [RegAddrSize-1:0]       rs2;
-    logic                         rs2_is_fp; // set if rs2 is a FP register
+    logic                         rs2_is_fp;  // set if rs2 is a FP register
+    logic                         rs2_is_vec; // set if rs2 is a vector register (VRF)
     logic                         use_rs2;
     // Imm field: for unfinished floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the address of the third operand (rs3) from the floating-point regfile
@@ -567,6 +570,12 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   logic [FrepMaxItersWidth-1:0] lep_iterations;
   logic                         all_rs_finish;
 
+  // VFU WB (declared here because used in controller instantiation below)
+  logic            vfu_result_valid;
+  logic            vfu_result_ready;
+  instr_tag_t      vfu_result_tag;
+  logic [FLEN-1:0] vfu_result;
+
   schnizo_controller #(
     .Xfrep          (Xfrep),
     .XLEN           (XLEN),
@@ -635,7 +644,10 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .gpr_waddr_i            (gpr_waddr),
     .fpr_we_i               (fpr_we),
     .fpr_waddr_i            (fpr_waddr),
-    .spatz_running_instrs_i ('0)
+    // VRF retire snooping: clear sbv entry when VFU result handshake fires
+    .vfu_we_i               (vfu_result_valid && vfu_result_ready &&
+                              vfu_result_tag.dest_reg_is_vec),
+    .vfu_waddr_i            (vfu_result_tag.dest_reg)
 );
 
   //////////////
@@ -768,12 +780,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   logic            fpu_result_valid;
   logic            fpu_result_ready;
   instr_tag_t      fpu_result_tag;
-
-  // VFU WB
-  logic            vfu_result_valid;
-  logic            vfu_result_ready;
-  instr_tag_t      vfu_result_tag;
-  logic [FLEN-1:0] vfu_result;
 
   // Trace signals
   // pragma translate_off

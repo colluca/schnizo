@@ -149,6 +149,7 @@ package schnizo_pkg;
   typedef struct packed {
     logic [RegAddrSize-1:0] dest_reg;
     logic                   dest_reg_is_fp;
+    logic                   dest_reg_is_vec; // set if destination is a vector register (VRF)
     logic                   is_branch;
     logic                   is_jump;
   } instr_tag_t;

@@ -181,6 +181,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       instruction_iter: 1'b0,
       no_dest:          ((disp_req_i.fu_data.fu == STORE) &&
                         (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})) ||
+                        disp_req_i.tag.dest_reg_is_vec ||
                         (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp),
       operands:         '0
     };
@@ -266,11 +267,11 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
   // Compute the updated result slot state depending on loop phase:
   // - LCP1: full initialization for a newly dispatched instruction.
-  //         We must set the result iteration flag to 1 — it gets toggled when writing the first result.
+  //         We must set the result iteration flag to 1 ? it gets toggled when writing the first result.
   //         TODO(colluca): is this the right place for the no_dest logic? Perhaps move it to the decoder.
   // - LCP2: pass through the current result state, only updating `do_writeback` if needed.
   // This output is fed into res_req_handling as slot_i (instead of slot_result_qs) when dispatching,
-  // so any concurrent consumer reads are applied on top of the dispatch update — no bypass needed.
+  // so any concurrent consumer reads are applied on top of the dispatch update ? no bypass needed.
   always_comb begin
     slot_result_o = slot_result_i;
     unique case (loop_state_i)
@@ -281,8 +282,9 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
           spatz_raw_instr: disp_req_i.fu_data.raw_instr,
           result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
           // TODO(colluca): can't we just use dest x0 to communicate this info?
-          no_dest:        (disp_req_i.fu_data.fu == STORE) &&
-                          (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})||
+          no_dest:        ((disp_req_i.fu_data.fu == STORE) &&
+                          (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})) ||
+                          disp_req_i.tag.dest_reg_is_vec ||
                           (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp),
           dest_id:        disp_req_i.tag.dest_reg,
           dest_is_fp:     disp_req_i.tag.dest_reg_is_fp,

@@ -263,11 +263,17 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
         : vfu_rsp[i].result;
     assign result_valid_o[PORT] = is_vcfg ? issue_req_valid_i[PORT] : vfu_rsp_valid[i];
     assign tag_o[PORT] = '{
-      dest_reg:       is_vcfg ? issue_req_i[PORT].tag.dest_reg :
-                      (vfu_rsp[i].wb ? vfu_rsp[i].rd[RegAddrSize-1:0] : '0),
-      dest_reg_is_fp: 1'b0,
-      is_branch:      1'b0,
-      is_jump:        1'b0
+      // vfu_rsp.rd is always the destination register address:
+      //   wb=0 (pure vector arithmetic): vd VRF address ? dest_reg_is_vec=1
+      //   wb=1 (scalar extraction e.g. vmv.x.s): GPR address ? dest_reg_is_vec=0
+      // Using vfu_rsp fields (not issue_req tag) keeps the tag stable across the
+      // multi-cycle VFU latency; issue_req_i[PORT] is only reliable at issue time.
+      dest_reg:        is_vcfg ? issue_req_i[PORT].tag.dest_reg
+                               : vfu_rsp[i].rd[RegAddrSize-1:0],
+      dest_reg_is_fp:  1'b0,
+      dest_reg_is_vec: !is_vcfg && !vfu_rsp[i].wb,
+      is_branch:       1'b0,
+      is_jump:         1'b0
     };
   end : gen_vfu
 

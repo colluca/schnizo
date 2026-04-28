@@ -149,10 +149,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     end
 
     // generate the tag
-    disp_req_o.tag.dest_reg       = instr_dec_i.rd;
-    disp_req_o.tag.dest_reg_is_fp = instr_dec_i.rd_is_fp;
-    disp_req_o.tag.is_branch      = instr_dec_i.is_branch;
-    disp_req_o.tag.is_jump        = instr_dec_i.is_jal | instr_dec_i.is_jalr;
+    disp_req_o.tag.dest_reg        = instr_dec_i.rd;
+    disp_req_o.tag.dest_reg_is_fp  = instr_dec_i.rd_is_fp;
+    disp_req_o.tag.dest_reg_is_vec = instr_dec_i.rd_is_vec;
+    disp_req_o.tag.is_branch       = instr_dec_i.is_branch;
+    disp_req_o.tag.is_jump         = instr_dec_i.is_jal | instr_dec_i.is_jalr;
   end
 
   //////////////////
