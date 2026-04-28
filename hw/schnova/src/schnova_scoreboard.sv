@@ -43,6 +43,7 @@ module schnova_scoreboard #(
   localparam int unsigned NumRegs  = 2**AddrWidth;
 
   logic [NumRegs-1:0] sbi_d, sbi_q, sbf_d, sbf_q;
+  logic [NumRegs-1:0] sbi_set, sbi_clr, sbf_set, sbf_clr;
   logic [PipeWidth-1:0][NumRegs-1:0] disp_dec;
   logic [NrIntWritePorts-1:0][NumRegs-1:0] wb_gpr_dec;
   logic [NrFpWritePorts-1:0][NumRegs-1:0] wb_fpr_dec;
@@ -50,70 +51,51 @@ module schnova_scoreboard #(
   `FFAR(sbi_q, sbi_d, '0, clk_i, rst_i)
   `FFAR(sbf_q, sbf_d, '0, clk_i, rst_i)
 
-  always_comb begin : disp_decoder
-    for (int unsigned j = 0; j < PipeWidth; j++) begin
-      for (int unsigned i = 0; i < NumRegs; i++) begin
-        if (disp_data_i[j].rd == i) disp_dec[j][i] = instr_valid_i[j] & dispatched_i;
-        else disp_dec[j][i] = 1'b0;
-      end
-    end
+  // Dispatched Decoder
+  for (genvar j = 0; j < PipeWidth; j++) begin : gen_disp_dec
+    assign disp_dec[j] = (instr_valid_i[j] & dispatched_i) ? (NumRegs'(1) << disp_data_i[j].rd) : '0;
   end
 
-  always_comb begin : wb_gpr_decoder
-    for (int unsigned j = 0; j < NrIntWritePorts; j++) begin
-      for (int unsigned i = 0; i < NumRegs; i++) begin
-        if (wb_gpr_addr_i[j] == i) wb_gpr_dec[j][i] = wb_gpr_en_i[j];
-        else wb_gpr_dec[j][i] = 1'b0;
-      end
-    end
+  // GPR Writeback Decoder
+  for (genvar j = 0; j < NrIntWritePorts; j++) begin : gen_gpr_dec
+    assign wb_gpr_dec[j] = (wb_gpr_en_i[j]) ? (NumRegs'(1) << wb_gpr_addr_i[j]) : '0;
   end
 
-  always_comb begin : wb_fpr_decoder
-    for (int unsigned j = 0; j < NrFpWritePorts; j++) begin
-      for (int unsigned i = 0; i < NumRegs; i++) begin
-        if (wb_fpr_addr_i[j] == i) wb_fpr_dec[j][i] = wb_fpr_en_i[j];
-        else wb_fpr_dec[j][i] = 1'b0;
-      end
-    end
+  // FPR Writeback Decoder
+  for (genvar j = 0; j < NrFpWritePorts; j++) begin : gen_fpr_dec
+    assign wb_fpr_dec[j] = (wb_fpr_en_i[j]) ? (NumRegs'(1) << wb_fpr_addr_i[j]) : '0;
   end
 
   always_comb begin : scoreboard_update
+    sbi_set = '0; 
+    sbi_clr = '0;
+    sbf_set = '0; 
+    sbf_clr = '0;
     sbi_d = sbi_q;
     sbf_d = sbf_q;
 
     // For every dispatched instruction we have to set the scoreboard entry
     // this means that this register currently is busy (waiting on the result)
-    for (int unsigned j = 0; j < PipeWidth; j++) begin
-        for (int unsigned i = 0; i < NumRegs; i++) begin
-          if (disp_dec[j][i]) begin
-            if (disp_data_i[j].rd_is_fp) begin
-              sbf_d[i] = 1'b1;
-            end else begin
-              sbi_d[i] = 1'b1;
-            end
-          end
-        end
+    for (int j = 0; j < PipeWidth; j++) begin
+      if (disp_data_i[j].rd_is_fp) begin
+        sbf_set |= disp_dec[j];
+      end else begin
+        sbi_set |= disp_dec[j];
+      end                       
     end
 
     // We remove the busy bit for every write back that happens
-    for (int unsigned j = 0; j < NrIntWritePorts; j++) begin
-        for (int unsigned i = 0; i < NumRegs; i++) begin
-          if (wb_fpr_dec[j][i]) begin
-            sbf_d[i] = 1'b0;
-          end
-        end
+    for (int j = 0; j < NrIntWritePorts; j++) begin
+      sbi_clr |= wb_gpr_dec[j];
     end
+    for (int j = 0; j < NrFpWritePorts; j++) begin
+      sbf_clr |= wb_fpr_dec[j];
+    end 
 
-    for (int unsigned j = 0; j < NrFpWritePorts; j++) begin
-        for (int unsigned i = 0; i < NumRegs; i++) begin
-          if (wb_gpr_dec[j][i]) begin
-            sbi_d[i] = 1'b0;
-          end
-        end
-    end
-
-    // x0 is always not busy, we can't write to that register
-    sbi_d[0] = 1'b0;
+    // Final bitwise assignment
+    sbi_d = (sbi_q | sbi_set) & ~sbi_clr;
+    sbf_d = (sbf_q | sbf_set) & ~sbf_clr;
+    sbi_d[0] = 1'b0; // x0 is always ready
   end
 
   ///////////////////////////
