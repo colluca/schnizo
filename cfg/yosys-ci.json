@@ -33,6 +33,9 @@
             emaw: 2,
             emas: 1
         },
+        // Global core configurations
+        // If the schnova or schnizo core is used in the cluster
+        use_schnova_core: false,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -100,7 +103,6 @@
     compute_core_template: {
         isa: "rv32imafd",
         xfrep: true, // enables the superscalar feature
-        dyn_scheduling: false, // true: schnova core is used, false: schnizo is used
         xdma: false,
         xf16: false,
         xf16alt: false,
@@ -123,7 +125,6 @@
         xdma: true,
         xssr: false,
         xfrep: false,
-        dyn_scheduling: false, // true: schnova core is used, false: schnizo is used
         xf16: false,
         xf16alt: false,
         xf8: false,

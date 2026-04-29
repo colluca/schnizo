@@ -25,6 +25,10 @@ module snitch_hive import snitch_icache_pkg::*; #(
   parameter bit          IsoCrossing        = 1,
   /// Address width of the buses
   parameter int unsigned AddrWidth          = 0,
+  /// If the cluster uses the schnova core
+  parameter bit          UseSchnovaCore     = 1'b1,
+  /// Physical register address width of schnova
+  parameter int unsigned PhysRegAddrWidth   = 6,
   /// Data width of the Narrow bus.
   parameter int unsigned NarrowDataWidth    = 0,
   parameter int unsigned WideDataWidth      = 0,
@@ -64,7 +68,9 @@ module snitch_hive import snitch_icache_pkg::*; #(
   output icache_l0_events_t [CoreCount-1:0] icache_events_o
 );
   // Extend the ID to route back results to the appropriate core.
-  localparam int unsigned IdWidth = 6;
+  // In case of schnizo the register address width is 5
+  // for schnova this can be configurable
+  localparam int unsigned IdWidth = UseSchnovaCore ? PhysRegAddrWidth  : 5;
   localparam int unsigned LogCoreCount = cf_math_pkg::idx_width(CoreCount);
   localparam int unsigned ExtendedIdWidth = IdWidth + LogCoreCount;
 
@@ -77,8 +83,6 @@ module snitch_hive import snitch_icache_pkg::*; #(
   logic [CoreCount-1:0] flush_valid;
   logic [CoreCount-1:0] flush_ready;
 
-
-
   for (genvar i = 0; i < CoreCount; i++) begin : gen_unpack_icache
     assign inst_addr[i] = hive_req_i[i].inst_addr;
     assign inst_cacheable[i] = hive_req_i[i].inst_cacheable;
@@ -89,7 +93,7 @@ module snitch_hive import snitch_icache_pkg::*; #(
     assign hive_rsp_o[i].inst_error = inst_error[i];
     assign hive_rsp_o[i].flush_i_ready = flush_ready[i];
   end
-  
+
   snitch_icache #(
     .NR_FETCH_PORTS     ( CoreCount            ),
     .L0_LINE_COUNT      ( ICacheL0LineCount    ),

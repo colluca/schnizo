@@ -33,6 +33,11 @@
             emaw: 2,
             emas: 1
         },
+        // Global core configurations
+        // If the schnova or schnizo core is used in the cluster
+        use_schnova_core: true,
+        // The physical register address width
+        phy_reg_addr_width: 8,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -106,9 +111,6 @@
     // Templates.
     compute_core_template: {
         isa: "rv32imafd",
-        // Core type selection, careful currently both the compute and dma core should be of the same type 
-        // because of the instruction cache interface (supports only one fetch width for all L0 caches)
-        dyn_scheduling: true, // true: schnova core is used, false: schnizo is used
         xfrep: true, // enables the superscalar feature
         xdma: false,
         xf16: false,
@@ -121,18 +123,15 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 2,
+        num_alu_slots: 32,
         num_lsus: 3,
-        num_lsu_slots: 3,
+        num_lsu_slots: 32,
         num_fpus: 1,
-        num_fpu_slots: 4,
-        num_rob_entries: 32,
+        num_fpu_slots: 32,
+        num_rob_entries: 8,
     },
     dma_core_template: {
         isa: "rv32imafd",
-        // Core type selection, careful currently both the compute and dma core should be of the same type 
-        // because of the instruction cache interface (supports only one fetch width for all L0 caches)
-        dyn_scheduling: true, // true: schnova core is used, false: schnizo is used
         xfrep: true,
         xdma: true,
         xssr: false,
@@ -146,6 +145,6 @@
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
-        num_rob_entries: 32,
+        num_rob_entries: 8,
     }
 }

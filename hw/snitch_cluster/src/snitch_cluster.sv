@@ -72,6 +72,10 @@ module snitch_cluster
   parameter int unsigned DMANumChannels     = 1,
   /// Number of exposed TCDM wide ports
   parameter int unsigned NumExpWideTcdmPorts = 1,
+  /// Whether the schnova or schnizo core is used in the cluster
+  parameter bit          UseSchnovaCore      = 0,
+  /// The physical register address width for the schnova core
+  parameter int unsigned PhysRegAddrWidth    = 6,
   /// Width of a single icache line.
   parameter int unsigned ICacheLineWidth [NrHives] = '{default: 0},
   /// Number of icache lines per set.
@@ -140,8 +144,6 @@ module snitch_cluster
   parameter bit [NrCores-1:0] Xpulpvectshufflepack = '0,
   // Per-core enable of private IPU.
   parameter bit [NrCores-1:0] PrivateIpu    = '0,
-  // Per-core enable of dynamic scheduling.
-  parameter bit [NrCores-1:0] DynScheduling = '0,
   /// # Core-global parameters
   /// FPU configuration.
   parameter fpnew_pkg::fpu_implementation_t FPUImplementation [NrCores] =
@@ -581,9 +583,11 @@ module snitch_cluster
     addr_t end_addr;
   } xbar_rule_t;
 
+  localparam integer unsigned IdWidth = UseSchnovaCore ? PhysRegAddrWidth : 5;
+
   typedef struct packed {
     acc_addr_e   addr;
-    logic [5:0]  id;
+    logic [IdWidth-1:0]  id;
     logic [31:0] data_op;
     data_t       data_arga;
     data_t       data_argb;
@@ -591,7 +595,7 @@ module snitch_cluster
   } acc_req_t;
 
     typedef struct packed {
-    logic [5:0] id;
+    logic [IdWidth-1:0] id;
     logic       error;
     data_t      data;
   } acc_resp_t;
@@ -1140,7 +1144,7 @@ module snitch_cluster
     parameter logic [31:0] BootAddrInternal = (AliasRegionEnable & IntBootromEnable) ?
                                                 BootRomAliasStart : BootAddr;
 
-    if (DynScheduling[i] == 1'b1) begin: gen_schnova_cc
+    if (UseSchnovaCore) begin: gen_schnova_cc
       schnova_cc #(
         .AddrWidth (PhysicalAddrWidth),
         .DataWidth (NarrowDataWidth),
@@ -1192,6 +1196,7 @@ module snitch_cluster
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
         .NumRobEntries(NumRobEntries[i]),
+        .PhysRegAddrWidth(PhysRegAddrWidth),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
         // TODO(colluca): add Xpulpv2 to Schnizo
         // .Xpulppostmod (Xpulppostmod[i]),
@@ -1451,6 +1456,8 @@ module snitch_cluster
       .ICacheL1TagScm (ICacheL1TagScm[i]),
       .ICacheL1DataScm (ICacheL1DataScm[i]),
       .IsoCrossing (IsoCrossing),
+      .UseSchnovaCore(UseSchnovaCore),
+      .PhysRegAddrWidth(PhysRegAddrWidth),
       .sram_cfg_t  (sram_cfg_t),
       .sram_cfgs_t (sram_cfgs_t),
       .axi_req_t (axi_mst_dma_req_t),
@@ -1955,7 +1962,7 @@ module snitch_cluster
   , "Fetch data width is not a multiple of 32");
   for (genvar core_idx = 0; core_idx < NrCores; core_idx++) begin
     // If the core is a schnizo core, the fetch data width has to be 32 bit (1 instruction)
-    `ASSERT_INIT(CheckSchnizoFetchWidth, (ICacheFetchDataWidth == 32) || (DynScheduling[core_idx] == 1'b1),
+    `ASSERT_INIT(CheckSchnizoFetchWidth, (ICacheFetchDataWidth == 32) || (UseSchnovaCore == 1'b1),
     "Fetch data width for schnizo has to be 32 bit");
   end
 

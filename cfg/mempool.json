@@ -36,6 +36,9 @@
             emaw: 2,
             emas: 1
         },
+        // Global core configurations
+        // If the schnova or schnizo core is used in the cluster
+        use_schnova_core: false,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -100,7 +103,6 @@
         isa: "rv32imafd",
         xssr: false,
         xfrep: false,
-        dyn_scheduling: false, // true: schnova core is used, false: schnizo is used
         xcopift: false,
         xdma: false,
         xf16: true,
