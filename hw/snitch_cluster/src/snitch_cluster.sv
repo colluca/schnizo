@@ -170,6 +170,7 @@ module snitch_cluster
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
+  parameter int unsigned NumRobEntries [NrCores] = '{default:0},
   /// Per-core integer outstanding loads
   parameter int unsigned NumIntOutstandingLoads [NrCores] = '{default: 0},
   /// Per-core integer outstanding memory operations (load and stores)
@@ -1190,6 +1191,7 @@ module snitch_cluster
         .NumAluRss(NumAluRss[i]),
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
+        .NumRobEntries(NumRobEntries[i]),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
         // TODO(colluca): add Xpulpv2 to Schnizo
         // .Xpulppostmod (Xpulppostmod[i]),

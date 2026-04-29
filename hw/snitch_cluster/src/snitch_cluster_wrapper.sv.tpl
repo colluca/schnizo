@@ -87,6 +87,7 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
+  localparam int unsigned NumRobEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_rob_entries')}};
   localparam int unsigned NumIntOutstandingLoads [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_loads')}};
   localparam int unsigned NumIntOutstandingMem [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_mem')}};
   localparam int unsigned NumSequencerInstr [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_instructions')}};
@@ -184,6 +185,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .NumAluRspPorts (NumAluRspPorts),
     .NumLsuRspPorts (NumLsuRspPorts),
     .NumFpuRspPorts (NumFpuRspPorts),
+    .NumRobEntries (NumRobEntries),
     .NumIntOutstandingLoads (NumIntOutstandingLoads),
     .NumIntOutstandingMem (NumIntOutstandingMem),
     .NumSequencerInstr (NumSequencerInstr),
