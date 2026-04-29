@@ -19,21 +19,17 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned NofAlus           = 1,
   parameter int unsigned AluNofRss         = 3,
   parameter int unsigned AluNofOperands    = 2,
-  parameter int unsigned AluNofResReqIfs   = 3,
   parameter int unsigned NofLsus           = 1,
   parameter int unsigned LsuNofRss         = 3,
   parameter int unsigned LsuNofOperands    = 4,
-  parameter int unsigned LsuNofResReqIfs   = 3,
   parameter int unsigned NofFpus           = 1,
   parameter int unsigned FpuNofRss         = 2,
   parameter int unsigned FpuNofOperands    = 3,
-  parameter int unsigned FpuNofResReqIfs   = 3,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
   // TODO(colluca): use a function or something to ensure the consistency of these parameters.
   parameter int unsigned NofOperandIfs   = 1,
-  parameter int unsigned NofResReqIfs    = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned FLEN            = 64,
   parameter int unsigned OpLen           = 64,
