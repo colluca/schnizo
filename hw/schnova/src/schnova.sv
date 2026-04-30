@@ -135,8 +135,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // localparam int unsigned FLEN = DataWidth;
   // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
-  localparam int unsigned NrIntReadPorts = PipeWidth;
-  localparam int unsigned NrIntWritePorts = 2;
+  localparam int unsigned NrIntReadPorts = 2;
+  localparam int unsigned NrIntWritePorts = PipeWidth;
   localparam int unsigned NrFpReadPorts = 3;
   localparam int unsigned NrFpWritePorts = PipeWidth;
   localparam int unsigned NrRobWritePorts = NrIntWritePorts + NrFpWritePorts;
