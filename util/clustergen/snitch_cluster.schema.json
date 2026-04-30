@@ -33,6 +33,16 @@
                     "description": "Address offset between successive clusters.",
                     "default": 0
                 },
+                "use_schnova_core": {
+                    "type": "boolean",
+                    "description": "Whether the schnova or schnizo core is used in the cluster.",
+                    "default": false
+                },
+                "phy_reg_addr_width": {
+                    "type": "number",
+                    "description": "The physical register address width. Only relevant for the schnova core.",
+                    "default": 6
+                },
                 "tcdm": {
                     "type": "object",
                     "description": "Configuration of the Tightly Coupled Data Memory of this cluster.",
@@ -467,6 +477,8 @@
                                     "size": 8,
                                     "ways": 2,
                                     "cacheline": 128,
+                                    "l0_cacheline_count": 8,
+                                    "fetch_data_width": 32,
                                     "tag_scm": false,
                                     "data_scm": false
                                 },
@@ -482,6 +494,16 @@
                                     "cacheline": {
                                         "type": "number",
                                         "description": "Cacheline/Word size in bits."
+                                    },
+                                    "l0_cacheline_count": {
+                                        "type": "number",
+                                        "description": "Number of cachelines in the L0 instruction cache.",
+                                        "default": 8
+                                    },
+                                    "fetch_data_width": {
+                                        "type": "number",
+                                        "description": "Bit width of the instruction cache fetch port.",
+                                        "default": 32
                                     },
                                     "tag_scm": {
                                         "type": "boolean",
@@ -602,6 +624,12 @@
                                             "title": "Number of Response Ports per FPU",
                                             "description": "Number of ports to read results from each FPU. Only relevant if Xfrep is enabled.",
                                             "default": 1
+                                        },
+                                        "num_rob_entries": {
+                                            "type": "number",
+                                            "title": "Number of Reorder Buffer entries",
+                                            "description": "The number of entries the reorder buffer contains. Only relevant when Schnova Core is used",
+                                            "default": 32
                                         },
                                         "xdma": {
                                             "type": "boolean",
