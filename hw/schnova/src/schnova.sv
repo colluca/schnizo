@@ -135,8 +135,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // localparam int unsigned FLEN = DataWidth;
   // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
-  localparam int unsigned NrIntReadPorts = 2;
-  localparam int unsigned NrIntWritePorts = PipeWidth;
+  localparam int unsigned NrIntReadPorts = PipeWidth;
+  localparam int unsigned NrIntWritePorts = 2;
   localparam int unsigned NrFpReadPorts = 3;
   localparam int unsigned NrFpWritePorts = PipeWidth;
   localparam int unsigned NrRobWritePorts = NrIntWritePorts + NrFpWritePorts;
@@ -273,25 +273,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
                                               NofLsus * LsuNofOperands +
                                               NofFpus * FpuNofOperands;
 
-  // We differentiate between result requests and result responses.
-  // Each reservation station has a result request crossbar output which is shared among the slots.
-  // We allow multi request handling by coalescing requests.
-  // TODO(colluca): would probably make sense to also call these "ports" instead of "interfaces"
-  //                for consistency
-  localparam integer unsigned AluNofResReqIfs = 1;
-  localparam integer unsigned LsuNofResReqIfs = 1;
-  localparam integer unsigned FpuNofResReqIfs = 1;
-
-  localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
-                                             NofLsus * LsuNofResReqIfs +
-                                             NofFpus * FpuNofResReqIfs;
-  // Since we use the RMT as a scoreboard, CSR, MULDIV, DMA also have to have a virtual
-  // reservation station entry. We just rename them to the same slot.
-  localparam integer unsigned NofVirtRs = 3;
+  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
-  localparam integer unsigned NofResReqIfsW  = cf_math_pkg::idx_width(NofResReqIfs+NofVirtRs);
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
 
@@ -303,9 +288,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
                                           ((LsuNofRss > FpuNofRss) ? LsuNofRss : FpuNofRss);
 
   localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
+  localparam integer unsigned RsIdWidth  = cf_math_pkg::idx_width(NofFus);
 
   typedef logic [SlotIdWidth-1:0]   slot_id_t;
-  typedef logic [NofResReqIfsW-1:0] rs_id_t;
+  typedef logic [RsIdWidth-1:0] rs_id_t;
 
   localparam int unsigned RobTagWidth = $clog2(NofRobEntries);
 
@@ -914,17 +900,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
     .AluNofOperands     (AluNofOperands),
-    .AluNofResReqIfs    (AluNofResReqIfs),
     .NofLsus            (NofLsus),
     .LsuNofRss          (LsuNofRss),
     .LsuNofOperands     (LsuNofOperands),
-    .LsuNofResReqIfs    (LsuNofResReqIfs),
     .NofFpus            (NofFpus),
     .FpuNofRss          (FpuNofRss),
     .FpuNofOperands     (FpuNofOperands),
-    .FpuNofResReqIfs    (FpuNofResReqIfs),
     .NofOperandIfs      (NofOperandIfs),
-    .NofResReqIfs       (NofResReqIfs),
     .XLEN               (XLEN),
     .FLEN               (FLEN),
     .OpLen              (OpLen),

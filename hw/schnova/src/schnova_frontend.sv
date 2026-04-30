@@ -275,7 +275,8 @@ module schnova_frontend # (
 
     // When we are in scalar mode, we will always fetch multiple instructions
     // however, the other instructions are not valid
-    logic [PipeWidth-1:0] scalar_mask = {{PipeWidth-1{1'b0}}, 1'b1};
+    logic [PipeWidth-1:0] scalar_mask;
+    assign scalar_mask = {{PipeWidth-1{1'b0}}, 1'b1};
     always_comb begin: scalar_masking
       // Depending on the mode of the core we have to invalidate some instructions
       for (int unsigned i = 0; i < PipeWidth; i++) begin
