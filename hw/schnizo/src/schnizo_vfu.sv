@@ -256,25 +256,23 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     );
 
     // VCFG: return vl = VLEN >> (3 + new_vsew) so callers see the correct element count.
-    // Arithmetic: gate dest_reg with wb to avoid clobbering scalar GPRs with
-    //   vector register addresses (vfu_rsp.rd = vd_addr, not a scalar reg).
     assign result_o[PORT]       = is_vcfg
         ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
         : vfu_rsp[i].result;
     assign result_valid_o[PORT] = is_vcfg ? issue_req_valid_i[PORT] : vfu_rsp_valid[i];
-    assign tag_o[PORT] = '{
-      // vfu_rsp.rd is always the destination register address:
-      //   wb=0 (pure vector arithmetic): vd VRF address ? dest_reg_is_vec=1
-      //   wb=1 (scalar extraction e.g. vmv.x.s): GPR address ? dest_reg_is_vec=0
-      // Using vfu_rsp fields (not issue_req tag) keeps the tag stable across the
-      // multi-cycle VFU latency; issue_req_i[PORT] is only reliable at issue time.
-      dest_reg:        is_vcfg ? issue_req_i[PORT].tag.dest_reg
-                               : vfu_rsp[i].rd[RegAddrSize-1:0],
-      dest_reg_is_fp:  1'b0,
-      dest_reg_is_vec: !is_vcfg && !vfu_rsp[i].wb,
-      is_branch:       1'b0,
-      is_jump:         1'b0
-    };
+
+    // Latch the issue-time tag so it remains stable across multi-cycle VFU latency.
+    // In LXP mode the tag encodes the RSS slot_id in its LSBs (set by the dispatch
+    // pipeline); in SI mode it carries the full instr_tag_t for direct RF writeback.
+    // VCFG is single-cycle (result fires same cycle as issue), so use the live tag.
+    instr_tag_t issued_tag_q;
+    always_ff @(posedge clk_i or posedge rst_i) begin
+      if (rst_i)
+        issued_tag_q <= '0;
+      else if (issue_req_valid_i[PORT] && issue_req_ready_o[PORT])
+        issued_tag_q <= issue_req_i[PORT].tag;
+    end
+    assign tag_o[PORT] = is_vcfg ? issue_req_i[PORT].tag : issued_tag_q;
   end : gen_vfu
 
   //////////

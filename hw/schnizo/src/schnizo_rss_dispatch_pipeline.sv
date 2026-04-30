@@ -181,8 +181,8 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       instruction_iter: 1'b0,
       no_dest:          ((disp_req_i.fu_data.fu == STORE) &&
                         (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})) ||
-                        disp_req_i.tag.dest_reg_is_vec ||
-                        (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp),
+                        (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp &&
+                         !disp_req_i.tag.dest_reg_is_vec),
       operands:         '0
     };
 
@@ -284,10 +284,11 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
           // TODO(colluca): can't we just use dest x0 to communicate this info?
           no_dest:        ((disp_req_i.fu_data.fu == STORE) &&
                           (disp_req_i.fu_data.fpu_op inside {LsuOpStore, LsuOpFpStore})) ||
-                          disp_req_i.tag.dest_reg_is_vec ||
-                          (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp),
+                          (disp_req_i.tag.dest_reg == '0 && !disp_req_i.tag.dest_reg_is_fp &&
+                           !disp_req_i.tag.dest_reg_is_vec),
           dest_id:        disp_req_i.tag.dest_reg,
           dest_is_fp:     disp_req_i.tag.dest_reg_is_fp,
+          dest_is_vec:    disp_req_i.tag.dest_reg_is_vec,
           do_writeback:   1'b0
         };
       end

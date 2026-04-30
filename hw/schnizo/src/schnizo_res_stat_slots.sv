@@ -142,6 +142,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     no_dest:       1'b0,
     dest_id:        '0,
     dest_is_fp:     '0,
+    dest_is_vec:    '0,
     do_writeback:   1'b0
   };
 
@@ -279,7 +280,7 @@ module schnizo_res_stat_slots import schnizo_pkg::*; #(
     `FFAR(slot_result_qs[rss], slot_result_ds[rss], slot_result_reset, clk_i, rst_i);
   end
 
-  // NofResRspIfs result request handlers — one per response port.
+  // NofResRspIfs result request handlers ? one per response port.
   for (genvar k = 0; k < NofResRspIfs; k++) begin : gen_rsp_ports
     rss_idx_t slot_sel;
     assign slot_sel = res_reqs_i[k].slot_id;
