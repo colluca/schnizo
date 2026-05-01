@@ -28,13 +28,20 @@ def results(dir=None):
     df = experiments.results(dir=dir)
 
     df['timestamp'] = df['synth_results'].str['qor_summary'].str['timestamp']
-    df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
-    df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
     df['hierarchy_details'] = df['synth_results'].str['hierarchy_details']
     df['CombArea'] = df['hierarchy_details'].map(lambda x: to_kge(x.tree.get_attr('CombArea')))
     df['SeqArea'] = df['hierarchy_details'].map(lambda x: to_kge(x.tree.get_attr('SeqArea')))
     df['CombArea'] = df['CombArea'].round(0).astype('int')
     df['SeqArea'] = df['SeqArea'].round(0).astype('int')
+    df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
+    df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
+    # ---- Add AreaIncrease column ----
+    baseline = df.loc['scalar+mul+fpu', 'StdCellArea']
+
+    df['AreaIncrease'] = (
+        df['StdCellArea']/ baseline
+    ).round(1)
+    df['CLK'] = 1 - df['synth_results'].str['qor_summary'].str['WNS']
     df['1BitEqSeq'] = (df['synth_results'].str['multibit'].str['1BitEqSeq']).astype('int')
     df['GE/bit'] = (1e3 * df['SeqArea'] / df['1BitEqSeq']).round(1)
 
