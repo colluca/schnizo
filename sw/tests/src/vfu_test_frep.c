@@ -1,85 +1,73 @@
-// Copyright 2025 ETH Zurich and University of Bologna.
+// Copyright 2026 ETH Zurich and University of Bologna.
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
-//
-// Giulio Ferraro <gferraro@student.ethz.ch>
 
-#include "snrt.h"
+#include <snrt.h>
+#include <stdint.h>
+#include "printf.h"
 
-// 64-bit AXPY: y = a * x + y
-// Hardware now provides a fixed vector length:
-//   - e32 -> vl = 8
-//   - e64 -> vl = 4
-void axpy_v(const int a, const int *x, const int *y, unsigned int avl) {
-    unsigned int vl;
-
-    // Stripmine loop ? vsetvli now always returns 8 (for e32)
-    do {
-        asm volatile("vsetvli %0, %1, e32, m8, ta, ma" : "=r"(vl) : "r"(avl));
-
-        // Load vectors
-        asm volatile("vle32.v v0, (%0)" ::"r"(x));
-        asm volatile("vle32.v v8, (%0)" ::"r"(y));
-
-        // Multiply-accumulate: y = a * x + y
-        asm volatile("vmacc.vx v8, %0, v0" ::"r"(a));
-
-        // Store results
-        asm volatile("vse32.v v8, (%0)" ::"r"(y));
-
-        // Bump pointers
-        x += vl;
-        y += vl;
-        avl -= vl;
-    } while (avl > 0);
-}
+#define N 4
 
 int main() {
-    if (snrt_global_core_idx() == 0) {
-        unsigned int avl = 128 * 10;   // total elements (multiple of 8)
-        int x[avl], y[avl];
-        unsigned int vl;
+#ifdef SNRT_SUPPORTS_FREP
+    if (snrt_is_dm_core()) return 0;
 
-        // init arrays
-        for (int i = 0; i < avl; i++) {
-            x[i] = i;
-            y[i] = i;
-        }
+    int n_iter = 4;
+    int total_elements = N * n_iter;
 
-        // Force vl = 8 (hardware now always returns 8 for e32)
-        asm volatile("vsetvli %[rvl], %[rdvl], e32, m8, ta, ma"
-                     : [rvl] "=r"(vl)
-                     : [rdvl] "r"(8));   // request exactly 8
+    int64_t x[N * n_iter];
+    int64_t y[N * n_iter];
+    int64_t z[N * n_iter];
 
-        // Pointer setup and byte increment for 8 elements (8 * 4 = 32)
-        int *xa = x;
-        int *ya = y;
-        const int inc = 8 * 4;          // bytes per vector (VL=8, e32)
-        const int a  = 2;               // AXPY constant
+    // Initialize arrays
+    for (int i = 0; i < total_elements; i++) {
+        x[i] = i * 2;
+        y[i] = i + 1;
+        z[i] = 0;
+    }
 
-        // Frep loop: repeat (avl / 8) times to process all elements
-        asm volatile(
-            "frep.o   %[n_frep], 6, 0, 0            \n"   // still 6 instructions
-            "vle32.v  v0,    (%[xa])                 \n"   // load x
-            "vle32.v  v8,    (%[ya])                 \n"   // load y
-            "vadd.vv  v4,    v0,    v8               \n"   // v8 = x + y
-            "vse32.v  v4,    (%[ya])                 \n"   // store sum back to y
-            "add     %[xa], %[xa],   %[inc]   \n"         // advance x pointer
-            "add     %[ya], %[ya],   %[inc]   \n"         // advance y pointer
-            : [xa] "+r"(xa), [ya] "+r"(ya)
-            : [n_frep] "r"(avl / 8),                // repeat count = 160
-            [inc] "r"(inc)                         // byte increment (8*4 = 32)
-            : "memory"
-        );
+    // Set up pointers
+    int64_t *px = x;
+    int64_t *py = y;
+    int64_t *pz = z;
 
-        // Verification: y[i] should be 3*i
-        for (int i = 0; i < avl; i++) {
-            if (y[i] != 3 * i) {
-                // printf("Error at index %d: %d != %d\n", i, y[i], 3*i);
-            }
+    // Vector length (N elements of 64-bit)
+    asm volatile("vsetvli zero, %0, e64, m1, ta, ma" :: "r"(N));
+
+    // frep.o repeats the following block n_iter times.
+    // The block loads N elements from x and y, adds them, stores to z,
+    // then advances all pointers by N * 8 bytes.
+    asm volatile(
+        "frep.o %[iter], 7, 0, 0      \n"  // repeat block 4 times (n_iter-1)
+        "vle64.v  v0,    (%[px])      \n"  // load N x elements into v0
+        "vle64.v  v1,    (%[py])      \n"  // load N y elements into v1
+        "vadd.vv  v2,    v0, v1       \n"  // v2 = v0 + v1
+        "vse64.v  v2,    (%[pz])      \n"  // store result to z
+        "addi     %[px], %[px], %[sz] \n"  // advance x pointer
+        "addi     %[py], %[py], %[sz] \n"  // advance y pointer
+        "addi     %[pz], %[pz], %[sz] \n"  // advance z pointer
+        : [px] "+r"(px), [py] "+r"(py), [pz] "+r"(pz)
+        : [iter] "r"(n_iter), [sz] "i"(N * 8)
+        : "v0", "v1", "v2"
+    );
+
+    snrt_fpu_fence();  // ensure vector writes are visible
+
+    // Verification loop
+    int error = 0;
+    for (int i = 0; i < total_elements; i++) {
+        int64_t expected = x[i] + y[i];
+        if (z[i] != expected) {
+            printf("Mismatch at index %d: z=%ld, expected=%ld\n", i, z[i], expected);
+            error = 1;
         }
     }
 
-    snrt_cluster_hw_barrier();
+    if (!error) {
+        printf("All results match! frep works correctly.\n");
+    }
+    return error;
+#else
     return 0;
+#endif
 }

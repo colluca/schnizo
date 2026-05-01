@@ -392,8 +392,10 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VSE8_V, VSE16_V, VSE32_V, VSE64_V: begin
               instr_dec_o.fu         = schnizo_pkg::VLSU;
               instr_dec_o.rs1        = instr.stype.rs1; // base integer register
+              instr_dec_o.use_rs1    = 1'b1;
               instr_dec_o.rs2        = instr.rtype.rd;  // vs3 = store data (in vd/rd field)
               instr_dec_o.rs2_is_vec = 1'b1;
+              instr_dec_o.rd         = '0; // no destination: ensures no_dest=1 in dispatch pipeline
               vector_store_handled   = 1'b1;
             end
             // Indexed stores: rs2 [24:20] = vs2 (index vector); vs3 (data) in rd field.
@@ -402,15 +404,20 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V: begin
               instr_dec_o.fu         = schnizo_pkg::VLSU;
               instr_dec_o.rs1        = instr.stype.rs1; // base integer register
+              instr_dec_o.use_rs1    = 1'b1;
               instr_dec_o.rs2        = instr.stype.rs2; // vs2 = index vector register
               instr_dec_o.rs2_is_vec = 1'b1;
+              instr_dec_o.rd         = '0; // no destination
               vector_store_handled   = 1'b1;
             end
             // Strided stores - rs2 holds the stride (integer), rd field holds vs3 data
             VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V: begin
               instr_dec_o.fu        = schnizo_pkg::VLSU;
               instr_dec_o.rs1       = instr.stype.rs1;
+              instr_dec_o.use_rs1   = 1'b1;
               instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
+              instr_dec_o.use_rs2   = 1'b1;
+              instr_dec_o.rd        = '0; // no destination
               vector_store_handled  = 1'b1;
             end
             default: ;
@@ -471,6 +478,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
                 instr_dec_o.fu        = schnizo_pkg::VLSU;
                 instr_dec_o.rs1       = instr.itype.rs1; // base integer register
+                instr_dec_o.use_rs1   = 1'b1;
                 instr_dec_o.rd        = instr.itype.rd;  // vd
                 instr_dec_o.rd_is_vec = 1'b1;
                 vector_load_handled   = 1'b1;
@@ -479,7 +487,9 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V: begin
                 instr_dec_o.fu        = schnizo_pkg::VLSU;
                 instr_dec_o.rs1       = instr.itype.rs1;
+                instr_dec_o.use_rs1   = 1'b1;
                 instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
+                instr_dec_o.use_rs2   = 1'b1;
                 instr_dec_o.rd        = instr.itype.rd;  // vd
                 instr_dec_o.rd_is_vec = 1'b1;
                 vector_load_handled   = 1'b1;

@@ -99,8 +99,8 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   localparam int unsigned NofVlsuW = cf_math_pkg::idx_width(NofVLSU);
   localparam int unsigned NofVfuW  = cf_math_pkg::idx_width(NofVFU);
 
-  // Two RMT for the integer (rmti) and floating point (rmtf) register files.
-  rmt_entry_t [2**RegAddrSize-1:0] rmti_d, rmti_q, rmtf_d, rmtf_q;
+  // Three RMTs: integer (rmti), floating-point (rmtf), vector (rmtv).
+  rmt_entry_t [2**RegAddrSize-1:0] rmti_d, rmti_q, rmtf_d, rmtf_q, rmtv_d, rmtv_q;
 
   ////////////////////////
   // Request generation //
@@ -115,8 +115,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   };
 
   rmt_entry_t current_dest_entry;
-  assign current_dest_entry = instr_dec_i.rd_is_fp ? rmtf_q[instr_dec_i.rd] :
-                                                     rmti_q[instr_dec_i.rd];
+  assign current_dest_entry = instr_dec_i.rd_is_vec ? rmtv_q[instr_dec_i.rd] :
+                              instr_dec_i.rd_is_fp  ? rmtf_q[instr_dec_i.rd] :
+                                                      rmti_q[instr_dec_i.rd];
 
   always_comb begin : dispatch_generation
     disp_req_o = '0;
@@ -125,12 +126,21 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     // Producer fields are only used if FREP is enabled
     if (EnableFrep) begin
       // Operand A
-      disp_req_o.producer_op_a = instr_dec_i.rs1_is_fp ? rmtf_q[instr_dec_i.rs1] :
-                                                         rmti_q[instr_dec_i.rs1];
+      disp_req_o.producer_op_a = instr_dec_i.rs1_is_vec ? rmtv_q[instr_dec_i.rs1] :
+                                 instr_dec_i.rs1_is_fp  ? rmtf_q[instr_dec_i.rs1] :
+                                                          rmti_q[instr_dec_i.rs1];
+      // If rs1 is a vector register with a pending producer, mark the operand as used so the
+      // RS slot waits for the producer's result before issuing (serialises VFU behind VLSU).
+      if (instr_dec_i.rs1_is_vec && rmtv_q[instr_dec_i.rs1].valid)
+        disp_req_o.fu_data.use_operand_a = 1'b1;
 
       // Operand B
-      disp_req_o.producer_op_b = instr_dec_i.rs2_is_fp ? rmtf_q[instr_dec_i.rs2] :
-                                                         rmti_q[instr_dec_i.rs2];
+      disp_req_o.producer_op_b = instr_dec_i.rs2_is_vec ? rmtv_q[instr_dec_i.rs2] :
+                                 instr_dec_i.rs2_is_fp  ? rmtf_q[instr_dec_i.rs2] :
+                                                          rmti_q[instr_dec_i.rs2];
+      // Same for rs2.
+      if (instr_dec_i.rs2_is_vec && rmtv_q[instr_dec_i.rs2].valid)
+        disp_req_o.fu_data.use_operand_b = 1'b1;
 
       // Operand C
       disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
@@ -502,6 +512,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // TODO(colluca): even better, the reset value would use the no_mapping signal declared above
   `FFAR(rmti_q, rmti_d, '0, clk_i, rst_i)
   `FFAR(rmtf_q, rmtf_d, '0, clk_i, rst_i)
+  `FFAR(rmtv_q, rmtv_d, '0, clk_i, rst_i)
 
   if (EnableFrep) begin : gen_rmt
 
@@ -514,6 +525,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     always_comb begin : rmt_update
       rmti_d = rmti_q;
       rmtf_d = rmtf_q;
+      rmtv_d = rmtv_q;
 
       unique case (loop_state_i)
         LoopRegular,
@@ -521,11 +533,14 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           // Reset the RMT
           rmti_d = '0;
           rmtf_d = '0;
+          rmtv_d = '0;
         end
         LoopLcp1: begin
           // Always create or update the mapping at dispatch
           if (dispatched) begin
-            if (instr_dec_i.rd_is_fp) begin
+            if (instr_dec_i.rd_is_vec) begin
+              rmtv_d[instr_dec_i.rd] = new_entry;
+            end else if (instr_dec_i.rd_is_fp) begin
               rmtf_d[instr_dec_i.rd] = new_entry;
             end else begin
               rmti_d[instr_dec_i.rd] = new_entry;
@@ -538,7 +553,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           //                dispatched in LCP2 must have been dispatched in LCP1.
           //                Test that this condition never arises with an assertion.
           if (dispatched && !current_dest_entry.valid) begin
-            if (instr_dec_i.rd_is_fp) begin
+            if (instr_dec_i.rd_is_vec) begin
+              rmtv_d[instr_dec_i.rd] = new_entry;
+            end else if (instr_dec_i.rd_is_fp) begin
               rmtf_d[instr_dec_i.rd] = new_entry;
             end else begin
               rmti_d[instr_dec_i.rd] = new_entry;
@@ -550,6 +567,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           // Reset the RMT
           rmti_d = '0;
           rmtf_d = '0;
+          rmtv_d = '0;
         end
       endcase
 
@@ -559,6 +577,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   end else begin : gen_no_rmt
     assign rmti_d = '0;
     assign rmtf_d = '0;
+    assign rmtv_d = '0;
   end
 
   // Assert that only one dispatch request is set at a time

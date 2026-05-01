@@ -293,23 +293,35 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // VLSU is non-speculative (memory): gate issue with commit and stall while result pending.
     // Issue handshake and VLSU acceptance use the same condition so they stay in sync.
     logic vlsu_result_valid_q;
+    logic vlsu_pending_is_load_q;
     logic vlsu_can_issue;
     assign vlsu_can_issue          = vlsu_spatz_req_ready[j] && issue_commit_i[j] && !vlsu_result_valid_q;
     assign vlsu_spatz_req_valid[j] = issue_req_valid_i[j] && issue_commit_i[j] && !vlsu_result_valid_q;
     assign issue_req_ready_o[j]    = vlsu_can_issue;
     assign busy_o[j]               = ~vlsu_can_issue;
 
+    // Track whether the issued instruction was a load.
+    // Stores are retired at issue in the RS (retire_at_issue=true) so they must not generate
+    // a result_valid pulse back to the RS ? that would underflow issue_in_flight_q.
+    always_ff @(posedge clk_i or posedge rst_i) begin
+      if (rst_i)
+        vlsu_pending_is_load_q <= 1'b0;
+      else if (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j])
+        vlsu_pending_is_load_q <= vlsu_spatz_req[j].op_mem.is_load;
+    end
+
     // Latch the one-shot vlsu_rsp_valid pulse; hold until downstream consumes.
+    // For stores, self-clear next cycle (no result_ready_i will ever fire for them).
     always_ff @(posedge clk_i or posedge rst_i) begin
       if (rst_i)
         vlsu_result_valid_q <= 1'b0;
       else if (vlsu_rsp_valid[j])
         vlsu_result_valid_q <= 1'b1;
-      else if (result_ready_i[j])
+      else if (vlsu_pending_is_load_q ? result_ready_i[j] : 1'b1)
         vlsu_result_valid_q <= 1'b0;
     end
 
-    // Tag FIFO: push at issue, pop when downstream consumes the latched result.
+    // Tag FIFO: push at issue for loads only; stores don't generate an RS result.
     stream_fifo #(
       .T           (instr_tag_t          ),
       .DEPTH       (NrParallelInstructions),
@@ -321,7 +333,8 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .testmode_i(1'b0                                                ),
       .usage_o   (/* unused */                                        ),
       .data_i    (issue_req_i[j].tag                                  ),
-      .valid_i   (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j] ),
+      .valid_i   (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j] &&
+                  vlsu_spatz_req[j].op_mem.is_load                   ),
       .ready_o   (/* FIFO depth >= single-slot RS depth */            ),
       .data_o    (vlsu_tag_out[j]                                     ),
       .valid_o   (vlsu_tag_valid[j]                                   ),
@@ -373,9 +386,10 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       assign spatz_mem_rsp_valid[j][p] = tcdm_rsp_valid_i[TP];
     end : gen_tcdm
 
-    // VLSU has no scalar result; use latched valid so result_ready_i backpressure works.
+    // VLSU has no scalar result; only forward result to RS for loads.
+    // Stores are retired at issue (retire_at_issue=true) and must not generate a result pulse.
     assign result_o[j]       = '0;
-    assign result_valid_o[j] = vlsu_result_valid_q;
+    assign result_valid_o[j] = vlsu_result_valid_q && vlsu_pending_is_load_q;
     assign tag_o[j]          = vlsu_tag_out[j];
   end : gen_vlsu
 
