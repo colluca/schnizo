@@ -39,7 +39,7 @@ import formatter
 from formatter import int_lit, flt_lit, flt_fmt
 from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, get_fu_type, CSR_NAMES
 from architecture import LSU_SIZE_TO_FLOAT
-from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_SPATZ, FU_NONE
+from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_VFU, FU_VLSU, FU_NONE
 from processor import ProcessorState
 
 
@@ -51,7 +51,7 @@ CLOCK_PERIOD_NS = 1  # clock in nanoseconds
 PERF_EVAL_KEYS_OMIT = ('start', 'end', 'end_fpss', 'snitch_issues',
                        'snitch_load_latency', 'snitch_fseq_offloads',
                        'fseq_issues', 'fpss_issues', 'fpss_fpu_issues',
-                       'fpss_load_latency', 'fpss_fpu_latency', 'spatz_issues')
+                       'fpss_load_latency', 'fpss_fpu_latency', 'vfu_issues', 'vlsu_issues')
 PERF_EVAL_KEYS_DECIMAL = ('tstart', 'tend', 'cycles')
 
 # -------------------- Architectural constants and enums  --------------------
@@ -60,8 +60,6 @@ PERF_EVAL_KEYS_DECIMAL = ('tstart', 'tend', 'cycles')
 EVENT_DISPATCH = "dispatch"
 EVENT_WRITEBACK = "writeback"
 EVENT_RETIREMENT = "retirement"
-EVENT_INTERNAL_SPATZ_ISSUE = "internal_spatz_issue"
-EVENT_INTERNAL_SPATZ_RETIREMENT = "internal_spatz_retirement"
 EVENT_RESREQ = "resreq"
 EVENT_RESCAP = "rescap"
 
@@ -185,23 +183,8 @@ def gen_rescap_trace(extras):
     )
 
 
-def gen_internal_spatz_issue_trace(extras) -> str:
-    """Generate trace line for internal Spatz issue events."""
-    return (
-        f"{'':<10} {'':<26}  {'':<6} #; SPATZ internal issue: id={extras['id']}, "
-        f"op={extras['op']}"
-    )
-
-
-def gen_internal_spatz_retirement_trace(extras) -> str:
-    """Generate trace line for internal Spatz retirement events."""
-    return (
-        f"{'':<10} {'':<26}  {'':<6} #; SPATZ internal retirement: id={extras['id']}"
-    )
-
-
 def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
-                          lsu_pipelines, fpu_pipelines, spatz_pipelines, perf_metrics):
+                          lsu_pipelines, fpu_pipelines, vfu_pipelines, perf_metrics):
     if extras['stall'] and not (loop_state in {LOOP_LEP}):
         return
 
@@ -267,20 +250,29 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
             else:
                 perf_metrics[-1]['int_store_issues'] += 1
 
-    # SPATZ
-    is_spatz = False
+    # VFU
+    is_vfu = False
     if ('fu_type' in extras):
-        is_spatz = extras['fu_type'] in {FU_SPATZ}
+        is_vfu = extras['fu_type'] in {FU_VFU}
     elif ('producer' in extras):
-        is_spatz = extras['producer'].startswith(FU_SPATZ)
-    if (is_spatz):
-        perf_metrics[-1]['spatz_issues'] += 1
+        is_vfu = extras['producer'].startswith(FU_VFU)
+    if is_vfu:
+        perf_metrics[-1]['vfu_issues'] += 1
+
+    # VLSU
+    is_vlsu = False
+    if ('fu_type' in extras):
+        is_vlsu = extras['fu_type'] in {FU_VLSU}
+    elif ('producer' in extras):
+        is_vlsu = extras['producer'].startswith(FU_VLSU)
+    if is_vlsu:
+        perf_metrics[-1]['vlsu_issues'] += 1
 
     return 0
 
 
 def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
-                            lsu_pipelines, fpu_pipelines, perf_metrics, permissive):
+                            lsu_pipelines, fpu_pipelines, vfu_pipelines, perf_metrics, permissive):
     if (extras['producer'].startswith(FU_LSU) or extras['producer'].startswith(FU_FPU)):
         try:
             fu_id = extras['producer'].split('.')[0]
@@ -319,25 +311,21 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
 
     if loop_state in {LOOP_REGULAR, LOOP_HWLOOP, LOOP_LCP1, LOOP_LCP2}:
         fu_type = extras['fu_type']
-        # Dispatch response is invalid for CSR, MULDIV, DMA, SPATZ and NONE
-        if fu_type in {FU_CSR, FU_MULDIV, FU_DMA, FU_SPATZ, FU_NONE}:
+        # Dispatch response is invalid for CSR, MULDIV, DMA, VFU, VLSU and NONE
+        if fu_type in {FU_CSR, FU_MULDIV, FU_DMA, FU_VFU, FU_VLSU, FU_NONE}:
             fu_str = fu_type
             # We don't have infos about the accelerator id at retirement.
             # Thus map everything to ACC.
             if (fu_type in {FU_MULDIV, FU_DMA}):
                 fu_str = FU_ACC
+            # VFU/VLSU issue traces carry the specific producer id (e.g. "VFU0").
+            # Use it so the Perfetto start track matches the retirement end track.
+            elif fu_type in {FU_VFU, FU_VLSU}:
+                fu_str = extras.get('producer', fu_type)
         else:
             fu_str = extras['disp_resp']
     elif loop_state in {LOOP_LEP}:
-        # Generate a spearate subtrace for Spatz during LEP
-        producer = extras['producer']
-
-        # Detect SPATZ LEP producers
-        if producer.startswith(FU_SPATZ):
-            fu_str = "SPATZLEP"
-        else:
-            fu_str = producer
-
+        fu_str = extras['producer']
     else:
         raise ValueError(f"Not a valid loop state: {loop_state}\n")
 
@@ -349,29 +337,20 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
     if loop_state in {LOOP_LCP1, LOOP_LCP2, LOOP_LEP}:
         annotations.update({'iteration': iter_count})
 
-    # For SPATZ, use the full producer string (e.g., "SPATZ0.1")
-    fu_str_for_trace = fu_str
-
     # Emit Perfetto slice begin event
-    trace.start_insn(fu_str_for_trace, mnemonic, cycle * CLOCK_PERIOD_NS, annotations)
+    trace.start_insn(fu_str, mnemonic, cycle * CLOCK_PERIOD_NS, annotations)
 
     # Immediately end instructions for FU_NONE as there is no retirement event.
-    if (fu_str == FU_NONE):
-        # The instruction ends in this cycle. Thus the event is at the end of this cycle.
-        trace.end_insn(fu_str_for_trace, (cycle+1) * CLOCK_PERIOD_NS)
+    if fu_str == FU_NONE:
+        trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
     # Immediately end store instructions as there is no retirement event.
-    elif (fu_str.startswith(FU_LSU)):
-        if (extras['lsu_is_store']):
-            # The instruction ends in this cycle. Thus the event is at the end of this cycle.
-            trace.end_insn(fu_str_for_trace, (cycle+1) * CLOCK_PERIOD_NS)
-    # Register non-stalled external SPATZ instructions for deferred retirement via the
-    # matching internal_spatz_retirement event. Stalled dispatches have no corresponding
-    # internal retirement, so end their slice immediately.
-    elif (fu_str.startswith(FU_SPATZ)):
-        if extras['stall']:
-            trace.end_insn(fu_str_for_trace, (cycle+1) * CLOCK_PERIOD_NS)
-        else:
-            trace.register_spatz_external(extras['internal_spatz_id'], fu_str_for_trace)
+    elif fu_str.startswith(FU_LSU):
+        if extras['lsu_is_store']:
+            trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
+    # Immediately end VLSU store instructions (no retirement event for stores).
+    elif fu_str.startswith(FU_VLSU):
+        if extras.get('vlsu_is_store'):
+            trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
 
 
 def gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
@@ -389,30 +368,12 @@ def gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace
 
 def gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
     fu_str = extras['producer']
-    # Don't end SPATZ operations here as they are ended at dispatch
-    if not fu_str.startswith(FU_SPATZ):
-        # The instruction ends in this cycle. Thus the event is at the end of this cycle.
-        trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
-
-
-def gen_internal_spatz_issue_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
-    """Handle internal Spatz issue events for Perfetto tracing."""
-    fu_str = f"SPATZ_INT_{extras['id']}"
-    mnemonic = extras['op']
-    annotations = {'internal_id': extras['id']}
-    trace.start_insn(fu_str, mnemonic, cycle * CLOCK_PERIOD_NS, annotations)
-
-
-def gen_internal_spatz_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
-    """Handle internal Spatz retirement events for Perfetto tracing."""
-    fu_str = f"SPATZ_INT_{extras['id']}"
+    # The instruction ends in this cycle. Thus the event is at the end of this cycle.
     trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
-    # Retire the corresponding external SPATZ instruction
-    trace.retire_spatz_external(extras['id'], (cycle+1) * CLOCK_PERIOD_NS)
 
 
 def gen_trace_line(line, mc_exec,
-                   lsu_pipelines, fpu_pipelines, spatz_pipelines, trace,
+                   lsu_pipelines, fpu_pipelines, vfu_pipelines, trace,
                    perf_metrics, proc_state, permissive) -> tuple[str, int, int]:
     data = parse_line(line)
 
@@ -432,7 +393,7 @@ def gen_trace_line(line, mc_exec,
         # We must however prevent that they are parsed, since they may contain illegal data.
         if not data['exception']:
             handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, data,
-                                  lsu_pipelines, fpu_pipelines, spatz_pipelines,
+                                  lsu_pipelines, fpu_pipelines, vfu_pipelines,
                                   perf_metrics)
             trace_body = gen_dispatch_trace(loop_state, data, proc_state, mc_exec)
             gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, data,
@@ -449,14 +410,9 @@ def gen_trace_line(line, mc_exec,
         gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
     elif (data['event'] == EVENT_RETIREMENT):
         handle_retirement_event(cycle, priv_lvl, loop_state, data,
-                                lsu_pipelines, fpu_pipelines, perf_metrics, permissive)
+                                lsu_pipelines, fpu_pipelines, vfu_pipelines, perf_metrics,
+                                permissive)
         gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
-    elif (data['event'] == EVENT_INTERNAL_SPATZ_ISSUE):
-        trace_body = gen_internal_spatz_issue_trace(data)
-        gen_internal_spatz_issue_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
-    elif (data['event'] == EVENT_INTERNAL_SPATZ_RETIREMENT):
-        trace_body = gen_internal_spatz_retirement_trace(data)
-        gen_internal_spatz_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
     else:
         raise ValueError(f"Not a valid event type: {data['event']}\n")
 
@@ -609,7 +565,7 @@ def main():
         # Dicts to store information about LSU pipeline (for latency). A dict for each LSU.
         lsu_pipelines = defaultdict(deque)
         fpu_pipelines = defaultdict(deque)
-        spatz_pipelines = defaultdict(deque)  # For tracking Spatz operations
+        vfu_pipelines = defaultdict(deque)  # For tracking VFU/VLSU operations
         # ProcessorState tracking active RSS slots during FREP loops
         proc_state = ProcessorState()
         # Various performance metrics of the core
@@ -625,7 +581,7 @@ def main():
                     # Process each event independently
                     trace_line, sim_time, cycle = gen_trace_line(line, args.mc_exec,
                                                                  lsu_pipelines, fpu_pipelines,
-                                                                 spatz_pipelines, trace,
+                                                                 vfu_pipelines, trace,
                                                                  perf_metrics, proc_state,
                                                                  args.permissive)
                     # The newline character is in the trace line. This way the trace line can also
@@ -682,9 +638,9 @@ def main():
         if len(pipeline) != 0:
             print_warning(f"{len(pipeline)} unfinished operations detected for {fpu}.")
 
-    for spatz, pipeline in spatz_pipelines.items():
+    for vfu, pipeline in vfu_pipelines.items():
         if len(pipeline) != 0:
-            print_warning(f"{len(pipeline)} unfinished Spatz operations detected for {spatz}.")
+            print_warning(f"{len(pipeline)} unfinished VFU/VLSU operations detected for {vfu}.")
 
     return 0
 

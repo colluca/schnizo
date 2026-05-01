@@ -272,7 +272,8 @@ FU_CSR = "CSR"
 FU_ACC = "ACC"
 FU_MULDIV = "MULDIV"
 FU_DMA = "DMA"
-FU_SPATZ = "SPATZ"
+FU_VFU = "VFU"
+FU_VLSU = "VLSU"
 FU_NONE = "NONE"
 FU_TYPES = [
     FU_ALU,
@@ -282,7 +283,8 @@ FU_TYPES = [
     FU_ACC,
     FU_MULDIV,
     FU_DMA,
-    FU_SPATZ,
+    FU_VFU,
+    FU_VLSU,
     FU_NONE
 ]
 

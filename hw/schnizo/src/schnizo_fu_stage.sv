@@ -125,12 +125,16 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   // Trace outputs
   // pragma translate_off
-  output issue_alu_trace_t  alu_trace_o        [NofAlus-1:0],
-  output issue_lsu_trace_t  lsu_trace_o        [NofLsus-1:0],
-  output issue_fpu_trace_t  fpu_trace_o        [NofFpus-1:0],
-  output retire_fu_trace_t  alu_retire_trace_o [NofAlus-1:0],
-  output retire_fu_trace_t  lsu_retire_trace_o [NofLsus-1:0],
-  output retire_fu_trace_t  fpu_retire_trace_o [NofFpus-1:0],
+  output issue_alu_trace_t  alu_trace_o         [NofAlus-1:0],
+  output issue_lsu_trace_t  lsu_trace_o         [NofLsus-1:0],
+  output issue_fpu_trace_t  fpu_trace_o         [NofFpus-1:0],
+  output issue_vfu_trace_t  vfu_trace_o         [NofVFU-1:0],
+  output issue_vlsu_trace_t vlsu_trace_o        [NofVLSU-1:0],
+  output retire_fu_trace_t  alu_retire_trace_o  [NofAlus-1:0],
+  output retire_fu_trace_t  lsu_retire_trace_o  [NofLsus-1:0],
+  output retire_fu_trace_t  fpu_retire_trace_o  [NofFpus-1:0],
+  output retire_fu_trace_t  vfu_retire_trace_o  [NofVFU-1:0],
+  output retire_fu_trace_t  vlsu_retire_trace_o [NofVLSU-1:0],
   // pragma translate_on
 
   /// RS control signals
@@ -1543,6 +1547,23 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       assign vfu_wbs_result_and_tag[p].result = vlsu_wb_result;
       assign vfu_wbs_result_and_tag[p].tag    = vlsu_wb_result_tag;
       assign vfu_busy[p] = ~vfu_issue_req_ready[p];
+
+      // pragma translate_off
+      string vlsu_producer;
+      always_comb vlsu_producer = $sformatf("VLSU%0d", p);
+      assign vlsu_trace_o[p] = '{
+        valid:        vfu_issue_req_valid[p] && vfu_issue_req_ready[p],
+        instr_iter:   '0,
+        producer:     vlsu_producer,
+        vlsu_is_store: longint'(!i_schnizo_vfu.vlsu_spatz_req[p].op_mem.is_load),
+        vlsu_opa:     longint'(vfu_issue_req[p].fu_data.operand_a),
+        vlsu_opb:     longint'(vfu_issue_req[p].fu_data.operand_b)
+      };
+      assign vlsu_retire_trace_o[p] = '{
+        valid:    vfu_result_valid[p] && vfu_result_ready[p],
+        producer: vlsu_producer
+      };
+      // pragma translate_on
     end : gen_vlsu_blocks
 
     // One schnizo_fu_block per VFU arithmetic port (ports NofVLSU..VfuNumFuPorts-1)
@@ -1626,6 +1647,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       assign vfu_wbs_result_and_tag[(NofVLSU + p)].result = vfu_arith_wb_result;
       assign vfu_wbs_result_and_tag[(NofVLSU + p)].tag    = vfu_arith_wb_result_tag;
       assign vfu_busy[(NofVLSU + p)] = ~vfu_issue_req_ready[(NofVLSU + p)];
+
+      // pragma translate_off
+      string vfu_arith_producer;
+      always_comb vfu_arith_producer = $sformatf("VFU%0d", p);
+      assign vfu_trace_o[p] = '{
+        valid:      vfu_issue_req_valid[(NofVLSU + p)] && vfu_issue_req_ready[(NofVLSU + p)],
+        instr_iter: '0,
+        producer:   vfu_arith_producer,
+        vfu_opa:    longint'(vfu_issue_req[(NofVLSU + p)].fu_data.operand_a),
+        vfu_opb:    longint'(vfu_issue_req[(NofVLSU + p)].fu_data.operand_b)
+      };
+      assign vfu_retire_trace_o[p] = '{
+        valid:    vfu_result_valid[(NofVLSU + p)] && vfu_result_ready[(NofVLSU + p)],
+        producer: vfu_arith_producer
+      };
+      // pragma translate_on
     end : gen_vfu_arith_blocks
 
     // Internal TCDM channel signals (schnizo_vfu uses chan types internally)

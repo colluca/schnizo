@@ -179,7 +179,7 @@ int main() {
         // ================================================================
         sec_errors = errors;
 
-        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(N));
+        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(2*N));
 
         asm volatile("vle32.v v0, (%0)" :: "r"(xi32));
         asm volatile("vle32.v v4, (%0)" :: "r"(yi32));
@@ -189,7 +189,7 @@ int main() {
         for (int i = 0; i < N; i++)
             if (zi[i] != (int64_t)xi32[i] * (int64_t)yi32[i]) { printf("vwmul error at %d\n", i); errors++; }
 
-        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(N));
+        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(2*N));
         asm volatile("vle32.v v0, (%0)" :: "r"(xu32));
         asm volatile("vle32.v v4, (%0)" :: "r"(yu32));
         asm volatile("vwmulu.vv v8, v0, v4");
@@ -198,7 +198,7 @@ int main() {
         for (int i = 0; i < N; i++)
             if ((uint64_t)zi[i] != (uint64_t)xu32[i] * (uint64_t)yu32[i]) { printf("vwmulu error at %d\n", i); errors++; }
 
-        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(N));
+        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(2*N));
         asm volatile("vle32.v v0, (%0)" :: "r"(xi32));
         asm volatile("vle32.v v4, (%0)" :: "r"(yu32));
         asm volatile("vwmulsu.vv v8, v0, v4");
@@ -217,7 +217,7 @@ int main() {
         int64_t ai64[N] = {100, 200, 300, 400};
 
         asm volatile("vle64.v v8, (%0)" :: "r"(ai64));
-        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(N));
+        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(2*N));
         asm volatile("vle32.v v0, (%0)" :: "r"(xi32));
         asm volatile("vle32.v v4, (%0)" :: "r"(yi32));
         asm volatile("vwmacc.vv v8, v0, v4");
@@ -227,7 +227,7 @@ int main() {
             if (zi[i] != ai64[i] + (int64_t)xi32[i] * (int64_t)yi32[i]) { printf("vwmacc error at %d\n", i); errors++; }
 
         asm volatile("vle64.v v8, (%0)" :: "r"(ai64));
-        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(N));
+        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(2*N));
         asm volatile("vle32.v v0, (%0)" :: "r"(xu32));
         asm volatile("vle32.v v4, (%0)" :: "r"(yu32));
         asm volatile("vwmaccu.vv v8, v0, v4");
@@ -237,7 +237,7 @@ int main() {
             if ((uint64_t)zi[i] != (uint64_t)ai64[i] + (uint64_t)xu32[i] * (uint64_t)yu32[i]) { printf("vwmaccu error at %d\n", i); errors++; }
 
         asm volatile("vle64.v v8, (%0)" :: "r"(ai64));
-        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(N));
+        asm volatile("vsetvli zero, %0, e32, m1, ta, ma" :: "r"(2*N));
         asm volatile("vle32.v v0, (%0)" :: "r"(xi32));
         asm volatile("vle32.v v4, (%0)" :: "r"(yu32));
         asm volatile("vwmaccsu.vv v8, v0, v4");

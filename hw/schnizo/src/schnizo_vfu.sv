@@ -265,11 +265,16 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // In LXP mode the tag encodes the RSS slot_id in its LSBs (set by the dispatch
     // pipeline); in SI mode it carries the full instr_tag_t for direct RF writeback.
     // VCFG is single-cycle (result fires same cycle as issue), so use the live tag.
+    // Only latch for arithmetic (not VCFG): a VCFG can be accepted and consume
+    // result_ready_i while a preceding arithmetic instruction is still in the VFU
+    // pipeline. If VCFG updated issued_tag_q it would corrupt the in-flight tag
+    // (dest_reg_is_vec=0, dest_reg=x0), causing the scoreboard to miss the VRF
+    // clear when the arithmetic instruction finally retires.
     instr_tag_t issued_tag_q;
     always_ff @(posedge clk_i or posedge rst_i) begin
       if (rst_i)
         issued_tag_q <= '0;
-      else if (issue_req_valid_i[PORT] && issue_req_ready_o[PORT])
+      else if (!is_vcfg && issue_req_valid_i[PORT] && issue_req_ready_o[PORT])
         issued_tag_q <= issue_req_i[PORT].tag;
     end
     assign tag_o[PORT] = is_vcfg ? issue_req_i[PORT].tag : issued_tag_q;

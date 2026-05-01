@@ -22,33 +22,23 @@ def extract_fu_details(fu_string):
     Extract functional unit details from a FU string.
 
     Patterns supported:
-    - Just letters: e.g., "ALU", "LSU", "FPU", "SPATZ", "CSR", "ACC", "NONE"
-    - Letters + number: e.g., "ALU0", "LSU2", "SPATZ0"
-    - Letters + number + dot + number: e.g., "ALU0.0", "LSU2.1", "SPATZ0.1"
-    - Special internal patterns: e.g., "SPATZ_INT_0", "SPATZ_INT_1"
+    - Just letters: e.g., "ALU", "LSU", "FPU", "VFU", "VLSU", "CSR", "ACC", "NONE"
+    - Letters + number: e.g., "ALU0", "LSU2", "VFU0", "VLSU0"
+    - Letters + number + dot + number: e.g., "ALU0.0", "LSU2.1", "VFU0.1", "VLSU0.1"
 
     Returns:
         tuple: (track_name, slot_id) where track_name is the base track name
                and slot_id is either None or an integer
     """
-    # Define regex patterns
-    # Pattern for SPATZ internal events (e.g., SPATZ_INT_0)
-    spatz_int_pattern = r"^(SPATZ_INT)_(\d+)$"
     # Pattern for just letters (no numbers)
     fu_type_pattern = r"^([A-Za-z]+)$"
-    # Pattern for letters + number (e.g., ALU0, SPATZ0)
+    # Pattern for letters + number (e.g., ALU0, VFU0, VLSU0)
     fu_id_pattern = r"^([A-Za-z]+)(\d+)$"
-    # Pattern for letters + number + dot + number (e.g., ALU0.0, SPATZ0.1)
+    # Pattern for letters + number + dot + number (e.g., ALU0.0, VFU0.1, VLSU0.1)
     fu_slot_pattern = r"^([A-Za-z]+)(\d+)\.(\d+)$"
 
-    # Match SPATZ internal pattern first (most specific)
-    if match := re.match(spatz_int_pattern, fu_string):
-        prefix, spatz_id = match.groups()
-        track_name = f"{prefix}_{spatz_id}"
-        return track_name, None
-
     # Match slot pattern (letters + number + dot + number)
-    elif match := re.match(fu_slot_pattern, fu_string):
+    if match := re.match(fu_slot_pattern, fu_string):
         fu_type, fu_id, slot_id = match.groups()
         fu_id = int(fu_id)
         slot_id = int(slot_id)
@@ -184,17 +174,12 @@ class PerfettoInstructionTrace(PerfettoTrace):
         self.outstanding_insns = defaultdict(deque)
         self.ipc = 0
         self.ipc_time = None
-        # Maps internal_spatz_id -> (fu_string, insn_uuid) of the corresponding external insn
-        self.spatz_internal_map = {}
 
         self.add_track('Instructions')
         self.add_track('NONE', 'Instructions')
         self.add_event('NONE', TYPE_INSTANT, 0, "Start offset")
         self.add_track('Metrics')
         self.add_counter_track('IPC', 'Metrics', 'insns/cycle')
-
-        # Add a track for SPATZ internal events
-        self.add_track('SPATZ_Internal', 'Instructions')
 
     def update_ipc(self, timestamp):
         if self.ipc_time is None:
@@ -219,29 +204,19 @@ class PerfettoInstructionTrace(PerfettoTrace):
             name: The name/mnemonic of the instruction.
             timestamp: The timestamp when the instruction starts in nanoseconds.
         """
-        # Create a new track for an FU when first encountered
         fu_string, slot_id = extract_fu_details(fu)
 
-        # For SPATZ internal events, use the SPATZ_Internal parent track
-        if fu_string.startswith('SPATZ_INT'):
-            parent = 'SPATZ_Internal'
-        else:
-            parent = 'Instructions'
-
         if fu_string not in self.tracks:
-            self.add_track(fu_string, parent=parent)
+            self.add_track(fu_string, parent='Instructions')
 
         # Create a new track for each instruction to allow non perfectly nested events.
         # This new track has the parent set to the hierarchical track we want to use but a different
         # uuid. The name must also match that Perfetto UI merges the tracks.
         # The uuid of the "instruction track" must be unique in the whole trace.
         # See https://perfetto.dev/docs/reference/synthetic-track-event#process-scoped-async-slices
-        # This link points to process-scoped async slices but the nesting work the same way for
-        # custom scoped slices.
-        insn_uuid = self.add_track(fu_string, parent=parent, unique_name=False)
+        insn_uuid = self.add_track(fu_string, parent='Instructions', unique_name=False)
 
-        # We must keep track of the uuid of the event we started to end it later. We assign it to a
-        # dict with a deque indexed by the hierarchical track uuid.
+        # We must keep track of the uuid of the event we started to end it later.
         self.outstanding_insns[fu_string].appendleft(insn_uuid)
 
         # Create slice begin event
@@ -251,37 +226,6 @@ class PerfettoInstructionTrace(PerfettoTrace):
 
         # Update IPC
         self.update_ipc(timestamp)
-
-    def register_spatz_external(self, internal_spatz_id, fu):
-        """Register an external SPATZ dispatch under its internal_spatz_id.
-
-        Must be called immediately after start_insn for a SPATZ dispatch.
-        The internal_spatz_id comes directly from the dispatch event extras.
-        In LEP (FREP) mode the same slot id is reused across iterations, so a
-        per-slot FIFO queue is maintained to preserve issue order.
-        """
-        fu_string, _ = extract_fu_details(fu)
-        # start_insn uses appendleft, so index 0 is the newest outstanding insn
-        insn_uuid = self.outstanding_insns[fu_string][0]
-        key = int(internal_spatz_id)
-        if key not in self.spatz_internal_map:
-            self.spatz_internal_map[key] = deque()
-        # appendleft so pop() (from the right) yields the oldest entry (FIFO)
-        self.spatz_internal_map[key].appendleft((fu_string, insn_uuid))
-
-    def retire_spatz_external(self, internal_id, timestamp):
-        """End the external SPATZ instruction mapped to the given internal id.
-
-        Must be called when an internal Spatz retirement event is processed.
-        """
-        key = int(internal_id)
-        if key in self.spatz_internal_map and self.spatz_internal_map[key]:
-            fu_string, insn_uuid = self.spatz_internal_map[key].pop()
-            try:
-                self.outstanding_insns[fu_string].remove(insn_uuid)
-            except ValueError:
-                pass
-            self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)
 
     def end_insn(self, fu, timestamp):
         """Record the end of an instruction execution.
@@ -295,13 +239,7 @@ class PerfettoInstructionTrace(PerfettoTrace):
         """
         fu_string, _ = extract_fu_details(fu)
         if fu_string not in self.outstanding_insns or len(self.outstanding_insns[fu_string]) == 0:
-            # This can happen for SPATZ internal events or other special cases
-            # Just create a temporary track for this end event
-            if fu_string.startswith('SPATZ_INT'):
-                parent = 'SPATZ_Internal'
-            else:
-                parent = 'Instructions'
-            insn_uuid = self.add_track(fu_string, parent=parent, unique_name=False)
+            insn_uuid = self.add_track(fu_string, parent='Instructions', unique_name=False)
         else:
             insn_uuid = self.outstanding_insns[fu_string].pop()
         self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)
