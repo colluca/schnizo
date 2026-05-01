@@ -33,6 +33,11 @@
             emaw: 2,
             emas: 1
         },
+        // Global core configurations
+        // If the schnova or schnizo core is used in the cluster
+        use_schnova_core: true,
+        // The physical register address width
+        phy_reg_addr_width: 8,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -74,7 +79,7 @@
                     ways: 2, // number of ways
                     cacheline: 512, // word size in bits
                     l0_cacheline_count: 16, // Number of cache lines in L0 ICache
-                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
+                    fetch_data_width: 64, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -107,7 +112,6 @@
     compute_core_template: {
         isa: "rv32imafd",
         xfrep: true, // enables the superscalar feature
-        dyn_scheduling: true, // true: schnova core is used, false: schnizo is used
         xdma: false,
         xf16: false,
         xf16alt: false,
@@ -123,12 +127,12 @@
         num_lsus: 3,
         num_lsu_slots: 32,
         num_fpus: 1,
-        num_fpu_slots: 64,
+        num_fpu_slots: 32,
+        num_rob_entries: 256,
     },
     dma_core_template: {
         isa: "rv32imafd",
         xdma: true,
-        dyn_scheduling: true, // true: schnova core is used, false: schnizo is used
         xssr: false,
         xfrep: false,
         xf16: false,
@@ -141,5 +145,6 @@
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
+        num_rob_entries: 256,
     }
 }
