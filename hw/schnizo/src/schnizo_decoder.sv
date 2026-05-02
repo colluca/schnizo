@@ -1116,9 +1116,11 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.rs1       = instr.rtype.rs1;
               instr_dec_o.rs2       = instr.rtype.rs2;
             end
-            // Move scalar from vector element to integer
+            // Move scalar from vector element to integer (reads vs2 = bits[24:20])
             VMV_X_S: begin
-              instr_dec_o.rd_is_vec = 1'b0; // writes to integer rd
+              instr_dec_o.rd_is_vec  = 1'b0;
+              instr_dec_o.rs2        = instr.rtype.rs2; // vs2 source
+              instr_dec_o.rs2_is_vec = 1'b1;
             end
 
             // --- Vector-Vector arithmetic (VV): vd, vs1, vs2 are all vector ---

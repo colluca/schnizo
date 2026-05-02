@@ -4,12 +4,16 @@
 
 // Vector FU top-level for Schnizo (SIMD-oriented replacement for Spatz).
 //
-// Ports 0..NofVLSU-1 connect to spatz_vlsu instances (memory ops).
-// Ports NofVLSU..NumFuPorts-1 connect to spatz_vfu instances (arithmetic ops).
-// One shared spatz_vrf is used. No spatz_controller: each port gets its own
-// spatz_decoder and the decoded spatz_req_t is issued directly to VFU/VLSU.
-// vl is fixed to N_FU (one full VRF word per instruction, processed in one
-// cycle ? packed SIMD with vector-size registers, no multi-word iteration).
+// Ports 0..NofVLSU-1 connect to schnizo_vlsu instances (memory ops).
+// Ports NofVLSU..NumFuPorts-1 connect to schnizo_vfu_unit instances.
+// Each schnizo_vfu_unit wraps one spatz_vfu and one spatz_vsldu behind a
+// single VFU-style interface; slide instructions are routed to the VSLDU
+// transparently.
+//
+// One shared spatz_vrf is used.  No spatz_controller: each port gets its own
+// spatz_decoder; the decoded spatz_req_t is issued directly to the units.
+// vl is fixed to one full VRF word per instruction (packed SIMD, no
+// multi-word iteration).
 
 module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; import rvv_pkg::*; #(
   parameter int unsigned NofVLSU    = 1,
@@ -65,12 +69,20 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   ////////////////
 
   // VRF port layout (must match spatz_vrf's hardcoded enum indices):
-  //   Write port 0 = VFU_VD_WD, port 1 = VLSU_VD_WD, port 2 = VSLDU_VD_WD (tied off)
-  //   Read  port 0-2 = VFU (vs2,vs1,vd), 3-4 = VLSU (vs2,vd), 5 = VSLDU_VS2_RD (tied off)
-  // The +1 on each is the tie-off port for VSLDU; without it the VRF indexes out-of-bounds
-  // and produces X on every bank access.
-  localparam int unsigned NrWritePorts = NofVFU + NofVLSU + 1;
-  localparam int unsigned NrReadPorts  = 3*NofVFU + 2*NofVLSU + 1;
+  //
+  //   Write ports: [NofVFU-1:0]           = VFU_VD_WD  (one per unit)
+  //                [NofVFU+NofVLSU-1:NofVFU] = VLSU_VD_WD (one per VLSU)
+  //                [2*NofVFU+NofVLSU-1:NofVFU+NofVLSU] = VSLDU_VD_WD (one per unit)
+  //
+  //   Read ports:  [3*NofVFU-1:0]              = VFU (vs2,vs1,vd per unit)
+  //                [3*NofVFU+2*NofVLSU-1:3*NofVFU] = VLSU (vs2,vd per VLSU)
+  //                [4*NofVFU+2*NofVLSU-1:3*NofVFU+2*NofVLSU] = VSLDU (vs2 per unit)
+  //
+  // For NofVFU=1, NofVLSU=1: NrWritePorts=3, NrReadPorts=6 ? matches
+  // spatz_pkg hardcoded enums exactly.
+
+  localparam int unsigned NrWritePorts = 2*NofVFU + NofVLSU;
+  localparam int unsigned NrReadPorts  = 4*NofVFU + 2*NofVLSU;
 
   /////////////
   // Signals //
@@ -89,15 +101,6 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   vrf_data_t [NrReadPorts-1:0] vrf_rdata;
   logic      [NrReadPorts-1:0] vrf_rvalid;
 
-  // VSLDU tie-off: drive the unused VSLDU ports to zero so the VRF's
-  // hardcoded VSLDU_VD_WD / VSLDU_VS2_RD indices never see X.
-  assign vrf_we   [NrWritePorts-1] = '0;
-  assign vrf_waddr[NrWritePorts-1] = '0;
-  assign vrf_wdata[NrWritePorts-1] = '0;
-  assign vrf_wbe  [NrWritePorts-1] = '0;
-  assign vrf_re   [NrReadPorts-1]  = '0;
-  assign vrf_raddr[NrReadPorts-1]  = '0;
-
   // Fixed SIMD vtype/vl: always fill the full 256-bit VRF word.
   // vl = VLEN >> (3 + vsew): e8?32, e16?16, e32?8, e64?4.
   // SimdVl (e64 baseline, 4 elements) is only used for the VLSU which ignores vl anyway.
@@ -108,13 +111,6 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   // Per-port decoder signals (one spatz_decoder per FU port)
   decoder_req_t [NumFuPorts-1:0] dec_req;
   decoder_rsp_t [NumFuPorts-1:0] dec_rsp;
-
-  // Per-VFU request/response signals
-  spatz_req_t [NofVFU-1:0] vfu_spatz_req;
-  logic       [NofVFU-1:0] vfu_spatz_req_valid;
-  logic       [NofVFU-1:0] vfu_spatz_req_ready;
-  vfu_rsp_t   [NofVFU-1:0] vfu_rsp;
-  logic       [NofVFU-1:0] vfu_rsp_valid;
 
   // Per-VLSU request/response signals
   spatz_req_t [NofVLSU-1:0] vlsu_spatz_req;
@@ -138,9 +134,9 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   // Decoders //
   //////////////
 
-  // One spatz_decoder per FU port. The decoder is purely combinational
-  // (decoder_rsp_valid_o = decoder_req_valid_i). vl is overridden to SimdVl
-  // (= N_FU, one VRF word) after decode; port index used as instruction ID.
+  // One spatz_decoder per FU port.  The decoder is purely combinational
+  // (decoder_rsp_valid_o = decoder_req_valid_i).  vl is overridden to SimdVl
+  // after decode; port index used as instruction ID.
   for (genvar p = 0; p < NumFuPorts; p++) begin : gen_decoder
     assign dec_req[p] = '{
       rd:        {1'b0, issue_req_i[p].tag.dest_reg},
@@ -190,22 +186,35 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     .rvalid_o   (vrf_rvalid)
   );
 
-  /////////
-  // VFU //
-  /////////
+  ///////////
+  // Units //
+  ///////////
+
+  // Each arithmetic FU port is served by a schnizo_vfu_unit ? a wrapper that
+  // contains one spatz_vfu and one spatz_vsldu.  Slide instructions are
+  // routed internally to the VSLDU; from here the unit looks identical to a
+  // plain spatz_vfu.
+  //
+  // VCFG (vsetvl*) bypasses the unit entirely: the new vl is computed
+  // combinatorially and the instruction completes in a single cycle.
 
   for (genvar i = 0; i < NofVFU; i++) begin : gen_vfu
-    localparam int unsigned PORT    = NofVLSU + i; // FU port index
-    localparam int unsigned WD      = i;           // VRF write port index
-    localparam int unsigned RD_BASE = 3*i;         // VRF read port base (vs2, vs1, vd)
+    localparam int unsigned PORT    = NofVLSU + i;
+    // VFU write port index (VFU_VD_WD)
+    localparam int unsigned WD      = i;
+    // VSLDU write port index (VSLDU_VD_WD)
+    localparam int unsigned WD_SLD  = NofVFU + NofVLSU + i;
+    // VFU read port base ? covers vs2, vs1, vd (3 consecutive ports)
+    localparam int unsigned RD_BASE = 3*i;
+    // VSLDU read port index (VSLDU_VS2_RD)
+    localparam int unsigned RD_SLD  = 3*NofVFU + 2*NofVLSU + i;
 
-    // Detect VCFG (vsetvl/vsetvli/vsetivli): bypass spatz_vfu entirely.
+    // Detect VCFG (vsetvl/vsetvli/vsetivli): bypass the unit entirely.
     logic is_vcfg;
     assign is_vcfg = (dec_rsp[PORT].spatz_req.op == VCFG);
 
-    // Track current vsew ? updated on every accepted VCFG, defaults to MAXEW (e64).
-    // spatz_decoder leaves spatz_req.vtype.vsew=EW_8 for arithmetic (Spatz controller
-    // normally patches this from its CSR; schnizo has no controller, so we do it here).
+    // Track the current vsew, updated on every accepted VCFG.
+    // spatz_decoder defaults to EW_8; schnizo patches it to the last seen vsew.
     vew_e vsew_q;
     always_ff @(posedge clk_i or posedge rst_i) begin
       if (rst_i)
@@ -214,70 +223,115 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
         vsew_q <= dec_rsp[PORT].spatz_req.vtype.vsew;
     end
 
-    // Use decoded spatz_req; patch vtype.vsew and vl so the VFU always processes
-    // all 256 bits: vl = VLEN >> (3 + vsew).
+    // Patch vsew and vl into the request before forwarding to the unit.
+    // For widening instructions (vwmul etc.) the destination EEW is 2×SEW,
+    // so halve vl to keep the result within one 256-bit VRF word.
+    spatz_req_t unit_req;
     always_comb begin
-      vfu_spatz_req[i]            = dec_rsp[PORT].spatz_req;
-      vfu_spatz_req[i].vtype.vsew = vsew_q;
-      vfu_spatz_req[i].vl         = vlen_t'(VLEN >> (3 + vsew_q));
-      vfu_spatz_req[i].id         = spatz_id_t'(i);
+      unit_req            = dec_rsp[PORT].spatz_req;
+      unit_req.vtype.vsew = vsew_q;
+      if (dec_rsp[PORT].spatz_req.op_arith.widen_vs1 || dec_rsp[PORT].spatz_req.op_arith.widen_vs2)
+        unit_req.vl = vlen_t'(VLEN >> (4 + vsew_q));
+      else
+        unit_req.vl = vlen_t'(VLEN >> (3 + vsew_q));
+      unit_req.id = spatz_id_t'(i);
     end
 
-    // VFU executes speculatively. VCFG bypasses spatz_vfu entirely.
-    assign vfu_spatz_req_valid[i]  = issue_req_valid_i[PORT] && !is_vcfg;
-    assign issue_req_ready_o[PORT] = is_vcfg ? result_ready_i[PORT] : vfu_spatz_req_ready[i];
-    assign busy_o[PORT]            = ~issue_req_ready_o[PORT];
+    logic    unit_req_ready;
+    logic    unit_rsp_valid;
+    vfu_rsp_t unit_rsp;
 
-    spatz_vfu #(
-      .FPUImplementation(FPUImplementation)
-    ) i_vfu (
-      .clk_i             (clk_i                           ),
-      .rst_ni            (~rst_i                          ),
-      .hart_id_i         (32'(i)                          ),
-      .spatz_req_i       (vfu_spatz_req[i]                ),
-      .spatz_req_valid_i (vfu_spatz_req_valid[i]          ),
-      .spatz_req_ready_o (vfu_spatz_req_ready[i]          ),
-      .vfu_rsp_valid_o   (vfu_rsp_valid[i]                ),
-      .vfu_rsp_ready_i   (result_ready_i[PORT]            ),
-      .vfu_rsp_o         (vfu_rsp[i]                      ),
-      // VRF write port
-      .vrf_waddr_o       (vrf_waddr[WD]                   ),
-      .vrf_wdata_o       (vrf_wdata[WD]                   ),
-      .vrf_we_o          (vrf_we   [WD]                   ),
-      .vrf_wbe_o         (vrf_wbe  [WD]                   ),
-      .vrf_wvalid_i      (vrf_wvalid[WD]                  ),
-      // VRF read ports [vs2=RD_BASE, vs1=RD_BASE+1, vd=RD_BASE+2]
-      .vrf_raddr_o       (vrf_raddr [RD_BASE+2:RD_BASE]   ),
-      .vrf_re_o          (vrf_re    [RD_BASE+2:RD_BASE]   ),
-      .vrf_rdata_i       (vrf_rdata [RD_BASE+2:RD_BASE]   ),
-      .vrf_rvalid_i      (vrf_rvalid[RD_BASE+2:RD_BASE]   ),
-      .vrf_id_o          (/* unused without controller */  ),
-      .fpu_status_o      (/* unused */                     )
+    // Response FIFO: decouples spatz_vfu's one-shot result pulse from the
+    // downstream valid-ready handshake.  Without this, scalar instructions
+    // (vmv.x.s) deadlock: spatz_vfu won't accept a scalar instruction unless
+    // vfu_rsp_ready_i=1 (spatz_vfu.sv line ~140/454), but vfu_rsp_ready_i
+    // was tied to result_ready_i which is only 1 after spatz_gpr_valid fires,
+    // which requires the instruction to have already completed.
+    // Fix: vfu_rsp_ready_i = rsp_fifo_push_ready (FIFO has room), which is 1
+    // initially.  The FIFO holds the result until the writeback path consumes it.
+    vfu_rsp_t rsp_fifo_out;
+    logic     rsp_fifo_valid;
+    logic     rsp_fifo_push_ready;
+
+    stream_fifo #(
+      .T           (vfu_rsp_t   ),
+      .DEPTH       (VFUBufDepth ),
+      .FALL_THROUGH(1'b1        )
+    ) i_rsp_fifo (
+      .clk_i     (clk_i                 ),
+      .rst_ni    (~rst_i                ),
+      .flush_i   (1'b0                  ),
+      .testmode_i(1'b0                  ),
+      .usage_o   (/* unused */          ),
+      .data_i    (unit_rsp              ),
+      .valid_i   (unit_rsp_valid        ),
+      .ready_o   (rsp_fifo_push_ready   ),
+      .data_o    (rsp_fifo_out          ),
+      .valid_o   (rsp_fifo_valid        ),
+      .ready_i   (result_ready_i[PORT]  )
     );
 
-    // VCFG: return vl = VLEN >> (3 + new_vsew) so callers see the correct element count.
-    assign result_o[PORT]       = is_vcfg
-        ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
-        : vfu_rsp[i].result;
-    assign result_valid_o[PORT] = is_vcfg ? issue_req_valid_i[PORT] : vfu_rsp_valid[i];
+    assign issue_req_ready_o[PORT] = is_vcfg ? result_ready_i[PORT] : unit_req_ready;
+    assign busy_o[PORT]            = ~issue_req_ready_o[PORT];
 
-    // Latch the issue-time tag so it remains stable across multi-cycle VFU latency.
-    // In LXP mode the tag encodes the RSS slot_id in its LSBs (set by the dispatch
-    // pipeline); in SI mode it carries the full instr_tag_t for direct RF writeback.
-    // VCFG is single-cycle (result fires same cycle as issue), so use the live tag.
-    // Only latch for arithmetic (not VCFG): a VCFG can be accepted and consume
-    // result_ready_i while a preceding arithmetic instruction is still in the VFU
-    // pipeline. If VCFG updated issued_tag_q it would corrupt the in-flight tag
-    // (dest_reg_is_vec=0, dest_reg=x0), causing the scoreboard to miss the VRF
-    // clear when the arithmetic instruction finally retires.
-    instr_tag_t issued_tag_q;
-    always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i)
-        issued_tag_q <= '0;
-      else if (!is_vcfg && issue_req_valid_i[PORT] && issue_req_ready_o[PORT])
-        issued_tag_q <= issue_req_i[PORT].tag;
-    end
-    assign tag_o[PORT] = is_vcfg ? issue_req_i[PORT].tag : issued_tag_q;
+    schnizo_vfu_unit #(
+      .FPUImplementation(FPUImplementation)
+    ) i_unit (
+      .clk_i             (clk_i                                              ),
+      .rst_ni            (~rst_i                                             ),
+      .hart_id_i         (32'(i)                                             ),
+      .spatz_req_i       (unit_req                                           ),
+      .spatz_req_valid_i (issue_req_valid_i[PORT] && !is_vcfg               ),
+      .spatz_req_ready_o (unit_req_ready                                     ),
+      .vfu_rsp_valid_o   (unit_rsp_valid                                     ),
+      .vfu_rsp_ready_i   (rsp_fifo_push_ready                               ),
+      .vfu_rsp_o         (unit_rsp                                           ),
+      // Write: [0]=VFU_VD_WD, [1]=VSLDU_VD_WD (non-contiguous in vrf_waddr)
+      .vrf_waddr_o       ({vrf_waddr[WD_SLD], vrf_waddr[WD]}                ),
+      .vrf_wdata_o       ({vrf_wdata[WD_SLD], vrf_wdata[WD]}                ),
+      .vrf_we_o          ({vrf_we   [WD_SLD], vrf_we   [WD]}                ),
+      .vrf_wbe_o         ({vrf_wbe  [WD_SLD], vrf_wbe  [WD]}                ),
+      .vrf_wvalid_i      ({vrf_wvalid[WD_SLD], vrf_wvalid[WD]}              ),
+      // Read: [2:0]=VFU (vs2/vs1/vd), [3]=VSLDU_VS2_RD
+      .vrf_raddr_o       ({vrf_raddr[RD_SLD], vrf_raddr[RD_BASE+2:RD_BASE]} ),
+      .vrf_re_o          ({vrf_re   [RD_SLD], vrf_re   [RD_BASE+2:RD_BASE]} ),
+      .vrf_rdata_i       ({vrf_rdata[RD_SLD], vrf_rdata[RD_BASE+2:RD_BASE]} ),
+      .vrf_rvalid_i      ({vrf_rvalid[RD_SLD], vrf_rvalid[RD_BASE+2:RD_BASE]}),
+      .fpu_status_o      (/* unused */                                       )
+    );
+
+    // VCFG: return new vl computed from the decoded vtype.
+    // Arithmetic/slide: result comes from the response FIFO.
+    assign result_o[PORT]       = is_vcfg ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
+                                          : rsp_fifo_out.result;
+    assign result_valid_o[PORT] = is_vcfg ? issue_req_valid_i[PORT] : rsp_fifo_valid;
+
+    // Tag FIFO: one entry per instruction accepted into the VFU's internal FIFO.
+    // A single latch would be corrupted when a second instruction is dispatched
+    // before the first result fires (spatz_vfu has VFUBufDepth=6 slots).
+    // Shared between VFU and VSLDU: mutual exclusion ensures at most one VSLDU
+    // is ever in-flight, so depth = VFUBufDepth covers both.
+    // Pop is synchronized with the response FIFO: both drain together.
+    instr_tag_t vfu_tag_out;
+    stream_fifo #(
+      .T           (instr_tag_t ),
+      .DEPTH       (VFUBufDepth ),
+      .FALL_THROUGH(1'b1        )
+    ) i_vfu_tag_fifo (
+      .clk_i     (clk_i                                               ),
+      .rst_ni    (~rst_i                                              ),
+      .flush_i   (1'b0                                                ),
+      .testmode_i(1'b0                                                ),
+      .usage_o   (/* unused */                                        ),
+      .data_i    (issue_req_i[PORT].tag                               ),
+      .valid_i   (!is_vcfg && issue_req_valid_i[PORT]
+                           && issue_req_ready_o[PORT]                ),
+      .ready_o   (/* depth >= VFUBufDepth, never stalls */            ),
+      .data_o    (vfu_tag_out                                         ),
+      .valid_o   (/* trusted: matches rsp_fifo occupancy */           ),
+      .ready_i   (rsp_fifo_valid && result_ready_i[PORT]             )
+    );
+    assign tag_o[PORT] = is_vcfg ? issue_req_i[PORT].tag : vfu_tag_out;
   end : gen_vfu
 
   //////////
@@ -285,8 +339,8 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   //////////
 
   for (genvar j = 0; j < NofVLSU; j++) begin : gen_vlsu
-    localparam int unsigned WD      = NofVFU + j;     // VRF write port index
-    localparam int unsigned RD_BASE = 3*NofVFU + 2*j; // VRF read port base (vs2, vd)
+    localparam int unsigned WD      = NofVFU + j;      // VRF write port (VLSU_VD_WD)
+    localparam int unsigned RD_BASE = 3*NofVFU + 2*j;  // VRF read port base (vs2, vd)
 
     // Use decoded spatz_req, override vl (SIMD fixed length) and id (port index).
     always_comb begin
@@ -296,7 +350,6 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     end
 
     // VLSU is non-speculative (memory): gate issue with commit and stall while result pending.
-    // Issue handshake and VLSU acceptance use the same condition so they stay in sync.
     logic vlsu_result_valid_q;
     logic vlsu_pending_is_load_q;
     logic vlsu_can_issue;
@@ -306,7 +359,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     assign busy_o[j]               = ~vlsu_can_issue;
 
     // Track whether the issued instruction was a load.
-    // Stores are retired at issue in the RS (retire_at_issue=true) so they must not generate
+    // Stores are retired at issue (retire_at_issue=true) so they must not generate
     // a result_valid pulse back to the RS ? that would underflow issue_in_flight_q.
     always_ff @(posedge clk_i or posedge rst_i) begin
       if (rst_i)
@@ -384,15 +437,14 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // TCDM wiring: VLSU j occupies ports [j*NumMemPorts +: NumMemPorts]
     for (genvar p = 0; p < NumMemPorts; p++) begin : gen_tcdm
       localparam int unsigned TP = j*NumMemPorts + p;
-      assign tcdm_req_o[TP]          = spatz_mem_req      [j][p];
-      assign tcdm_req_valid_o[TP]    = spatz_mem_req_valid[j][p];
-      assign spatz_mem_req_ready[j][p] = tcdm_req_ready_i[TP];
-      assign spatz_mem_rsp      [j][p] = tcdm_rsp_i      [TP];
-      assign spatz_mem_rsp_valid[j][p] = tcdm_rsp_valid_i[TP];
+      assign tcdm_req_o[TP]              = spatz_mem_req      [j][p];
+      assign tcdm_req_valid_o[TP]        = spatz_mem_req_valid[j][p];
+      assign spatz_mem_req_ready[j][p]   = tcdm_req_ready_i[TP];
+      assign spatz_mem_rsp      [j][p]   = tcdm_rsp_i      [TP];
+      assign spatz_mem_rsp_valid[j][p]   = tcdm_rsp_valid_i[TP];
     end : gen_tcdm
 
     // VLSU has no scalar result; only forward result to RS for loads.
-    // Stores are retired at issue (retire_at_issue=true) and must not generate a result pulse.
     assign result_o[j]       = '0;
     assign result_valid_o[j] = vlsu_result_valid_q && vlsu_pending_is_load_q;
     assign tag_o[j]          = vlsu_tag_out[j];

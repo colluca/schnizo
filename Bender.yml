@@ -206,6 +206,7 @@ sources:
       # TODO(colluca): update
       - hw/schnizo/src/schnizo_tracer_pkg.sv
       - hw/schnizo/src/schnizo_vlsu.sv
+      - hw/schnizo/src/schnizo_vfu_unit.sv
       - hw/schnizo/src/schnizo_vfu.sv
       - hw/schnizo/src/schnizo_multiplier.sv
       - hw/schnizo/src/schnizo_alu.sv
