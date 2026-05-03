@@ -175,6 +175,16 @@ clean-riscv-tests: sn-clean-riscv-tests
 clean-apps: sn-clean-apps
 clean-sw: sn-clean-sw
 
+####################
+# Schnizo test suites #
+####################
+
+include $(SN_ROOT)/make/schnizo_tests.mk
+
+.PHONY: vfu-tests vfu-tests-build vfu-tests-run \
+        spatz-isa-tests spatz-isa-tests-build spatz-isa-tests-run \
+        clean-schnizo-tests
+
 ########
 # Misc #
 ########

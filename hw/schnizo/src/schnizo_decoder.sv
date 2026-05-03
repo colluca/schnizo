@@ -1102,6 +1102,8 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
           // override below for instructions that write to scalar GPR/FPR instead.
           instr_dec_o.rd        = instr.rtype.rd;
           instr_dec_o.rd_is_vec = 1'b1;
+          // Vector FP instructions always use the dynamic CSR frm (no rm field in instruction).
+          instr_dec_o.fpu_rnd_mode = fpu_round_mode_i;
           unique casez (instr.instr)
             // --- Configuration / setup (integer destination) ---
             VSETIVLI: begin
