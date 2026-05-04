@@ -123,8 +123,9 @@ module schnizo_vlsu
       // Track which store ports have been accepted during STORE_ISSUE
       if (state_q == STORE_ISSUE) begin
         for (int p = 0; p < NrMemPorts; p++) begin
-          if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p])
+          if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p]) begin
             store_sent_q[p] <= 1'b1;
+          end
         end
       end
     end
@@ -171,9 +172,10 @@ module schnizo_vlsu
     unique case (state_q)
       IDLE: begin
         if (spatz_req_valid_i) begin
-          if (spatz_req_i.op_mem.is_load)
+          if (spatz_req_i.op_mem.is_load) begin
             // Loads don't read VRF ? accept and issue memory reads unconditionally.
             state_d = LOAD_WAIT;
+          end
           else if (vrf_rvalid_i[0])
             // Store: VRF data is ready this cycle.
             // If all TCDM ports accepted, stay in IDLE; otherwise retry in STORE_ISSUE.
@@ -264,8 +266,9 @@ module schnizo_vlsu
     if (state_q == LOAD_WAIT && all_rsp_done) begin
       vrf_we_o    = 1'b1;
       vrf_waddr_o = req_q.vd << VrfAddrShift;
-      for (int p = 0; p < NrMemPorts; p++)
+      for (int p = 0; p < NrMemPorts; p++) begin
         vrf_wdata_o[ELEN*p +: ELEN] = rsp_data_now[p];
+      end
       vrf_wbe_o = '1;
     end
   end
@@ -301,8 +304,9 @@ module schnizo_vlsu
   // the fall-back STORE_ISSUE path is ever triggered (useful for debug).
   // synthesis translate_off
   always_ff @(posedge clk_i) begin
-    if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE))
+    if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE)) begin
       $display("[schnizo_vlsu] WARNING: TCDM back-pressure on store ? entering STORE_ISSUE");
+    end
   end
   // synthesis translate_on
   // pragma translate_on

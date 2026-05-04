@@ -217,10 +217,12 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // spatz_decoder defaults to EW_8; schnizo patches it to the last seen vsew.
     vew_e vsew_q;
     always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i)
+      if (rst_i) begin
         vsew_q <= MAXEW;
-      else if (is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT])
+      end
+      else if (is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT]) begin
         vsew_q <= dec_rsp[PORT].spatz_req.vtype.vsew;
+      end
     end
 
     // Patch vsew and vl into the request before forwarding to the unit.
@@ -230,10 +232,12 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     always_comb begin
       unit_req            = dec_rsp[PORT].spatz_req;
       unit_req.vtype.vsew = vsew_q;
-      if (dec_rsp[PORT].spatz_req.op_arith.widen_vs1 || dec_rsp[PORT].spatz_req.op_arith.widen_vs2)
+      if (dec_rsp[PORT].spatz_req.op_arith.widen_vs1 || dec_rsp[PORT].spatz_req.op_arith.widen_vs2) begin
         unit_req.vl = vlen_t'(VLEN >> (4 + vsew_q));
-      else
+      end
+      else begin
         unit_req.vl = vlen_t'(VLEN >> (3 + vsew_q));
+      end
       unit_req.id = spatz_id_t'(i);
     end
 
@@ -362,21 +366,26 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // Stores are retired at issue (retire_at_issue=true) so they must not generate
     // a result_valid pulse back to the RS ? that would underflow issue_in_flight_q.
     always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i)
+      if (rst_i) begin
         vlsu_pending_is_load_q <= 1'b0;
-      else if (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j])
+      end
+      else if (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j]) begin
         vlsu_pending_is_load_q <= vlsu_spatz_req[j].op_mem.is_load;
+      end
     end
 
     // Latch the one-shot vlsu_rsp_valid pulse; hold until downstream consumes.
     // For stores, self-clear next cycle (no result_ready_i will ever fire for them).
     always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i)
+      if (rst_i) begin
         vlsu_result_valid_q <= 1'b0;
-      else if (vlsu_rsp_valid[j])
+      end
+      else if (vlsu_rsp_valid[j]) begin
         vlsu_result_valid_q <= 1'b1;
-      else if (vlsu_pending_is_load_q ? result_ready_i[j] : 1'b1)
+      end
+      else if (vlsu_pending_is_load_q ? result_ready_i[j] : 1'b1) begin
         vlsu_result_valid_q <= 1'b0;
+      end
     end
 
     // Tag FIFO: push at issue for loads only; stores don't generate an RS result.

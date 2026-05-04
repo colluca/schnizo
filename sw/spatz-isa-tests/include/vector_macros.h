@@ -26,10 +26,10 @@
 static unsigned int _spatz_vl = 0;
 
 // Map SEW token ? element count for a single 256-bit register
-#define _SPATZ_NELEMS_e8   32
-#define _SPATZ_NELEMS_e16  16
-#define _SPATZ_NELEMS_e32   8
-#define _SPATZ_NELEMS_e64   4
+#define _SPATZ_NELEMS_e8 32
+#define _SPATZ_NELEMS_e16 16
+#define _SPATZ_NELEMS_e32 8
+#define _SPATZ_NELEMS_e64 4
 
 // ?? VSET override ??????????????????????????????????????????????????????????
 // The hardware only supports full 256-bit vector operations: vl must always
@@ -38,22 +38,22 @@ static unsigned int _spatz_vl = 0;
 // or which LMUL is used.  VLOAD zero-pads to _spatz_vl so the full register
 // is initialised before the instruction runs.
 #undef VSET
-#define VSET(VSET_AVL, VTYPE, LMUL)                                           \
-  do {                                                                         \
-    const unsigned int _vset_fixed = _SPATZ_NELEMS_##VTYPE;                   \
-    asm volatile("vsetvli %[vl], %[A]," #VTYPE "," #LMUL ", ta, ma"           \
-                 : [vl] "=r"(_spatz_vl)                                        \
-                 : [A] "r"(_vset_fixed));                                      \
-  } while (0)
+#define VSET(VSET_AVL, VTYPE, LMUL)                                     \
+    do {                                                                \
+        const unsigned int _vset_fixed = _SPATZ_NELEMS_##VTYPE;         \
+        asm volatile("vsetvli %[vl], %[A]," #VTYPE "," #LMUL ", ta, ma" \
+                     : [ vl ] "=r"(_spatz_vl)                           \
+                     : [ A ] "r"(_vset_fixed));                         \
+    } while (0)
 
 #undef VSETMAX
-#define VSETMAX(VTYPE, LMUL)                                                   \
-  do {                                                                         \
-    const unsigned int _vset_fixed = _SPATZ_NELEMS_##VTYPE;                   \
-    asm volatile("vsetvli %[vl], %[A]," #VTYPE "," #LMUL ", ta, ma"           \
-                 : [vl] "=r"(_spatz_vl)                                        \
-                 : [A] "r"(_vset_fixed));                                      \
-  } while (0)
+#define VSETMAX(VTYPE, LMUL)                                            \
+    do {                                                                \
+        const unsigned int _vset_fixed = _SPATZ_NELEMS_##VTYPE;         \
+        asm volatile("vsetvli %[vl], %[A]," #VTYPE "," #LMUL ", ta, ma" \
+                     : [ vl ] "=r"(_spatz_vl)                           \
+                     : [ A ] "r"(_vset_fixed));                         \
+    } while (0)
 
 // ?? VCLEAR override ????????????????????????????????????????????????????????
 // The upstream VCLEAR does csrr vtype / csrr vl, which hit unimplemented CSRs
@@ -73,13 +73,14 @@ static unsigned int _spatz_vl = 0;
 // so that exactly VLEN/store-SEW elements are stored and _spatz_vl is updated
 // to match, giving VCMP the correct iteration count.
 #undef VSTORE
-#define VSTORE(T, storetype, vreg, vec)                                        \
-  do {                                                                         \
-    const unsigned int _vstore_fixed = _SPATZ_NELEMS_##storetype;              \
-    asm volatile("vsetvli %[vl], %[A]," #storetype ",m1, ta, ma"               \
-                 : [vl] "=r"(_spatz_vl) : [A] "r"(_vstore_fixed));            \
-    asm volatile("vs" #storetype ".v " #vreg ", (%0)\n" : "+r"(vec));          \
-  } while (0)
+#define VSTORE(T, storetype, vreg, vec)                                   \
+    do {                                                                  \
+        const unsigned int _vstore_fixed = _SPATZ_NELEMS_##storetype;     \
+        asm volatile("vsetvli %[vl], %[A]," #storetype ",m1, ta, ma"      \
+                     : [ vl ] "=r"(_spatz_vl)                             \
+                     : [ A ] "r"(_vstore_fixed));                         \
+        asm volatile("vs" #storetype ".v " #vreg ", (%0)\n" : "+r"(vec)); \
+    } while (0)
 
 // ?? VLOAD override ?????????????????????????????????????????????????????????
 // The original VLOAD allocates exactly as many elements as the caller
@@ -89,18 +90,18 @@ static unsigned int _spatz_vl = 0;
 // _spatz_vl so the vector register is fully defined before the instruction
 // operates on it.
 #undef VLOAD
-#define VLOAD(datatype, loadtype, vreg, vec...)                                \
-  do {                                                                         \
-    const datatype _vsrc_##vreg[] = {vec};                                     \
-    const unsigned int _vn_##vreg =                                            \
-        sizeof(_vsrc_##vreg) / sizeof(datatype);                               \
-    datatype *V##vreg =                                                        \
-        (datatype *)snrt_l1alloc(_spatz_vl * sizeof(datatype));                \
-    for (unsigned int _vi = 0; _vi < _spatz_vl; _vi++)                        \
-      V##vreg[_vi] =                                                           \
-          (_vi < _vn_##vreg) ? _vsrc_##vreg[_vi] : (datatype)0;               \
-    asm volatile("vl" #loadtype ".v " #vreg ", (%0)" :: "r"(V##vreg));        \
-  } while (0)
+#define VLOAD(datatype, loadtype, vreg, vec...)                           \
+    do {                                                                  \
+        const datatype _vsrc_##vreg[] = {vec};                            \
+        const unsigned int _vn_##vreg =                                   \
+            sizeof(_vsrc_##vreg) / sizeof(datatype);                      \
+        datatype *V##vreg =                                               \
+            (datatype *)snrt_l1alloc(_spatz_vl * sizeof(datatype));       \
+        for (unsigned int _vi = 0; _vi < _spatz_vl; _vi++)                \
+            V##vreg[_vi] =                                                \
+                (_vi < _vn_##vreg) ? _vsrc_##vreg[_vi] : (datatype)0;     \
+        asm volatile("vl" #loadtype ".v " #vreg ", (%0)" ::"r"(V##vreg)); \
+    } while (0)
 
 // ?? VCMP override ??????????????????????????????????????????????????????????
 // Clamp the comparison loop to min(_spatz_vl, n_expected) so we never:
@@ -108,20 +109,21 @@ static unsigned int _spatz_vl = 0;
 //   - compare elements that were not computed (if n_expected > vl).
 #undef VCMP
 #define VCMP(T, str, casenum, vexp, act...)                                    \
-  do {                                                                         \
-    const T vact[] = {act};                                                    \
-    const unsigned int _vn_act = sizeof(vact) / sizeof(T);                    \
-    const unsigned int _vn_cmp =                                               \
-        (_spatz_vl < _vn_act) ? _spatz_vl : _vn_act;                          \
-    for (unsigned int _i = 0; _i < _vn_cmp; _i++) {                           \
-      if (vexp[_i] != vact[_i]) {                                              \
-        printf("[TC %d] Index %d FAILED. Got " #str ", expected " #str ".\n",  \
-               casenum, _i, vexp[_i], vact[_i]);                               \
-        num_failed++;                                                          \
-        return;                                                                \
-      }                                                                        \
-    }                                                                          \
-    printf("[TC %d] PASSED.\n", casenum);                                      \
-  } while (0)
+    do {                                                                       \
+        const T vact[] = {act};                                                \
+        const unsigned int _vn_act = sizeof(vact) / sizeof(T);                 \
+        const unsigned int _vn_cmp =                                           \
+            (_spatz_vl < _vn_act) ? _spatz_vl : _vn_act;                       \
+        for (unsigned int _i = 0; _i < _vn_cmp; _i++) {                        \
+            if (vexp[_i] != vact[_i]) {                                        \
+                printf("[TC %d] Index %d FAILED. Got " #str ", expected " #str \
+                       ".\n",                                                  \
+                       casenum, _i, vexp[_i], vact[_i]);                       \
+                num_failed++;                                                  \
+                return;                                                        \
+            }                                                                  \
+        }                                                                      \
+        printf("[TC %d] PASSED.\n", casenum);                                  \
+    } while (0)
 
-#endif // __SPATZ_SIMD_VECTOR_MACROS_WRAPPER_H__
+#endif  // __SPATZ_SIMD_VECTOR_MACROS_WRAPPER_H__

@@ -32,7 +32,7 @@ int main() {
     int64_t *pz = z;
 
     // Vector length (N elements of 64-bit)
-    asm volatile("vsetvli zero, %0, e64, m1, ta, ma" :: "r"(N));
+    asm volatile("vsetvli zero, %0, e64, m1, ta, ma" ::"r"(N));
 
     // frep.o repeats the following block n_iter times.
     // The block loads N elements from x and y, adds them, stores to z,
@@ -46,10 +46,9 @@ int main() {
         "addi     %[px], %[px], %[sz] \n"  // advance x pointer
         "addi     %[py], %[py], %[sz] \n"  // advance y pointer
         "addi     %[pz], %[pz], %[sz] \n"  // advance z pointer
-        : [px] "+r"(px), [py] "+r"(py), [pz] "+r"(pz)
-        : [iter] "r"(n_iter), [sz] "i"(N * 8)
-        : "v0", "v1", "v2"
-    );
+        : [ px ] "+r"(px), [ py ] "+r"(py), [ pz ] "+r"(pz)
+        : [ iter ] "r"(n_iter), [ sz ] "i"(N * 8)
+        : "v0", "v1", "v2");
 
     snrt_fpu_fence();  // ensure vector writes are visible
 
@@ -58,7 +57,8 @@ int main() {
     for (int i = 0; i < total_elements; i++) {
         int64_t expected = x[i] + y[i];
         if (z[i] != expected) {
-            printf("Mismatch at index %d: z=%ld, expected=%ld\n", i, z[i], expected);
+            printf("Mismatch at index %d: z=%ld, expected=%ld\n", i, z[i],
+                   expected);
             error = 1;
         }
     }

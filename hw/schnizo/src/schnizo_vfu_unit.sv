@@ -84,12 +84,15 @@ module schnizo_vfu_unit import spatz_pkg::*, rvv_pkg::*, fpnew_pkg::*; #(
   // spatz_vsldu pulses vsldu_rsp_valid_o once with no ready handshake.
   // Hold the valid until the downstream path fires vfu_rsp_ready_i.
   always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni)
+    if (!rst_ni) begin
       vsldu_result_valid_q <= 1'b0;
-    else if (vsldu_rsp_valid)
+    end
+    else if (vsldu_rsp_valid) begin
       vsldu_result_valid_q <= 1'b1;
-    else if (vfu_rsp_ready_i)
+    end
+    else if (vfu_rsp_ready_i) begin
       vsldu_result_valid_q <= 1'b0;
+    end
   end
 
   // ---- Response mux ----

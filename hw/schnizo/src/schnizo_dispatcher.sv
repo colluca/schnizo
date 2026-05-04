@@ -131,16 +131,18 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
                                                           rmti_q[instr_dec_i.rs1];
       // If rs1 is a vector register with a pending producer, mark the operand as used so the
       // RS slot waits for the producer's result before issuing (serialises VFU behind VLSU).
-      if (instr_dec_i.rs1_is_vec && rmtv_q[instr_dec_i.rs1].valid)
+      if (instr_dec_i.rs1_is_vec && rmtv_q[instr_dec_i.rs1].valid) begin
         disp_req_o.fu_data.use_operand_a = 1'b1;
+      end
 
       // Operand B
       disp_req_o.producer_op_b = instr_dec_i.rs2_is_vec ? rmtv_q[instr_dec_i.rs2] :
                                  instr_dec_i.rs2_is_fp  ? rmtf_q[instr_dec_i.rs2] :
                                                           rmti_q[instr_dec_i.rs2];
       // Same for rs2.
-      if (instr_dec_i.rs2_is_vec && rmtv_q[instr_dec_i.rs2].valid)
+      if (instr_dec_i.rs2_is_vec && rmtv_q[instr_dec_i.rs2].valid) begin
         disp_req_o.fu_data.use_operand_b = 1'b1;
+      end
 
       // Operand C
       disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?

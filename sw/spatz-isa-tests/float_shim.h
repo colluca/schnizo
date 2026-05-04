@@ -25,24 +25,38 @@
 #include <stdint.h>
 
 // _d / _f: convert a float/double literal to its raw integer bit pattern
-typedef union { double d; uint64_t i; } _double_bits_t;
-typedef union { float  f; uint32_t i; } _float_bits_t;
+typedef union {
+    double d;
+    uint64_t i;
+} _double_bits_t;
+typedef union {
+    float f;
+    uint32_t i;
+} _float_bits_t;
 
-static inline _double_bits_t _d(double x) { _double_bits_t u; u.d = x; return u; }
-static inline _float_bits_t  _f(float  x) { _float_bits_t  u; u.f = x; return u; }
+static inline _double_bits_t _d(double x) {
+    _double_bits_t u;
+    u.d = x;
+    return u;
+}
+static inline _float_bits_t _f(float x) {
+    _float_bits_t u;
+    u.f = x;
+    return u;
+}
 
 // Vector load aliases
 #define VLOAD_F64(vreg, vec...) VLOAD(uint64_t, e64, vreg, ##vec)
 #define VLOAD_F32(vreg, vec...) VLOAD(uint32_t, e32, vreg, ##vec)
 #define VLOAD_U64(vreg, vec...) VLOAD(uint64_t, e64, vreg, ##vec)
 #define VLOAD_U32(vreg, vec...) VLOAD(uint32_t, e32, vreg, ##vec)
-#define VLOAD_U8(vreg,  vec...) VLOAD(uint8_t,  e8,  vreg, ##vec)
+#define VLOAD_U8(vreg, vec...) VLOAD(uint8_t, e8, vreg, ##vec)
 
 // Vector compare aliases
 #define VEC_CMP_U64(casenum, vreg, act...) VCMP_U64(casenum, vreg, ##act)
 #define VEC_CMP_U32(casenum, vreg, act...) VCMP_U32(casenum, vreg, ##act)
-#define VEC_CMP_U8(casenum,  vreg, act...) VCMP_U8 (casenum, vreg, ##act)
-#define VEC_CMP_8(casenum,   vreg, act...) VCMP_I8 (casenum, vreg, ##act)
+#define VEC_CMP_U8(casenum, vreg, act...) VCMP_U8(casenum, vreg, ##act)
+#define VEC_CMP_8(casenum, vreg, act...) VCMP_I8(casenum, vreg, ##act)
 // VEC_CMP_F32 is used with _f(x).i (raw uint32 bits), so compare as uint32
 #define VEC_CMP_F32(casenum, vreg, act...) VCMP_U32(casenum, vreg, ##act)
 
@@ -50,10 +64,10 @@ static inline _float_bits_t  _f(float  x) { _float_bits_t  u; u.f = x; return u;
 #define CLEAR(vreg) VCLEAR(vreg)
 
 // Scalar FP load: store raw bits to stack, then flw into the FP register
-#define FLOAD32(freg, bits)                                   \
-  do {                                                        \
-    uint32_t _fload_tmp = (uint32_t)(bits);                   \
-    asm volatile("flw " #freg ", 0(%0)" :: "r"(&_fload_tmp)); \
-  } while (0)
+#define FLOAD32(freg, bits)                                      \
+    do {                                                         \
+        uint32_t _fload_tmp = (uint32_t)(bits);                  \
+        asm volatile("flw " #freg ", 0(%0)" ::"r"(&_fload_tmp)); \
+    } while (0)
 
-#endif // FLOAT_SHIM_H
+#endif  // FLOAT_SHIM_H
