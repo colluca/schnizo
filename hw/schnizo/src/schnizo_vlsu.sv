@@ -176,10 +176,11 @@ module schnizo_vlsu
             // Loads don't read VRF ? accept and issue memory reads unconditionally.
             state_d = LOAD_WAIT;
           end
-          else if (vrf_rvalid_i[0])
+          else if (vrf_rvalid_i[0]) begin
             // Store: VRF data is ready this cycle.
             // If all TCDM ports accepted, stay in IDLE; otherwise retry in STORE_ISSUE.
             state_d = idle_store_done ? IDLE : STORE_ISSUE;
+          end
           // else !vrf_rvalid_i[0]: VRF bank conflict; spatz_req_ready_o=0 so the
           // instruction is not consumed ? stay in IDLE and retry next cycle.
         end
