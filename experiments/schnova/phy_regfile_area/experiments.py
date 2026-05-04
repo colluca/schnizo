@@ -33,34 +33,48 @@ class ExperimentManager(eu.ExperimentManager):
 #                })
 #    return experiments
 
-def gen_experiments():
+def gen_experiments(designs=None):
     # Define axes
-    num_slots_axis = [1,2 , 4, 8, 16, 32, 64]
-    num_constants_axis = [4]
-    num_res_ports_axis = [1, 2, 3]
-    num_operands_axis = [3]
-    consumer_count_axis = [64]
+    num_write_ports_axis = [1, 2, 4, 8]
+    num_rs_axis = [3, 4, 5, 6, 7]
+    addr_width_axis = [6, 7, 8]
 
     # Generate list of experiments
     experiments = []
-    for num_slots in num_slots_axis:
-        for num_constants in num_constants_axis:
-            if num_slots != 4 and num_constants != 4:
-                continue
-            for num_operands in num_operands_axis:
-                for num_res_ports in num_res_ports_axis:
-                    for consumer_count in consumer_count_axis:
-                        experiments.append({
-                            'design': 'schnizo_res_stat_synth',
-                            'name': f'{num_slots}slots_{num_constants}consts_{num_res_ports}resports_{num_operands}operands',
+
+    for addr_width in addr_width_axis:
+        for num_rs in num_rs_axis:
+            for num_write_ports in num_write_ports_axis:
+                # Assuming every reservation stataion has 3 operands it needs to read (not true for ALU)
+                num_op_read_ports = num_rs*3
+                experiments.append({
+                            'design': 'schnova_phys_regfile_synth',
+                            'name': f'sv{num_write_ports}_rs{num_rs}_w{addr_width}_gpr',
                             'hdl_params': {
-                                'NofRss': num_slots,
-                                'NofConstants': num_constants,
-                                'NofOperands': num_operands,
-                                'NofResRspIfs': num_res_ports,
-                                'ConsumerCount': consumer_count
+                                'DataWidth': 32,
+                                'NrReadPorts': 2,
+                                'NrWritePorts': num_write_ports,
+                                'NofOperandIfs': num_op_read_ports,
+                                'ZeroRegZero': 1,
+                                'AddrWidth': addr_width
                             }
                         })
+                
+                experiments.append({
+                            'design': 'schnova_phys_regfile_synth',
+                            'name': f'sv{num_write_ports}_rs{num_rs}_w{addr_width}_fpr',
+                            'hdl_params': {
+                                'DataWidth': 64,
+                                'NrReadPorts': 3,
+                                'NrWritePorts': num_write_ports,
+                                'NofOperandIfs': num_op_read_ports,
+                                'ZeroRegZero': 0,
+                                'AddrWidth': addr_width
+                            }
+                        })
+
+    if designs is not None:
+        experiments = [experiment for experiment in experiments if experiment['name'] in designs]
     return experiments
 
 def results(dir=None):
@@ -71,8 +85,11 @@ def results(dir=None):
 
 
 def main():
-    experiments = gen_experiments()
-    manager = ExperimentManager(experiments=experiments)
+    parser = ExperimentManager.parser()
+    parser.add_argument('--designs', nargs='+')
+    args = parser.parse_args()
+    experiments = gen_experiments(designs=args.designs)
+    manager = ExperimentManager(experiments=experiments, args=args, parse_args=False)
 
     manager.run()
 

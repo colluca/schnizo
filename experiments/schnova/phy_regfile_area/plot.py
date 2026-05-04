@@ -47,7 +47,6 @@ def results(dir=None):
 
 def plot(dir=None, show=False, hide_x_axis=False):
     df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4) & (df['NofOperands'] == 3)]
     print(df)
 
     # Pivot CombArea and SeqArea separately
