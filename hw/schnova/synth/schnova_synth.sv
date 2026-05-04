@@ -9,10 +9,23 @@ module schnova_synth #(
 	parameter int unsigned AluNofRss            = 4,
 	parameter int unsigned LsuNofRss            = 4,
 	parameter int unsigned FpuNofRss            = 4,
-  parameter int unsigned ICacheFetchDataWidth = 32,
-  parameter int unsigned PhysRegAddrSize      = 6,
-  parameter int unsigned NofRobEntries        = 32,
-	parameter bit          MulInAlu0            = 1'b1
+    parameter int unsigned ICacheFetchDataWidth = 32,
+    parameter int unsigned PhysRegAddrSize      = 6,
+    parameter int unsigned NofRobEntries        = 32,
+	parameter bit          MulInAlu0            = 1'b1,
+	localparam type 	   acc_req_t            = struct packed {
+        snitch_pkg::acc_addr_e      addr;
+        logic [PhysRegAddrSize-1:0] id;
+        logic [31:0]                data_op;
+        schnova_synth_pkg::data_t   data_arga;
+        schnova_synth_pkg::data_t   data_argb;
+        schnova_synth_pkg::addr_t   data_argc;
+    },
+    localparam type        acc_resp_t          = struct packed {
+        logic [PhysRegAddrSize-1:0] id;
+        logic       				error;
+        schnova_synth_pkg::data_t   data;
+    }
 ) (
 	input  logic                                       clk_i,
 	input  logic                                       rst_ni,
@@ -25,10 +38,10 @@ module schnova_synth #(
 	input  logic [ICacheFetchDataWidth-1:0]            inst_data_i,
 	output logic                                       inst_valid_o,
 	input  logic                                       inst_ready_i,
-	output schnizo_synth_pkg::acc_req_t                acc_qreq_o,
+	output acc_req_t                				   acc_qreq_o,
 	output logic                                       acc_qvalid_o,
 	input  logic                                       acc_qready_i,
-	input  schnizo_synth_pkg::acc_resp_t               acc_prsp_i,
+	input  acc_resp_t               				   acc_prsp_i,
 	input  logic                                       acc_pvalid_i,
 	output logic                                       acc_pready_o,
 	output schnizo_synth_pkg::data_req_t [NofLsus-1:0] data_req_o,
@@ -51,11 +64,11 @@ module schnova_synth #(
 		.XF8ALT(0),
 		.XFVEC(0),
 		.FLEN(schnova_synth_pkg::FLEN),
-    .ICacheFetchDataWidth  (ICacheFetchDataWidth),
+    	.ICacheFetchDataWidth  (ICacheFetchDataWidth),
 		.dreq_t(schnova_synth_pkg::data_req_t),
 		.drsp_t(schnova_synth_pkg::data_rsp_t),
-		.acc_req_t(schnova_synth_pkg::acc_req_t),
-		.acc_resp_t(schnova_synth_pkg::acc_resp_t),
+		.acc_req_t(acc_req_t),
+		.acc_resp_t(acc_resp_t),
 		.NofAlus(NofAlus),
 		.NofLsus(NofLsus),
 		.NofFpus(NofFpus),
@@ -65,8 +78,8 @@ module schnova_synth #(
 		.MulInAlu0(MulInAlu0),
 		.NumOutstandingLoads(schnova_synth_pkg::NumIntOutstandingLoads),
 		.NumOutstandingMem(schnova_synth_pkg::NumIntOutstandingMem),
-    .PhysRegAddrSize(PhysRegAddrSize),
-    .NofRobEntries(NofRobEntries),
+    	.PhysRegAddrSize(PhysRegAddrSize),
+    	.NofRobEntries(NofRobEntries),
 		.SnitchPMACfg(snitch_cluster_pkg::SnitchPMACfg),
 		.CaqDepth(8),
 		.CaqTagWidth(16),

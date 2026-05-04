@@ -26,20 +26,56 @@ package schnova_synth_pkg;
 
     `REQRSP_TYPEDEF_ALL(data, addr_t, data_t, strb_t, user_t)
 
-    typedef struct packed {
-        snitch_pkg::acc_addr_e addr;
-        logic [5:0]            id;
-        logic [31:0]           data_op;
-        data_t                 data_arga;
-        data_t                 data_argb;
-        addr_t                 data_argc;
-    } acc_req_t;
+    // Res stat specific types
+    // Set them to some large value as an upper bound
+    localparam integer unsigned MaxNofRss = 128;
+    localparam integer unsigned NofFus = 8;
+
+    localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
+    localparam integer unsigned RsIdWidth  = cf_math_pkg::idx_width(NofFus);
+
+    typedef logic [SlotIdWidth-1:0]   slot_id_t;
+    typedef logic [RsIdWidth-1:0] rs_id_t;
 
     typedef struct packed {
-        logic [5:0] id;
-        logic       error;
-        data_t      data;
-    } acc_resp_t;
+        slot_id_t slot_id; // used to select the slot of the request within the RS
+        rs_id_t   rs_id; // used to control the request crossbar
+    } producer_id_t;
+
+    localparam int OpLen = (FLEN > XLEN) ? FLEN : XLEN;
+
+    typedef struct packed {
+        schnova_pkg::fu_t       fu;
+        schnova_pkg::alu_op_e   alu_op;
+        schnova_pkg::lsu_op_e   lsu_op;
+        schnova_pkg::csr_op_e   csr_op;
+        schnova_pkg::fpu_op_e   fpu_op;
+        logic [OpLen-1:0]       operand_a;
+        logic                   use_operand_a;
+        logic [OpLen-1:0]       operand_b;
+        logic                   use_operand_b;
+        // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
+        // this field holds the value of the third operand
+        logic [OpLen-1:0]       imm;
+        logic                   use_imm;
+        schnova_pkg::lsu_size_e lsu_size;
+        fpnew_pkg::fp_format_e  fpu_fmt_src;
+        fpnew_pkg::fp_format_e  fpu_fmt_dst;
+        fpnew_pkg::roundmode_e  fpu_rnd_mode;
+    } fu_data_t;
+
+    typedef struct packed {
+        producer_id_t producer;
+    } disp_rsp_t;
+
+    typedef logic [OpLen-1:0] operand_t;
+
+    typedef logic [XLEN-1:0] alu_res_val_t;
+
+    typedef struct packed {
+        alu_res_val_t result;
+        logic         compare_res;
+    } alu_result_t;
 
 
 endpackage

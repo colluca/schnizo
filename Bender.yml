@@ -330,3 +330,4 @@ sources:
       - hw/schnizo/synth/schnizo_synth.sv
       - hw/schnizo/synth/snitch_synth.sv
       - hw/schnova/synth/schnova_synth.sv
+      - hw/schnova/synth/schnova_res_stat_synth.sv

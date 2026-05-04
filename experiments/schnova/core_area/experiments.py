@@ -19,73 +19,73 @@ def gen_experiments(designs=None):
     # Generate list of experiments
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
-        ## FP-Sc.
-        {
-            'design': 'schnizo_synth',
-            'name': 'scalar+mul+fpu',
-            'hdl_params': {
-                'Xfrep': 0,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-            }
-        },
-        { 'design': 'schnova_synth', 
-                       'name': 'gp_sv1', 
-                       'hdl_params': { 
-                           'NofAlus': 3, 
-                           'NofLsus': 3, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 4, 
-                           'LsuNofRss': 4, 
-                           'FpuNofRss': 4, 
-                           'ICacheFetchDataWidth': 32, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 16, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
-                       'name': 'gp_sv2', 
-                       'hdl_params': { 
-                           'NofAlus': 3, 
-                           'NofLsus': 3, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 8, 
-                           'LsuNofRss': 8, 
-                           'FpuNofRss': 8, 
-                           'ICacheFetchDataWidth': 64, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 32, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
-                       'name': 'gp_sv4', 
-                       'hdl_params': { 
-                           'NofAlus': 3, 
-                           'NofLsus': 3, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 16, 
-                           'LsuNofRss': 16, 
-                           'FpuNofRss': 16, 
-                           'ICacheFetchDataWidth': 128, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 64, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
-                       'name': 'gp_sv8', 
-                       'hdl_params': { 
-                           'NofAlus': 3, 
-                           'NofLsus': 3, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 32, 
-                           'LsuNofRss': 32, 
-                           'FpuNofRss': 32, 
-                           'ICacheFetchDataWidth': 256, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 64, 
-                           } 
-        },
+        ### FP-Sc.
+        #{
+        #    'design': 'schnizo_synth',
+        #    'name': 'scalar+mul+fpu',
+        #    'hdl_params': {
+        #        'Xfrep': 0,
+        #        'NofAlus': 1,
+        #        'NofLsus': 1,
+        #        'NofFpus': 1,
+        #    }
+        #},
+        #{ 'design': 'schnova_synth', 
+        #               'name': 'gp_sv1', 
+        #               'hdl_params': { 
+        #                   'NofAlus': 3, 
+        #                   'NofLsus': 3, 
+        #                   'NofFpus': 1, 
+        #                   'AluNofRss': 4, 
+        #                   'LsuNofRss': 4, 
+        #                   'FpuNofRss': 4, 
+        #                   'ICacheFetchDataWidth': 32, 
+        #                   'PhysRegAddrSize': 6, 
+        #                   'NofRobEntries': 16, 
+        #                   } 
+        #},
+        #{ 'design': 'schnova_synth', 
+        #               'name': 'gp_sv2', 
+        #               'hdl_params': { 
+        #                   'NofAlus': 3, 
+        #                   'NofLsus': 3, 
+        #                   'NofFpus': 1, 
+        #                   'AluNofRss': 8, 
+        #                   'LsuNofRss': 8, 
+        #                   'FpuNofRss': 8, 
+        #                   'ICacheFetchDataWidth': 64, 
+        #                   'PhysRegAddrSize': 6, 
+        #                   'NofRobEntries': 32, 
+        #                   } 
+        #},
+        #{ 'design': 'schnova_synth', 
+        #               'name': 'gp_sv4', 
+        #               'hdl_params': { 
+        #                   'NofAlus': 3, 
+        #                   'NofLsus': 3, 
+        #                   'NofFpus': 1, 
+        #                   'AluNofRss': 16, 
+        #                   'LsuNofRss': 16, 
+        #                   'FpuNofRss': 16, 
+        #                   'ICacheFetchDataWidth': 128, 
+        #                   'PhysRegAddrSize': 6, 
+        #                   'NofRobEntries': 64, 
+        #                   } 
+        #},
+        #{ 'design': 'schnova_synth', 
+        #               'name': 'gp_sv8', 
+        #               'hdl_params': { 
+        #                   'NofAlus': 3, 
+        #                   'NofLsus': 3, 
+        #                   'NofFpus': 1, 
+        #                   'AluNofRss': 32, 
+        #                   'LsuNofRss': 32, 
+        #                   'FpuNofRss': 32, 
+        #                   'ICacheFetchDataWidth': 256, 
+        #                   'PhysRegAddrSize': 6, 
+        #                   'NofRobEntries': 64, 
+        #                   } 
+        #},
         ]
 
     # Fixed parameters 
@@ -93,7 +93,7 @@ def gen_experiments(designs=None):
     rob_entries = 32 
         
     # Width mapping (sv1, sv2, ...) 
-    widths = { 1: 32, 2: 64,  } 
+    widths = { 4: 128, 8: 256 } 
         
     # Configurations 
     configs = [ # (Alus, Lsus, Fpus, rss_list) 
