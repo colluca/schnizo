@@ -133,7 +133,9 @@ module schnizo_vfu_unit import spatz_pkg::*, rvv_pkg::*, fpnew_pkg::*; #(
   );
 
   // ---- spatz_vsldu ----
-  spatz_vsldu i_vsldu (
+  spatz_vsldu #(
+    .SIMD              (1'b1              )
+  ) i_vsldu (
     .clk_i             (clk_i             ),
     .rst_ni            (rst_ni            ),
     .spatz_req_i       (spatz_req_i       ),

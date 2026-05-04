@@ -150,17 +150,44 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       vtype:     DefaultVtype
     };
 
-    spatz_decoder i_decoder (
-      .clk_i               (clk_i                          ),
-      .rst_ni              (~rst_i                         ),
-      .decoder_req_i       (dec_req[p]                     ),
-      .decoder_req_valid_i (issue_req_valid_i[p]           ),
-      .decoder_rsp_o       (dec_rsp[p]                     ),
-      .decoder_rsp_valid_o (/* = issue_req_valid_i[p] */   ),
-      .fpu_rnd_mode_i      (issue_req_i[p].fu_data.fpu_rnd_mode),
-      .fpu_fmt_mode_i      ('{src: issue_req_i[p].fu_data.fpu_fmt_src,
-                               dst: issue_req_i[p].fu_data.fpu_fmt_dst})
-    );
+    // VLSU ports [0..NofVLSU-1]: decode only memory (LSU) operations.
+    // VFU/VSLDU ports [NofVLSU..NumFuPorts-1]: decode vector arithmetic and
+    // slide operations; decode_vlsu is disabled so LSU opcodes are treated as
+    // illegal, preventing accidental misrouting.
+    if (p < NofVLSU) begin : gen_vlsu_decoder
+      spatz_decoder #(
+        .decode_vfu  (1'b0),
+        .decode_vsldu(1'b0),
+        .decode_vlsu (1'b1)
+      ) i_decoder (
+        .clk_i               (clk_i                          ),
+        .rst_ni              (~rst_i                         ),
+        .decoder_req_i       (dec_req[p]                     ),
+        .decoder_req_valid_i (issue_req_valid_i[p]           ),
+        .decoder_rsp_o       (dec_rsp[p]                     ),
+        .decoder_rsp_valid_o (/* = issue_req_valid_i[p] */   ),
+        .fpu_rnd_mode_i      (issue_req_i[p].fu_data.fpu_rnd_mode),
+        .fpu_fmt_mode_i      ('{src: issue_req_i[p].fu_data.fpu_fmt_src,
+                                 dst: issue_req_i[p].fu_data.fpu_fmt_dst})
+      );
+    end : gen_vlsu_decoder
+    else begin : gen_vfu_decoder
+      spatz_decoder #(
+        .decode_vfu  (1'b1),
+        .decode_vsldu(1'b1),
+        .decode_vlsu (1'b0)
+      ) i_decoder (
+        .clk_i               (clk_i                          ),
+        .rst_ni              (~rst_i                         ),
+        .decoder_req_i       (dec_req[p]                     ),
+        .decoder_req_valid_i (issue_req_valid_i[p]           ),
+        .decoder_rsp_o       (dec_rsp[p]                     ),
+        .decoder_rsp_valid_o (/* = issue_req_valid_i[p] */   ),
+        .fpu_rnd_mode_i      (issue_req_i[p].fu_data.fpu_rnd_mode),
+        .fpu_fmt_mode_i      ('{src: issue_req_i[p].fu_data.fpu_fmt_src,
+                                 dst: issue_req_i[p].fu_data.fpu_fmt_dst})
+      );
+    end : gen_vfu_decoder
   end : gen_decoder
 
   /////////
