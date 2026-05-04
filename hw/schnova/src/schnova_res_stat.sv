@@ -18,14 +18,17 @@ module schnova_res_stat import schnova_pkg::*; #(
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
+  // Whether the constant/immediate is an integer (32 bit) value
+  parameter bit          ConstIsInt     = 1,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
+  parameter int unsigned XLEN           = 32,
+  parameter int unsigned FLEN           = 64,
   parameter bit          UseSram        = 1'b0,
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
-  parameter type         result_t       = logic,
   parameter type         instr_tag_t   = logic,
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
@@ -80,10 +83,14 @@ module schnova_res_stat import schnova_pkg::*; #(
   localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
   // We need to count from 0 to NofRss for the control logic -> +1 bit
   localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
+  // We need two constants for ALU reservation stations and 1 for all other
+  localparam integer unsigned NofConsts = (NofOperands >= 3) ? 1 : 2;
 
+  localparam integer unsigned CNSTLEN = (ConstIsInt) ? XLEN : FLEN;
 
   typedef logic [NofRssWidth-1:0] rss_idx_t;
   typedef logic [NofRssWidthExt-1:0] rss_cnt_t;
+  typedef logic [CNSTLEN-1:0] const_t;
 
   typedef struct packed {
     // The physical register from where this operand will be fetched
@@ -94,13 +101,14 @@ module schnova_res_stat import schnova_pkg::*; #(
     // otherwise the operand has to be fetched/requested from the
     // physical register file.
     logic    is_valid;
-    operand_t     value;
   } rss_operand_t;
 
+  typedef struct packed {
+    const_t   value;
+    logic     is_valid;
+  } rss_const_t;
+
   // Issue-side state — updated by the dispatch pipeline only.
-  // TODO(colluca): put all FU-specific fields into a separate struct that is passed
-  // as a parameter, and instantiated as a “user” field. Otherwise, only mandatory fields used
-  // for control logic should be hardcoded here.
   typedef struct packed {
     // Whether the RSS contains an active instruction.
     logic                           is_occupied;
@@ -114,7 +122,8 @@ module schnova_res_stat import schnova_pkg::*; #(
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
     // To which physical register this instruction writes to
     instr_tag_t                     tag;
-
+    // The immediate of this instruction
+    rss_const_t   [NofConsts-1:0]   constants;
     // Data of the operands from this slot
     rss_operand_t [NofOperands-1:0] operands;
   } rs_slot_issue_t;
@@ -200,13 +209,14 @@ module schnova_res_stat import schnova_pkg::*; #(
   schnova_res_stat_slots #(
     .NofRss          (NofRss),
     .NofOperands     (NofOperands),
+    .NofConsts       (NofConsts),
     .RegAddrWidth    (RegAddrWidth),
     .UseSram         (UseSram),
     .rs_slot_issue_t (rs_slot_issue_t),
     .rss_operand_t   (rss_operand_t),
+    .rss_const_t     (rss_const_t),
     .disp_req_t      (disp_req_t),
     .issue_req_t     (issue_req_t),
-    .result_t        (result_t),
     .producer_id_t   (producer_id_t),
     .slot_id_t       (slot_id_t),
     .operand_req_t   (operand_req_t),

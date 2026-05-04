@@ -235,13 +235,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     csr_op_e               csr_op;
     fpu_op_e               fpu_op;
     logic [OpLen-1:0]      operand_a;
-    logic                  use_operand_a;
     logic [OpLen-1:0]      operand_b;
-    logic                  use_operand_b;
     // Imm field: for floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the value of the third operand
     logic [OpLen-1:0]      imm;
-    logic                  use_imm;
     lsu_size_e             lsu_size;
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
@@ -895,7 +892,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // pragma translate_on
 
   schnova_fu_stage #(
-    .Xfrep              (Xfrep),
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),

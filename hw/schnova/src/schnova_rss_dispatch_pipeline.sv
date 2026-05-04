@@ -6,11 +6,12 @@
 // and issue logic into a single module.
 module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   parameter int unsigned NofOperands      = 2,
+  parameter int unsigned NofConsts        = 3,
   parameter type         disp_req_t       = logic,
   parameter type         producer_id_t    = logic,
   parameter type         rs_slot_issue_t  = logic,
-  parameter type         rs_slot_result_t = logic,
   parameter type         rss_operand_t    = logic,
+  parameter type         rss_const_t      = logic,
   parameter type         operand_req_t    = logic,
   parameter type         operand_t        = logic,
   parameter type         rss_idx_t        = logic,
@@ -64,8 +65,10 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
     fpu_fmt_dst:      fpnew_pkg::FP32,
     fpu_rnd_mode:     fpnew_pkg::RNE,
     tag:              '0,
+    constants:        '0,
     operands:         '0 // invalid operands lead to no issue requests
   };
+
 
   // The initial operand values when accepting a new instruction
   rss_operand_t op_a_init;
@@ -75,15 +78,13 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   assign op_a_init = '{
     phy_reg_src:          disp_req_i.phy_reg_op_a,
     is_fp:                disp_req_i.is_op_a_fp,
-    is_valid:             disp_req_i.is_op_a_valid,
-    value:                disp_req_i.fu_data.operand_a
+    is_valid:             disp_req_i.is_op_a_valid
   };
 
   assign op_b_init = '{
     phy_reg_src:          disp_req_i.phy_reg_op_b,
     is_fp:                disp_req_i.is_op_b_fp,
-    is_valid:             disp_req_i.is_op_b_valid,
-    value:                disp_req_i.fu_data.operand_b
+    is_valid:             disp_req_i.is_op_b_valid
   };
 
   assign op_c_init = '{
@@ -91,9 +92,32 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
     // If op c needs to be fetched from a physical register file
     // it will always be from the floating point physical register file
     is_fp:                1'b1,
-    is_valid:             disp_req_i.is_op_c_valid,
-    value:                disp_req_i.fu_data.imm
+    is_valid:             disp_req_i.is_op_c_valid
   };
+
+  rss_const_t [NofConsts-1:0] const_init;
+
+  if (NofConsts > 1) begin: gen_alu_const_init
+    assign const_init[0] = '{
+      value: disp_req_i.fu_data.operand_a,
+      // There is a valid constant if the operand is valid
+      // at dispatch
+      is_valid: disp_req_i.is_op_a_valid
+    };
+    assign const_init[1] = '{
+      value: disp_req_i.fu_data.operand_b,
+      // There is a valid constant if the operand is valid
+      // at dispatch
+      is_valid: disp_req_i.is_op_b_valid
+    };
+  end else begin: gen_const_init
+    assign const_init[0] = '{
+      value: disp_req_i.fu_data.imm,
+      // There is a valid constant if the operand is valid
+      // at dispatch
+      is_valid: disp_req_i.is_op_c_valid
+    };
+  end
 
   // Array to simplify initial operand assignment
   rss_operand_t [2:0] ops_init;
@@ -114,8 +138,14 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
       fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
       fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
       tag:              disp_req_i.tag,
+      constants:        '0,
       operands:         '0
     };
+
+    // Constants must be assigned depending on the number we have
+    for (int cnst = 0; cnst < NofConsts; cnst++) begin
+      slot_init.constants[cnst] = const_init[cnst];
+    end
 
     // Operands must be assigned depending on the number we have
     for (int op = 0; op < NofOperands; op++) begin
@@ -127,7 +157,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   always_comb begin : slot_selection
     // Update the slot depending on the state.
     selected_slot = slot_issue_i;
-    // If we dispatch an isntraction into this slot this cycle
+    // If we dispatch an instruction into this slot this cycle
     // and the disp and index pointer are the same
     // the slot is forwarded from the dispatch request.
     if (disp_hs_o && (disp_idx_i == issue_idx_i)) begin
@@ -168,7 +198,6 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
       // We are ready do accept a response if the slot is occupied and does not already
       // contain a valid value
       if (selected_slot.is_occupied && !selected_slot.operands[op].is_valid && op_rsps_valid_i[op]) begin
-        slot_op_rsp.operands[op].value     = op_rsps_i[op];
         slot_op_rsp.operands[op].is_valid  = 1'b1;
         // Acknowledge the response
         op_rsps_ready_o[op] = 1'b1;
@@ -198,9 +227,18 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
     issue_req_o.fu_data.lsu_op       = slot_op_rsp.lsu_op;
     issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
     issue_req_o.fu_data.fpu_op       = slot_op_rsp.fpu_op;
-    issue_req_o.fu_data.operand_a    = slot_op_rsp.operands[0].value;
-    issue_req_o.fu_data.operand_b    = slot_op_rsp.operands[1].value;
-    issue_req_o.fu_data.imm          = (NofOperands >= 3) ? slot_op_rsp.operands[2].value : '0;
+    if (NofOperands == 2) begin : gen_alu_issue_req
+      issue_req_o.fu_data.operand_a    = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
+                                                                            : op_rsps_i[0];
+      issue_req_o.fu_data.operand_b    = slot_op_rsp.constants[1].is_valid  ? slot_op_rsp.constants[1].value
+                                                                            : op_rsps_i[1];
+      issue_req_o.fu_data.imm          = '0;
+    end else begin: gen_issue_req
+      issue_req_o.fu_data.operand_a    = op_rsps_i[0];
+      issue_req_o.fu_data.operand_b    = op_rsps_i[1];
+      issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
+                                                                            : op_rsps_i[2];
+    end
     issue_req_o.fu_data.lsu_size     = slot_op_rsp.lsu_size;
     issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;

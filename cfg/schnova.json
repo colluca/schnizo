@@ -128,7 +128,7 @@
         num_lsu_slots: 32,
         num_fpus: 1,
         num_fpu_slots: 32,
-        num_rob_entries: 8,
+        num_rob_entries: 64,
     },
     dma_core_template: {
         isa: "rv32imafd",
@@ -145,6 +145,6 @@
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
-        num_rob_entries: 8,
+        num_rob_entries: 64,
     }
 }

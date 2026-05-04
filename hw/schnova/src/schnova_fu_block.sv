@@ -16,15 +16,18 @@ module schnova_fu_block import schnova_pkg::*; #(
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
-  parameter type         result_t       = logic,
   parameter type         instr_tag_t    = logic,
   /// Reservation Station parameters
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
+  // Whether the constant/immediate is an integer (32 bit) value
+  parameter bit          ConstIsInt     = 1,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
+  parameter int unsigned XLEN           = 32,
+  parameter int unsigned FLEN           = 64,
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
   parameter type         operand_req_t  = logic,
@@ -153,12 +156,14 @@ module schnova_fu_block import schnova_pkg::*; #(
   schnova_res_stat #(
     .NofRss        (NofRss),
     .NofOperands   (NofOperands),
+    .ConstIsInt    (ConstIsInt),
     .RegAddrWidth  (RegAddrWidth),
     .MaxIterationsW(MaxIterationsW),
+    .XLEN          (XLEN),
+    .FLEN          (FLEN),
     .disp_req_t    (disp_req_t),
     .disp_rsp_t    (disp_rsp_t),
     .issue_req_t   (issue_req_t),
-    .result_t      (result_t),
     .instr_tag_t   (instr_tag_t),
     .producer_id_t (producer_id_t),
     .slot_id_t     (slot_id_t),
