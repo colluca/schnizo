@@ -28,6 +28,8 @@ SN_RUNTIME_INCDIRS += $(SN_RUNTIME_HAL_BUILD_DIR)
 
 SN_RUNTIME_RISCV_CFLAGS += $(SN_RISCV_CFLAGS)
 SN_RUNTIME_RISCV_CFLAGS += $(addprefix -I,$(SN_RUNTIME_INCDIRS))
+# IRQ_M_CLUSTER is normally from vendor/riscv-opcodes/encoding.h (not present in this repo)
+SN_RUNTIME_RISCV_CFLAGS += -DIRQ_M_CLUSTER=19
 
 ###########
 # Outputs #
