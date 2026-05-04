@@ -6,7 +6,9 @@
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
+import re
 from scipy.stats import gmean
+
 try:
     from . import experiments
     from . import model
@@ -102,50 +104,43 @@ def kernel_scaling_plot(df, app, show=True):
 
 
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
-    """
-    Compare Schnizo (Scalar/Superscalar) vs. Schnova Widths (1, 2, 4, 8)
-    with shared Ideal IPC lines.
-    """
-    schnizo_hw = '3x32_3x32_1x64'
-    Schnova_widths = ['sv_1_3x32_3x32_1x64', 'sv_2_3x32_3x32_1x64',
-                      'sv_4_3x32_3x32_1x64', 'sv_8_3x32_3x32_1x64']
+    """ Compare Schnizo (Scalar/Superscalar) vs. Schnova Core """
 
-    # 1. Filter: Schnizo (both modes) + Schnova (superscalar only)
-    mask_schnizo = (df['hw'] == schnizo_hw)
-    mask_Schnova = (df['hw'].isin(Schnova_widths)) & (df['mode'] == 'superscalar')
-    plot_df = df[mask_schnizo | mask_Schnova].copy()
+    # Define the configs that are used for the comparison
+    schnizo_cfg = '1x128_1x32_1x64'
+    schnova_cfgs = ['sv_1_3x4_3x4_1x4_6_16', 'sv_2_3x8_3x8_1x8_6_32',
+                      'sv_4_3x16_3x16_1x16_6_64', 'sv_8_3x32_3x32_1x32_6_64']
+
+    schnizo_df = (df['hw'] == schnizo_cfg)
+    schnova_df = (df['hw'].isin(schnova_cfgs)) & (df['mode'] == 'superscalar')
+    plot_df = df[schnizo_df | schnova_df].copy()
 
     def identify_config(row):
-        if row['hw'] == schnizo_hw:
+        if row['hw'] == schnizo_cfg:
             return f"Schnizo {row['mode'].capitalize()}"
-        # Extract width and label as Schnova
         width = row['hw'].split('_')[1]
         return f"Schnova Width {width}"
 
     plot_df['config'] = plot_df.apply(identify_config, axis=1)
 
-    # Pivot for plotting
     idx_max_size = plot_df.groupby(['app', 'config'])['size'].idxmax()
     plot_df = plot_df.loc[idx_max_size].pivot(index='app', columns='config', values=metric)
 
-    # Force logical ordering: Schnizo first, then Schnova scaling
     ordered_cols = [
         'Schnizo Scalar', 'Schnizo Superscalar',
         'Schnova Width 1', 'Schnova Width 2', 'Schnova Width 4', 'Schnova Width 8'
     ]
     plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
 
-    # 2. Create the Bar Chart
     fig, ax = plt.subplots(figsize=(14, 7))
     plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.85)
 
-    # 3. Add Ideal IPC lines (using Schnizo XL theoreticals for all superscalar)
+    # Add Ideal IPC lines (using Schnizo XL theoreticals for all superscalar)
     if metric == 'ipc':
         labeled = False
         theoretical_data = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']
 
         for i, col_name in enumerate(plot_df.columns):
-            # Apply to all Superscalar/Schnova columns, skip Schnizo Scalar
             if 'Scalar' in col_name:
                 continue
 
@@ -159,7 +154,6 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
                             label='Ideal IPC' if not labeled else '')
                     labeled = True
 
-    # 4. Final Formatting
     ax.axhline(y=1, color='black', linewidth=0.8, zorder=2.5)
     ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
     ax.set_xlabel('')
@@ -170,7 +164,6 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     ax.legend(title="Core Architecture", loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(True, axis='y', color='gray', linewidth=0.5, alpha=1.0)
 
-    # Set Y-limits
     if metric == 'ipc':
         ax.set_ylim(bottom=0, top=max(plot_df.max().max() * 1.15, 8.5))
     elif metric == 'fpu_util':
@@ -178,7 +171,6 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     fig.tight_layout()
 
-    # Console Output for quick verification
     print(f"\n--- Geomean {metric} Performance ---")
     for col in plot_df.columns:
         gm = gmean(plot_df[col].dropna())
@@ -188,6 +180,169 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
         plt.show()
 
     return plot_df
+
+def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
+    """
+    Plot geomean of `metric` for configurations with fixed pipeline width
+    while varying one hardware parameter.
+
+    Supported vary_by values:
+        - "slots"       -> number of issue slots (same for ALU/LSU/FPU)
+        - "phys_regs"   -> number of physical registers
+        - "rob_entries" -> number of ROB entries
+
+    Expected config format:
+        sv_width_nofAlusxnofAluSlots_nofLsusxnofLsuSlots_nofFpusxnofFpuSlots_NofPhysRegs_NofRobEntries
+
+    Example:
+        sv_3_3x4_3x4_1x4_128_64
+    """
+
+    if vary_by not in {"slots", "phys_regs", "rob_entries"}:
+        raise ValueError(
+            "vary_by must be one of: 'slots', 'phys_regs', 'rob_entries'"
+        )
+
+    def extract_config_value(hw_name):
+        """
+        Parse configuration string and return the selected value to vary.
+
+        Returns None if:
+        - format does not match
+        - pipeline width does not match
+        - unsupported FU structure
+        - for vary_by='slots', slot counts are not identical
+        """
+
+        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)$"
+        match = re.match(pattern, hw_name)
+
+        if not match:
+            return None
+
+        (
+            parsed_width,
+            nof_alus,
+            alu_slots,
+            nof_lsus,
+            lsu_slots,
+            nof_fpus,
+            fpu_slots,
+            phys_regs,
+            rob_entries,
+        ) = map(int, match.groups())
+
+        # Keep only requested pipeline width
+        if parsed_width != width:
+            return None
+
+        # Keep only expected FU structure
+        if not (nof_alus == 3 and nof_lsus == 3 and nof_fpus == 1):
+            return None
+
+        if vary_by == "slots":
+            # Only valid if all slot counts are identical
+            if alu_slots == lsu_slots == fpu_slots:
+                return alu_slots
+            return None
+
+        elif vary_by == "phys_regs":
+            return phys_regs
+
+        elif vary_by == "rob_entries":
+            return rob_entries
+
+        return None
+
+    xlabel_map = {
+        "slots": "Number of Slots",
+        "phys_regs": "Number of Physical Registers",
+        "rob_entries": "Number of ROB Entries",
+    }
+
+    title_map = {
+        "slots": "Slots",
+        "phys_regs": "Physical Registers",
+        "rob_entries": "ROB Entries",
+    }
+
+    plot_df = df[df["mode"] == "superscalar"].copy()
+
+    plot_df[vary_by] = plot_df["hw"].apply(extract_config_value)
+    plot_df = plot_df[plot_df[vary_by].notna()].copy()
+
+    if plot_df.empty:
+        print(
+            f"No matching configurations found for width={width}, vary_by={vary_by}"
+        )
+        return None
+
+    plot_df[vary_by] = plot_df[vary_by].astype(int)
+
+    # Keep only largest input size per app/config
+    idx_max_size = plot_df.groupby(["app", "hw"])["size"].idxmax()
+    plot_df = plot_df.loc[idx_max_size].copy()
+
+    geomean_data = {}
+
+    for value in sorted(plot_df[vary_by].unique()):
+        vals = plot_df.loc[
+            plot_df[vary_by] == value, metric
+        ].dropna()
+
+        if len(vals) > 0:
+            geomean_data[value] = gmean(vals)
+
+    if not geomean_data:
+        print("No valid values found for geomean calculation.")
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    x = list(geomean_data.keys())
+    y = list(geomean_data.values())
+
+    ax.plot(
+        x,
+        y,
+        marker="o",
+        linewidth=2,
+        color="black",
+        linestyle="--",
+    )
+
+    ax.set_xlabel(xlabel_map[vary_by])
+    ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
+    ax.set_title(
+        f"Geomean {metric.upper()} vs {title_map[vary_by]} "
+        f"(Pipeline Width = {width})"
+    )
+
+    ax.grid(True, axis="both", alpha=0.4)
+    ax.set_xticks(x)
+
+    # Y limits
+    if len(y) > 1:
+        ax.set_ylim(
+            bottom=min(y) * 0.85,
+            top=max(y) * 1.15,
+        )
+
+    fig.tight_layout()
+
+    print(
+        f"\n--- Geomean {metric} for Width={width}, varying {vary_by} ---"
+    )
+    for value, gm in geomean_data.items():
+        print(
+            f"{title_map[vary_by]:>18} {value:>4}: "
+            f"{format_metric(gm, metric)}"
+        )
+
+    if show:
+        plt.show()
+
+    return geomean_data
 
 
 def rsp_ports_tradeoff_plot(df, show=True):
@@ -268,11 +423,16 @@ def plot7(show=True, dir=None):
     df = experiments.results(dir=dir)
     return rsp_ports_tradeoff_plot(df, show=show)
 
+def plot8(show=True, dir=None, width=1, vary_by='slots', metric='ipc'):
+    df = experiments.results(dir=dir)
+    return geomean_plot(df, width, vary_by, metric,show)
+
+
 
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot7]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot7, plot8]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
@@ -284,11 +444,43 @@ def main():
         default=plot_dict.keys(),
         help='Select which plots to show (default: all)'
     )
+    
+
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=1,
+        help="Pipeline width for plot8 (default: 1)"
+    )
+
+    parser.add_argument(
+        "--vary",
+        choices=["slots", "phys_regs", "rob_entries"],
+        default="slots",
+        help="Hardware parameter to vary for plot8 "
+             "(default: slots)"
+    )
+
+    parser.add_argument(
+        "--metric",
+        type=str,
+        choices=["ipc", "fpu_util"],
+        default="ipc",
+        help="Metric to plot for plot8 (default: ipc)"
+    )
+
     args = parser.parse_args()
 
     # Generate selected plots
     for name in args.plots:
-        _ = plot_dict[name]()
+        if name == "plot8":
+            _ = plot_dict[name](
+                width=args.width,
+                vary_by=args.vary,
+                metric=args.metric,
+            )
+        else:
+            _ = plot_dict[name]()
 
 
 if __name__ == '__main__':
