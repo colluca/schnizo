@@ -33,6 +33,7 @@ SN_RISCV_CFLAGS += -fopenmp
 SN_RISCV_CFLAGS += -ftls-model=local-exec
 SN_RISCV_CFLAGS += -O3
 SN_RISCV_CFLAGS += -Werror
+SN_RISCV_CFLAGS += -DIRQ_M_CLUSTER=19
 ifeq ($(DEBUG), ON)
 SN_RISCV_CFLAGS += -g
 endif

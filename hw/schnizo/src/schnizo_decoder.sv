@@ -1226,6 +1226,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             VFWADD_VF, VFWSUB_VF, VFWADD_WF, VFWSUB_WF,
             VFWMUL_VF, VFWDOTP_VF, VFWMACC_VF, VFWNMACC_VF, VFWMSAC_VF, VFWNMSAC_VF: begin
               instr_dec_o.rs1        = instr.rtype.rs1;  // FP scalar
+              instr_dec_o.use_rs1    = 1'b1;
               instr_dec_o.rs1_is_fp  = 1'b1;
               instr_dec_o.rs2        = instr.rtype.rs2;  // vs2
               instr_dec_o.rs2_is_vec = 1'b1;
