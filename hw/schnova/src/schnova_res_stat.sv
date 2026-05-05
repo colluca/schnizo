@@ -16,10 +16,7 @@
 // RF:  Register File
 module schnova_res_stat import schnova_pkg::*; #(
   parameter int unsigned NofRss         = 4,
-  // The maximal number of operands
-  parameter int unsigned NofOperands    = 3,
-  // Whether the constant/immediate is an integer (32 bit) value
-  parameter bit          ConstIsInt     = 1,
+  parameter rs_type_e    RsType         = ALU_RS,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
   parameter int unsigned MaxIterationsW = 5,
@@ -34,7 +31,11 @@ module schnova_res_stat import schnova_pkg::*; #(
   parameter type         slot_id_t      = logic,
   parameter type         phy_id_t       = logic,
   parameter type         operand_req_t  = logic,
-  parameter type         operand_t      = logic
+  parameter type         operand_t      = logic,
+  localparam integer unsigned NofOperands = (RsType == ALU_RS) ? 2 : 3,
+  // We need two constants for ALU reservation stations and one for all other
+  localparam integer unsigned NofConsts = (RsType == ALU_RS) ? 2 : 1,
+  localparam integer unsigned CNSTLEN = ((RsType == ALU_RS) || (RsType == LSU_RS)) ? XLEN : FLEN
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -83,10 +84,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
   // We need to count from 0 to NofRss for the control logic -> +1 bit
   localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
-  // We need two constants for ALU reservation stations and 1 for all other
-  localparam integer unsigned NofConsts = (NofOperands >= 3) ? 1 : 2;
-
-  localparam integer unsigned CNSTLEN = (ConstIsInt) ? XLEN : FLEN;
 
   typedef logic [NofRssWidth-1:0] rss_idx_t;
   typedef logic [NofRssWidthExt-1:0] rss_cnt_t;
@@ -114,9 +111,35 @@ module schnova_res_stat import schnova_pkg::*; #(
     logic                           is_occupied;
     // The instruction itself. Partially decoded. Depends on FU type.
     alu_op_e                        alu_op;
+    // To which physical register this instruction writes to
+    instr_tag_t                     tag;
+    // The immediate of this instruction
+    rss_const_t   [NofConsts-1:0]   constants;
+    // Data of the operands from this slot
+    rss_operand_t [NofOperands-1:0] operands;
+  } rs_alu_slot_issue_t;
+
+  // Issue-side state — updated by the dispatch pipeline only.
+  typedef struct packed {
+    // Whether the RSS contains an active instruction.
+    logic                           is_occupied;
+    // The instruction itself. Partially decoded. Depends on FU type.
     lsu_op_e                        lsu_op;
-    fpu_op_e                        fpu_op;
     lsu_size_e                      lsu_size;
+    // To which physical register this instruction writes to
+    instr_tag_t                     tag;
+    // The immediate of this instruction
+    rss_const_t   [NofConsts-1:0]   constants;
+    // Data of the operands from this slot
+    rss_operand_t [NofOperands-1:0] operands;
+  } rs_lsu_slot_issue_t;
+
+  // Issue-side state — updated by the dispatch pipeline only.
+  typedef struct packed {
+    // Whether the RSS contains an active instruction.
+    logic                           is_occupied;
+    // The instruction itself. Partially decoded. Depends on FU type.
+    fpu_op_e                        fpu_op;
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
@@ -126,7 +149,7 @@ module schnova_res_stat import schnova_pkg::*; #(
     rss_const_t   [NofConsts-1:0]   constants;
     // Data of the operands from this slot
     rss_operand_t [NofOperands-1:0] operands;
-  } rs_slot_issue_t;
+  } rs_fpu_slot_issue_t;
 
   //////////////////////////
   // Cut dispatch request //
@@ -205,47 +228,135 @@ module schnova_res_stat import schnova_pkg::*; #(
   //////////////////////////////
   // Slots datapath           //
   //////////////////////////////
-
-  schnova_res_stat_slots #(
-    .NofRss          (NofRss),
-    .NofOperands     (NofOperands),
-    .NofConsts       (NofConsts),
-    .RegAddrWidth    (RegAddrWidth),
-    .UseSram         (UseSram),
-    .rs_slot_issue_t (rs_slot_issue_t),
-    .rss_operand_t   (rss_operand_t),
-    .rss_const_t     (rss_const_t),
-    .disp_req_t      (disp_req_t),
-    .issue_req_t     (issue_req_t),
-    .producer_id_t   (producer_id_t),
-    .slot_id_t       (slot_id_t),
-    .operand_req_t   (operand_req_t),
-    .operand_t       (operand_t)
-  ) i_slots (
-    .clk_i,
-    .rst_i,
-    .producer_id_i     (producer_id_i),
-    .restart_i         (restart_i),
-    .disp_idx_i        (dispatch_idx),
-    .issue_idx_i       (issue_idx),
-    .retiring_o        (retiring),
-    .disp_req_i        (disp_req_i_q),
-    .disp_req_valid_i  (disp_req_valid_i_q),
-    .disp_req_ready_o  (disp_req_ready_o_q),
-    .disp_hs_o         (dispatch_hs),
-    .disp_rsp_o        (disp_rsp_o),
-    .rs_full_i         (rs_full_o),
-    .issue_req_o,
-    .issue_req_valid_o,
-    .issue_req_ready_i,
-    .instr_exec_commit_o,
-    .op_reqs_o,
-    .op_reqs_valid_o,
-    .op_reqs_ready_i,
-    .op_rsps_i,
-    .op_rsps_valid_i,
-    .op_rsps_ready_o
-  );
+  generate
+    if (RsType == ALU_RS) begin : gen_alu_rs
+      schnova_res_stat_slots #(
+        .NofRss          (NofRss),
+        .NofOperands     (NofOperands),
+        .NofConsts       (NofConsts),
+        .RegAddrWidth    (RegAddrWidth),
+        .UseSram         (UseSram),
+        .RsType          (RsType),
+        .rs_slot_issue_t (rs_alu_slot_issue_t),
+        .rss_operand_t   (rss_operand_t),
+        .rss_const_t     (rss_const_t),
+        .disp_req_t      (disp_req_t),
+        .issue_req_t     (issue_req_t),
+        .producer_id_t   (producer_id_t),
+        .slot_id_t       (slot_id_t),
+        .operand_req_t   (operand_req_t),
+        .operand_t       (operand_t)
+      ) i_slots (
+        .clk_i,
+        .rst_i,
+        .producer_id_i     (producer_id_i),
+        .restart_i         (restart_i),
+        .disp_idx_i        (dispatch_idx),
+        .issue_idx_i       (issue_idx),
+        .retiring_o        (retiring),
+        .disp_req_i        (disp_req_i_q),
+        .disp_req_valid_i  (disp_req_valid_i_q),
+        .disp_req_ready_o  (disp_req_ready_o_q),
+        .disp_hs_o         (dispatch_hs),
+        .disp_rsp_o        (disp_rsp_o),
+        .rs_full_i         (rs_full_o),
+        .issue_req_o,
+        .issue_req_valid_o,
+        .issue_req_ready_i,
+        .instr_exec_commit_o,
+        .op_reqs_o,
+        .op_reqs_valid_o,
+        .op_reqs_ready_i,
+        .op_rsps_i,
+        .op_rsps_valid_i,
+        .op_rsps_ready_o
+      );
+    end else if (RsType == LSU_RS) begin : gen_lsu_rs
+      schnova_res_stat_slots #(
+        .NofRss          (NofRss),
+        .NofOperands     (NofOperands),
+        .NofConsts       (NofConsts),
+        .RegAddrWidth    (RegAddrWidth),
+        .UseSram         (UseSram),
+        .RsType          (RsType),
+        .rs_slot_issue_t (rs_lsu_slot_issue_t),
+        .rss_operand_t   (rss_operand_t),
+        .rss_const_t     (rss_const_t),
+        .disp_req_t      (disp_req_t),
+        .issue_req_t     (issue_req_t),
+        .producer_id_t   (producer_id_t),
+        .slot_id_t       (slot_id_t),
+        .operand_req_t   (operand_req_t),
+        .operand_t       (operand_t)
+      ) i_slots (
+        .clk_i,
+        .rst_i,
+        .producer_id_i     (producer_id_i),
+        .restart_i         (restart_i),
+        .disp_idx_i        (dispatch_idx),
+        .issue_idx_i       (issue_idx),
+        .retiring_o        (retiring),
+        .disp_req_i        (disp_req_i_q),
+        .disp_req_valid_i  (disp_req_valid_i_q),
+        .disp_req_ready_o  (disp_req_ready_o_q),
+        .disp_hs_o         (dispatch_hs),
+        .disp_rsp_o        (disp_rsp_o),
+        .rs_full_i         (rs_full_o),
+        .issue_req_o,
+        .issue_req_valid_o,
+        .issue_req_ready_i,
+        .instr_exec_commit_o,
+        .op_reqs_o,
+        .op_reqs_valid_o,
+        .op_reqs_ready_i,
+        .op_rsps_i,
+        .op_rsps_valid_i,
+        .op_rsps_ready_o
+      );
+    end else if (RsType == FPU_RS) begin : gen_fpu_rs
+      schnova_res_stat_slots #(
+        .NofRss          (NofRss),
+        .NofOperands     (NofOperands),
+        .NofConsts       (NofConsts),
+        .RegAddrWidth    (RegAddrWidth),
+        .UseSram         (UseSram),
+        .RsType          (RsType),
+        .rs_slot_issue_t (rs_fpu_slot_issue_t),
+        .rss_operand_t   (rss_operand_t),
+        .rss_const_t     (rss_const_t),
+        .disp_req_t      (disp_req_t),
+        .issue_req_t     (issue_req_t),
+        .producer_id_t   (producer_id_t),
+        .slot_id_t       (slot_id_t),
+        .operand_req_t   (operand_req_t),
+        .operand_t       (operand_t)
+      ) i_slots (
+        .clk_i,
+        .rst_i,
+        .producer_id_i     (producer_id_i),
+        .restart_i         (restart_i),
+        .disp_idx_i        (dispatch_idx),
+        .issue_idx_i       (issue_idx),
+        .retiring_o        (retiring),
+        .disp_req_i        (disp_req_i_q),
+        .disp_req_valid_i  (disp_req_valid_i_q),
+        .disp_req_ready_o  (disp_req_ready_o_q),
+        .disp_hs_o         (dispatch_hs),
+        .disp_rsp_o        (disp_rsp_o),
+        .rs_full_i         (rs_full_o),
+        .issue_req_o,
+        .issue_req_valid_o,
+        .issue_req_ready_i,
+        .instr_exec_commit_o,
+        .op_reqs_o,
+        .op_reqs_valid_o,
+        .op_reqs_ready_i,
+        .op_rsps_i,
+        .op_rsps_valid_i,
+        .op_rsps_ready_o
+      );
+    end
+  endgenerate
 
   trip_counter #(
     .WIDTH(NofRssWidth)

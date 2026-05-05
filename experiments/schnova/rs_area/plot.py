@@ -2,7 +2,7 @@
 # Copyright 2026 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-
+import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 try:
@@ -46,9 +46,31 @@ def results(dir=None):
 
 
 def plot(dir=None, show=False, hide_x_axis=False):
+    # Load the current results
     df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofConstants'] == 4) & (df['NofOperands'] == 3)]
-    print(df)
+    # Load the results of the initial design that acts as a baseline
+    df_baseline = pd.read_pickle("initial_rs_design.pkl")
+
+    # Filter the results
+    # 1) ALU RS have 2 operands and the constant is an integer
+    # 2) LSU RS have 3 operands and the constant is an integer
+    # 3) FPU RS have 3 operands and the constant is not an integer
+    alu_df = df[
+        (df['NofOperands'] == 2) &
+        (df['ConstIsInt'] == 1)
+    ]
+    lsu_df = df[
+        (df['NofOperands'] == 3) &
+        (df['ConstIsInt'] == 1)
+    ]
+    fpu_df = df[
+        (df['NofOperands'] == 3) &
+        (df['ConstIsInt'] == 0)
+    ]
+    print(alu_df)
+    print(lsu_df)
+    print(fpu_df)
+
 
     # Pivot CombArea and SeqArea separately
     comb_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='CombArea')
@@ -94,55 +116,6 @@ def plot(dir=None, show=False, hide_x_axis=False):
     return df.pivot_table(index='NofRss', columns='NofResRspIfs', values='StdCellArea')
 
 
-def plot_constants(dir=None, show=False, hide_x_axis=False):
-    df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofRss'] == 4) & (df['NofOperands'] == 3)]
-    print(df)
-
-    # Pivot CombArea and SeqArea separately
-    comb_df = df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='CombArea')
-    seq_df = df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='SeqArea')
-
-    ports = comb_df.columns
-    n_groups = len(comb_df.index)
-    n_bars = len(ports)
-    x = np.arange(n_groups)
-    width = 0.8 / n_bars
-
-    # Use the default color cycle, darken for SeqArea
-    fig, ax = plt.subplots()
-    prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
-    for i, p in enumerate(ports):
-        base_color = prop_cycle[i % len(prop_cycle)]
-        # Convert hex to RGB, create a darker shade for SeqArea
-        from matplotlib.colors import to_rgba
-        rgba = to_rgba(base_color)
-        light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
-
-        offset = (i - (n_bars - 1) / 2) * width
-        ax.bar(x + offset, comb_df[p], width, label=f'{p} port{"" if int(p) == 1 else "s"} (comb)',
-               color=base_color, zorder=3)
-        ax.bar(x + offset, seq_df[p], width, bottom=comb_df[p],
-               label=f'{p} port{"" if int(p) == 1 else "s"} (seq)', color=light, zorder=3)
-
-    ax.set_ylabel('Area [kGE]')
-    ax.set_xticks(x)
-    if hide_x_axis:
-        ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
-    else:
-        ax.set_xlabel('Number of CMEs')
-        ax.set_xticklabels(comb_df.index)
-    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
-    ax.grid(True, axis='y')
-    fig.tight_layout()
-
-    if show:
-        plt.show()
-
-    return df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='StdCellArea')
-
-
 def linear_regression(dir=None):
     """Fit a linear model (area = slope * n_rse + intercept) for each port count.
 
@@ -186,7 +159,7 @@ def linear_regression_constants(dir=None):
 
 
 def main():
-    print(results())
+    plot()
 
 
 if __name__ == '__main__':

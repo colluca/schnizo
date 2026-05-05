@@ -29,6 +29,12 @@ package schnova_pkg;
     DMA
   } fu_t;
 
+  typedef enum logic [1:0] {
+    ALU_RS,
+    LSU_RS,
+    FPU_RS
+  } rs_type_e;
+
   // Accelerators available in the schnova Cluster / Hive.
   // This enum can currently not be used as we still use the snitch_cluster and hive.
   // Keep parameter in sync!

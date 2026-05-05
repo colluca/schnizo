@@ -17,20 +17,44 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments():
     # Define axes
     num_slots_axis = [1, 2, 4, 8, 16, 32, 64]
-    num_operands_axis = [3]
 
     # Generate list of experiments
     experiments = []
     for num_slots in num_slots_axis:
-            for num_operands in num_operands_axis:
-                experiments.append({
-                    'design': 'schnova_res_stat_synth',
-                    'name': f'{num_slots}slots_{num_operands}operands',
-                    'hdl_params': {
-                        'NofRss': num_slots,
-                        'NofOperands': num_operands
-                    }
-                })
+            experiments.append({
+                'design': 'schnova_res_stat_synth',
+                'name': f'rs_alu_{num_slots}',
+                'hdl_params': {
+                    'NofRss': num_slots,
+                    'RsType': 0,
+                    'RegAddrWidth': 6,
+                    'NofRobEntries': 32,
+                }
+            })
+
+            experiments.append({
+                'design': 'schnova_res_stat_synth',
+                'name': f'rs_lsu_{num_slots}',
+                'hdl_params': {
+                    'NofRss': num_slots,
+                    'RsType': 1,
+                    'RegAddrWidth': 6,
+                    'NofRobEntries': 32,
+                }
+            })
+
+            experiments.append({
+                'design': 'schnova_res_stat_synth',
+                'name': f'rs_fpu_{num_slots}',
+                'hdl_params': {
+                    'NofRss': num_slots,
+                    'NofOperands': 3,
+                    'RsType': 2,
+                    'RegAddrWidth': 6,
+                    'NofRobEntries': 32,
+                }
+            })
+
     return experiments
 
 

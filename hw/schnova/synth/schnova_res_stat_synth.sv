@@ -1,15 +1,15 @@
 // Copyright 2026 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
-module schnova_res_stat_synth # (
-  parameter int unsigned  NofRss         = 4,
-  parameter int unsigned  NofOperands    = 3,
+module schnova_res_stat_synth import schnova_synth_pkg::*; # (
+  parameter int unsigned  NofRss = 4,
+  parameter rs_type_e     RsType = ALU_RS,
   parameter int unsigned  RegAddrWidth   = 6,
   parameter int unsigned  NofRobEntries  = 32,
   localparam int unsigned RobTagWidth    = $clog2(NofRobEntries),
+  localparam int unsigned NofOperands = (RsType == ALU_RS) ? 2 : 3,
   localparam type         phy_id_t       = logic [RegAddrWidth-1:0],
   localparam type         instr_tag_t    = struct packed {
-    schnova_synth_pkg::producer_id_t producer_id;
     logic [RegAddrWidth-1:0]         dest_reg;
     logic [RobTagWidth-1:0]          rob_tag;
     logic                            dest_reg_is_fp;
@@ -17,7 +17,7 @@ module schnova_res_stat_synth # (
     logic                            is_jump;
   },
   localparam type        disp_req_t    = struct packed {
-    schnova_synth_pkg::fu_data_t  fu_data;
+    fu_data_t  fu_data;
     phy_id_t                      phy_reg_op_a;
     logic                         is_op_a_fp;
     logic                         is_op_a_valid;
@@ -30,7 +30,7 @@ module schnova_res_stat_synth # (
     instr_tag_t                   tag;
   },
   localparam type        issue_req_t  = struct packed {
-    schnova_synth_pkg::fu_data_t fu_data;
+    fu_data_t fu_data;
     instr_tag_t tag;
   },
   localparam type        operand_req_t = struct packed {
@@ -64,13 +64,14 @@ module schnova_res_stat_synth # (
 
   schnova_res_stat #(
     .NofRss(NofRss),
-    .NofOperands(NofOperands),
+    .RsType(RsType),
     .RegAddrWidth(RegAddrWidth),
     .MaxIterationsW(schnova_synth_pkg::MaxIterationsW),
+    .XLEN(schnova_synth_pkg::XLEN),
+    .FLEN(schnova_synth_pkg::FLEN),
     .disp_req_t(disp_req_t),
     .disp_rsp_t(schnova_synth_pkg::disp_rsp_t),
     .issue_req_t(issue_req_t),
-    .result_t(schnova_synth_pkg::alu_result_t),
     .instr_tag_t(instr_tag_t),
     .producer_id_t(schnova_synth_pkg::producer_id_t),
     .slot_id_t(schnova_synth_pkg::slot_id_t),
