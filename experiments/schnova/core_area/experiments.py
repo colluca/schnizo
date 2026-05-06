@@ -19,16 +19,33 @@ def gen_experiments(designs=None):
     # Generate list of experiments
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
-        ### FP-Sc.
-        {
-            'design': 'schnizo_synth',
-            'name': 'scalar+mul+fpu',
-            'hdl_params': {
-                'Xfrep': 0,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-            }
+        { 'design': 'schnova_synth', 
+                       'name': 's-sv1', 
+                       'hdl_params': { 
+                           'NofAlus': 1, 
+                           'NofLsus': 1, 
+                           'NofFpus': 1, 
+                           'AluNofRss': 2, 
+                           'LsuNofRss': 2, 
+                           'FpuNofRss': 2, 
+                           'ICacheFetchDataWidth': 32, 
+                           'PhysRegAddrSize': 6, 
+                           'NofRobEntries': 32, 
+                           } 
+        },
+        { 'design': 'schnova_synth', 
+                       'name': 's-sv8', 
+                       'hdl_params': { 
+                           'NofAlus': 1, 
+                           'NofLsus': 1, 
+                           'NofFpus': 1, 
+                           'AluNofRss': 2, 
+                           'LsuNofRss': 2, 
+                           'FpuNofRss': 2, 
+                           'ICacheFetchDataWidth': 256, 
+                           'PhysRegAddrSize': 6, 
+                           'NofRobEntries': 32, 
+                           } 
         },
         { 'design': 'schnova_synth', 
                        'name': 'gp_sv1', 
@@ -45,34 +62,6 @@ def gen_experiments(designs=None):
                            } 
         },
         { 'design': 'schnova_synth', 
-                       'name': 'gp_sv2', 
-                       'hdl_params': { 
-                           'NofAlus': 3, 
-                           'NofLsus': 3, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 8, 
-                           'LsuNofRss': 8, 
-                           'FpuNofRss': 8, 
-                           'ICacheFetchDataWidth': 64, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 32, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
-                       'name': 'gp_sv4', 
-                       'hdl_params': { 
-                           'NofAlus': 3, 
-                           'NofLsus': 3, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 16, 
-                           'LsuNofRss': 16, 
-                           'FpuNofRss': 16, 
-                           'ICacheFetchDataWidth': 128, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 64, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
                        'name': 'gp_sv8', 
                        'hdl_params': { 
                            'NofAlus': 3, 
@@ -86,41 +75,24 @@ def gen_experiments(designs=None):
                            'NofRobEntries': 64, 
                            } 
         },
-        ]
-
-    # Fixed parameters 
-    phys_reg_size = 6 
-    rob_entries = 32 
-        
-    # Width mapping (sv1, sv2, ...) 
-    widths = {1: 32, 2: 64, 4: 128, 8: 256 } 
-        
-    # Configurations 
-    configs = [ # (Alus, Lsus, Fpus, rss_list) 
-        (1, 1, 1, [1]), # SPW 
-        (3, 3, 1, [1, 2, 4, 8, 16, 32]), # MPW 
+        # GP-L
+        #{
+        #    'design': 'schnizo_synth',
+        #    'name': 'superscalar_3x32_3x32_1x64',
+        #    'hdl_params': {
+        #        'Xfrep': 1,
+        #        'NofAlus': 3,
+        #        'NofLsus': 3,
+        #        'NofFpus': 1,
+        #        'AluNofRss': 32,
+        #        'LsuNofRss': 32,
+        #        'FpuNofRss': 64,
+        #        'AluNofConstants': 16,
+        #        'LsuNofConstants': 64,
+        #        'FpuNofConstants': 32,
+        #    }
+        #},
     ]
-
-    for sv, width in widths.items(): 
-        for alus, lsus, fpus, rss_values in configs: 
-            for rss in rss_values: 
-                name = f"sv{sv}_{alus}x{rss}_{lsus}x{rss}_{fpus}x{rss}_{phys_reg_size}_{rob_entries}" 
-                
-                exp = { 'design': 'schnova_synth', 
-                       'name': name, 
-                       'hdl_params': { 
-                           'NofAlus': alus, 
-                           'NofLsus': lsus, 
-                           'NofFpus': fpus, 
-                           'AluNofRss': rss, 
-                           'LsuNofRss': rss, 
-                           'FpuNofRss': rss, 
-                           'ICacheFetchDataWidth': width, 
-                           'PhysRegAddrSize': phys_reg_size, 
-                           'NofRobEntries': rob_entries, 
-                           } 
-                        }
-                experiments.append(exp)
 
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]
