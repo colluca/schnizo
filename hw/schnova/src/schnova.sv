@@ -1447,13 +1447,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_idx_i == rss),
+          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
-          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
-          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
+                            i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.tag.producer_id),
+          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
         };
       end else begin : gen_alu_traces_rss_no_trace_resreq
         assign rss_alu_traces[alu][rss]    = '{default: '0};
@@ -1467,11 +1467,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_idx_i == rss),
+          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
+                            i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_req_raw.tag.producer_id),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1494,16 +1494,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_valid_o &&
-                      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_ready_i &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_idx_i == rss),
+          valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_valid_o &&
+                      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_ready_i &&
+                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_idx_i == rss),
           producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.tag.producer_id),
-          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_a,
-          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.operand_b,
-          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.imm,
-          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
-          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
+                        i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.tag.producer_id),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
           // Directly access the FPU because theses signals are decoded in the FPU. This requires
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt

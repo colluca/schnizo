@@ -20,7 +20,7 @@ module schnova_fu_block import schnova_pkg::*; #(
   /// Reservation Station parameters
   parameter int unsigned NofRss         = 4,
   // The maximal number of operands
-  parameter int unsigned NofOperands    = 3,
+  parameter rs_type_e    RsType         = ALU_RS,
   // Whether the constant/immediate is an integer (32 bit) value
   parameter bit          ConstIsInt     = 1,
   // The bits to address all registers
@@ -32,7 +32,8 @@ module schnova_fu_block import schnova_pkg::*; #(
   parameter type         slot_id_t      = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
-  parameter type         phy_id_t       = logic
+  parameter type         phy_id_t       = logic,
+  localparam integer unsigned NofOperands = (RsType == ALU_RS) ? 2 : 3
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -156,7 +157,7 @@ module schnova_fu_block import schnova_pkg::*; #(
   schnova_res_stat #(
     .NofRss        (NofRss),
     .NofOperands   (NofOperands),
-    .ConstIsInt    (ConstIsInt),
+    .RsType        (RsType),
     .RegAddrWidth  (RegAddrWidth),
     .MaxIterationsW(MaxIterationsW),
     .XLEN          (XLEN),

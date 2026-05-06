@@ -16,6 +16,7 @@
 // RF:  Register File
 module schnova_res_stat import schnova_pkg::*; #(
   parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofOperands    = 2,
   parameter rs_type_e    RsType         = ALU_RS,
   // The bits to address all registers
   parameter int unsigned RegAddrWidth   = 5,
@@ -32,7 +33,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   parameter type         phy_id_t       = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
-  localparam integer unsigned NofOperands = (RsType == ALU_RS) ? 2 : 3,
   // We need two constants for ALU reservation stations and one for all other
   localparam integer unsigned NofConsts = (RsType == ALU_RS) ? 2 : 1,
   localparam integer unsigned CNSTLEN = ((RsType == ALU_RS) || (RsType == LSU_RS)) ? XLEN : FLEN
