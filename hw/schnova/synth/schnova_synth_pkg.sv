@@ -24,6 +24,12 @@ package schnova_synth_pkg;
     typedef logic [DataWidth/8-1:0] strb_t;
     typedef logic [CoreUserWidth-1:0] user_t;
 
+    typedef enum logic [1:0] {
+        ALU_RS,
+        LSU_RS,
+        FPU_RS
+    } rs_type_e;
+
     `REQRSP_TYPEDEF_ALL(data, addr_t, data_t, strb_t, user_t)
 
     // Res stat specific types
@@ -69,13 +75,5 @@ package schnova_synth_pkg;
     } disp_rsp_t;
 
     typedef logic [OpLen-1:0] operand_t;
-
-    typedef logic [XLEN-1:0] alu_res_val_t;
-
-    typedef struct packed {
-        alu_res_val_t result;
-        logic         compare_res;
-    } alu_result_t;
-
 
 endpackage

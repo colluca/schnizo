@@ -303,7 +303,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   } producer_id_t;
 
   typedef struct packed {
+// pragma translate_off
     producer_id_t               producer_id;
+// pragma translate_on
     logic [PhysRegAddrSize-1:0] dest_reg;
     logic [RobTagWidth-1:0]     rob_tag;
     logic                       dest_reg_is_fp;
