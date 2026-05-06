@@ -174,7 +174,9 @@ module schnova_dispatcher import schnova_pkg::*; #(
       disp_req[i].is_op_b_fp = instr_dec_i[i].rs2_is_fp;
 
       // generate the instruction tag
-      disp_req[i].tag.producer_id    = fu_response[i].producer;
+      // pragma translate_off
+      disp_req[i].tag.producer_id    = fu_response[i].producer; // Only needed for the tracer
+      // pragma translate_on
       disp_req[i].tag.dest_reg       = en_superscalar_i ? reg_map_i[i].phy_reg_rd_new
                                                           : reg_map_i[i].phy_reg_rd_old;
       disp_req[i].tag.dest_reg_is_fp = instr_dec_i[i].rd_is_fp;
