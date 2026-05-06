@@ -2,6 +2,7 @@
 # Copyright 2026 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
+import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -45,75 +46,136 @@ def results(dir=None):
     return df
 
 
-def plot(dir=None, show=False, hide_x_axis=False):
-    # Load the current results
-    df = results(dir=dir)
-    # Load the results of the initial design that acts as a baseline
-    df_baseline = pd.read_pickle("initial_rs_design.pkl")
+def plot(dir=None, show=False, hide_x_axis=False, rs_type=0):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgba
+    from matplotlib.patches import Patch
 
-    # Filter the results
-    # 1) ALU RS have 2 operands and the constant is an integer
-    # 2) LSU RS have 3 operands and the constant is an integer
-    # 3) FPU RS have 3 operands and the constant is not an integer
-    alu_df = df[
-        (df['NofOperands'] == 2) &
-        (df['ConstIsInt'] == 1)
-    ]
-    lsu_df = df[
-        (df['NofOperands'] == 3) &
-        (df['ConstIsInt'] == 1)
-    ]
-    fpu_df = df[
-        (df['NofOperands'] == 3) &
-        (df['ConstIsInt'] == 0)
-    ]
-    print(alu_df)
-    print(lsu_df)
-    print(fpu_df)
+    # Load datasets
+    df_opt = results(dir=dir)
+    df_base = pd.read_pickle("initial_rs_design.pkl")
 
+    # Filter RS type
+    df_opt = df_opt[df_opt["RsType"] == rs_type]
 
-    # Pivot CombArea and SeqArea separately
-    comb_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='CombArea')
-    seq_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='SeqArea')
+    # Group
+    opt = df_opt.groupby("NofRss")[["CombArea", "SeqArea"]].sum()
+    base = df_base.groupby("NofRss")[["CombArea", "SeqArea"]].sum()
 
-    ports = comb_df.columns
-    n_groups = len(comb_df.index)
-    n_bars = len(ports)
-    x = np.arange(n_groups)
-    width = 0.8 / n_bars
+    df = opt.join(base, lsuffix="_opt", rsuffix="_base").dropna()
 
-    # Use the default color cycle, darken for SeqArea
+    x = np.arange(len(df.index))
+    width = 0.35
+
     fig, ax = plt.subplots()
+
     prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-    for i, p in enumerate(ports):
-        base_color = prop_cycle[i % len(prop_cycle)]
-        # Convert hex to RGB, create a darker shade for SeqArea
-        from matplotlib.colors import to_rgba
-        rgba = to_rgba(base_color)
-        light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
+    legend_handles = []
 
-        offset = (i - (n_bars - 1) / 2) * width
-        ax.bar(x + offset, comb_df[p], width, label=f'{p} port{"" if int(p) == 1 else "s"} (comb)',
-               color=base_color, zorder=3)
-        ax.bar(x + offset, seq_df[p], width, bottom=comb_df[p],
-               label=f'{p} port{"" if int(p) == 1 else "s"} (seq)', color=light, zorder=3)
+    for i, idx in enumerate(df.index):
 
-    ax.set_ylabel('Area [kGE]')
+        # -----------------------------
+        # BASE COLOR = DESIGN TYPE
+        # -----------------------------
+        base_color = prop_cycle[0]   # baseline fixed color family
+        opt_color  = prop_cycle[1]   # optimized fixed color family
+
+        # lighten helper
+        def lighten(color, factor=0.5):
+            rgba = to_rgba(color)
+            return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
+
+        base_seq_color = lighten(base_color)
+        opt_seq_color  = lighten(opt_color)
+
+        # -----------------------------
+        # BASELINE (left bar)
+        # -----------------------------
+        ax.bar(
+            x[i] - width/2,
+            df.loc[idx, "CombArea_base"],
+            width,
+            color=base_color,
+            zorder=3
+        )
+
+        ax.bar(
+            x[i] - width/2,
+            df.loc[idx, "SeqArea_base"],
+            width,
+            bottom=df.loc[idx, "CombArea_base"],
+            color=base_seq_color,
+            zorder=3
+        )
+
+        # -----------------------------
+        # OPTIMIZED (right bar)
+        # -----------------------------
+        ax.bar(
+            x[i] + width/2,
+            df.loc[idx, "CombArea_opt"],
+            width,
+            color=opt_color,
+            zorder=3
+        )
+
+        ax.bar(
+            x[i] + width/2,
+            df.loc[idx, "SeqArea_opt"],
+            width,
+            bottom=df.loc[idx, "CombArea_opt"],
+            color=opt_seq_color,
+            zorder=3
+        )
+
+        # -----------------------------
+        # LEGEND (only once)
+        # -----------------------------
+        if i == 0:
+            legend_handles = [
+                Patch(facecolor=base_color, label="Baseline (comb)"),
+                Patch(facecolor=base_seq_color, label="Baseline (seq)"),
+                Patch(facecolor=opt_color, label="Optimized (comb)"),
+                Patch(facecolor=opt_seq_color, label="Optimized (seq)")
+            ]
+
+    # -----------------------------
+    # AXES
+    # -----------------------------
+    ax.set_ylabel("Area [kGE]")
     ax.set_xticks(x)
+
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of RSEs')
-        ax.set_xticklabels(comb_df.index)
-    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
-    ax.grid(True, axis='y')
+        ax.set_xlabel("Number of RSEs")
+        ax.set_xticklabels(df.index)
+
+    ax.grid(True, axis='y', zorder=0)
+    ax.legend(handles=legend_handles, ncol=2, fontsize=8)
+
     fig.tight_layout()
 
+    # -----------------------------
+    # AREA SAVING COMPUTATION
+    # -----------------------------
+    baseline_total = df["CombArea_base"] + df["SeqArea_base"]
+    optimized_total = df["CombArea_opt"] + df["SeqArea_opt"]
+
+    saving_pct = (baseline_total - optimized_total) / baseline_total * 100
+
+    print("\nArea savings per NofRss:")
+    for idx, val in saving_pct.items():
+        print(f"NofRss = {idx}: {val:.2f}%")
+
+    print (f"On average: {np.mean(saving_pct)}%")
     if show:
         plt.show()
 
-    return df.pivot_table(index='NofRss', columns='NofResRspIfs', values='StdCellArea')
+    return df
 
 
 def linear_regression(dir=None):
@@ -157,9 +219,33 @@ def linear_regression_constants(dir=None):
             fits[p][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
     return fits
 
+def plot1():
+    plot(show=True, rs_type=0)
+
+def plot2():
+    plot(show=True, rs_type=1)
+
+def plot3():
+    plot(show=True, rs_type=2)
 
 def main():
-    plot()
+    plots = [plot1, plot2, plot3]
+    plot_dict = {f.__name__: f for f in plots}
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'plots',
+        nargs='+',
+        choices=plot_dict.keys(),
+        default=plot_dict.keys(),
+        help='Select which plots to show (default: all)'
+    )
+    args = parser.parse_args()
+
+    # Generate selected plots
+    for name in args.plots:
+        _ = plot_dict[name]()
 
 
 if __name__ == '__main__':

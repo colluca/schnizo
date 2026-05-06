@@ -324,7 +324,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         issue_req_o.fu_data.fpu_rnd_mode = '0;
         issue_req_o.tag                  = slot_op_rsp.tag;
       end
-    end else if (RsType == LSU_RS) begin : gen_fpu_issue_req
+    end else if (RsType == FPU_RS) begin : gen_fpu_issue_req
        always_comb begin
         // Issue the operation if all operands are valid. The FU exerts backpressure if its pipeline
         // is full or the result cannot be written because the current result has not been consumed

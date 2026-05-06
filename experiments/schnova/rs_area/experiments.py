@@ -48,7 +48,6 @@ def gen_experiments():
                 'name': f'rs_fpu_{num_slots}',
                 'hdl_params': {
                     'NofRss': num_slots,
-                    'NofOperands': 3,
                     'RsType': 2,
                     'RegAddrWidth': 6,
                     'NofRobEntries': 32,
