@@ -173,8 +173,9 @@ module schnizo_vlsu
       IDLE: begin
         if (spatz_req_valid_i) begin
           if (spatz_req_i.op_mem.is_load) begin
-            // Loads don't read VRF ? accept and issue memory reads unconditionally.
-            state_d = LOAD_WAIT;
+            // Only advance once every TCDM port has accepted; stay in IDLE
+            // (keeping valid_o asserted) if any port back-pressures.
+            state_d = &spatz_mem_req_ready_i ? LOAD_WAIT : IDLE;
           end
           else if (vrf_rvalid_i[0]) begin
             // Store: VRF data is ready this cycle.
@@ -198,8 +199,12 @@ module schnizo_vlsu
   // Stall stores if the VRF bank is occupied by a higher-priority VFU read this cycle.
   // vrf_rvalid_i[0] is combinational: it is 0 only when the shared bank port 0 is
   // taken by VFU_VS2_RD in the same cycle.
+  // For loads, the upstream must stall until all TCDM ports accept (ready_i all 1).
+  // Otherwise valid_o would be deasserted before ready ? a handshake violation.
   assign spatz_req_ready_o = (state_q == IDLE) &&
-      (!spatz_req_valid_i || spatz_req_i.op_mem.is_load || vrf_rvalid_i[0]);
+      (!spatz_req_valid_i ||
+       (spatz_req_i.op_mem.is_load && &spatz_mem_req_ready_i) ||
+       (!spatz_req_i.op_mem.is_load && vrf_rvalid_i[0]));
 
   /////////////////////
   //  Memory requests //

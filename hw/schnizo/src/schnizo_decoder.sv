@@ -502,6 +502,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             instr_dec_o.fu = schnizo_pkg::LOAD;
             imm_select = IIMM;
             instr_dec_o.rs1 = instr.itype.rs1;
+            instr_dec_o.use_rs1 = 1'b1;
             instr_dec_o.rd = instr.itype.rd;
             instr_dec_o.rd_is_fp = 1'b1;
             instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
