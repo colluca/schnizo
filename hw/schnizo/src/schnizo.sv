@@ -1195,7 +1195,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   // TODO(colluca): probably we should remove the traces altogether in if LSU has no Xfrep (i.e. NofRss==0)
   issue_lsu_trace_t  rss_lsu_traces  [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
   issue_fpu_trace_t  rss_fpu_traces  [NofFpus][FpuNofRss];
-  issue_vfu_trace_t  rss_vfu_traces  [NofVFU][VfuNofRss];
+  issue_vfu_trace_t  rss_vfu_traces  [NofVFU][cf_math_pkg::max(VfuNofRss,1)];
   issue_vlsu_trace_t rss_vlsu_traces [NofVLSU][cf_math_pkg::max(VlsuNofRss,1)];
 
   // Traces for retirements
@@ -1214,14 +1214,14 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   resreq_trace_t alu_resreq_traces  [NofAlus][AluNofRss][NofOperandIfs];
   resreq_trace_t lsu_resreq_traces  [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
   resreq_trace_t fpu_resreq_traces  [NofFpus][FpuNofRss][NofOperandIfs];
-  resreq_trace_t vfu_resreq_traces  [NofVFU][VfuNofRss][NofOperandIfs];
+  resreq_trace_t vfu_resreq_traces  [NofVFU][cf_math_pkg::max(VfuNofRss,1)][NofOperandIfs];
   resreq_trace_t vlsu_resreq_traces [NofVLSU][cf_math_pkg::max(VlsuNofResRspPorts,1)][NofOperandIfs];
 
   // Traces for result captures (each RSS has one signal)
   rescap_trace_t alu_rescap_traces  [NofAlus][AluNofRss];
   rescap_trace_t lsu_rescap_traces  [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
   rescap_trace_t fpu_rescap_traces  [NofFpus][FpuNofRss];
-  rescap_trace_t vfu_rescap_traces  [NofVFU][VfuNofRss];
+  rescap_trace_t vfu_rescap_traces  [NofVFU][cf_math_pkg::max(VfuNofRss,1)];
   rescap_trace_t vlsu_rescap_traces [NofVLSU][cf_math_pkg::max(VlsuNofRss,1)];
 
   assign core_trace = '{

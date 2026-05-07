@@ -163,8 +163,14 @@ module snitch_cluster
   parameter int unsigned NumLsuConstants [NrCores] = '{default: 0},
   /// Per-core number of constants per FPU
   parameter int unsigned NumFpuConstants [NrCores] = '{default: 0},
-  /// Per-core number of Slots per Spatz
-  parameter int unsigned NumSpatzRss [NrCores] = '{default: 0},
+  /// Per-core number of reservation stations for the VFU
+  parameter int unsigned NumVfuRss [NrCores] = '{default: 0},
+  /// Per-core number of reservation stations for the VLSU
+  parameter int unsigned NumVlsuRss [NrCores] = '{default: 0},
+  /// Per-core number of constants for the VFU
+  parameter int unsigned NumVfuConstants [NrCores] = '{default: 0},
+  /// Per-core number of constants for the VLSU
+  parameter int unsigned NumVlsuConstants [NrCores] = '{default: 0},
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
@@ -1200,7 +1206,10 @@ module snitch_cluster
       .NumAluRss(NumAluRss[i]),
       .NumLsuRss(NumLsuRss[i]),
       .NumFpuRss(NumFpuRss[i]),
-      .NumSpatzRss(NumSpatzRss[i]),
+      .VfuNofRss(NumVfuRss[i]),
+      .VlsuNofRss(NumVlsuRss[i]),
+      .VfuNofConstants(NumVfuConstants[i]),
+      .VlsuNofConstants(NumVlsuConstants[i]),
       .NumAluConstants(NumAluConstants[i]),
       .NumLsuConstants(NumLsuConstants[i]),
       .NumFpuConstants(NumFpuConstants[i]),

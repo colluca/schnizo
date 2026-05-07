@@ -84,7 +84,10 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAluConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_constants')}};
   localparam int unsigned NumLsuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_constants')}};
   localparam int unsigned NumFpuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_constants')}};
-  localparam int unsigned NumSpatzRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_spatz_slots')}};
+  localparam int unsigned NumVfuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_vfu_slots')}};
+  localparam int unsigned NumVlsuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_vlsu_slots')}};
+  localparam int unsigned NumVfuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_vfu_constants')}};
+  localparam int unsigned NumVlsuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_vlsu_constants')}};
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
@@ -92,6 +95,12 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumIntOutstandingMem [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_mem')}};
   localparam int unsigned NumSequencerInstr [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_instructions')}};
   localparam int unsigned NumSequencerLoops [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_loops')}};
+
+  // Schnizo VFU cluster-level parameters (uniform across all compute cores; read from core 0).
+  localparam int unsigned NofVFU        = ${cfg['cluster']['cores'][0]['num_vfus']};
+  localparam int unsigned NofVLSU       = ${cfg['cluster']['cores'][0]['num_vlsus']};
+  localparam int unsigned NumSpatzFPUs  = ${cfg['cluster']['cores'][0]['num_spatz_fpus']};
+  localparam int unsigned NumSpatzIPUs  = ${cfg['cluster']['cores'][0]['num_spatz_ipus']};
 
   // Snitch cluster under test.
   snitch_cluster #(
@@ -177,7 +186,14 @@ module ${cfg['cluster']['name']}_wrapper (
     .NumAluRss (NumAluRss),
     .NumLsuRss (NumLsuRss),
     .NumFpuRss (NumFpuRss),
-    .NumSpatzRss (NumSpatzRss),
+    .NumVfuRss (NumVfuRss),
+    .NumVlsuRss (NumVlsuRss),
+    .NumVfuConstants (NumVfuConstants),
+    .NumVlsuConstants (NumVlsuConstants),
+    .NofVFU (NofVFU),
+    .NofVLSU (NofVLSU),
+    .NumSpatzFPUs (NumSpatzFPUs),
+    .NumSpatzIPUs (NumSpatzIPUs),
     .NumAluConstants (NumAluConstants),
     .NumLsuConstants (NumLsuConstants),
     .NumFpuConstants (NumFpuConstants),

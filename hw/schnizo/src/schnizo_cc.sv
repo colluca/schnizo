@@ -83,8 +83,11 @@ module schnizo_cc #(
   parameter int unsigned NumAluRspPorts     = 1,
   parameter int unsigned NumLsuRspPorts     = 1,
   parameter int unsigned NumFpuRspPorts     = 1,
-  // Spatz RSS config
-  parameter int unsigned NumSpatzRss        = 6,
+  // Schnizo VFU/VLSU RSS config
+  parameter int unsigned VfuNofRss          = 6,
+  parameter int unsigned VlsuNofRss         = 6,
+  parameter int unsigned VfuNofConstants    = 4,
+  parameter int unsigned VlsuNofConstants   = 4,
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
@@ -289,7 +292,11 @@ module schnizo_cc #(
     .NumSpatzFPUs          (NumSpatzFPUs),
     .NumSpatzIPUs          (NumSpatzIPUs),
     .NofVFU                (NofVFU),
-    .NofVLSU               (NofVLSU)
+    .NofVLSU               (NofVLSU),
+    .VfuNofRss             (VfuNofRss),
+    .VlsuNofRss            (VlsuNofRss),
+    .VfuNofConstants       (VfuNofConstants),
+    .VlsuNofConstants      (VlsuNofConstants)
   ) i_schnizo (
     .clk_i           (clk_d2_i), // if necessary operate on half the frequency
     .rst_i           (~rst_ni),
