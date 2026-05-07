@@ -8,23 +8,25 @@
 
 // 256-bit SIMD: 8 x fp32 per vector register (m1 LMUL)
 #define VL 8
-// Matrix dimensions: M=3 rows matches the 3-row-unrolled inner kernel,
-// N=VL so exactly one 256-bit vector covers the column dimension (no outer N loop),
-// K=10 gives 10 inner-loop iterations.
-#define M_DIM  3
-#define N_DIM  VL
+
+// Unroll factor: process 8 rows at a time
+#define M_UNROLL 8
+
+// Matrix dimensions: M = 8 rows, N = 2*VL (two vector-width tiles), K = 10
+#define M_DIM  M_UNROLL
+#define N_DIM  (2 * VL)
 #define K_DIM  10
 
 int main() {
 #ifdef SNRT_SUPPORTS_FREP
     if (snrt_is_dm_core()) return 0;
 
-    // Row-major storage: A[M×K], B[K×N], C[M×N]
     float A[M_DIM][K_DIM];
     float B[K_DIM][N_DIM];
     float C[M_DIM][N_DIM];
     float golden[M_DIM][N_DIM];
 
+    // Initialise A and B with predictable values
     for (int i = 0; i < M_DIM; i++)
         for (int k = 0; k < K_DIM; k++)
             A[i][k] = (float)(i * K_DIM + k + 1);
@@ -45,84 +47,184 @@ int main() {
                 golden[i][j] += A[i][k] * B[k][j];
         }
 
-    // Row strides
-    uint32_t inc_b = N_DIM * sizeof(float);  // bytes per B row
-    uint32_t inc_a = sizeof(float);          // bytes per A element (column step)
+    // Strides for row-major traversal
+    uint32_t inc_b = N_DIM * sizeof(float);  // bytes to next row of B
+    uint32_t inc_a = sizeof(float);          // bytes to next column element of A
 
-    float *ptr_b  = &B[0][0];
-    float *ptr_a0 = &A[0][0];
-    float *ptr_a1 = &A[1][0];
-    float *ptr_a2 = &A[2][0];
-    float *ptr_c0 = &C[0][0];
-    float *ptr_c1 = &C[1][0];
-    float *ptr_c2 = &C[2][0];
+    // Set vector length to exactly 8 (256-bit SIMD)
+    asm volatile("vsetvli zero, %0, e32, m1, ta, ma"
+                 :
+                 : "r"((uint32_t)VL));
 
-    // Set vector length to exactly 8 elements (256-bit SIMD, e32, m1)
-    asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(VL));
+    // --- Outer N-tile loop: process VL columns of C per iteration ---
+    for (int j_tile = 0; j_tile < N_DIM; j_tile += VL) {
 
-    // --- Innermost 3-row-unrolled kernel (from gemm_fp32_vec_frep_opt), K=10 ---
-    //
-    // beta=0 path: initialise v0/v8/v16 via vfmul with B[0] (k=0),
-    // then frep.o handles k=1..K-1 (9 more iterations = 10 total).
+        // Reset A pointers to the start of each row for every N-tile
+        float *ptr_b  = &B[0][j_tile];
 
-    float t0 = *ptr_a0;
-    float t1 = *ptr_a1;
-    float t2 = *ptr_a2;
+        float *ptr_a0 = &A[0][0];
+        float *ptr_a1 = &A[1][0];
+        float *ptr_a2 = &A[2][0];
+        float *ptr_a3 = &A[3][0];
+        float *ptr_a4 = &A[4][0];
+        float *ptr_a5 = &A[5][0];
+        float *ptr_a6 = &A[6][0];
+        float *ptr_a7 = &A[7][0];
 
-    // k=0: load B row 0, multiply into accumulators, advance A pointers to k=1
-    asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
-    ptr_b += N_DIM;
+        // --- 8-row unrolled kernel ---
 
-    asm volatile("vfmul.vf v0,  v24, %0" : : "f"(t0));
-    ptr_a0++; t0 = *ptr_a0;
+        float t0 = *ptr_a0;
+        float t1 = *ptr_a1;
+        float t2 = *ptr_a2;
+        float t3 = *ptr_a3;
+        float t4 = *ptr_a4;
+        float t5 = *ptr_a5;
+        float t6 = *ptr_a6;
+        float t7 = *ptr_a7;
 
-    asm volatile("vfmul.vf v8,  v24, %0" : : "f"(t1));
-    ptr_a1++; t1 = *ptr_a1;
+        // k = 0 bootstrap
+        asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
+        ptr_b += N_DIM;
 
-    asm volatile("vfmul.vf v16, v24, %0" : : "f"(t2));
-    ptr_a2++; t2 = *ptr_a2;
+        asm volatile("vfmul.vf v0,  v24, %0" : : "f"(t0));
+        ptr_a0++;
+        t0 = *ptr_a0;
 
-    // frep.o executes the 11-instruction body (n_frep+1) times = K-1 times,
-    // covering k=1..K-1 and completing 10 total K-iterations.
-    uint32_t n_frep = K_DIM - 2;
+        asm volatile("vfmul.vf v8,  v24, %0" : : "f"(t1));
+        ptr_a1++;
+        t1 = *ptr_a1;
 
-    asm volatile(
-        "frep.o  %[n_frep], 11, 0, 0          \n"
-        "vle32.v  v24, (%[ptr_b])              \n"
-        "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
-        "vfmacc.vf v0,  %[ft0], v24            \n"
-        "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
-        "flw      %[ft0], 0(%[ptr_a0])         \n"
-        "vfmacc.vf v8,  %[ft1], v24            \n"
-        "add      %[ptr_a1], %[ptr_a1], %[inc_a] \n"
-        "flw      %[ft1], 0(%[ptr_a1])         \n"
-        "vfmacc.vf v16, %[ft2], v24            \n"
-        "add      %[ptr_a2], %[ptr_a2], %[inc_a] \n"
-        "flw      %[ft2], 0(%[ptr_a2])         \n"
-        : [ptr_b]  "+r"(ptr_b),
-          [ptr_a0] "+r"(ptr_a0),
-          [ptr_a1] "+r"(ptr_a1),
-          [ptr_a2] "+r"(ptr_a2),
-          [ft0]    "+f"(t0),
-          [ft1]    "+f"(t1),
-          [ft2]    "+f"(t2)
-        : [inc_b]  "r"(inc_b),
-          [inc_a]  "r"(inc_a),
-          [n_frep] "r"(n_frep)
-        :);
+        asm volatile("vfmul.vf v16, v24, %0" : : "f"(t2));
+        ptr_a2++;
+        t2 = *ptr_a2;
 
-    asm volatile("vse32.v v0,  (%0)" : : "r"(ptr_c0) : "memory");
-    asm volatile("vse32.v v8,  (%0)" : : "r"(ptr_c1) : "memory");
-    asm volatile("vse32.v v16, (%0)" : : "r"(ptr_c2) : "memory");
+        asm volatile("vfmul.vf v28, v24, %0" : : "f"(t3));
+        ptr_a3++;
+        t3 = *ptr_a3;
 
-    snrt_fpu_fence();
+        asm volatile("vfmul.vf v4,  v24, %0" : : "f"(t4));
+        ptr_a4++;
+        t4 = *ptr_a4;
 
-    // Verify against golden reference
+        asm volatile("vfmul.vf v12, v24, %0" : : "f"(t5));
+        ptr_a5++;
+        t5 = *ptr_a5;
+
+        asm volatile("vfmul.vf v20, v24, %0" : : "f"(t6));
+        ptr_a6++;
+        t6 = *ptr_a6;
+
+        asm volatile("vfmul.vf v26, v24, %0" : : "f"(t7));
+        ptr_a7++;
+        t7 = *ptr_a7;
+
+        // frep.o executes body (n_frep + 1) times.
+        // Bootstrap handles k=0, so body handles k=1..K-1.
+        uint32_t n_frep = K_DIM - 2;
+
+        asm volatile(
+            "frep.o  %[n_frep], 26, 0, 0            \n"
+
+            "vle32.v  v24, (%[ptr_b])                \n"
+            "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
+
+            // row 0
+            "vfmacc.vf v0,  %[ft0], v24              \n"
+            "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+            "flw      %[ft0], 0(%[ptr_a0])           \n"
+
+            // row 1
+            "vfmacc.vf v8,  %[ft1], v24              \n"
+            "add      %[ptr_a1], %[ptr_a1], %[inc_a] \n"
+            "flw      %[ft1], 0(%[ptr_a1])           \n"
+
+            // row 2
+            "vfmacc.vf v16, %[ft2], v24              \n"
+            "add      %[ptr_a2], %[ptr_a2], %[inc_a] \n"
+            "flw      %[ft2], 0(%[ptr_a2])           \n"
+
+            // row 3
+            "vfmacc.vf v28, %[ft3], v24              \n"
+            "add      %[ptr_a3], %[ptr_a3], %[inc_a] \n"
+            "flw      %[ft3], 0(%[ptr_a3])           \n"
+
+            // row 4
+            "vfmacc.vf v4,  %[ft4], v24              \n"
+            "add      %[ptr_a4], %[ptr_a4], %[inc_a] \n"
+            "flw      %[ft4], 0(%[ptr_a4])           \n"
+
+            // row 5
+            "vfmacc.vf v12, %[ft5], v24              \n"
+            "add      %[ptr_a5], %[ptr_a5], %[inc_a] \n"
+            "flw      %[ft5], 0(%[ptr_a5])           \n"
+
+            // row 6
+            "vfmacc.vf v20, %[ft6], v24              \n"
+            "add      %[ptr_a6], %[ptr_a6], %[inc_a] \n"
+            "flw      %[ft6], 0(%[ptr_a6])           \n"
+
+            // row 7
+            "vfmacc.vf v26, %[ft7], v24              \n"
+            "add      %[ptr_a7], %[ptr_a7], %[inc_a] \n"
+            "flw      %[ft7], 0(%[ptr_a7])           \n"
+
+            : [ptr_b]  "+r"(ptr_b),
+
+              [ptr_a0] "+r"(ptr_a0),
+              [ptr_a1] "+r"(ptr_a1),
+              [ptr_a2] "+r"(ptr_a2),
+              [ptr_a3] "+r"(ptr_a3),
+              [ptr_a4] "+r"(ptr_a4),
+              [ptr_a5] "+r"(ptr_a5),
+              [ptr_a6] "+r"(ptr_a6),
+              [ptr_a7] "+r"(ptr_a7),
+
+              [ft0] "+f"(t0),
+              [ft1] "+f"(t1),
+              [ft2] "+f"(t2),
+              [ft3] "+f"(t3),
+              [ft4] "+f"(t4),
+              [ft5] "+f"(t5),
+              [ft6] "+f"(t6),
+              [ft7] "+f"(t7)
+
+            : [inc_b]  "r"(inc_b),
+              [inc_a]  "r"(inc_a),
+              [n_frep] "r"(n_frep)
+
+            : );
+
+        // Store results
+        float *ptr_c0 = &C[0][j_tile];
+        float *ptr_c1 = &C[1][j_tile];
+        float *ptr_c2 = &C[2][j_tile];
+        float *ptr_c3 = &C[3][j_tile];
+        float *ptr_c4 = &C[4][j_tile];
+        float *ptr_c5 = &C[5][j_tile];
+        float *ptr_c6 = &C[6][j_tile];
+        float *ptr_c7 = &C[7][j_tile];
+
+        asm volatile("vse32.v v0,  (%0)" : : "r"(ptr_c0) : "memory");
+        asm volatile("vse32.v v8,  (%0)" : : "r"(ptr_c1) : "memory");
+        asm volatile("vse32.v v16, (%0)" : : "r"(ptr_c2) : "memory");
+        asm volatile("vse32.v v28, (%0)" : : "r"(ptr_c3) : "memory");
+        asm volatile("vse32.v v4,  (%0)" : : "r"(ptr_c4) : "memory");
+        asm volatile("vse32.v v12, (%0)" : : "r"(ptr_c5) : "memory");
+        asm volatile("vse32.v v20, (%0)" : : "r"(ptr_c6) : "memory");
+        asm volatile("vse32.v v26, (%0)" : : "r"(ptr_c7) : "memory");
+
+        snrt_fpu_fence();
+    }
+
+    // Verification
     int errors = 0;
+
     for (int i = 0; i < M_DIM; i++) {
         for (int j = 0; j < N_DIM; j++) {
+
             float diff = C[i][j] - golden[i][j];
             if (diff < 0.0f) diff = -diff;
+
             if (diff > golden[i][j] * 1e-4f) {
                 printf("Mismatch C[%d][%d]: got %f expected %f\n",
                        i, j, C[i][j], golden[i][j]);
@@ -132,9 +234,10 @@ int main() {
     }
 
     if (!errors)
-        printf("vfu_gemm_dummy PASS: 3x8 C=A*B, K=10 frep iterations, 256-bit SIMD\n");
+        printf("vfu_gemm_dummy PASS: 8x16 C=A*B, K=10 frep iterations, 256-bit SIMD\n");
 
     return errors;
+
 #else
     return 0;
 #endif
