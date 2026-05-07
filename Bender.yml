@@ -232,6 +232,7 @@ sources:
       # Level 2
       - hw/schnova/src/schnova_tracer.sv
       - hw/schnova/src/schnova_controller.sv
+      - hw/schnova/src/schnova_regfile.sv
       # Level 3
       - hw/schnova/src/schnova_res_stat_memory.sv
       - hw/schnova/src/schnova_res_stat_slots.sv

@@ -12,7 +12,9 @@ module schnova_phys_regfile #(
   parameter int unsigned NrWritePorts = 1,
   parameter int unsigned NofOperandIfs = 1,
   parameter bit          ZeroRegZero  = 0,
+  parameter int unsigned PhysAddrWidth = 6,
   parameter int unsigned AddrWidth    = 4,
+  parameter int unsigned NumRegs      = 32,
   parameter type         operand_req_t = logic
 ) (
   // clock and reset
@@ -26,8 +28,8 @@ module schnova_phys_regfile #(
   input  logic [NrWritePorts-1:0][DataWidth-1:0]  wdata_i,
   input  logic [NrWritePorts-1:0]                 we_i,
   // Scoreboard read port
-  output logic [NofOperandIfs-1:0][AddrWidth-1:0] sb_raddr_o,
-  input  logic [NofOperandIfs-1:0]                sb_reg_busy_i,
+  output logic [NofOperandIfs-1:0][PhysAddrWidth-1:0] sb_raddr_o,
+  input  logic [NofOperandIfs-1:0]                    sb_reg_busy_i,
   // operand request  port
   input operand_req_t [NofOperandIfs-1:0]         op_reqs_i,
   input logic         [NofOperandIfs-1:0]         op_reqs_valid_i,
@@ -60,7 +62,7 @@ module schnova_phys_regfile #(
     end
 
     for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      rf_raddr[port_idx] = op_reqs_i[op].phy_reg;
+      rf_raddr[port_idx] = op_reqs_i[op].phy_reg[AddrWidth-1:0];
       op_rsps_data_o[op] = rf_rdata[port_idx];
       port_idx = port_idx + 1;
     end
@@ -97,12 +99,13 @@ module schnova_phys_regfile #(
   end
 
   // Register file that contains the values
-  snitch_regfile #(
+  schnova_regfile #(
     .DataWidth   (DataWidth),
     .NrReadPorts (NrRegfileReadPorts),
     .NrWritePorts(NrWritePorts),
     .ZeroRegZero (ZeroRegZero),
-    .AddrWidth   (AddrWidth)
+    .AddrWidth   (AddrWidth),
+    .NumRegs(NumRegs)
   ) i_regfile (
     .clk_i,
     .rst_ni (rst_ni),

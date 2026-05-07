@@ -36,8 +36,10 @@
         // Global core configurations
         // If the schnova or schnizo core is used in the cluster
         use_schnova_core: true,
-        // The physical register address width
-        phy_reg_addr_width: 8,
+        // Number of physical general purpose registers
+        num_phy_gpr: 42,
+        // Number of physical floating point registers
+        num_phy_fpr: 48,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -79,7 +81,7 @@
                     ways: 2, // number of ways
                     cacheline: 512, // word size in bits
                     l0_cacheline_count: 16, // Number of cache lines in L0 ICache
-                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
+                    fetch_data_width: 128, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -123,11 +125,11 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 64,
+        num_alu_slots: 32,
         num_lsus: 3,
-        num_lsu_slots: 64,
+        num_lsu_slots: 32,
         num_fpus: 1,
-        num_fpu_slots: 64,
+        num_fpu_slots: 32,
         num_rob_entries: 256,
     },
     dma_core_template: {

@@ -36,8 +36,10 @@
         // Global core configurations
         // If the schnova or schnizo core is used in the cluster
         use_schnova_core: true,
-        // The physical register address width
-        phy_reg_addr_width: 8,
+        // Number of physical general purpose registers
+        num_phy_gpr: 42,
+        // Number of physical floating point registers
+        num_phy_fpr: 48,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,

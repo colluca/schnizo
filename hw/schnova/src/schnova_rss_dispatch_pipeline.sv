@@ -287,18 +287,18 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         issue_req_o                      = '0;
         issue_req_o.fu_data.fu           = NONE; // Not required by FU
         issue_req_o.fu_data.alu_op       = slot_op_rsp.alu_op;
-        issue_req_o.fu_data.lsu_op       = '0;
+        issue_req_o.fu_data.lsu_op       = schnova_pkg::LsuOpLoad;
         issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-        issue_req_o.fu_data.fpu_op       = '0;
+        issue_req_o.fu_data.fpu_op       = schnova_pkg::FpuOpFadd;
         issue_req_o.fu_data.operand_a    = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
                                                                               : op_rsps_i[0];
         issue_req_o.fu_data.operand_b    = slot_op_rsp.constants[1].is_valid  ? slot_op_rsp.constants[1].value
                                                                               : op_rsps_i[1];
         issue_req_o.fu_data.imm          = '0;
-        issue_req_o.fu_data.lsu_size     = '0;
-        issue_req_o.fu_data.fpu_fmt_src  = '0;
-        issue_req_o.fu_data.fpu_fmt_dst  = '0;
-        issue_req_o.fu_data.fpu_rnd_mode = '0;
+        issue_req_o.fu_data.lsu_size     = Word;
+        issue_req_o.fu_data.fpu_fmt_src  = fpnew_pkg::FP32;
+        issue_req_o.fu_data.fpu_fmt_dst  = fpnew_pkg::FP32;
+        issue_req_o.fu_data.fpu_rnd_mode = fpnew_pkg::RNE;
         issue_req_o.tag                  = slot_op_rsp.tag;
       end
     end else if (RsType == LSU_RS) begin : gen_lsu_issue_req
@@ -310,18 +310,18 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         // results can come back OoO from the FU (as is the case for the FPU).
         issue_req_o                      = '0;
         issue_req_o.fu_data.fu           = NONE; // Not required by FU
-        issue_req_o.fu_data.alu_op       = '0;
+        issue_req_o.fu_data.alu_op       = schnova_pkg::AluOpAdd;
         issue_req_o.fu_data.lsu_op       = slot_op_rsp.lsu_op;
         issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-        issue_req_o.fu_data.fpu_op       = '0;
+        issue_req_o.fu_data.fpu_op       = schnova_pkg::FpuOpFadd;
         issue_req_o.fu_data.operand_a    = op_rsps_i[0];
         issue_req_o.fu_data.operand_b    = op_rsps_i[1];
         issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
                                                                               : op_rsps_i[2];
         issue_req_o.fu_data.lsu_size     = slot_op_rsp.lsu_size;
-        issue_req_o.fu_data.fpu_fmt_src  = '0;
-        issue_req_o.fu_data.fpu_fmt_dst  = '0;
-        issue_req_o.fu_data.fpu_rnd_mode = '0;
+        issue_req_o.fu_data.fpu_fmt_src  = fpnew_pkg::FP32;
+        issue_req_o.fu_data.fpu_fmt_dst  = fpnew_pkg::FP32;
+        issue_req_o.fu_data.fpu_rnd_mode = fpnew_pkg::RNE;
         issue_req_o.tag                  = slot_op_rsp.tag;
       end
     end else if (RsType == FPU_RS) begin : gen_fpu_issue_req
@@ -333,15 +333,15 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         // results can come back OoO from the FU (as is the case for the FPU).
         issue_req_o                      = '0;
         issue_req_o.fu_data.fu           = NONE; // Not required by FU
-        issue_req_o.fu_data.alu_op       = '0;
-        issue_req_o.fu_data.lsu_op       = '0;
+        issue_req_o.fu_data.alu_op       = schnova_pkg::AluOpAdd;
+        issue_req_o.fu_data.lsu_op       = schnova_pkg::LsuOpLoad;
         issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
         issue_req_o.fu_data.fpu_op       = slot_op_rsp.fpu_op;
         issue_req_o.fu_data.operand_a    = op_rsps_i[0];
         issue_req_o.fu_data.operand_b    = op_rsps_i[1];
         issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
                                                                               : op_rsps_i[2];
-        issue_req_o.fu_data.lsu_size     = '0;
+        issue_req_o.fu_data.lsu_size     = Word;
         issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
         issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
         issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;

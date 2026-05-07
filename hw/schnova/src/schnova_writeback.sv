@@ -32,11 +32,12 @@ module schnova_writeback import schnova_pkg::*; #(
   parameter int unsigned FLEN            = 64,
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
-  parameter int unsigned NrRobWritePorts  = 2,
-  parameter int unsigned NofAlus           = 1,
-  parameter int unsigned NofLsus           = 1,
-  parameter int unsigned NofFpus           = 1,
-  parameter int unsigned RegAddrSize     = 5,
+  parameter int unsigned NrRobWritePorts = 2,
+  parameter int unsigned NofAlus         = 1,
+  parameter int unsigned NofLsus         = 1,
+  parameter int unsigned NofFpus         = 1,
+  parameter int unsigned GprAddrWidth    = 5,
+  parameter int unsigned FprAddrWidth    = 5,
   parameter type         instr_tag_t     = logic,
   parameter type         alu_result_t    = logic,
   parameter type         fpu_result_t    = logic,
@@ -77,12 +78,12 @@ module schnova_writeback import schnova_pkg::*; #(
   output logic            acc_result_ready_o,
 
   // Register file interface
-  output logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_o,
-  output logic [NrIntWritePorts-1:0][XLEN-1:0]        gpr_wdata_o,
-  output logic [NrIntWritePorts-1:0]                  gpr_we_o,
-  output logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_o,
-  output logic [NrFpWritePorts-1:0][FLEN-1:0]         fpr_wdata_o,
-  output logic [NrFpWritePorts-1:0]                   fpr_we_o,
+  output logic [NrIntWritePorts-1:0][GprAddrWidth-1:0] gpr_waddr_o,
+  output logic [NrIntWritePorts-1:0][XLEN-1:0]         gpr_wdata_o,
+  output logic [NrIntWritePorts-1:0]                   gpr_we_o,
+  output logic [NrFpWritePorts-1:0][FprAddrWidth-1:0]  fpr_waddr_o,
+  output logic [NrFpWritePorts-1:0][FLEN-1:0]          fpr_wdata_o,
+  output logic [NrFpWritePorts-1:0]                    fpr_we_o,
 
   // Control instruction retirement
   output logic ctrl_instr_retired_o,
@@ -153,7 +154,7 @@ module schnova_writeback import schnova_pkg::*; #(
   // in addition the CSR and accelerator port can write to it
   typedef struct packed {
     logic [XLEN-1:0] data;
-    logic [RegAddrSize-1:0] addr;
+    logic [GprAddrWidth-1:0] addr;
     logic [RobTagWidth-1:0] rob_tag;
   } gpr_data_t;
 
@@ -178,7 +179,7 @@ module schnova_writeback import schnova_pkg::*; #(
       gpr_data[i]  = '{
         data: alu_results_tag_i[alu].is_jump ? consecutive_pc_i
                                             : alu_results_i[alu].result,
-        addr:     alu_results_tag_i[alu].dest_reg,
+        addr:     alu_results_tag_i[alu].dest_reg[GprAddrWidth-1:0],
         rob_tag:  alu_results_tag_i[alu].rob_tag
       };
       alu_gpr_ready[alu] = gpr_ready[i];
@@ -188,7 +189,7 @@ module schnova_writeback import schnova_pkg::*; #(
     gpr_valid[i] = csr_gpr_valid;
     gpr_data[i]  = '{
         data:     csr_result_i,
-        addr:     csr_result_tag_i.dest_reg,
+        addr:     csr_result_tag_i.dest_reg[GprAddrWidth-1:0],
         rob_tag:  csr_result_tag_i.rob_tag
       };
     csr_gpr_ready = gpr_ready[i];
@@ -198,7 +199,7 @@ module schnova_writeback import schnova_pkg::*; #(
       gpr_valid[i] = lsu_gpr_valid[lsu];
       gpr_data[i]  = '{
         data:     lsu_results_i[lsu][XLEN-1:0],
-        addr:     lsu_results_tag_i[lsu].dest_reg,
+        addr:     lsu_results_tag_i[lsu].dest_reg[GprAddrWidth-1:0],
         rob_tag:  lsu_results_tag_i[lsu].rob_tag
       };
       lsu_gpr_ready[lsu] = gpr_ready[i];
@@ -209,7 +210,7 @@ module schnova_writeback import schnova_pkg::*; #(
       gpr_valid[i] = fpu_gpr_valid[fpu];
       gpr_data[i]  = '{
         data:     fpu_results_i[fpu][XLEN-1:0],
-        addr:     fpu_results_tag_i[fpu].dest_reg,
+        addr:     fpu_results_tag_i[fpu].dest_reg[GprAddrWidth-1:0],
         rob_tag:  fpu_results_tag_i[fpu].rob_tag
       };
       fpu_gpr_ready[fpu] = gpr_ready[i];
@@ -219,7 +220,7 @@ module schnova_writeback import schnova_pkg::*; #(
     gpr_valid[i] = acc_gpr_valid;
     gpr_data[i]  = '{
         data:     acc_result_i[XLEN-1:0],
-        addr:     acc_result_tag_i.dest_reg,
+        addr:     acc_result_tag_i.dest_reg[GprAddrWidth-1:0],
         rob_tag:  acc_result_tag_i.rob_tag
       };
     acc_gpr_ready = gpr_ready[i];
@@ -276,8 +277,8 @@ module schnova_writeback import schnova_pkg::*; #(
   // floating point register file
   typedef struct packed {
     logic [FLEN-1:0] data;
-    logic [RegAddrSize-1:0] addr;
-    logic [RobTagWidth-1:0] rob_tag;
+    logic [FprAddrWidth-1:0] addr;
+    logic [RobTagWidth-1:0]  rob_tag;
   } fpr_data_t;
 
   localparam int unsigned NofFprSrcs = NofLsus + NofFpus;
@@ -296,7 +297,7 @@ module schnova_writeback import schnova_pkg::*; #(
       fpr_valid[i] = lsu_fpr_valid[lsu];
       fpr_data[i]  = '{
         data:     lsu_results_i[lsu][FLEN-1:0],
-        addr:     lsu_results_tag_i[lsu].dest_reg,
+        addr:     lsu_results_tag_i[lsu].dest_reg[FprAddrWidth-1:0],
         rob_tag:  lsu_results_tag_i[lsu].rob_tag
       };
       lsu_fpr_ready[lsu] = fpr_ready[i];
@@ -307,7 +308,7 @@ module schnova_writeback import schnova_pkg::*; #(
       fpr_valid[i] = fpu_fpr_valid[fpu];
       fpr_data[i]  = '{
         data:     fpu_results_i[fpu][FLEN-1:0],
-        addr:     fpu_results_tag_i[fpu].dest_reg,
+        addr:     fpu_results_tag_i[fpu].dest_reg[FprAddrWidth-1:0],
         rob_tag:  fpu_results_tag_i[fpu].rob_tag
       };
       fpu_fpr_ready[fpu] = fpr_ready[i];

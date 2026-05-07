@@ -2,88 +2,117 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// Note: The physical register size has to be a power of two, for the math to work
-
 // Author: Stefan Odermatt <soderma@ethz.ch>
 module schnova_free_list import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
-  parameter int unsigned PhysAddrWidth = 6,
-  parameter int unsigned AddrWidth = 5,
-  parameter type         phy_id_t = logic
+  parameter int unsigned NumPhysRegs = 64,
+  parameter int unsigned NumArchRegs = 32,
+  parameter type         phy_id_t    = logic
 ) (
-  input  logic         clk_i,
-  input  logic         rst_i,
-  // Allocation Interface (Rename Stage)
-  input logic pop_i,
-  output logic freelist_ready_o,
-  input logic [$clog2(PipeWidth):0] pop_count_i,
-  output phy_id_t [PipeWidth-1:0]  allocated_regs_o,
-  // Deallocation Interface (Retire/Commit Stage)
-  input logic push_i,
-  input logic [$clog2(PipeWidth):0] push_count_i,
-  input phy_id_t [PipeWidth-1:0] retired_regs_i
+  input  logic                         clk_i,
+  input  logic                         rst_i,
+  // Allocation Interface (Rename)
+  input  logic                         pop_i,
+  input  logic [$clog2(PipeWidth):0]   pop_count_i,
+  output logic                         freelist_ready_o,
+  output phy_id_t [PipeWidth-1:0]      allocated_regs_o,
+  // Deallocation Interface (Retire)
+  input  logic                         push_i,
+  input  logic [$clog2(PipeWidth):0]   push_count_i,
+  input  phy_id_t [PipeWidth-1:0]      retired_regs_i
 );
-  // Connections and registers
-  localparam int unsigned NumPhysRegs  = 2**PhysAddrWidth;
-  localparam int unsigned NumRegs  = 2**AddrWidth;
 
-  phy_id_t [NumPhysRegs-1:0] free_list;
-  logic [PhysAddrWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
-  logic [PhysAddrWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
+  localparam int unsigned PhysIdxWidth = $clog2(NumPhysRegs);
 
-  // Calculate the current number of free physical registers
+  // Pointers and Occupancy
+  logic [PhysIdxWidth-1:0] head_ptr, tail_ptr;
   logic [$clog2(NumPhysRegs):0] free_count;
-  logic [PipeWidth-1:0][PhysAddrWidth-1:0] read_idx;
-  logic [PipeWidth-1:0][PhysAddrWidth-1:0] write_idx;
+  logic [PipeWidth-1:0][PhysIdxWidth:0] tmp_read_idx;
+  logic [PipeWidth-1:0][PhysIdxWidth:0] tmp_write_idx;
 
-  assign free_count = tail_ptr_raw - head_ptr_raw;
+  // Pointers and Count update
+  logic [$clog2(PipeWidth):0] actual_pop;
+  logic [$clog2(PipeWidth):0] actual_push;
+  logic [PhysIdxWidth:0]      next_head_ext;
+  logic [PhysIdxWidth:0]      next_tail_ext;
+
+  // The actual storage
+  phy_id_t [NumPhysRegs-1:0] free_list;
+
   assign freelist_ready_o = (free_count >= pop_count_i);
 
-  assign head_ptr = head_ptr_raw[PhysAddrWidth-1:0];
-  assign tail_ptr = tail_ptr_raw[PhysAddrWidth-1:0];
+  assign actual_pop  = (pop_i && freelist_ready_o) ? pop_count_i : '0;
+  assign actual_push = (push_i) ? push_count_i : '0;
 
-  // Allocation, we pop free entries from the free list
+  // Pointer look-ahead
+  assign next_head_ext = {1'b0, head_ptr} + actual_pop;
+  assign next_tail_ext = {1'b0, tail_ptr} + actual_push;
+
+  // Combinational indexing for multi-port access
   always_comb begin
     allocated_regs_o = '0;
-    for (int i = 0; i < PipeWidth; i++) begin
-      read_idx[i] = head_ptr + PhysAddrWidth'(i);
-      write_idx[i] = tail_ptr + PhysAddrWidth'(i);
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      // Calculate indices with explicit width
+      tmp_read_idx[i]  = {1'b0, head_ptr} + PhysIdxWidth'(i);
+      tmp_write_idx[i] = {1'b0, tail_ptr} + PhysIdxWidth'(i);
+
+      // Explicit Wrap-around check
+      if (tmp_read_idx[i] >= NumPhysRegs[PhysIdxWidth:0]) begin
+        tmp_read_idx[i] = tmp_read_idx[i] - NumPhysRegs[PhysIdxWidth:0];
+      end
+      if (tmp_write_idx[i] >= NumPhysRegs[PhysIdxWidth:0]) begin
+        tmp_write_idx[i] = tmp_write_idx[i] - NumPhysRegs[PhysIdxWidth:0];
+      end
+
+      // Assign to output
       if (i < pop_count_i) begin
-        allocated_regs_o[i] = free_list[read_idx[i]];
+        allocated_regs_o[i] = free_list[tmp_read_idx[i][PhysIdxWidth-1:0]];
       end
     end
   end
 
-  // Sequential updates, that includes pointer calculations and retirements
+  // Sequential Update
   always_ff @(posedge clk_i or posedge rst_i) begin
     if (rst_i) begin
-      head_ptr_raw <= '0;
-      // At the beginning all architectural registers are mapped
-      // that means 32 registers are mapped
-      tail_ptr_raw <= NumPhysRegs - NumRegs;
+      head_ptr   <= '0;
+      tail_ptr   <= (NumPhysRegs - NumArchRegs);
+      free_count <= (NumPhysRegs - NumArchRegs);
+
       for (int unsigned i = 0; i < NumPhysRegs; i++) begin
-        if (i < (NumPhysRegs-NumRegs)) begin
-          free_list[i] <= phy_id_t'(i + 32);
+        if (i < (NumPhysRegs - NumArchRegs)) begin
+          free_list[i] <= phy_id_t'(i + NumArchRegs);
         end else begin
           free_list[i] <= '0;
         end
       end
     end else begin
-      // Update the head pointer on allocation
-      if(pop_i && freelist_ready_o) begin
-        head_ptr_raw <= head_ptr_raw + pop_count_i;
+      // Update Head
+      if (actual_pop > 0) begin
+        if (next_head_ext >= NumPhysRegs[PhysIdxWidth:0]) begin
+          head_ptr <= next_head_ext[PhysIdxWidth-1:0] - NumPhysRegs[PhysIdxWidth-1:0];
+        end else begin
+          head_ptr <= next_head_ext[PhysIdxWidth-1:0];
+        end
       end
 
-      // Update tail on retirement
-      if (push_i) begin
-        for (int i = 0; i < PipeWidth; i++) begin
-          if (i < push_count_i) begin
-            free_list[write_idx[i]] <= retired_regs_i[i];
+      // Update Tail and Data
+      if (actual_push > 0) begin
+        for (int unsigned i = 0; i < PipeWidth; i++) begin
+          if (i < actual_push) begin
+            free_list[tmp_write_idx[i][PhysIdxWidth-1:0]] <= retired_regs_i[i];
           end
         end
-        tail_ptr_raw <= tail_ptr_raw + push_count_i;
+
+        if (next_tail_ext >= NumPhysRegs[PhysIdxWidth:0]) begin
+          tail_ptr <= next_tail_ext[PhysIdxWidth-1:0] - NumPhysRegs[PhysIdxWidth-1:0];
+        end else begin
+          tail_ptr <= next_tail_ext[PhysIdxWidth-1:0];
+        end
       end
-      end
+
+      // Occupancy update
+      free_count <= free_count + actual_push - actual_pop;
+    end
   end
 
 endmodule

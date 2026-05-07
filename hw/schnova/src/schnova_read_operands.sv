@@ -13,7 +13,8 @@ module schnova_read_operands import schnova_pkg::*; #(
   parameter int unsigned XLEN,
   parameter int unsigned FLEN,
   parameter int unsigned PipeWidth       = 1,
-  parameter int unsigned RegAddrSize,
+  parameter int unsigned GprAddrWidth    = 6,
+  parameter int unsigned FprAddrWidth    = 6,
   parameter int unsigned NrIntReadPorts,
   parameter int unsigned NrFpReadPorts,
   parameter type         instr_dec_t = logic,
@@ -25,9 +26,9 @@ module schnova_read_operands import schnova_pkg::*; #(
   input  instr_dec_t [PipeWidth-1:0]                 instr_dec_i,
   /// From rename
   input  reg_map_t                                   reg_map_i,
-  output logic [NrIntReadPorts-1:0][RegAddrSize-1:0] gpr_raddr_o,
+  output logic [NrIntReadPorts-1:0][GprAddrWidth-1:0] gpr_raddr_o,
   input  logic [NrIntReadPorts-1:0][XLEN-1:0]        gpr_rdata_i,
-  output logic [NrFpReadPorts-1:0][RegAddrSize-1:0]  fpr_raddr_o,
+  output logic [NrFpReadPorts-1:0][FprAddrWidth-1:0]  fpr_raddr_o,
   input  logic [NrFpReadPorts-1:0][FLEN-1:0]         fpr_rdata_i,
   output fu_data_t [PipeWidth-1:0] fu_data_o
 );
@@ -54,11 +55,11 @@ module schnova_read_operands import schnova_pkg::*; #(
       if (instr_idx == 0) begin
         // We only need to read the register file for the scalar mode, otherwise the values are fetched
         // via operand requests.
-        gpr_raddr_o[0]   = reg_map_i.phy_reg_rs1;
-        gpr_raddr_o[1] = reg_map_i.phy_reg_rs2;
-        fpr_raddr_o[0]   = reg_map_i.phy_reg_rs1;
-        fpr_raddr_o[1] = reg_map_i.phy_reg_rs2;
-        fpr_raddr_o[2] = reg_map_i.phy_reg_rs3;
+        gpr_raddr_o[0]   = reg_map_i.phy_reg_rs1[GprAddrWidth-1:0];
+        gpr_raddr_o[1] = reg_map_i.phy_reg_rs2[GprAddrWidth-1:0];
+        fpr_raddr_o[0]   = reg_map_i.phy_reg_rs1[FprAddrWidth-1:0];
+        fpr_raddr_o[1] = reg_map_i.phy_reg_rs2[FprAddrWidth-1:0];
+        fpr_raddr_o[2] = reg_map_i.phy_reg_rs3[FprAddrWidth-1:0];
       end
 
       // Operand A

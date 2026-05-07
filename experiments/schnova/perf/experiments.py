@@ -65,12 +65,12 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    cfgs = ['3x32_3x32_1x64',
-            '1x128_1x32_1x64',
-            'sv_1_3x4_3x4_1x4_6_16',
-            'sv_2_3x8_3x8_1x8_6_32',
-            'sv_4_3x16_3x16_1x16_6_64',
-            'sv_8_3x32_3x32_1x32_6_64']
+    #cfgs = ['3x32_3x32_1x64',
+    #        '1x128_1x32_1x64',
+    #        'sv_1_3x4_3x4_1x4_6_16',
+    #        'sv_2_3x8_3x8_1x8_6_32',
+    #        'sv_4_3x16_3x16_1x16_6_64',
+    #        'sv_8_3x32_3x32_1x32_6_64']
 
     #cfgs = ['sv_1_3x1_3x1_1x1_8_256',
     #        'sv_1_3x2_3x2_1x2_8_256',
@@ -139,6 +139,13 @@ def gen_experiments(ci=False):
     #    'sv_8_3x32_3x32_1x32_7_64',
     #    'sv_8_3x32_3x32_1x32_8_64',
     #]
+
+    cfgs = [
+        'sv_1_3x32_3x32_1x32_42_48_256',
+        'sv_2_3x32_3x32_1x32_42_48_256',
+        'sv_4_3x32_3x32_1x32_42_48_256',
+        'sv_8_3x32_3x32_1x32_42_48_256',
+    ]
     modes = ['scalar', 'superscalar']
     # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]

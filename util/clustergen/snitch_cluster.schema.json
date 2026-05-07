@@ -38,10 +38,15 @@
                     "description": "Whether the schnova or schnizo core is used in the cluster.",
                     "default": false
                 },
-                "phy_reg_addr_width": {
+                "num_phy_gpr": {
                     "type": "number",
-                    "description": "The physical register address width. Only relevant for the schnova core.",
-                    "default": 6
+                    "description": "The number of general purpose physical registers of schnova.",
+                    "default": 64
+                },
+                "num_phy_fpr": {
+                    "type": "number",
+                    "description": "The number of floating point physical registers of schnova.",
+                    "default": 64
                 },
                 "tcdm": {
                     "type": "object",

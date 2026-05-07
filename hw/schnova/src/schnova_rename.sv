@@ -12,9 +12,9 @@ module schnova_rename import schnova_pkg::*; #(
   parameter int unsigned RmtNrIntReadPorts = 3,
   parameter int unsigned RmtNrFpReadPorts = 4,
   parameter int unsigned RmtNrWritePorts = 1,
-  /// Size of both int and fp register file
-  parameter int unsigned PhysRegAddrSize = 6,
   parameter int unsigned RegAddrSize = 5,
+  parameter int unsigned NofPhysGpr = 64,
+  parameter int unsigned NofPhysFpr = 64,
   parameter type         instr_dec_t = logic,
   parameter type         phy_id_t = logic,
   parameter type         reg_map_t = logic
@@ -40,6 +40,8 @@ module schnova_rename import schnova_pkg::*; #(
   input [$clog2(PipeWidth):0] freelist_fpr_push_count_i,
   input phy_id_t [PipeWidth-1:0] retired_fpr_regs_i
 );
+
+  localparam int unsigned NumArchRegs = 2**RegAddrSize;
 
   logic       [RmtNrIntReadPorts-1:0][RegAddrSize-1:0] rmt_int_raddr;
   logic       [RmtNrFpReadPorts-1:0][RegAddrSize-1:0]  rmt_fp_raddr;
@@ -117,8 +119,8 @@ module schnova_rename import schnova_pkg::*; #(
 
   schnova_free_list #(
     .PipeWidth(PipeWidth),
-    .PhysAddrWidth(PhysRegAddrSize),
-    .AddrWidth(RegAddrSize),
+    .NumPhysRegs(NofPhysGpr),
+    .NumArchRegs(NumArchRegs),
     .phy_id_t(phy_id_t)
   ) i_gpr_free_list (
     .clk_i,
@@ -134,8 +136,8 @@ module schnova_rename import schnova_pkg::*; #(
 
   schnova_free_list #(
     .PipeWidth(PipeWidth),
-    .PhysAddrWidth(PhysRegAddrSize),
-    .AddrWidth(RegAddrSize),
+    .NumPhysRegs(NofPhysFpr),
+    .NumArchRegs(NumArchRegs),
     .phy_id_t(phy_id_t)
   ) i_fpr_free_list (
     .clk_i,

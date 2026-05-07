@@ -74,8 +74,10 @@ module snitch_cluster
   parameter int unsigned NumExpWideTcdmPorts = 1,
   /// Whether the schnova or schnizo core is used in the cluster
   parameter bit          UseSchnovaCore      = 0,
-  /// The physical register address width for the schnova core
-  parameter int unsigned PhysRegAddrWidth    = 6,
+  /// Number of physical general purpose registers
+  parameter int unsigned NofPhysGpr = 64,
+  /// Number of physical floating point registers
+  parameter int unsigned NofPhysFpr = 64,
   /// Width of a single icache line.
   parameter int unsigned ICacheLineWidth [NrHives] = '{default: 0},
   /// Number of icache lines per set.
@@ -284,6 +286,7 @@ module snitch_cluster
   // localparam type dca_req_t = `DCA_REQ_STRUCT(DataWidth),
   // localparam type dca_rsp_t = `DCA_RSP_STRUCT(DataWidth)
   // Workaround:
+  localparam int unsigned PhysRegAddrWidth = $clog2((NofPhysFpr > NofPhysGpr) ? NofPhysFpr : NofPhysGpr),
   localparam type dca_req_chan_t = `DCA_REQ_CHAN_STRUCT(DcaDataWidth),
   localparam type dca_req_t = `GENERIC_REQRSP_REQ_STRUCT(dca_req_chan_t),
   localparam type dca_rsp_chan_t = `DCA_RSP_CHAN_STRUCT(DcaDataWidth),
@@ -1196,6 +1199,8 @@ module snitch_cluster
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
         .NumRobEntries(NumRobEntries[i]),
+        .NofPhysGpr(NofPhysGpr),
+        .NofPhysFpr(NofPhysFpr),
         .PhysRegAddrWidth(PhysRegAddrWidth),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
         // TODO(colluca): add Xpulpv2 to Schnizo

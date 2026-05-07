@@ -9,13 +9,16 @@
 // It marks each register busy if an ongoing instruction will write back into it.
 // There are two separate scoreboards for each register file.
 // sbi for the integer and sbf for the floating point register, respectively.
-
 module schnova_scoreboard #(
   parameter int unsigned PipeWidth    = 1,
   parameter int unsigned NrReadPorts  = 2,
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
-  parameter int unsigned AddrWidth    = 4,
+  parameter int unsigned PhysAddrWidth    = 6,
+  parameter int unsigned GprAddrWidth     = 6,
+  parameter int unsigned FprAddrWidth     = 6,
+  parameter int unsigned NofPhysGpr       = 64,
+  parameter int unsigned NofPhysFpr       = 64,
   parameter type         sb_disp_data_t = logic
 ) (
   // clock and reset
@@ -27,96 +30,80 @@ module schnova_scoreboard #(
   input  logic [PipeWidth-1:0]                    instr_valid_i,
   input  sb_disp_data_t [PipeWidth-1:0]           disp_data_i,
   // Read port for the physical register file
-  input  logic [NrReadPorts-1:0][AddrWidth-1:0] raddr_i,
-  input  logic [NrReadPorts-1:0]                read_fp_i,
-  output logic [NrReadPorts-1:0]                rdata_o,
+  input  logic [NrReadPorts-1:0][PhysAddrWidth-1:0] raddr_i,
+  input  logic [NrReadPorts-1:0]                    read_fp_i,
+  output logic [NrReadPorts-1:0]                    rdata_o,
   // Register writeback snooping
-  input  logic [NrIntWritePorts-1:0][AddrWidth-1:0] wb_gpr_addr_i,
-  input  logic [NrIntWritePorts-1:0]                wb_gpr_en_i,
-  input  logic [NrFpWritePorts-1:0][AddrWidth-1:0]  wb_fpr_addr_i,
-  input  logic [NrFpWritePorts-1:0]                 wb_fpr_en_i,
+  input  logic [NrIntWritePorts-1:0][GprAddrWidth-1:0] wb_gpr_addr_i,
+  input  logic [NrIntWritePorts-1:0]                   wb_gpr_en_i,
+  input  logic [NrFpWritePorts-1:0][FprAddrWidth-1:0]  wb_fpr_addr_i,
+  input  logic [NrFpWritePorts-1:0]                    wb_fpr_en_i,
   // To controller
   output logic                                    registers_ready_o,
   output logic                                    sb_busy_o
 );
 
-  localparam int unsigned NumRegs  = 2**AddrWidth;
-
-  logic [NumRegs-1:0] sbi_d, sbi_q, sbf_d, sbf_q;
-  logic [NumRegs-1:0] sbi_set, sbi_clr, sbf_set, sbf_clr;
-  logic [PipeWidth-1:0][NumRegs-1:0] disp_dec;
-  logic [NrIntWritePorts-1:0][NumRegs-1:0] wb_gpr_dec;
-  logic [NrFpWritePorts-1:0][NumRegs-1:0] wb_fpr_dec;
+  logic [NofPhysGpr-1:0] sbi_d, sbi_q;
+  logic [NofPhysFpr-1:0] sbf_d, sbf_q;
+  logic [NofPhysGpr-1:0] sbi_set, sbi_clr;
+  logic [NofPhysFpr-1:0] sbf_set, sbf_clr;
+  // Decoders specialized for each file size
+  logic [PipeWidth-1:0][NofPhysGpr-1:0] disp_gpr_dec;
+  logic [PipeWidth-1:0][NofPhysFpr-1:0] disp_fpr_dec;
+  logic [NrIntWritePorts-1:0][NofPhysGpr-1:0] wb_gpr_dec;
+  logic [NrFpWritePorts-1:0][NofPhysFpr-1:0] wb_fpr_dec;
 
   `FFAR(sbi_q, sbi_d, '0, clk_i, rst_i)
   `FFAR(sbf_q, sbf_d, '0, clk_i, rst_i)
 
-  // Dispatched Decoder
+  // --- Decoders ---
   for (genvar j = 0; j < PipeWidth; j++) begin : gen_disp_dec
-    assign disp_dec[j] = (instr_valid_i[j] & dispatched_i) ? (NumRegs'(1) << disp_data_i[j].rd) : '0;
+    assign disp_gpr_dec[j] = (instr_valid_i[j] & dispatched_i & ~disp_data_i[j].rd_is_fp) ?
+                             (NofPhysGpr'(1) << disp_data_i[j].rd[GprAddrWidth-1:0]) : '0;
+    assign disp_fpr_dec[j] = (instr_valid_i[j] & dispatched_i &  disp_data_i[j].rd_is_fp) ?
+                             (NofPhysFpr'(1) << disp_data_i[j].rd[FprAddrWidth-1:0]) : '0;
   end
 
-  // GPR Writeback Decoder
   for (genvar j = 0; j < NrIntWritePorts; j++) begin : gen_gpr_dec
-    assign wb_gpr_dec[j] = (wb_gpr_en_i[j]) ? (NumRegs'(1) << wb_gpr_addr_i[j]) : '0;
+    assign wb_gpr_dec[j] = (wb_gpr_en_i[j]) ? (NofPhysGpr'(1) << wb_gpr_addr_i[j]) : '0;
   end
 
-  // FPR Writeback Decoder
   for (genvar j = 0; j < NrFpWritePorts; j++) begin : gen_fpr_dec
-    assign wb_fpr_dec[j] = (wb_fpr_en_i[j]) ? (NumRegs'(1) << wb_fpr_addr_i[j]) : '0;
+    assign wb_fpr_dec[j] = (wb_fpr_en_i[j]) ? (NofPhysFpr'(1) << wb_fpr_addr_i[j]) : '0;
   end
 
+  // --- Update Logic ---
   always_comb begin : scoreboard_update
-    sbi_set = '0; 
-    sbi_clr = '0;
-    sbf_set = '0; 
-    sbf_clr = '0;
-    sbi_d = sbi_q;
-    sbf_d = sbf_q;
+    sbi_set = '0; sbi_clr = '0;
+    sbf_set = '0; sbf_clr = '0;
 
-    // For every dispatched instruction we have to set the scoreboard entry
-    // this means that this register currently is busy (waiting on the result)
     for (int j = 0; j < PipeWidth; j++) begin
-      if (disp_data_i[j].rd_is_fp) begin
-        sbf_set |= disp_dec[j];
-      end else begin
-        sbi_set |= disp_dec[j];
-      end                       
+        sbi_set |= disp_gpr_dec[j];
+        sbf_set |= disp_fpr_dec[j];
     end
 
-    // We remove the busy bit for every write back that happens
-    for (int j = 0; j < NrIntWritePorts; j++) begin
-      sbi_clr |= wb_gpr_dec[j];
-    end
-    for (int j = 0; j < NrFpWritePorts; j++) begin
-      sbf_clr |= wb_fpr_dec[j];
-    end 
+    for (int j = 0; j < NrIntWritePorts; j++) sbi_clr |= wb_gpr_dec[j];
+    for (int j = 0; j < NrFpWritePorts; j++)  sbf_clr |= wb_fpr_dec[j];
 
-    // Final bitwise assignment
     sbi_d = (sbi_q | sbi_set) & ~sbi_clr;
     sbf_d = (sbf_q | sbf_set) & ~sbf_clr;
-    sbi_d[0] = 1'b0; // x0 is always ready
+
+    sbi_d[0] = 1'b0; // x0 is never busy
   end
 
   ///////////////////////////
   // Scoreboard read ports //
   ///////////////////////////
+  // We must truncate the global PhysAddrWidth to the specific regfile width
   always_comb begin
     for (int unsigned i = 0; i < NrReadPorts; i++) begin
       if (read_fp_i[i]) begin
-        rdata_o[i] = sbf_q[raddr_i[i]]; 
+        rdata_o[i] = sbf_q[raddr_i[i][FprAddrWidth-1:0]];
       end else begin
-        rdata_o[i] = sbi_q[raddr_i[i]];
+        rdata_o[i] = sbi_q[raddr_i[i][GprAddrWidth-1:0]];
       end
     end
   end
-
-  ///////////////////////////
-  // Registers ready check //
-  ///////////////////////////
-
-  // This is only needed in scalar execution mode, and in that case only the first instruction
-  // is relevant.
 
   //////////////////////
   // RAW dependencies //
@@ -126,36 +113,22 @@ module schnova_scoreboard #(
   // These addresses and the rx_is_fp signals default to zero. If a register is not used,
   // any lookup will check x0 which is always ready (hardwired to zero value, read only).
 
-  logic op_a_has_raw, op_b_has_raw, op_c_has_raw;
-  logic operands_ready;
+  // --- RAW / WAW Ready Checks (Scalar Mode) ---
+  logic op_a_has_raw, op_b_has_raw, op_c_has_raw, dest_has_waw;
 
-  assign op_a_has_raw = disp_data_i[0].rs1_is_fp ? sbf_q[disp_data_i[0].rs1] : sbi_q[disp_data_i[0].rs1];
-  assign op_b_has_raw = disp_data_i[0].rs2_is_fp ? sbf_q[disp_data_i[0].rs2] : sbi_q[disp_data_i[0].rs2];
-  // The fused FP instruction have three source registers and the third one can only access
-  // the FP regfile. For any other instruction operand c is always ready.
-  assign op_c_has_raw = disp_data_i[0].use_imm_as_rs3 ? sbf_q[disp_data_i[0].rs3] :
-                        1'b0;
+  assign op_a_has_raw = disp_data_i[0].rs1_is_fp ? sbf_q[disp_data_i[0].rs1[FprAddrWidth-1:0]] :
+                                                   sbi_q[disp_data_i[0].rs1[GprAddrWidth-1:0]];
 
-  assign operands_ready = !(op_a_has_raw || op_b_has_raw || op_c_has_raw);
+  assign op_b_has_raw = disp_data_i[0].rs2_is_fp ? sbf_q[disp_data_i[0].rs2[FprAddrWidth-1:0]] :
+                                                   sbi_q[disp_data_i[0].rs2[GprAddrWidth-1:0]];
 
-  //////////////////////
-  // WAW dependencies //
-  //////////////////////
+  assign op_c_has_raw = disp_data_i[0].use_imm_as_rs3 ? sbf_q[disp_data_i[0].rs3[FprAddrWidth-1:0]] :
+                                                        1'b0;
 
-  // Check that there is no WAW dependency to the destination register.
+  assign dest_has_waw = disp_data_i[0].rd_is_fp  ? sbf_q[disp_data_i[0].rd[FprAddrWidth-1:0]]  :
+                                                   sbi_q[disp_data_i[0].rd[GprAddrWidth-1:0]];
 
-  logic dest_has_waw;
-  logic destination_ready;
+  assign registers_ready_o = en_superscalar_i ? 1'b1 : !(op_a_has_raw || op_b_has_raw || op_c_has_raw || dest_has_waw);
+  assign sb_busy_o = (|sbf_q) | (|sbi_q);
 
-  assign dest_has_waw = disp_data_i[0].rd_is_fp  ? sbf_q[disp_data_i[0].rd]  : sbi_q[disp_data_i[0].rd];
-  assign destination_ready = !dest_has_waw;
-
-  // The registers are ready if both the operands and destination are ready
-  assign registers_ready_o = en_superscalar_i ? 1'b1 : operands_ready & destination_ready;
-  // The scoreboard is busy as soon as one entry is busy in either of the registers
-  logic fpr_busy, gpr_busy;
-
-  assign fpr_busy = |sbf_q;
-  assign gpr_busy = |sbi_q;
-  assign sb_busy_o = fpr_busy | gpr_busy;
 endmodule

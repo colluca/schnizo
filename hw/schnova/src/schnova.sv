@@ -70,6 +70,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned NumOutstandingMem = 0,
   /// Number of bits that get fetched per fetch request
   parameter int unsigned ICacheFetchDataWidth      = 0,
+  /// Number of physical general purpose registers
+  parameter int unsigned NofPhysGpr = 64,
+  /// Number of physical floating point registers
+  parameter int unsigned NofPhysFpr = 64,
   /// Number of address bits for the physical register
   parameter int unsigned PhysRegAddrSize = 7,
   /// The amount of rob entries
@@ -140,6 +144,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   localparam int unsigned NrFpReadPorts = 3;
   localparam int unsigned NrFpWritePorts = PipeWidth;
   localparam int unsigned NrRobWritePorts = NrIntWritePorts + NrFpWritePorts;
+
+  localparam int unsigned GprAddrWidth = $clog2(NofPhysGpr);
+  localparam int unsigned FprAddrWidth = $clog2(NofPhysFpr);
 
   // We have to read out a mapping for every source operand and potentially
   // the destination operand if it takes multiple cycles except for the last destination operand
@@ -394,15 +401,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic [31:0]                     loop_jump_addr;
 
 
-  logic [NrIntReadPorts-1:0][PhysRegAddrSize-1:0]  gpr_raddr;
+  logic [NrIntReadPorts-1:0][GprAddrWidth-1:0]  gpr_raddr;
   logic [NrIntReadPorts-1:0][XLEN-1:0]         gpr_rdata;
-  logic [NrIntWritePorts-1:0][PhysRegAddrSize-1:0] gpr_waddr;
+  logic [NrIntWritePorts-1:0][GprAddrWidth-1:0] gpr_waddr;
   logic [NrIntWritePorts-1:0][XLEN-1:0]        gpr_wdata;
   logic [NrIntWritePorts-1:0]                  gpr_we;
 
-  logic [NrFpReadPorts-1:0][PhysRegAddrSize-1:0]  fpr_raddr;
+  logic [NrFpReadPorts-1:0][FprAddrWidth-1:0]  fpr_raddr;
   logic [NrFpReadPorts-1:0][FLEN-1:0]         fpr_rdata;
-  logic [NrFpWritePorts-1:0][PhysRegAddrSize-1:0] fpr_waddr;
+  logic [NrFpWritePorts-1:0][FprAddrWidth-1:0] fpr_waddr;
   logic [NrFpWritePorts-1:0][FLEN-1:0]        fpr_wdata;
   logic [NrFpWritePorts-1:0]                  fpr_we;
 
@@ -629,7 +636,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .PipeWidth     (PipeWidth),
     .XLEN          (XLEN),
     .FLEN          (FLEN),
-    .RegAddrSize   (PhysRegAddrSize),
+    .GprAddrWidth  (GprAddrWidth),
+    .FprAddrWidth  (FprAddrWidth),
     .NrIntReadPorts(NrIntReadPorts),
     .NrFpReadPorts (NrFpReadPorts),
     .instr_dec_t   (instr_dec_t),
@@ -739,8 +747,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .RmtNrIntReadPorts(RmtNrIntReadPorts),
     .RmtNrFpReadPorts(RmtNrFpReadPorts),
     .RmtNrWritePorts(RmtNrWritePorts),
-    .PhysRegAddrSize(PhysRegAddrSize),
     .RegAddrSize(RegAddrSize),
+    .NofPhysGpr(NofPhysGpr),
+    .NofPhysFpr(NofPhysFpr),
     .instr_dec_t(instr_dec_t),
     .phy_id_t(phy_id_t),
     .reg_map_t(reg_map_t)
@@ -1112,7 +1121,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
     .NrRobWritePorts (NrRobWritePorts),
-    .RegAddrSize    (PhysRegAddrSize),
+    .GprAddrWidth  (GprAddrWidth),
+    .FprAddrWidth  (FprAddrWidth),
     .instr_tag_t    (instr_tag_t),
     .alu_result_t   (alu_result_t),
     .fpu_result_t   (fpu_result_t),
@@ -1248,7 +1258,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NrReadPorts(NofOperandIfs),
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts(NrFpWritePorts),
-    .AddrWidth(PhysRegAddrSize),
+    .PhysAddrWidth(PhysRegAddrSize),
+    .GprAddrWidth(GprAddrWidth),
+    .FprAddrWidth(FprAddrWidth),
+    .NofPhysGpr(NofPhysGpr),
+    .NofPhysFpr(NofPhysFpr),
     .sb_disp_data_t(sb_disp_data_t)
   ) i_scoreboard (
     // clock and reset
@@ -1288,7 +1302,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NofOperandIfs (NofOperandIfs),
     .NrWritePorts  (NrIntWritePorts),
     .ZeroRegZero   (1),
-    .AddrWidth     (PhysRegAddrSize),
+    .PhysAddrWidth (PhysRegAddrSize),
+    .AddrWidth     (GprAddrWidth),
+    .NumRegs       (NofPhysGpr),
     .operand_req_t (operand_req_t)
   ) i_int_phy_regfile (
     .clk_i,
@@ -1316,7 +1332,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .NofOperandIfs (NofOperandIfs),
       .NrWritePorts  (NrFpWritePorts),
       .ZeroRegZero   (0),
-      .AddrWidth     (PhysRegAddrSize),
+      .PhysAddrWidth (PhysRegAddrSize),
+      .AddrWidth     (FprAddrWidth),
+      .NumRegs       (NofPhysFpr),
       .operand_req_t (operand_req_t)
     ) i_fp_phy_regfile (
       .clk_i,

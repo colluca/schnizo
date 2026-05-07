@@ -74,6 +74,8 @@ module schnova_cc #(
   parameter int unsigned NumFpuRss          = 4,
   /// Schnova resource configurations
   parameter int unsigned NumRobEntries      = 32,
+  parameter int unsigned NofPhysGpr         = 64,
+  parameter int unsigned NofPhysFpr         = 64,
   parameter int unsigned PhysRegAddrWidth   = 6,
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
@@ -238,6 +240,8 @@ module schnova_cc #(
     .LsuNofRss             (NumLsuRss),
     .FpuNofRss             (NumFpuRss),
     .NofRobEntries         (NumRobEntries),
+    .NofPhysGpr            (NofPhysGpr),
+    .NofPhysFpr            (NofPhysFpr),
     .PhysRegAddrSize       (PhysRegAddrWidth),
     .NumOutstandingLoads   (NumIntOutstandingLoads), // Use the int value for all LSUs
     .NumOutstandingMem     (NumIntOutstandingMem),
