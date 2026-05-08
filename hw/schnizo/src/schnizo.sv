@@ -206,6 +206,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     logic [RegAddrSize-1:0]       rd;
     logic                         rd_is_fp;  // set if rd is a FP register
     logic                         rd_is_vec; // set if rd is a vector register (VRF)
+    logic                         use_rd_as_src; // set if rd is also a source (e.g. vfmacc.vf)
     logic [RegAddrSize-1:0]       rs1;
     logic                         rs1_is_fp;  // set if rs1 is a FP register
     logic                         rs1_is_vec; // set if rs1 is a vector register (VRF)
@@ -274,7 +275,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofOperands = 3;
   localparam integer unsigned VlsuNofOperands = 2;
-  localparam integer unsigned VfuNofOperands  = 2;
+  localparam integer unsigned VfuNofOperands  = 3; // 3rd operand tracks vd-as-source for accumulate instructions
 
   // ---------------------------
   // Operand distribution network definitions

@@ -105,7 +105,7 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
   // Addresses and the rx_is_fp/rx_is_vec signals default to zero. If a register is not used,
   // any lookup checks x0 (always ready) or v0/f0.
 
-  logic op_a_has_raw, op_b_has_raw, op_c_has_raw;
+  logic op_a_has_raw, op_b_has_raw, op_c_has_raw, op_d_has_raw;
 
   assign op_a_has_raw = instr_dec_i.rs1_is_vec ? sbv_q[instr_dec_i.rs1] :
                         instr_dec_i.rs1_is_fp  ? sbf_q[instr_dec_i.rs1] :
@@ -117,8 +117,14 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
   // For any other instruction operand c is always ready.
   assign op_c_has_raw = instr_dec_i.use_imm_as_rs3 ? sbf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
                         1'b0;
+  // Accumulate instructions (e.g. vfmacc.vf) read rd as a source in addition to writing it.
+  assign op_d_has_raw = instr_dec_i.use_rd_as_src ? (
+                        instr_dec_i.rd_is_vec ? sbv_q[instr_dec_i.rd] :
+                        instr_dec_i.rd_is_fp  ? sbf_q[instr_dec_i.rd] :
+                                                sbi_q[instr_dec_i.rd]) :
+                        1'b0;
 
-  assign operands_ready_o = !(op_a_has_raw || op_b_has_raw || op_c_has_raw);
+  assign operands_ready_o = !(op_a_has_raw || op_b_has_raw || op_c_has_raw || op_d_has_raw);
 
   //////////////////////
   // WAW dependencies //

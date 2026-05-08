@@ -144,10 +144,17 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         disp_req_o.fu_data.use_operand_b = 1'b1;
       end
 
-      // Operand C
-      disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
-                                 rmtf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
-                                 no_mapping;
+      // Operand C: FPU fused rs3, or accumulate instruction with vd as source.
+      if (instr_dec_i.use_rd_as_src) begin
+        disp_req_o.producer_op_c = instr_dec_i.rd_is_vec ? rmtv_q[instr_dec_i.rd] :
+                                   instr_dec_i.rd_is_fp  ? rmtf_q[instr_dec_i.rd] :
+                                                           rmti_q[instr_dec_i.rd];
+        disp_req_o.fu_data.use_imm = 1'b1;
+      end else begin
+        disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
+                                   rmtf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
+                                   no_mapping;
+      end
 
       // current destination producer
       // TODO(colluca): the comment correctly calls it "current destination producer".

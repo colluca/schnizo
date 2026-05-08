@@ -203,9 +203,10 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
     instr_dec_o.fpu_op = schnizo_pkg::FpuOpFadd;
     // Set the default rd and rs_is_fp to zero such that if there is no write back required
     // we target register x0. x0 is read only and thus we have encoded that we have no write.
-    instr_dec_o.rd        = '0;
-    instr_dec_o.rd_is_fp  = 0;
-    instr_dec_o.rd_is_vec = 0;
+    instr_dec_o.rd           = '0;
+    instr_dec_o.rd_is_fp     = 0;
+    instr_dec_o.rd_is_vec    = 0;
+    instr_dec_o.use_rd_as_src = 1'b0;
     instr_dec_o.rs1       = '0;
     instr_dec_o.rs1_is_fp = 0;
     instr_dec_o.rs1_is_vec = 0;
@@ -1271,6 +1272,23 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
             end
 
             default: illegal_instr = 1'b1;
+          endcase
+
+          // Mark accumulate instructions where vd is both source and destination.
+          casez (instr.instr)
+            VMACC_VV, VNMSAC_VV, VMADD_VV, VNMSUB_VV,
+            VWMACC_VV, VWMACCU_VV, VWMACCSU_VV,
+            VMACC_VX, VNMSAC_VX, VMADD_VX, VNMSUB_VX,
+            VWMACC_VX, VWMACCU_VX, VWMACCSU_VX, VWMACCUS_VX,
+            VFMADD_VF, VFNMADD_VF, VFMSUB_VF, VFNMSUB_VF,
+            VFMACC_VF, VFNMACC_VF, VFMSAC_VF, VFNMSAC_VF,
+            VFWMACC_VF, VFWNMACC_VF, VFWMSAC_VF, VFWNMSAC_VF,
+            VFMADD_VV, VFNMADD_VV, VFMSUB_VV, VFNMSUB_VV,
+            VFMACC_VV, VFNMACC_VV, VFMSAC_VV, VFNMSAC_VV,
+            VFWMACC_VV, VFWNMACC_VV, VFWMSAC_VV, VFWNMSAC_VV: begin
+              instr_dec_o.use_rd_as_src = 1'b1;
+            end
+            default: ;
           endcase
         end else begin
           illegal_instr = 1'b1;

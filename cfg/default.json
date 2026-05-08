@@ -116,7 +116,7 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 2,
+        num_alu_slots: 3,
         num_alu_constants: 8,
         num_lsus: 3,
         num_lsu_slots: 3,
@@ -130,9 +130,9 @@
         num_spatz_fpus: 4,
         num_spatz_ipus: 1,
         num_vfu_slots: 6,
-        num_vfu_constants: 4,
+        num_vfu_constants: 6,
         num_vlsu_slots: 6,
-        num_vlsu_constants: 4,
+        num_vlsu_constants: 6,
     },
     dma_core_template: {
         isa: "rv32imafd",
