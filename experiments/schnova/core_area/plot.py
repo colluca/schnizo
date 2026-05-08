@@ -431,37 +431,52 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
     g1 = geom[1]
     g2 = geom[2]
 
-    i_schnova = g0["labels"].index("Schnova")
-    i_fu = g1["labels"].index("FU Stage")
+    bar2_idx = [g1["labels"].index(i) for i in row2_names]
+    bar3_idx = [g2["labels"].index(i) for i in row3_names]
 
-    connect(ax, g0, i_schnova, g1, i_fu, BAR_H)
-
+    schnova_idx = g0["labels"].index("Schnova")
+    schnova_left = g0["lefts"][schnova_idx]
+    schnova_right = schnova_left + g0["widths"][schnova_idx]
     fu_idx = g1["labels"].index("FU Stage")
-
     fu_left = g1["lefts"][fu_idx]
     fu_right = fu_left + g1["widths"][fu_idx]
 
-    child_names = ["FPU", "FU Blocks", "3 ALUs", "3 LSUs", "Rest"]
+    bar2_left = min(g1["lefts"][i] for i in bar2_idx)
+    bar2_right = max(
+        g1["lefts"][i] + g1["widths"][i] for i in bar2_idx
+    )
+    bar3_left = min(g2["lefts"][i] for i in bar3_idx)
+    bar3_right = max(
+        g2["lefts"][i] + g2["widths"][i] for i in bar3_idx
+    )
 
-    child_idx = [g2["labels"].index(c) for c in child_names]
+    p1 = (schnova_left, g0["y"] + BAR_H/2)
+    p2 = (schnova_right, g0["y"] + BAR_H/2)
+    p3 = (bar2_right, g1["y"] - BAR_H/2)
+    p4 = (bar2_left,  g1["y"] - BAR_H/2)
 
-    child_left = min(g2["lefts"][i] for i in child_idx)
-    child_right = max(
-        g2["lefts"][i] + g2["widths"][i] for i in child_idx
+    path = smooth_polygon(p1, p2, p3, p4)
+    ax.add_patch(
+        patches.PathPatch(path, facecolor="gray", edgecolor="none", alpha=0.2)
     )
 
     p1 = (fu_left,  g1["y"] + BAR_H/2)
     p2 = (fu_right, g1["y"] + BAR_H/2)
-
-    p3 = (child_right, g2["y"] - BAR_H/2)
-    p4 = (child_left,  g2["y"] - BAR_H/2)
+    p3 = (bar3_right, g2["y"] - BAR_H/2)
+    p4 = (bar3_left,  g2["y"] - BAR_H/2)
 
     path = smooth_polygon(p1, p2, p3, p4)
-
     ax.add_patch(
         patches.PathPatch(path, facecolor="gray", edgecolor="none", alpha=0.2)
     )
     
+    plt.tight_layout()
+    plt.savefig(
+    "plot.png",
+    bbox_inches="tight",
+    pad_inches=0.1,
+    dpi=300
+    )
     plt.show()
     
 
@@ -480,8 +495,12 @@ def plot3():
 def plot4():
     plot_core_breakdown(name='gp_sv8')
 
+def plot5():
+    print(results())
+    
+
 def main():
-    plots = [plot1, plot2, plot3, plot4]
+    plots = [plot1, plot2, plot3, plot4, plot5]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments

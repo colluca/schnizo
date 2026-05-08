@@ -198,11 +198,6 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         sv_3_3x4_3x4_1x4_128_64
     """
 
-    if vary_by not in {"slots", "phys_regs", "rob_entries"}:
-        raise ValueError(
-            "vary_by must be one of: 'slots', 'phys_regs', 'rob_entries'"
-        )
-
     def extract_config_value(hw_name):
         """
         Parse configuration string and return the selected value to vary.
@@ -214,7 +209,7 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         - for vary_by='slots', slot counts are not identical
         """
 
-        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)$"
+        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)_(\d+)$"
         match = re.match(pattern, hw_name)
 
         if not match:
@@ -228,7 +223,8 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
             lsu_slots,
             nof_fpus,
             fpu_slots,
-            phys_regs,
+            gpr,
+            fpr,
             rob_entries,
         ) = map(int, match.groups())
 
@@ -246,8 +242,11 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
                 return alu_slots
             return None
 
-        elif vary_by == "phys_regs":
-            return phys_regs
+        elif vary_by == "gpr":
+            return gpr
+        
+        elif vary_by == "fpr":
+            return fpr
 
         elif vary_by == "rob_entries":
             return rob_entries
@@ -256,13 +255,15 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
 
     xlabel_map = {
         "slots": "Number of Slots",
-        "phys_regs": "Number of Physical Registers",
+        "gpr": "Number of Physical General Purpose Registers",
+        "fpr": "Number of Physical General Floating Point Registers",
         "rob_entries": "Number of ROB Entries",
     }
 
     title_map = {
         "slots": "Slots",
-        "phys_regs": "Physical Registers",
+        "gpr": "Number of Physical General Purpose Registers",
+        "fpr": "Number of Physical General Floating Point Registers",
         "rob_entries": "ROB Entries",
     }
 
@@ -455,7 +456,7 @@ def main():
 
     parser.add_argument(
         "--vary",
-        choices=["slots", "phys_regs", "rob_entries"],
+        choices=["slots", "gpr", "fpr", "rob_entries"],
         default="slots",
         help="Hardware parameter to vary for plot8 "
              "(default: slots)"

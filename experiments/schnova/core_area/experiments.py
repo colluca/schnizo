@@ -20,34 +20,6 @@ def gen_experiments(designs=None):
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
         { 'design': 'schnova_synth', 
-                       'name': 's-sv1', 
-                       'hdl_params': { 
-                           'NofAlus': 1, 
-                           'NofLsus': 1, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 2, 
-                           'LsuNofRss': 2, 
-                           'FpuNofRss': 2, 
-                           'ICacheFetchDataWidth': 32, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 32, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
-                       'name': 's-sv8', 
-                       'hdl_params': { 
-                           'NofAlus': 1, 
-                           'NofLsus': 1, 
-                           'NofFpus': 1, 
-                           'AluNofRss': 2, 
-                           'LsuNofRss': 2, 
-                           'FpuNofRss': 2, 
-                           'ICacheFetchDataWidth': 256, 
-                           'PhysRegAddrSize': 6, 
-                           'NofRobEntries': 32, 
-                           } 
-        },
-        { 'design': 'schnova_synth', 
                        'name': 'gp_sv1', 
                        'hdl_params': { 
                            'NofAlus': 3, 
@@ -59,6 +31,34 @@ def gen_experiments(designs=None):
                            'ICacheFetchDataWidth': 32, 
                            'PhysRegAddrSize': 6, 
                            'NofRobEntries': 16, 
+                           } 
+        },
+        { 'design': 'schnova_synth', 
+                       'name': 'gp_sv2', 
+                       'hdl_params': { 
+                           'NofAlus': 3, 
+                           'NofLsus': 3, 
+                           'NofFpus': 1, 
+                           'AluNofRss': 8, 
+                           'LsuNofRss': 8, 
+                           'FpuNofRss': 8, 
+                           'ICacheFetchDataWidth': 64, 
+                           'PhysRegAddrSize': 6, 
+                           'NofRobEntries': 32, 
+                           } 
+        },
+        { 'design': 'schnova_synth', 
+                       'name': 'gp_sv4', 
+                       'hdl_params': { 
+                           'NofAlus': 3, 
+                           'NofLsus': 3, 
+                           'NofFpus': 1, 
+                           'AluNofRss': 16, 
+                           'LsuNofRss': 16, 
+                           'FpuNofRss': 16, 
+                           'ICacheFetchDataWidth': 128, 
+                           'PhysRegAddrSize': 6, 
+                           'NofRobEntries': 64, 
                            } 
         },
         { 'design': 'schnova_synth', 

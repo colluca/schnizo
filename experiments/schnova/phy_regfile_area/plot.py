@@ -2,7 +2,7 @@
 # Copyright 2026 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 try:
@@ -45,101 +45,129 @@ def results(dir=None):
     return df
 
 
-def plot(dir=None, show=False, hide_x_axis=False):
-    df = results(dir=dir)
-    print(df)
+def plot_operand_ifs(show=False, hide_x_axis=False):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgba
+    from matplotlib.patches import Patch
+    df = results()
+    # ---------------------------------------------------
+    # Prepare dataframe
+    # ---------------------------------------------------
+    grouped = (
+        df.groupby(["NumRegs", "NofOperandIfs"])[["CombArea", "SeqArea"]]
+        .sum()
+        .reset_index()
+    )
 
-    # Pivot CombArea and SeqArea separately
-    comb_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='CombArea')
-    seq_df = df.pivot_table(index='NofRss', columns='NofResRspIfs', values='SeqArea')
+    num_regs = sorted(grouped["NumRegs"].unique())
+    operand_ifs = sorted(grouped["NofOperandIfs"].unique())
 
-    ports = comb_df.columns
-    n_groups = len(comb_df.index)
-    n_bars = len(ports)
-    x = np.arange(n_groups)
-    width = 0.8 / n_bars
+    x = np.arange(len(num_regs))
 
-    # Use the default color cycle, darken for SeqArea
-    fig, ax = plt.subplots()
+    # total width occupied by all bars at one x-position
+    total_width = 0.8
+    bar_width = total_width / len(operand_ifs)
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+
     prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
-    for i, p in enumerate(ports):
-        base_color = prop_cycle[i % len(prop_cycle)]
-        # Convert hex to RGB, create a darker shade for SeqArea
-        from matplotlib.colors import to_rgba
-        rgba = to_rgba(base_color)
-        light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
+    # ---------------------------------------------------
+    # Helper for lighter seq color
+    # ---------------------------------------------------
+    def lighten(color, factor=0.5):
+        rgba = to_rgba(color)
+        return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
 
-        offset = (i - (n_bars - 1) / 2) * width
-        ax.bar(x + offset, comb_df[p], width, label=f'{p} port{"" if int(p) == 1 else "s"} (comb)',
-               color=base_color, zorder=3)
-        ax.bar(x + offset, seq_df[p], width, bottom=comb_df[p],
-               label=f'{p} port{"" if int(p) == 1 else "s"} (seq)', color=light, zorder=3)
+    legend_handles = []
 
-    ax.set_ylabel('Area [kGE]')
+    # ---------------------------------------------------
+    # Plot grouped stacked bars
+    # ---------------------------------------------------
+    for j, nof_if in enumerate(operand_ifs):
+
+        color = prop_cycle[j % len(prop_cycle)]
+        seq_color = lighten(color)
+
+        subset = grouped[grouped["NofOperandIfs"] == nof_if]
+
+        comb = []
+        seq = []
+
+        for nr in num_regs:
+            row = subset[subset["NumRegs"] == nr]
+
+            if len(row) == 0:
+                comb.append(0)
+                seq.append(0)
+            else:
+                comb.append(row["CombArea"].values[0])
+                seq.append(row["SeqArea"].values[0])
+
+        # center grouped bars around x-position
+        offset = (
+            -total_width / 2
+            + j * bar_width
+            + bar_width / 2
+        )
+
+        xpos = x + offset
+
+        # combinational
+        ax.bar(
+            xpos,
+            comb,
+            bar_width,
+            color=color,
+            zorder=3
+        )
+
+        # sequential stacked on top
+        ax.bar(
+            xpos,
+            seq,
+            bar_width,
+            bottom=comb,
+            color=seq_color,
+            zorder=3
+        )
+
+        # legend
+        legend_handles.extend([
+            Patch(facecolor=color,
+                  label=f"{nof_if} op ports (comb)"),
+            Patch(facecolor=seq_color,
+                  label=f"{nof_if} op ports (seq)")
+        ])
+
+    # ---------------------------------------------------
+    # Axes styling
+    # ---------------------------------------------------
+    ax.set_ylabel("Area [kGE]")
     ax.set_xticks(x)
+
     if hide_x_axis:
-        ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+        ax.tick_params(axis='x', which='both',
+                       bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of RSEs')
-        ax.set_xticklabels(comb_df.index)
-    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
-    ax.grid(True, axis='y')
+        ax.set_xlabel("Number of GPR")
+        ax.set_xticklabels(num_regs)
+
+    ax.grid(True, axis='y', zorder=0)
+
+    ax.legend(
+        handles=legend_handles,
+        ncol=3,
+        fontsize=8
+    )
+
     fig.tight_layout()
 
     if show:
         plt.show()
 
-    return df.pivot_table(index='NofRss', columns='NofResRspIfs', values='StdCellArea')
-
-
-def plot_constants(dir=None, show=False, hide_x_axis=False):
-    df = results(dir=dir)
-    df = df[(df['ConsumerCount'] == 64) & (df['NofRss'] == 4) & (df['NofOperands'] == 3)]
-    print(df)
-
-    # Pivot CombArea and SeqArea separately
-    comb_df = df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='CombArea')
-    seq_df = df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='SeqArea')
-
-    ports = comb_df.columns
-    n_groups = len(comb_df.index)
-    n_bars = len(ports)
-    x = np.arange(n_groups)
-    width = 0.8 / n_bars
-
-    # Use the default color cycle, darken for SeqArea
-    fig, ax = plt.subplots()
-    prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
-    for i, p in enumerate(ports):
-        base_color = prop_cycle[i % len(prop_cycle)]
-        # Convert hex to RGB, create a darker shade for SeqArea
-        from matplotlib.colors import to_rgba
-        rgba = to_rgba(base_color)
-        light = tuple(c + (1 - c) * 0.5 for c in rgba[:3]) + (rgba[3],)
-
-        offset = (i - (n_bars - 1) / 2) * width
-        ax.bar(x + offset, comb_df[p], width, label=f'{p} port{"" if int(p) == 1 else "s"} (comb)',
-               color=base_color, zorder=3)
-        ax.bar(x + offset, seq_df[p], width, bottom=comb_df[p],
-               label=f'{p} port{"" if int(p) == 1 else "s"} (seq)', color=light, zorder=3)
-
-    ax.set_ylabel('Area [kGE]')
-    ax.set_xticks(x)
-    if hide_x_axis:
-        ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
-    else:
-        ax.set_xlabel('Number of CMEs')
-        ax.set_xticklabels(comb_df.index)
-    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
-    ax.grid(True, axis='y')
-    fig.tight_layout()
-
-    if show:
-        plt.show()
-
-    return df.pivot_table(index='NofConstants', columns='NofResRspIfs', values='StdCellArea')
+    return grouped
 
 
 def linear_regression(dir=None):
@@ -184,8 +212,30 @@ def linear_regression_constants(dir=None):
     return fits
 
 
-def main():
+def plot1():
     print(results())
+
+def plot2():
+    plot_operand_ifs(show=True)
+
+def main():
+    plots = [plot1, plot2]
+    plot_dict = {f.__name__: f for f in plots}
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'plots',
+        nargs='+',
+        choices=plot_dict.keys(),
+        default=plot_dict.keys(),
+        help='Select which plots to show (default: all)'
+    )
+    args = parser.parse_args()
+
+    # Generate selected plots
+    for name in args.plots:
+        _ = plot_dict[name]()
 
 
 if __name__ == '__main__':
