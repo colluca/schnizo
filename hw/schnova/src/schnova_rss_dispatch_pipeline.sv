@@ -244,7 +244,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         is_fp: selected_slot.operands[op].is_fp
       };
 
-      op_reqs_valid_o[op] = disp_req_valid_i && selected_slot.is_occupied &&
+      op_reqs_valid_o[op] = selected_slot.is_occupied &&
                             !selected_slot.operands[op].is_valid;
     end
   end

@@ -4,7 +4,9 @@ module schnova_phys_regfile_synth #(
   parameter int unsigned NrWritePorts = 1,
   parameter int unsigned NofOperandIfs = 1,
   parameter bit          ZeroRegZero = 0,
-  parameter int unsigned AddrWidth = 4,
+  parameter int unsigned PhysAddrWidth = 6,
+  parameter int unsigned NumRegs      = 32,
+  localparam int unsigned AddrWidth = $clog2(NumRegs),
   localparam type        phy_id_t = logic [AddrWidth-1:0],
   localparam type        operand_req_t = struct packed {
     phy_id_t  phy_reg; // which physical register we request
@@ -22,7 +24,7 @@ module schnova_phys_regfile_synth #(
   input  logic [NrWritePorts-1:0][DataWidth-1:0]  wdata_i,
   input  logic [NrWritePorts-1:0]                 we_i,
   // Scoreboard read port
-  output logic [NofOperandIfs-1:0][AddrWidth-1:0] sb_raddr_o,
+  output logic [NofOperandIfs-1:0][PhysAddrWidth-1:0] sb_raddr_o,
   input  logic [NofOperandIfs-1:0]                sb_reg_busy_i,
   // operand request  port
   input operand_req_t [NofOperandIfs-1:0]         op_reqs_i,
@@ -41,7 +43,9 @@ module schnova_phys_regfile_synth #(
     .NofOperandIfs (NofOperandIfs),
     .NrWritePorts  (NrWritePorts),
     .ZeroRegZero   (ZeroRegZero),
+    .PhysAddrWidth (PhysAddrWidth),
     .AddrWidth     (AddrWidth),
+    .NumRegs       (NumRegs),
     .operand_req_t (operand_req_t)
   ) i_phy_regfile (
     .clk_i,
