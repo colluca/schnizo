@@ -480,8 +480,11 @@ def plot3():
 def plot4():
     plot_core_breakdown(name='gp_sv8')
 
+def plot5():
+    print(results())
+
 def main():
-    plots = [plot1, plot2, plot3, plot4]
+    plots = [plot1, plot2, plot3, plot4, plot5]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
