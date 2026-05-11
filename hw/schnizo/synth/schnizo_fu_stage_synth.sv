@@ -53,39 +53,45 @@ module schnizo_fu_stage_synth #(
 );
 
   localparam integer unsigned NofOperandIfs = NofAlus * 2 +
-                                              NofLsus * 3 +
+                                              NofLsus * 4 +
                                               NofFpus * 3;
 
   localparam integer unsigned NofResReqIfs = NofAlus + NofLsus + NofFpus;
-
-  localparam integer unsigned NofResRspIfs = NofAlus * NofRss +
-                                             NofLsus * NofRss +
-                                             NofFpus * NofRss;
 
   schnizo_fu_stage #(
     .Xfrep(Xfrep),
     .MulInAlu0(MulInAlu0),
     .NofAlus(NofAlus),
     .AluNofRss(NofRss),
+    .AluNofConstants(4),
     .AluNofOperands(2),
-    .AluNofOpPorts(1),
     .AluNofResReqIfs(1),
-    .AluNofResRspIfs(NofRss),
+    .AluNofResRspPorts(1),
     .NofLsus(NofLsus),
     .LsuNofRss(NofRss),
-    .LsuNofOperands(3),
-    .LsuNofOpPorts(1),
+    .LsuNofConstants(4),
+    .LsuNofOperands(4),
     .LsuNofResReqIfs(1),
-    .LsuNofResRspIfs(NofRss),
+    .LsuNofResRspPorts(1),
     .NofFpus(NofFpus),
     .FpuNofRss(NofRss),
+    .FpuNofConstants(4),
     .FpuNofOperands(3),
-    .FpuNofOpPorts(1),
     .FpuNofResReqIfs(1),
-    .FpuNofResRspIfs(NofRss),
+    .FpuNofResRspPorts(1),
+    .VlsuNofRss(1),
+    .VlsuNofConstants(4),
+    .VlsuNofOperands(2),
+    .VlsuNofResRspPorts(1),
+    .VfuNofRss(1),
+    .VfuNofConstants(4),
+    .VfuNofOperands(2),
+    .VfuNofResRspPorts(1),
+    .NofVFU(1),
+    .NofVLSU(1),
     .NofOperandIfs(NofOperandIfs),
     .NofResReqIfs(NofResReqIfs),
-    .NofResRspIfs(NofResRspIfs),
+    .RVV(0),
     .XLEN(schnizo_synth_pkg::XLEN),
     .FLEN(schnizo_synth_pkg::FLEN),
     .OpLen(schnizo_synth_pkg::OpLen),
@@ -130,12 +136,17 @@ module schnizo_fu_stage_synth #(
     .all_rs_finish_o,
     .disp_req_i,
     .instr_exec_commit_i,
+    .fpu_instr_exec_commit_i(instr_exec_commit_i),
     .alu_trace_o(),
     .lsu_trace_o(),
     .fpu_trace_o(),
+    .vfu_trace_o(),
+    .vlsu_trace_o(),
     .alu_retire_trace_o(),
     .lsu_retire_trace_o(),
     .fpu_retire_trace_o(),
+    .vfu_retire_trace_o(),
+    .vlsu_retire_trace_o(),
     .alu_disp_reqs_valid_i,
     .alu_disp_reqs_ready_o,
     .alu_disp_rsp_o,
@@ -172,7 +183,18 @@ module schnizo_fu_stage_synth #(
     .fpu_wb_result_o,
     .fpu_wb_result_tag_o,
     .fpu_wb_result_valid_o,
-    .fpu_wb_result_ready_i
+    .fpu_wb_result_ready_i,
+    .vfu_disp_reqs_valid_i('0),
+    .vfu_disp_reqs_ready_o(),
+    .vfu_disp_rsp_o(),
+    .vfu_loop_finish_o(),
+    .vfu_rs_full_o(),
+    .vfu_wb_result_o(),
+    .vfu_wb_result_tag_o(),
+    .vfu_wb_result_valid_o(),
+    .vfu_wb_result_ready_i('1),
+    .vfu_tcdm_req_o(),
+    .vfu_tcdm_rsp_i('0)
   );
 
 endmodule
