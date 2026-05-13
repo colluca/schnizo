@@ -32,6 +32,9 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   input  logic rs_full_i,
   // Asserted if all reservation stations have no instructions in flight.
   input  logic all_rs_finish_i,
+  // Asserted (combinationally) when the instruction at the dispatch stage would write a vector
+  // register that was already written earlier in LCP1 ? i.e. a WAR hazard is present.
+  input  logic lcp1_second_write_i,
 
   // Request a loop start at the current instruction address. Any errors will be checked by the
   // controller which then asserts the commit signal if no errors arose.
@@ -142,7 +145,7 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
                              instr_valid_i;
 
   logic exit_frep;
-  assign exit_frep = (unsupported_instr || rs_full_i) &&
+  assign exit_frep = (unsupported_instr || rs_full_i || lcp1_second_write_i) &&
                      (loop_info_q.loop_state inside {LoopLcp1}) &&
                      instr_valid_i && !wait_for_retirement_q;
   logic lep_ends;

@@ -104,8 +104,7 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   lcp_dispatch_detail_t lcp_dispatch_queue[NofFus][$];
 
-  // verilog_lint: waive-start always-ff-non-blocking
-  always_ff @(posedge clk_i) begin
+  always @(posedge clk_i) begin
     string trace_header;
     string dispatch_event;
     lcp_dispatch_detail_t lcp_details;

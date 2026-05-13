@@ -84,52 +84,59 @@ module schnizo_vlsu
   logic [NrMemPorts-1:0]  store_sent_q;   // which store ports accepted so far
 
   // Load response accumulation
-  elen_t [NrMemPorts-1:0] rsp_data_q;
-  logic  [NrMemPorts-1:0] rsp_valid_q;
+  elen_t [NrMemPorts-1:0] rsp_data_q,  rsp_data_d;
+  logic  [NrMemPorts-1:0] rsp_valid_q, rsp_valid_d;
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      req_q        <= '0;
-      store_data_q <= '0;
-      store_sent_q <= '0;
-      rsp_data_q   <= '0;
-      rsp_valid_q  <= '0;
-    end else begin
-      // Capture new request only when it is actually accepted (valid && ready).
-      // For loads that is always; for stores vrf_rvalid_i[0] must be 1 so that
-      // store_data_q holds real VRF data and not a stale/garbage value.
-      if (state_q == IDLE && spatz_req_valid_i &&
-          (spatz_req_i.op_mem.is_load || vrf_rvalid_i[0])) begin
-        req_q <= spatz_req_i;
-        if (spatz_req_i.op_mem.is_load) begin
-          rsp_valid_q <= '0;
-        end else begin
-          // Latch VRF data (combinational) and accepted-ports mask for STORE_ISSUE retry
-          store_data_q <= vrf_rdata_i[0];
-          store_sent_q <= spatz_mem_req_ready_i;
-        end
+  spatz_req_t            req_d;
+  vrf_data_t             store_data_d;
+  logic [NrMemPorts-1:0] store_sent_d;
+
+  always_comb begin : proc_registered_state_d
+    req_d        = req_q;
+    store_data_d = store_data_q;
+    store_sent_d = store_sent_q;
+    rsp_data_d   = rsp_data_q;
+    rsp_valid_d  = rsp_valid_q;
+
+    // Capture new request only when it is actually accepted (valid && ready).
+    // For loads that is always; for stores vrf_rvalid_i[0] must be 1 so that
+    // store_data_q holds real VRF data and not a stale/garbage value.
+    if (state_q == IDLE && spatz_req_valid_i &&
+        (spatz_req_i.op_mem.is_load || vrf_rvalid_i[0])) begin
+      req_d = spatz_req_i;
+      if (spatz_req_i.op_mem.is_load) begin
+        rsp_valid_d = '0;
+      end else begin
+        // Latch VRF data (combinational) and accepted-ports mask for STORE_ISSUE retry
+        store_data_d = vrf_rdata_i[0];
+        store_sent_d = spatz_mem_req_ready_i;
       end
+    end
 
-      // Accumulate load responses as they arrive (possibly out of order)
-      if (state_q == LOAD_WAIT) begin
-        for (int p = 0; p < NrMemPorts; p++) begin
-          if (spatz_mem_rsp_valid_i[p] && !rsp_valid_q[p]) begin
-            rsp_data_q[p]  <= spatz_mem_rsp_i[p].data;
-            rsp_valid_q[p] <= 1'b1;
-          end
-        end
-      end
-
-      // Track which store ports have been accepted during STORE_ISSUE
-      if (state_q == STORE_ISSUE) begin
-        for (int p = 0; p < NrMemPorts; p++) begin
-          if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p]) begin
-            store_sent_q[p] <= 1'b1;
-          end
+    // Accumulate load responses as they arrive (possibly out of order)
+    if (state_q == LOAD_WAIT) begin
+      for (int p = 0; p < NrMemPorts; p++) begin
+        if (spatz_mem_rsp_valid_i[p] && !rsp_valid_q[p]) begin
+          rsp_data_d[p]  = spatz_mem_rsp_i[p].data;
+          rsp_valid_d[p] = 1'b1;
         end
       end
     end
+
+    // Track which store ports have been accepted during STORE_ISSUE
+    if (state_q == STORE_ISSUE) begin
+      for (int p = 0; p < NrMemPorts; p++) begin
+        if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p])
+          store_sent_d[p] = 1'b1;
+      end
+    end
   end
+
+  `FF(req_q,        req_d,        '0, clk_i, rst_ni)
+  `FF(store_data_q, store_data_d, '0, clk_i, rst_ni)
+  `FF(store_sent_q, store_sent_d, '0, clk_i, rst_ni)
+  `FF(rsp_data_q,   rsp_data_d,   '0, clk_i, rst_ni)
+  `FF(rsp_valid_q,  rsp_valid_d,  '0, clk_i, rst_ni)
 
   ////////////////////////////////////////////////////////
   //  Combinatorial response accumulation (same-cycle)  //
@@ -309,7 +316,7 @@ module schnizo_vlsu
   // In normal snitch-cluster operation TCDM is always ready; this fires if
   // the fall-back STORE_ISSUE path is ever triggered (useful for debug).
   // synthesis translate_off
-  always_ff @(posedge clk_i) begin
+  always @(posedge clk_i) begin
     if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE)) begin
       $display("[schnizo_vlsu] WARNING: TCDM back-pressure on store ? entering STORE_ISSUE");
     end

@@ -1681,6 +1681,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .NumFPUs            (NumSpatzFPUs),
       .NumIPUs            (NumSpatzIPUs),
       .FPUImplementation  (FPUImplementation),
+      .VlsuNofRss         (VlsuNofRss),
+      .VfuNofRss          (VfuNofRss),
       .issue_req_t        (issue_req_t),
       .tcdm_req_chan_t    (tcdm_req_chan_t),
       .tcdm_rsp_chan_t    (tcdm_rsp_chan_t)
@@ -1700,7 +1702,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .tcdm_req_ready_i   (vfu_tcdm_req_ready_chan),
       .tcdm_rsp_i         (vfu_tcdm_rsp_chan),
       .tcdm_rsp_valid_i   (vfu_tcdm_rsp_valid_chan),
-      .busy_o             (/* covered by ~issue_req_ready per port */)
+      .busy_o             (/* covered by ~issue_req_ready per port */),
+      .loop_state_i       (loop_state_i)
     );
 
     // Wire internal chan signals to external tcdm_req_t / tcdm_rsp_t ports

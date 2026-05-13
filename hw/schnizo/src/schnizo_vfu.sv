@@ -21,6 +21,9 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   parameter int unsigned NumFPUs    = 4,
   parameter int unsigned NumIPUs    = 1,
   parameter fpnew_pkg::fpu_implementation_t FPUImplementation = '0,
+  // WAR hazard tracking: RS depths needed to size the consumer counters in spatz_vrf
+  parameter int unsigned VlsuNofRss = 1,
+  parameter int unsigned VfuNofRss  = 1,
 
   /// Derived parameter *Do not override*
   parameter int unsigned NumMemPorts         = (NumFPUs > NumIPUs) ? NumFPUs : NumIPUs,
@@ -61,7 +64,10 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   input  tcdm_rsp_chan_t [TCDMPorts-1:0] tcdm_rsp_i,
   input  logic           [TCDMPorts-1:0] tcdm_rsp_valid_i,
 
-  output logic [NumFuPorts-1:0] busy_o
+  output logic [NumFuPorts-1:0] busy_o,
+
+  // Loop state for WAR hazard tracking (LEP write gating in spatz_vrf)
+  input  loop_state_e          loop_state_i
 );
 
   ////////////////
@@ -195,22 +201,27 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   /////////
 
   spatz_vrf #(
-    .NrReadPorts (NrReadPorts ),
-    .NrWritePorts(NrWritePorts),
-    .FpuBufDepth (4           )
+    .NrReadPorts  (NrReadPorts ),
+    .NrWritePorts (NrWritePorts),
+    .FpuBufDepth  (4           ),
+    .NofVLSU      (NofVLSU     ),
+    .NofVFU       (NofVFU      ),
+    .VlsuNofRss   (VlsuNofRss  ),
+    .VfuNofRss    (VfuNofRss   )
   ) i_vrf (
-    .clk_i      (clk_i    ),
-    .rst_ni     (~rst_i   ),
-    .testmode_i ('0       ),
-    .waddr_i    (vrf_waddr),
-    .wdata_i    (vrf_wdata),
-    .we_i       (vrf_we   ),
-    .wbe_i      (vrf_wbe  ),
-    .wvalid_o   (vrf_wvalid),
-    .raddr_i    (vrf_raddr),
-    .re_i       (vrf_re   ),
-    .rdata_o    (vrf_rdata),
-    .rvalid_o   (vrf_rvalid)
+    .clk_i         (clk_i        ),
+    .rst_ni        (~rst_i       ),
+    .testmode_i    ('0           ),
+    .waddr_i       (vrf_waddr    ),
+    .wdata_i       (vrf_wdata    ),
+    .we_i          (vrf_we       ),
+    .wbe_i         (vrf_wbe      ),
+    .wvalid_o      (vrf_wvalid   ),
+    .loop_state_i  (loop_state_i ),
+    .raddr_i       (vrf_raddr    ),
+    .re_i          (vrf_re       ),
+    .rdata_o       (vrf_rdata    ),
+    .rvalid_o      (vrf_rvalid   )
   );
 
   ///////////

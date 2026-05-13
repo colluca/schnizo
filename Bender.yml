@@ -168,6 +168,8 @@ sources:
       # Level 0
       - hw/spatz/hw/ip/spatz/src/reorder_buffer.sv
       - hw/spatz/hw/ip/spatz/src/rvv_pkg.sv
+      # Level 0
+      - hw/schnizo/src/schnizo_pkg.sv
       # Level 1
       - hw/spatz/hw/ip/spatz/src/generated/spatz_pkg.sv
       - hw/spatz/hw/ip/spatz/src/spatz_serdiv.sv
@@ -200,8 +202,6 @@ sources:
 
   # schnizo
   - files:
-      # Level 0
-      - hw/schnizo/src/schnizo_pkg.sv
       # Level 1
       # TODO(colluca): update
       - hw/schnizo/src/schnizo_tracer_pkg.sv

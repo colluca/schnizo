@@ -164,6 +164,23 @@ module schnizo_controller import schnizo_pkg::*; #(
     logic [FrepBodySizeWidth-1:0] loop_bodysize;
     assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
 
+    // Dispatch-time WAR detection: set when a vec-write instruction is dispatched in LCP1;
+    // fires combinationally when the next dispatch would re-write the same register.
+    logic [2**RegAddrSize-1:0] lcp1_wr_seen_q, lcp1_wr_seen_d;
+    logic lcp1_second_write;
+
+    always_comb begin : proc_lcp1_wr_seen_d
+      lcp1_wr_seen_d = (loop_state_o != LoopLcp1) ? '0 : lcp1_wr_seen_q;
+      if (loop_state_o == LoopLcp1 && instr_dispatched && instr_decoded_i.rd_is_vec)
+        lcp1_wr_seen_d[instr_decoded_i.rd] = 1'b1;
+    end
+    `FFAR(lcp1_wr_seen_q, lcp1_wr_seen_d, '0, clk_i, rst_i)
+
+    assign lcp1_second_write = (loop_state_o == LoopLcp1)
+                               && instr_valid_i
+                               && instr_decoded_i.rd_is_vec
+                               && lcp1_wr_seen_q[instr_decoded_i.rd];
+
     schnizo_loop_controller #(
       .AddrWidth     (32),
       .MaxBodysizeW  (FrepBodySizeWidth),
@@ -181,8 +198,9 @@ module schnizo_controller import schnizo_pkg::*; #(
       .next_instr_addr_i(pc_q + 'd4),
       .stall_i          (stall_o),
       .exception_i      (exception_o),
-      .rs_full_i        (rs_full_i),
-      .all_rs_finish_i  (all_rs_finish_i),
+      .rs_full_i              (rs_full_i),
+      .all_rs_finish_i        (all_rs_finish_i),
+      .lcp1_second_write_i    (lcp1_second_write),
 
       .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
       .loop_start_commit_i(instr_decoded_i.is_frep & frep_exec_commit),
@@ -203,6 +221,7 @@ module schnizo_controller import schnizo_pkg::*; #(
       .rs_restart_o    (rs_restart_o),
       .goto_hw_loop_o  (goto_hw_loop)
     );
+
   end else begin : gen_no_loop_ctrl
     assign loop_start_ready = 1'b0;
     assign loop_jump        = 1'b0;
@@ -215,6 +234,8 @@ module schnizo_controller import schnizo_pkg::*; #(
     assign lep_iterations_o = '0;
     assign rs_restart_o     = 1'b1;
     assign goto_hw_loop     = 1'b0;
+    logic lcp1_second_write;
+    assign lcp1_second_write = 1'b0;
   end
 
   ////////////////
