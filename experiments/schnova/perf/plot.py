@@ -233,14 +233,15 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
             return None
 
         # Keep only expected FU structure
-        if not (nof_alus == 3 and nof_lsus == 3 and nof_fpus == 1):
-            return None
 
-        if vary_by == "slots":
-            # Only valid if all slot counts are identical
-            if alu_slots == lsu_slots == fpu_slots:
-                return alu_slots
-            return None
+        if vary_by == "alu_slots":
+            return alu_slots
+        
+        elif vary_by == "lsu_slots":
+            return lsu_slots
+        
+        elif vary_by == "fpu_slots":
+            return fpu_slots
 
         elif vary_by == "gpr":
             return gpr
@@ -254,17 +255,12 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         return None
 
     xlabel_map = {
-        "slots": "Number of Slots",
+        "alu_slots": "Number of ALU Slots",
+        "lsu_slots": "Number of LSU Slots",
+        "fpu_slots": "Number of FPU Slots",
         "gpr": "Number of Physical General Purpose Registers",
         "fpr": "Number of Physical General Floating Point Registers",
         "rob_entries": "Number of ROB Entries",
-    }
-
-    title_map = {
-        "slots": "Slots",
-        "gpr": "Number of Physical General Purpose Registers",
-        "fpr": "Number of Physical General Floating Point Registers",
-        "rob_entries": "ROB Entries",
     }
 
     plot_df = df[df["mode"] == "superscalar"].copy()
@@ -314,10 +310,6 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
 
     ax.set_xlabel(xlabel_map[vary_by])
     ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
-    ax.set_title(
-        f"Geomean {metric.upper()} vs {title_map[vary_by]} "
-        f"(Pipeline Width = {width})"
-    )
 
     ax.grid(True, axis="both", alpha=0.4)
     ax.set_xticks(x)
@@ -336,7 +328,6 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
     )
     for value, gm in geomean_data.items():
         print(
-            f"{title_map[vary_by]:>18} {value:>4}: "
             f"{format_metric(gm, metric)}"
         )
 
@@ -456,7 +447,7 @@ def main():
 
     parser.add_argument(
         "--vary",
-        choices=["slots", "gpr", "fpr", "rob_entries"],
+        choices=["alu_slots", "lsu_slots", "fpu_slots", "gpr", "fpr", "rob_entries"],
         default="slots",
         help="Hardware parameter to vary for plot8 "
              "(default: slots)"

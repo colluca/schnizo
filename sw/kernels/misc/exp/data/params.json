@@ -5,4 +5,5 @@
 {
     len: 128,
     batch_size: 64,
+    funcptr: "vexpf_schnizo"
 }

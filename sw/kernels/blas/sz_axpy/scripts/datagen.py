@@ -20,6 +20,7 @@ class AxpyDataGen(du.DataGen):
                 "axpy_fma",
                 "axpy_opt",
                 "axpy_schnizo",
+                "axpy_schnova_unroll",
                 "axpy_schnova",
                 "axpy_baseline"]
 

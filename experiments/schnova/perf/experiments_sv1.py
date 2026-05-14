@@ -65,12 +65,13 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    #cfgs = ['3x32_3x32_1x64',
-    #        '1x128_1x32_1x64',
-    #        'sv_1_3x4_3x4_1x4_6_16',
-    #        'sv_2_3x8_3x8_1x8_6_32',
-    #        'sv_4_3x16_3x16_1x16_6_64',
-    #        'sv_8_3x32_3x32_1x32_6_64']
+    cfgs = [
+            'sv_1_1x1_1x128_1x128_128_128_256',
+            'sv_1_1x2_1x128_1x128_128_128_256',
+            'sv_1_1x4_1x128_1x128_128_128_256',
+            'sv_1_1x8_1x128_1x128_128_128_256',
+            'sv_1_1x16_1x128_1x128_128_128_256',
+    ]
 
 
     modes = ['scalar', 'superscalar']
@@ -109,7 +110,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnova',
+                                'funcptr': 'dot_schnizo',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -122,7 +123,9 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnova',
+                                # Use an unrolled version of the axpy schnova kernel
+                                # Its the same as axpy_baseline but using the superscalar frep mode
+                                'funcptr': 'axpy_schnova_unroll',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -139,6 +142,7 @@ def gen_experiments(ci=False):
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
+                                'func_ptr': 'vexpf_schnizo',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -152,6 +156,7 @@ def gen_experiments(ci=False):
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
+                                'func_ptr': 'vlogf_schnizo',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -171,7 +176,7 @@ def gen_experiments(ci=False):
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_schnova',
+                                    'func_ptr': 'calculate_psum_schnizo',
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                         sim_bin, "${elf}"],

@@ -148,6 +148,63 @@ static inline void axpy_schnizo(uint32_t n, double a, double *x, double *y,
     snrt_mcycle();
 }
 
+
+static inline void axpy_schnova_unroll(uint32_t n, double a, double *x, double *y,
+                                double *z) {
+    int core_idx = snrt_cluster_core_idx();
+    int num_cores = snrt_cluster_compute_core_num();
+    int frac = n / num_cores;
+    int offset = core_idx;
+
+
+    double *x_base = &x[offset];
+    double *y_base = &y[offset];
+    double *z_base = &z[offset];
+    uint32_t stride = num_cores * sizeof(double);
+    uint32_t stride_4x = 4 * stride;
+    uint32_t loop_count = (frac / 4) - 1;
+
+    snrt_mcycle();
+
+    asm volatile(
+        "frep.o %[loop_count], 19, 0, 0 \n"
+        // Load x0, y0
+        "fld     ft0, 0(%[x_base])         \n"
+        "fld     ft1, 0(%[y_base])         \n"
+        // Load x1, y1
+        "fld     ft2, %[stride](%[x_base])  \n"
+        "fld     ft3, %[stride](%[y_base])  \n"
+        // Load x2, y2
+        "fld     ft4, %[stride_2x](%[x_base])      \n"
+        "fld     ft5, %[stride_2x](%[y_base])      \n"
+        // Load x3, y3
+        "fld     ft6, %[stride_3x](%[x_base])      \n"
+        "fld     ft7, %[stride_3x](%[y_base])      \n"
+        // Compute z0 = a*x0 + y0, z1 = a*x1 + y1
+        "fmadd.d fs0, %[a], ft0, ft1       \n"
+        "fmadd.d fs1, %[a], ft2, ft3       \n"
+        // Compute z2 = a*x2 + y2, z3 = a*x3 + y3
+        "fmadd.d fs2, %[a], ft4, ft5       \n"
+        "fmadd.d fs3, %[a], ft6, ft7       \n"
+        // Store z0, z1, z2, z3
+        "fsd     fs0, 0(%[z_base])         \n"
+        "fsd     fs1, %[stride](%[z_base])  \n"
+        "fsd     fs2, %[stride_2x](%[z_base])      \n"
+        "fsd     fs3, %[stride_3x](%[z_base])      \n"
+        // Increment pointers
+        "add     %[x_base], %[x_base], %[stride_4x] \n"
+        "add     %[y_base], %[y_base], %[stride_4x] \n"
+        "add     %[z_base], %[z_base], %[stride_4x] \n"
+        : [ x_base ] "+r"(x_base), [ y_base ] "+r"(y_base),
+          [ z_base ] "+r"(z_base)
+        : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
+          [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
+          [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
+        : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
+          "fs2", "fs3", "memory");
+    snrt_mcycle();
+}
+
 static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
                                 double *z) {
     int core_idx = snrt_cluster_core_idx();

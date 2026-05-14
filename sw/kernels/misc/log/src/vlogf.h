@@ -4,30 +4,8 @@
 //
 // Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-#define IMPL_NAIVE 0
-#define IMPL_BASELINE 1
-#define IMPL_OPTIMIZED 2
-#define IMPL_ISSR 3
-#define IMPL_OPTIMIZED_V2 4
-#define IMPL_SCHNIZO 5
-#define IMPL_SCHNOVA 6
-
-#ifndef IMPL
-#define IMPL IMPL_SCHNOVA
-#endif
-
-#if IMPL == IMPL_NAIVE
-#define FUNC_PTR vlogf_naive
-#elif IMPL == IMPL_BASELINE
-#define FUNC_PTR vlogf_baseline
-#elif IMPL == IMPL_OPTIMIZED || IMPL == IMPL_ISSR
-#define FUNC_PTR vlogf_optimized
-#elif IMPL == IMPL_OPTIMIZED_V2
-#define FUNC_PTR vlogf_optimized_v2
-#elif IMPL == IMPL_SCHNIZO
+#ifndef FUNC_PTR
 #define FUNC_PTR vlogf_schnizo
-#elif IMPL == IMPL_SCHNOVA
-#define FUNC_PTR vlogf_schnova
 #endif
 
 #define ALLOCATE_BUFFER(type, size) \
