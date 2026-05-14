@@ -34,7 +34,7 @@ int main() {
     // Vector length (N elements of 64-bit)
     asm volatile("vsetvli zero, %0, e64, m1, ta, ma" ::"r"(N));
 
-    int frep_count = n_iter / 2;        // each frep iteration does two vector adds
+    int frep_count = (n_iter/2) - 1;        // each frep iteration does two vector adds
     int sz = N * 8;                     // stride for 4 elements (32 bytes)
 
     // frep.o repeats the following block frep_count times.

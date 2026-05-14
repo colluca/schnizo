@@ -48,7 +48,7 @@ int main() {
         "addi     %[py], %[py], %[sz]     \n"   // advance y pointer
         "addi     %[pz], %[pz], %[sz]     \n"   // advance z pointer
         : [px] "+r"(px), [py] "+r"(py), [pz] "+r"(pz)
-        : [iter] "r"(n_iter), [alpha] "r"(alpha), [sz] "i"(VL * 4)
+        : [iter] "r"(n_iter - 1), [alpha] "r"(alpha), [sz] "i"(VL * 4)
         : "v0", "v1", "v2", "v3"
     );
 

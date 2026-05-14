@@ -9,6 +9,11 @@ runs:
   - elf: ../sw/tests/build/vfu_test_frep.elf
   - elf: ../sw/tests/build/vfu_test_axpy_frep_f32.elf
   - elf: ../sw/tests/build/vfu_test_axpy_frep_i32.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_1x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_2x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_4x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_6x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_8x_frep.elf
   - elf: ../sw/tests/build/vfu_test_vec_instr_1_int_vv.elf
   - elf: ../sw/tests/build/vfu_test_vec_instr_2_int_vx.elf
   - elf: ../sw/tests/build/vfu_test_vec_instr_3_int_vi_cmp.elf

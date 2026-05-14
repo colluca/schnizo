@@ -53,7 +53,11 @@ module schnizo_vlsu
   input  logic           [NrMemPorts-1:0] spatz_mem_rsp_valid_i,
 
   output logic spatz_mem_finished_o,
-  output logic spatz_mem_str_finished_o
+  output logic spatz_mem_str_finished_o,
+
+  // High whenever the VLSU has an instruction in flight (not IDLE).
+  // Does NOT pulse for fast stores that complete without leaving IDLE.
+  output logic busy_o
 );
 
 `include "common_cells/registers.svh"
@@ -301,6 +305,7 @@ module schnizo_vlsu
   assign spatz_mem_str_finished_o = vlsu_rsp_valid_o &&
                                     ((state_q == IDLE && !spatz_req_i.op_mem.is_load) ||
                                       state_q == STORE_ISSUE);
+  assign busy_o = (state_q != IDLE);
 
   // Unused
   assign vrf_id_o = '0;

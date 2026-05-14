@@ -1454,7 +1454,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     instr_tag_t    [VfuNumFuPorts-1:0] vfu_result_tag;
     logic          [VfuNumFuPorts-1:0] vfu_result_valid;
     logic          [VfuNumFuPorts-1:0] vfu_result_ready;
-    logic          [VfuNumFuPorts-1:0] vfu_busy;
+    logic          [VfuNumFuPorts-1:0] vfu_busy;  // driven by schnizo_vfu.busy_o
 
     // WB arbiter inputs
     typedef struct packed {
@@ -1465,6 +1465,9 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     vfu_result_and_tag_t [VfuNumFuPorts-1:0] vfu_wbs_result_and_tag;
     logic                [VfuNumFuPorts-1:0] vfu_wbs_result_valid;
     logic                [VfuNumFuPorts-1:0] vfu_wbs_result_ready;
+
+    logic [NofVLSU-1:0] vlsu_loop_finish;
+    logic [NofVFU-1:0]  vfu_arith_loop_finish;
 
     // One schnizo_fu_block per VLSU port (ports 0..NofVLSU-1)
     for (genvar p = 0; p < NofVLSU; p++) begin : gen_vlsu_blocks
@@ -1510,7 +1513,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         .lep_iterations_i   (lep_iterations_i),
         .goto_lcp2_i        (goto_lcp2_i),
         .fu_busy_i          (vfu_busy[p]),
-        .loop_finish_o      (/* VLSU has no loop state */),
+        .loop_finish_o      (vlsu_loop_finish[p]),
         .rs_full_o          (vfu_rs_full_o[p]),
         .disp_req_i         (disp_req_i),
         .disp_req_valid_i   (vfu_disp_reqs_valid_i[p]),
@@ -1546,7 +1549,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
       assign vfu_wbs_result_and_tag[p].result = vlsu_wb_result;
       assign vfu_wbs_result_and_tag[p].tag    = vlsu_wb_result_tag;
-      assign vfu_busy[p] = ~vfu_issue_req_ready[p];
 
       // pragma translate_off
       string vlsu_producer;
@@ -1610,7 +1612,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         .lep_iterations_i   (lep_iterations_i),
         .goto_lcp2_i        (goto_lcp2_i),
         .fu_busy_i          (vfu_busy[(NofVLSU + p)]),
-        .loop_finish_o      (/* VFU arith has no loop state */),
+        .loop_finish_o      (vfu_arith_loop_finish[p]),
         .rs_full_o          (vfu_rs_full_o[(NofVLSU + p)]),
         .disp_req_i         (disp_req_i),
         .disp_req_valid_i   (vfu_disp_reqs_valid_i[(NofVLSU + p)]),
@@ -1646,7 +1648,6 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
       assign vfu_wbs_result_and_tag[(NofVLSU + p)].result = vfu_arith_wb_result;
       assign vfu_wbs_result_and_tag[(NofVLSU + p)].tag    = vfu_arith_wb_result_tag;
-      assign vfu_busy[(NofVLSU + p)] = ~vfu_issue_req_ready[(NofVLSU + p)];
 
       // pragma translate_off
       string vfu_arith_producer;
@@ -1702,7 +1703,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       .tcdm_req_ready_i   (vfu_tcdm_req_ready_chan),
       .tcdm_rsp_i         (vfu_tcdm_rsp_chan),
       .tcdm_rsp_valid_i   (vfu_tcdm_rsp_valid_chan),
-      .busy_o             (/* covered by ~issue_req_ready per port */),
+      .busy_o             (vfu_busy),
       .loop_state_i       (loop_state_i)
     );
 
@@ -1737,8 +1738,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign vfu_wb_result_o   = vfu_wb_result_and_tag_out.result;
     assign vfu_wb_result_tag_o = vfu_wb_result_and_tag_out.tag;
 
-    // VFU has no hardware-loop state machine; always signal finished
-    assign vfu_loop_finish_o = 1'b1;
+    assign vfu_loop_finish_o = &vlsu_loop_finish & &vfu_arith_loop_finish;
 
   end else begin : gen_no_rvv_block
 

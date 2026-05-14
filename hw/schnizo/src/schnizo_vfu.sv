@@ -2,6 +2,8 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
+`include "common_cells/registers.svh"
+
 // Vector FU top-level for Schnizo (SIMD-oriented replacement for Spatz).
 //
 // Ports 0..NofVLSU-1 connect to schnizo_vlsu instances (memory ops).
@@ -104,6 +106,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   // VRF read ports
   vrf_addr_t [NrReadPorts-1:0] vrf_raddr;
   logic      [NrReadPorts-1:0] vrf_re;
+  logic      [NrReadPorts-1:0] vrf_re_first;
   vrf_data_t [NrReadPorts-1:0] vrf_rdata;
   logic      [NrReadPorts-1:0] vrf_rvalid;
 
@@ -207,7 +210,8 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     .NofVLSU      (NofVLSU     ),
     .NofVFU       (NofVFU      ),
     .VlsuNofRss   (VlsuNofRss  ),
-    .VfuNofRss    (VfuNofRss   )
+    .VfuNofRss    (VfuNofRss   ),
+    .SIMD         (1           )
   ) i_vrf (
     .clk_i         (clk_i        ),
     .rst_ni        (~rst_i       ),
@@ -220,6 +224,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     .loop_state_i  (loop_state_i ),
     .raddr_i       (vrf_raddr    ),
     .re_i          (vrf_re       ),
+    .re_first_i    (vrf_re_first ),
     .rdata_o       (vrf_rdata    ),
     .rvalid_o      (vrf_rvalid   )
   );
@@ -254,14 +259,9 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // Track the current vsew, updated on every accepted VCFG.
     // spatz_decoder defaults to EW_8; schnizo patches it to the last seen vsew.
     vew_e vsew_q;
-    always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i) begin
-        vsew_q <= MAXEW;
-      end
-      else if (is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT]) begin
-        vsew_q <= dec_rsp[PORT].spatz_req.vtype.vsew;
-      end
-    end
+    `FFLAR(vsew_q, dec_rsp[PORT].spatz_req.vtype.vsew,
+           is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT],
+           MAXEW, clk_i, rst_i)
 
     // Patch vsew and vl into the request before forwarding to the unit.
     // For widening instructions (vwmul etc.) the destination EEW is 2×SEW,
@@ -342,6 +342,13 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .fpu_status_o      (/* unused */                                       )
     );
 
+    // re_first for VFU/VSLDU read ports: fires one cycle after dispatch accept,
+    // which is the first cycle the unit drives re_i high.
+    logic vfu_dispatch_q;
+    `FFAR(vfu_dispatch_q, issue_req_valid_i[PORT] && unit_req_ready && !is_vcfg, 1'b0, clk_i, rst_i)
+    assign vrf_re_first[RD_BASE+2:RD_BASE] = {3{vfu_dispatch_q}};
+    assign vrf_re_first[RD_SLD]            = vfu_dispatch_q;
+
     // VCFG: return new vl computed from the decoded vtype.
     // Arithmetic/slide: result comes from the response FIFO.
     assign result_o[PORT]       = is_vcfg ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
@@ -395,36 +402,28 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     logic vlsu_result_valid_q;
     logic vlsu_pending_is_load_q;
     logic vlsu_can_issue;
+    logic vlsu_unit_busy;  // from schnizo_vlsu.busy_o (state_q != IDLE)
     assign vlsu_can_issue          = vlsu_spatz_req_ready[j] && issue_commit_i[j] && !vlsu_result_valid_q;
     assign vlsu_spatz_req_valid[j] = issue_req_valid_i[j] && issue_commit_i[j] && !vlsu_result_valid_q;
     assign issue_req_ready_o[j]    = vlsu_can_issue;
-    assign busy_o[j]               = ~vlsu_can_issue;
+    // busy_o: VLSU state machine is non-IDLE OR load result not yet consumed by RS.
+    // vlsu_result_valid_q covers the window between VLSU returning to IDLE and the
+    // RS consuming the load result, preventing premature lcp_finished assertion.
+    // Fast stores never leave IDLE (vlsu_unit_busy stays 0); vlsu_result_valid_q
+    // pulses for one cycle to cover their completion window.
+    assign busy_o[j]               = vlsu_unit_busy || vlsu_result_valid_q;
 
     // Track whether the issued instruction was a load.
     // Stores are retired at issue (retire_at_issue=true) so they must not generate
     // a result_valid pulse back to the RS ? that would underflow issue_in_flight_q.
-    always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i) begin
-        vlsu_pending_is_load_q <= 1'b0;
-      end
-      else if (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j]) begin
-        vlsu_pending_is_load_q <= vlsu_spatz_req[j].op_mem.is_load;
-      end
-    end
+    `FFLAR(vlsu_pending_is_load_q, vlsu_spatz_req[j].op_mem.is_load,
+           vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j], 1'b0, clk_i, rst_i)
 
     // Latch the one-shot vlsu_rsp_valid pulse; hold until downstream consumes.
     // For stores, self-clear next cycle (no result_ready_i will ever fire for them).
-    always_ff @(posedge clk_i or posedge rst_i) begin
-      if (rst_i) begin
-        vlsu_result_valid_q <= 1'b0;
-      end
-      else if (vlsu_rsp_valid[j]) begin
-        vlsu_result_valid_q <= 1'b1;
-      end
-      else if (vlsu_pending_is_load_q ? result_ready_i[j] : 1'b1) begin
-        vlsu_result_valid_q <= 1'b0;
-      end
-    end
+    `FFLAR(vlsu_result_valid_q, vlsu_rsp_valid[j],
+           vlsu_rsp_valid[j] || (vlsu_pending_is_load_q ? result_ready_i[j] : 1'b1),
+           1'b0, clk_i, rst_i)
 
     // Tag FIFO: push at issue for loads only; stores don't generate an RS result.
     stream_fifo #(
@@ -478,8 +477,12 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .spatz_mem_rsp_i         (spatz_mem_rsp      [j]             ),
       .spatz_mem_rsp_valid_i   (spatz_mem_rsp_valid[j]             ),
       .spatz_mem_finished_o    (/* unused */                        ),
-      .spatz_mem_str_finished_o(/* unused */                        )
+      .spatz_mem_str_finished_o(/* unused */                        ),
+      .busy_o                  (vlsu_unit_busy                      )
     );
+
+    // re_first for VLSU read ports: VLSU reads start on the same cycle as dispatch.
+    assign vrf_re_first[RD_BASE+1:RD_BASE] = {2{vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j]}};
 
     // TCDM wiring: VLSU j occupies ports [j*NumMemPorts +: NumMemPorts]
     for (genvar p = 0; p < NumMemPorts; p++) begin : gen_tcdm
