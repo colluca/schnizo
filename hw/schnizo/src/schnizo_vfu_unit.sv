@@ -48,7 +48,8 @@ module schnizo_vfu_unit import spatz_pkg::*, rvv_pkg::*, fpnew_pkg::*; #(
   input  vrf_data_t  [3:0] vrf_rdata_i,
   input  logic       [3:0] vrf_rvalid_i,
 
-  output status_t          fpu_status_o
+  output status_t          fpu_status_o,
+  output logic             vfu_req_first_o
 );
 
   // Route SLD ops to VSLDU, everything else to VFU.
@@ -112,6 +113,7 @@ module schnizo_vfu_unit import spatz_pkg::*, rvv_pkg::*, fpnew_pkg::*; #(
     .spatz_req_i       (spatz_req_i       ),
     .spatz_req_valid_i (vfu_req_valid     ),
     .spatz_req_ready_o (vfu_req_ready     ),
+    .spatz_req_first_o (vfu_req_first_o   ),
     .vfu_rsp_valid_o   (vfu_rsp_valid     ),
     .vfu_rsp_ready_i   (vfu_rsp_ready_i   ),
     .vfu_rsp_o         (vfu_rsp           ),

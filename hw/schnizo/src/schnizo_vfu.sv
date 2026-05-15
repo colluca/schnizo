@@ -316,6 +316,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     assign issue_req_ready_o[PORT] = is_vcfg ? result_ready_i[PORT] : unit_req_ready;
     assign busy_o[PORT]            = ~issue_req_ready_o[PORT];
 
+    logic vfu_req_first;
     schnizo_vfu_unit #(
       .FPUImplementation(FPUImplementation)
     ) i_unit (
@@ -339,15 +340,21 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .vrf_re_o          ({vrf_re   [RD_SLD], vrf_re   [RD_BASE+2:RD_BASE]} ),
       .vrf_rdata_i       ({vrf_rdata[RD_SLD], vrf_rdata[RD_BASE+2:RD_BASE]} ),
       .vrf_rvalid_i      ({vrf_rvalid[RD_SLD], vrf_rvalid[RD_BASE+2:RD_BASE]}),
-      .fpu_status_o      (/* unused */                                       )
+      .fpu_status_o      (/* unused */                                       ),
+      .vfu_req_first_o   (vfu_req_first                                      )
     );
 
-    // re_first for VFU/VSLDU read ports: fires one cycle after dispatch accept,
-    // which is the first cycle the unit drives re_i high.
+    // VFU re_first: spatz_vfu pulses this on the first cycle re_o goes high
+    // for each new instruction (running_q not yet set), eliminating the
+    // off-by-one that the old dispatch-latched version had with FALL_THROUGH=1.
+    assign vrf_re_first[RD_BASE+2:RD_BASE] = {3{vfu_req_first}};
+
+    // VSLDU re_first: spill_register has 1-cycle latency then one more cycle
+    // before running_q enables re_o, so firing one cycle after dispatch accept
+    // is still correct (re_i is 0 at that point ? last_read is harmless).
     logic vfu_dispatch_q;
     `FFAR(vfu_dispatch_q, issue_req_valid_i[PORT] && unit_req_ready && !is_vcfg, 1'b0, clk_i, rst_i)
-    assign vrf_re_first[RD_BASE+2:RD_BASE] = {3{vfu_dispatch_q}};
-    assign vrf_re_first[RD_SLD]            = vfu_dispatch_q;
+    assign vrf_re_first[RD_SLD] = vfu_dispatch_q;
 
     // VCFG: return new vl computed from the decoded vtype.
     // Arithmetic/slide: result comes from the response FIFO.

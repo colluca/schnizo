@@ -147,11 +147,15 @@ NONFREE_DIR = $(SN_ROOT)/nonfree
 .PHONY: nonfree clean-nonfree
 
 nonfree:
-	cd $(NONFREE_DIR) && \
-	git init && \
-	git remote add origin $(NONFREE_REMOTE) && \
-	git fetch origin && \
-	git checkout $(NONFREE_COMMIT) -f
+	@if [ -f "$(NONFREE_DIR)/Makefile" ]; then \
+		echo "nonfree already present (zip install), skipping git checkout."; \
+	else \
+		cd $(NONFREE_DIR) && \
+		git init && \
+		git remote add origin $(NONFREE_REMOTE) && \
+		git fetch origin && \
+		git checkout $(NONFREE_COMMIT) -f; \
+	fi
 
 clean-nonfree:
 	rm -rf $(NONFREE_DIR)
