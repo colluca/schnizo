@@ -64,16 +64,12 @@ module schnova_res_stat import schnova_pkg::*; #(
   input  logic       issue_req_ready_i,
   output logic       instr_exec_commit_o,
 
-  /// Operand distribution network
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
-  output logic         [NofOperands-1:0] op_reqs_valid_o,
-  input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i,
-  output logic     [NofOperands-1:0] op_rsps_ready_o
+  input  logic     [NofOperands-1:0] op_rsps_valid_i
 );
 
   /////////////////////////////////////
@@ -265,11 +261,8 @@ module schnova_res_stat import schnova_pkg::*; #(
         .issue_req_ready_i,
         .instr_exec_commit_o,
         .op_reqs_o,
-        .op_reqs_valid_o,
-        .op_reqs_ready_i,
         .op_rsps_i,
-        .op_rsps_valid_i,
-        .op_rsps_ready_o
+        .op_rsps_valid_i
       );
     end else if (RsType == LSU_RS) begin : gen_lsu_rs
       schnova_res_stat_slots #(
@@ -307,11 +300,8 @@ module schnova_res_stat import schnova_pkg::*; #(
         .issue_req_ready_i,
         .instr_exec_commit_o,
         .op_reqs_o,
-        .op_reqs_valid_o,
-        .op_reqs_ready_i,
         .op_rsps_i,
-        .op_rsps_valid_i,
-        .op_rsps_ready_o
+        .op_rsps_valid_i
       );
     end else if (RsType == FPU_RS) begin : gen_fpu_rs
       schnova_res_stat_slots #(
@@ -349,11 +339,8 @@ module schnova_res_stat import schnova_pkg::*; #(
         .issue_req_ready_i,
         .instr_exec_commit_o,
         .op_reqs_o,
-        .op_reqs_valid_o,
-        .op_reqs_ready_i,
         .op_rsps_i,
-        .op_rsps_valid_i,
-        .op_rsps_ready_o
+        .op_rsps_valid_i
       );
     end
   endgenerate

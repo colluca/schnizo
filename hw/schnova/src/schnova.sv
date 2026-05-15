@@ -481,22 +481,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic [NofOperandIfs-1:0]                      sb_rdata;
 
   operand_req_t [NofOperandIfs-1:0]              op_reqs;
-  logic         [NofOperandIfs-1:0]              op_reqs_valid;
-  logic         [NofOperandIfs-1:0]              op_reqs_ready;
-  logic         [NofOperandIfs-1:0]              op_reqs_fpr_valid;
-  logic         [NofOperandIfs-1:0]              op_reqs_fpr_ready;
-  logic         [NofOperandIfs-1:0]              op_reqs_gpr_valid;
-  logic         [NofOperandIfs-1:0]              op_reqs_gpr_ready;
 
   operand_t [NofOperandIfs-1:0]                  op_rsps_data;
   logic [NofOperandIfs-1:0]                      op_rsps_valid;
-  logic [NofOperandIfs-1:0]                      op_rsps_ready;
   operand_t [NofOperandIfs-1:0]                  op_rsps_fpr_data;
   logic [NofOperandIfs-1:0]                      op_rsps_fpr_valid;
-  logic [NofOperandIfs-1:0]                      op_rsps_fpr_ready;
   operand_t [NofOperandIfs-1:0]                  op_rsps_gpr_data;
   logic [NofOperandIfs-1:0]                      op_rsps_gpr_valid;
-  logic [NofOperandIfs-1:0]                      op_rsps_gpr_ready;
 
   logic                                rob_push;
   logic [$clog2(PipeWidth):0]          rob_push_count;
@@ -1004,12 +995,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fpu_status_valid_o   (fpu_status_valid),
     // Operand requests
     .op_reqs_o            (op_reqs),
-    .op_reqs_valid_o      (op_reqs_valid),
-    .op_reqs_ready_i      (op_reqs_ready),
     // Operand responses
     .op_rsps_i(op_rsps_data),
     .op_rsps_valid_i(op_rsps_valid),
-    .op_rsps_ready_o(op_rsps_ready),
     // ALU WB
     .alu_results_o      (alu_results),
     .alu_results_tag_o  (alu_results_tag),
@@ -1317,11 +1305,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .sb_raddr_o(sb_gp_raddr),
     .sb_reg_busy_i(sb_rdata),
     .op_reqs_i(op_reqs),
-    .op_reqs_valid_i(op_reqs_gpr_valid),
-    .op_reqs_ready_o(op_reqs_gpr_ready),
     .op_rsps_data_o(op_rsps_gpr_data),
-    .op_rsps_valid_o(op_rsps_gpr_valid),
-    .op_rsps_ready_i(op_rsps_gpr_ready)
+    .op_rsps_valid_o(op_rsps_gpr_valid)
   );
 
   if (NofFpus > 0) begin : gen_fp_rf
@@ -1347,11 +1332,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .sb_raddr_o(sb_fp_raddr),
       .sb_reg_busy_i(sb_rdata),
       .op_reqs_i(op_reqs),
-      .op_reqs_valid_i(op_reqs_fpr_valid),
-      .op_reqs_ready_o(op_reqs_fpr_ready),
       .op_rsps_data_o(op_rsps_fpr_data),
-      .op_rsps_valid_o(op_rsps_fpr_valid),
-      .op_rsps_ready_i(op_rsps_fpr_ready)
+      .op_rsps_valid_o(op_rsps_fpr_valid)
     );
   end else begin : gen_no_fp_rf
     assign fpr_rdata = '0;
@@ -1368,18 +1350,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     end
   end
 
-  for (genvar op = 0; op < NofOperandIfs; op++) begin : gen_op_req_demux
-    stream_demux #(
-        .N_OUP (2)
-      ) i_op_req_demux (
-        .inp_valid_i(op_reqs_valid[op]),
-        .inp_ready_o(op_reqs_ready[op]),
-        .oup_sel_i  (op_reqs[op].is_fp),
-        .oup_valid_o({op_reqs_fpr_valid[op], op_reqs_gpr_valid[op]}),
-        .oup_ready_i({op_reqs_fpr_ready[op], op_reqs_gpr_ready[op]})
-      );
-  end
-
   for (genvar op = 0; op < NofOperandIfs; op++) begin : gen_op_rsp_mux
     stream_mux #(
         .DATA_T(operand_t),
@@ -1387,11 +1357,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       ) i_op_rsp_mux (
         .inp_data_i ({op_rsps_fpr_data[op], op_rsps_gpr_data[op]}),
         .inp_valid_i({op_rsps_fpr_valid[op], op_rsps_gpr_valid[op]}),
-        .inp_ready_o({op_rsps_fpr_ready[op], op_rsps_gpr_ready[op]}),
+        .inp_ready_o(/* Unused */),
         .inp_sel_i  (op_reqs[op].is_fp),
         .oup_data_o (op_rsps_data[op]),
         .oup_valid_o(op_rsps_valid[op]),
-        .oup_ready_i(op_rsps_ready[op])
+        .oup_ready_i(/* Unused */)
       );
   end
 

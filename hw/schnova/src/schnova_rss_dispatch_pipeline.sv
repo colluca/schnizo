@@ -19,7 +19,6 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   parameter type         issue_req_t      = logic
 ) (
   // Control
-  input  logic            restart_i,
   input  producer_id_t    disp_producer_id_i,
   input  producer_id_t    issue_producer_id_i,
   input  rss_idx_t        disp_idx_i,
@@ -34,13 +33,10 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
 
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
-  output logic         [NofOperands-1:0] op_reqs_valid_o,
-  input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Operand response
   input  operand_t     [NofOperands-1:0] op_rsps_i,
   input  logic         [NofOperands-1:0] op_rsps_valid_i,
-  output logic         [NofOperands-1:0] op_rsps_ready_o,
 
   // Issue
   input  logic         issue_req_ready_i,
@@ -52,41 +48,6 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   /////////////////////////
   // Initial slot update //
   /////////////////////////
-
-  // This stage performs an initial state-dependent slot update.
-
-  rs_slot_issue_t slot_issue_reset_val;
-  generate
-    if (RsType == ALU_RS) begin: gen_alu_slot_reset_val
-      assign slot_issue_reset_val = '{
-        is_occupied:      1'b0, // suppresses operand requests
-        alu_op:           AluOpAdd,
-        tag:              '0,
-        constants:        '0,
-        operands:         '0 // invalid operands lead to no issue requests
-      };
-    end else if (RsType == LSU_RS) begin: gen_lsu_slot_reset_val
-      assign slot_issue_reset_val = '{
-        is_occupied:      1'b0, // suppresses operand requests
-        lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
-        lsu_size:         Byte,
-        tag:              '0,
-        constants:        '0,
-        operands:         '0 // invalid operands lead to no issue requests
-      };
-    end else if (RsType == FPU_RS) begin : gen_fpu_slot_reset_val
-      assign slot_issue_reset_val = '{
-        is_occupied:      1'b0, // suppresses operand requests
-        fpu_op:           FpuOpFadd,
-        fpu_fmt_src:      fpnew_pkg::FP32,
-        fpu_fmt_dst:      fpnew_pkg::FP32,
-        fpu_rnd_mode:     fpnew_pkg::RNE,
-        tag:              '0,
-        constants:        '0,
-        operands:         '0 // invalid operands lead to no issue requests
-      };
-    end
-  endgenerate
 
   // The initial operand values when accepting a new instruction
   rss_operand_t op_a_init;
@@ -221,12 +182,8 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
     // If we dispatch an instruction into this slot this cycle
     // and the disp and index pointer are the same
     // the slot is forwarded from the dispatch request.
-    if (disp_hs_o && (disp_idx_i == issue_idx_i)) begin
+    if (disp_req_valid_i && (disp_idx_i == issue_idx_i) && !rs_full_i) begin
       selected_slot = slot_init;
-    end
-    // Slot initialization has highest priority
-    if (restart_i) begin
-      selected_slot = slot_issue_reset_val;
     end
   end
 
@@ -243,9 +200,6 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         phy_reg:    selected_slot.operands[op].phy_reg_src,
         is_fp: selected_slot.operands[op].is_fp
       };
-
-      op_reqs_valid_o[op] = selected_slot.is_occupied &&
-                            !selected_slot.operands[op].is_valid;
     end
   end
 
@@ -255,13 +209,9 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   always_comb begin : operand_response_handling
     slot_op_rsp = selected_slot;
     for (int op = 0; op < NofOperands; op++) begin
-      op_rsps_ready_o[op] = 1'b0;
-      // We are ready do accept a response if the slot is occupied and does not already
-      // contain a valid value
-      if (selected_slot.is_occupied && !selected_slot.operands[op].is_valid && op_rsps_valid_i[op]) begin
+      // The value is valid if the operand response is valid
+      if (op_rsps_valid_i[op]) begin
         slot_op_rsp.operands[op].is_valid  = 1'b1;
-        // Acknowledge the response
-        op_rsps_ready_o[op] = 1'b1;
       end
     end
   end
@@ -359,7 +309,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   assign issue_hs_o = issue_hs;
 
     // The RSS is ready to accept a dispatch request as long as the reservation station is not full
-  assign disp_req_ready_o = !rs_full_i;
+  assign disp_req_ready_o = !rs_full_i || issue_hs_o;
   assign disp_hs_o = disp_req_valid_i && disp_req_ready_o;
 
 endmodule

@@ -139,13 +139,10 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // Operand request interface
   output operand_req_t [NofOperandIfs-1:0] op_reqs_o,
-  output logic         [NofOperandIfs-1:0] op_reqs_valid_o,
-  input  logic         [NofOperandIfs-1:0] op_reqs_ready_i,
 
   // Operand response interface
   input  operand_t [NofOperandIfs-1:0] op_rsps_i,
   input  logic     [NofOperandIfs-1:0] op_rsps_valid_i,
-  output logic     [NofOperandIfs-1:0] op_rsps_ready_o,
 
   // FU results
   output alu_result_t [NofAlus-1:0] alu_results_o,
@@ -225,25 +222,16 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ////////////////////////////////////////
 
   operand_req_t [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs;
-  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs_valid;
-  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs_ready;
   operand_t     [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps;
   logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps_valid;
-  logic         [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps_ready;
 
   operand_req_t [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs;
-  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_valid;
-  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_reqs_ready;
   operand_t     [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps;
   logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_valid;
-  logic         [NofLsus-1:0][LsuNofOperands-1:0]  lsu_op_rsps_ready;
 
   operand_req_t [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_reqs;
-  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_reqs_valid;
-  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_reqs_ready;
   operand_t     [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps;
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
-  logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
   // ---------------------------
   // Pack operand interfaces
@@ -254,13 +242,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   always_comb begin : fu_op_reqs_rsps
     automatic integer ope_if = 0;
 
-    op_reqs_o           = '0;
-    op_reqs_valid_o     = '0;
-    alu_op_reqs_ready = '0;
-    lsu_op_reqs_ready = '0;
-    fpu_op_reqs_ready = '0;
-
-    op_rsps_ready_o     = '0;
+    op_reqs_o         = '0;
     alu_op_rsps       = '0;
     alu_op_rsps_valid = '0;
     lsu_op_rsps       = '0;
@@ -272,12 +254,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       for (int op = 0; op < AluNofOperands; op++) begin
         // operand requests
         op_reqs_o[ope_if]            = alu_op_reqs[alu][op];
-        op_reqs_valid_o[ope_if]      = alu_op_reqs_valid[alu][op];
-        alu_op_reqs_ready[alu][op] = op_reqs_ready_i[ope_if];
         // operand responses
         alu_op_rsps[alu][op]       = op_rsps_i[ope_if];
         alu_op_rsps_valid[alu][op] = op_rsps_valid_i[ope_if];
-        op_rsps_ready_o[ope_if]      = alu_op_rsps_ready[alu][op];
         ope_if = ope_if + 1;
       end
     end
@@ -285,12 +264,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       for (int op = 0; op < LsuNofOperands; op++) begin
         // operand requests
         op_reqs_o[ope_if]            = lsu_op_reqs[lsu][op];
-        op_reqs_valid_o[ope_if]      = lsu_op_reqs_valid[lsu][op];
-        lsu_op_reqs_ready[lsu][op] = op_reqs_ready_i[ope_if];
         // operand responses
         lsu_op_rsps[lsu][op]       = op_rsps_i[ope_if];
         lsu_op_rsps_valid[lsu][op] = op_rsps_valid_i[ope_if];
-        op_rsps_ready_o[ope_if]      = lsu_op_rsps_ready[lsu][op];
         ope_if = ope_if + 1;
       end
     end
@@ -298,12 +274,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       for (int op = 0; op < FpuNofOperands; op++) begin
         // operand requests
         op_reqs_o[ope_if]            = fpu_op_reqs[fpu][op];
-        op_reqs_valid_o[ope_if]      = fpu_op_reqs_valid[fpu][op];
-        fpu_op_reqs_ready[fpu][op] = op_reqs_ready_i[ope_if];
         // operand responses
         fpu_op_rsps[fpu][op]       = op_rsps_i[ope_if];
         fpu_op_rsps_valid[fpu][op] = op_rsps_valid_i[ope_if];
-        op_rsps_ready_o[ope_if]      = fpu_op_rsps_ready[fpu][op];
         ope_if = ope_if + 1;
       end
     end
@@ -379,11 +352,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_exec_commit_o(alu_exec_commit),
       /// Operand distribution network
       .op_reqs_o          (alu_op_reqs[alu]),
-      .op_reqs_valid_o    (alu_op_reqs_valid[alu]),
-      .op_reqs_ready_i    (alu_op_reqs_ready[alu]),
       .op_rsps_i          (alu_op_rsps[alu]),
-      .op_rsps_valid_i    (alu_op_rsps_valid[alu]),
-      .op_rsps_ready_o    (alu_op_rsps_ready[alu])
+      .op_rsps_valid_i    (alu_op_rsps_valid[alu])
     );
 
     // Map the results fromn the FU to the result ports
@@ -536,11 +506,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_exec_commit_o(lsu_exec_commit),
       /// Operand distribution network
       .op_reqs_o          (lsu_op_reqs[lsu]),
-      .op_reqs_valid_o    (lsu_op_reqs_valid[lsu]),
-      .op_reqs_ready_i    (lsu_op_reqs_ready[lsu]),
       .op_rsps_i          (lsu_op_rsps[lsu]),
-      .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
-      .op_rsps_ready_o    (lsu_op_rsps_ready[lsu])
+      .op_rsps_valid_i    (lsu_op_rsps_valid[lsu])
     );
 
     // Map the results fromn the FU to the writeback arbiter signals
@@ -688,11 +655,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_exec_commit_o(fpu_exec_commit),
       /// Operand distribution network
       .op_reqs_o          (fpu_op_reqs[fpu]),
-      .op_reqs_valid_o    (fpu_op_reqs_valid[fpu]),
-      .op_reqs_ready_i    (fpu_op_reqs_ready[fpu]),
       .op_rsps_i          (fpu_op_rsps[fpu]),
-      .op_rsps_valid_i    (fpu_op_rsps_valid[fpu]),
-      .op_rsps_ready_o    (fpu_op_rsps_ready[fpu])
+      .op_rsps_valid_i    (fpu_op_rsps_valid[fpu])
     );
 
     // Map the results from the FU to the writeback arbiter signals

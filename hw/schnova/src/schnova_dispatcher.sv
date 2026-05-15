@@ -551,7 +551,16 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   // All instructions are successfully dispatched if all the instructions are being dispatched in this cycle
   // that are valid in the first place
-  assign dispatched = (|instr_valid_i) & (&(instr_dispatched | ~instr_valid_i));
+  if (PipeWidth == 1) begin: gen_dispatched_scalar
+    assign dispatched = instr_valid_i & instr_dispatched;
+  end else begin: gen_dispatched_superscalar
+    // This change optimizes a path away. Otherwise in scalar mode the ready can depend on ready signals
+    // from the single issue direct dispatch path for every instruction in the fetch block eventhough what really has to be
+    // considered is only the ready signal from the first instruction.
+    // Note: this ready path depends on the execution of other functional units because of the writeback arbiter.
+    assign dispatched = en_superscalar_i ? (|instr_valid_i) & (&(instr_dispatched | ~instr_valid_i))
+                                       : instr_valid_i[0] & instr_dispatched[0];
+  end
 
   // Signal back the dispatch
   assign dispatch_ready_o = dispatched;

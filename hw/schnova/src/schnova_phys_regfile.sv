@@ -32,12 +32,9 @@ module schnova_phys_regfile #(
   input  logic [NofOperandIfs-1:0]                    sb_reg_busy_i,
   // operand request  port
   input operand_req_t [NofOperandIfs-1:0]         op_reqs_i,
-  input logic         [NofOperandIfs-1:0]         op_reqs_valid_i,
-  output logic        [NofOperandIfs-1:0]         op_reqs_ready_o,
   // operand response port
   output logic [NofOperandIfs-1:0][OpLen-1:0]     op_rsps_data_o,
-  output logic [NofOperandIfs-1:0]                op_rsps_valid_o,
-  input  logic [NofOperandIfs-1:0]                op_rsps_ready_i
+  output logic [NofOperandIfs-1:0]                op_rsps_valid_o
 );
   // We have to have a read port for every read port and every operand interface
   localparam int unsigned NrRegfileReadPorts = NrReadPorts + NofOperandIfs;
@@ -65,16 +62,6 @@ module schnova_phys_regfile #(
       rf_raddr[port_idx] = op_reqs_i[op].phy_reg[AddrWidth-1:0];
       op_rsps_data_o[op] = rf_rdata[port_idx];
       port_idx = port_idx + 1;
-    end
-  end
-
-  // Request Handling
-  always_comb begin: op_req_handling
-    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      // The physical register file is always ready, since we allocate
-      // as many ports as operands we could potentially simutlaneously
-      // request
-      op_reqs_ready_o[op] = op_reqs_valid_i[op];
     end
   end
 

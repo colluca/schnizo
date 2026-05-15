@@ -14,6 +14,7 @@ module schnova_res_stat_memory #(
 ) (
   input  logic clk_i,
   input  logic rst_i,
+  input  logic restart_i,
 
   // Read port
   input  addr_t          raddr_i,
@@ -25,8 +26,10 @@ module schnova_res_stat_memory #(
   input  addr_t          waddr_i,
   input  rs_slot_issue_t wdata_i
 );
-
+  logic rst_ni;
   rs_slot_issue_t [NofRss-1:0] slot_qs, slot_ds;
+
+  assign rst_ni = ~rst_i;
 
   // Read port
   assign rdata_o = slot_qs[raddr_i];
@@ -34,7 +37,7 @@ module schnova_res_stat_memory #(
   // Write port
   always_comb begin : write_port
     slot_ds = slot_qs;
-    if (wen_i) begin 
+    if (wen_i) begin
       slot_ds[waddr_i] = wdata_i;
     end
     // Once the entry is issued, it can be cleared
@@ -45,7 +48,7 @@ module schnova_res_stat_memory #(
 
   // Instantiate FF-based slots
   for (genvar rss = 0; rss < NofRss; rss++) begin : gen_slot
-    `FFAR(slot_qs[rss], slot_ds[rss], '0, clk_i, rst_i);
+    `FFARNC(slot_qs[rss], slot_ds[rss], restart_i, '0, clk_i, rst_ni);
   end
 
 endmodule

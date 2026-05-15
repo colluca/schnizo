@@ -53,13 +53,10 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
 
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
-  output logic         [NofOperands-1:0] op_reqs_valid_o,
-  input  logic         [NofOperands-1:0] op_reqs_ready_i,
 
   // Operand response
   input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i,
-  output logic     [NofOperands-1:0] op_rsps_ready_o
+  input  logic     [NofOperands-1:0] op_rsps_valid_i
 );
 
   /////////////////
@@ -82,6 +79,11 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   slot_id_t     [NofRss-1:0] slot_ids;
   producer_id_t [NofRss-1:0] rss_ids;
 
+  logic clear_entry;
+
+  // Only clear the entry if it is not an inplace overwrite
+  assign clear_entry = issue_hs && !(disp_hs_o && rs_full_i);
+
   // Issue slots
   schnova_res_stat_memory #(
     .NofRss         (NofRss),
@@ -90,9 +92,10 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   ) i_issue_slots (
     .clk_i,
     .rst_i,
+    .restart_i,
     .raddr_i(issue_idx_i),
     .rdata_o(slot_issue_rdata),
-    .clear_entry_i(issue_hs),
+    .clear_entry_i(clear_entry),
     .wen_i  (disp_hs_o),
     .waddr_i(disp_idx_i),
     .wdata_i(slot_disp_wdata)
@@ -128,7 +131,6 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .issue_req_t     (issue_req_t),
     .rss_idx_t       (rss_idx_t)
   ) i_dispatch_pipeline (
-    .restart_i              (restart_i),
     .disp_producer_id_i     (rss_ids[disp_idx_i]),
     .issue_producer_id_i    (rss_ids[issue_idx_i]),
     .disp_idx_i             (disp_idx_i),
@@ -141,11 +143,8 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .slot_issue_i           (slot_issue_rdata),
     .slot_disp_o            (slot_disp_wdata),
     .op_reqs_o              (op_reqs_o),
-    .op_reqs_valid_o        (op_reqs_valid_o),
-    .op_reqs_ready_i        (op_reqs_ready_i),
     .op_rsps_i              (op_rsps_i),
     .op_rsps_valid_i        (op_rsps_valid_i),
-    .op_rsps_ready_o        (op_rsps_ready_o),
     .issue_req_o            (issue_req_raw),
     .issue_req_valid_o      (issue_req_valid_raw),
     .issue_req_ready_i      (issue_req_ready_i),
