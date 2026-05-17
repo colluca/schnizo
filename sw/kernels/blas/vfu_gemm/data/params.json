@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 {
-    setup_ssr: 1,
+    setup_ssr: 0,
     parallelize_m: 0,
     parallelize_k: 0,
     m_tiles: 1, // number of tiles in M dimension
@@ -15,11 +15,11 @@
     double_buffer: 0,
     partition_banks: 0,
     transa: false,
-    transb: false, // must be true for SIMD
+    transb: false,
     m: 32,
     n: 16,
     k: 16,
     alpha: 1,
     beta: 0,
-    gemm_fp: "gemm_fp64_vec_frep"
+    gemm_fp: "gemm_fp32_simd_8x"
 }

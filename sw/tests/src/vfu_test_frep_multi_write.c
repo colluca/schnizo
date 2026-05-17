@@ -37,12 +37,6 @@ int main() {
     int frep_count = (n_iter/2) - 1;        // each frep iteration does two vector adds
     int sz = N * 8;                     // stride for 4 elements (32 bytes)
 
-    // frep.o repeats the following block frep_count times.
-    // Each block does two vector adds on consecutive chunks:
-    //   first chunk:  px[0..N-1] + py[0..N-1] -> pz[0..N-1]
-    //   second chunk: px[N..2N-1] + py[N..2N-1] -> pz[N..2N-1]
-    // Then px, py, pz advance by 2*N elements.
-    // The same vector registers v0, v1, v2 are reused for both chunks.
     // This code is to test the fallback to HW loop for multiple writes to
     // the same physical register within an FREP block
     asm volatile(

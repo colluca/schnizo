@@ -16,6 +16,9 @@
 
 #include "gemm_types.h"
 
+// SIMD-only kernels for fp32 (VL=8) and fp64 (VL=4).
+// Default: gemm_fp32_simd_8x (highest throughput, 8x M-unrolling).
+#include "gemm_fp32.h"
 #include "gemm_fp64.h"
 
 /**

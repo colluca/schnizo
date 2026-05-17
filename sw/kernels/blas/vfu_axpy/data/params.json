@@ -6,5 +6,5 @@
     "n_tiles": 5,
     "double_buffer": false,
     "n": 2560,
-    "funcptr": "axpy_vec_frep"
+    "funcptr": "axpy_simd_frep"
 }
