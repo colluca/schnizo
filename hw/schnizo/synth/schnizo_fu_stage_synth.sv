@@ -3,12 +3,45 @@
 // SPDX-License-Identifier: SHL-0.51
 
 module schnizo_fu_stage_synth #(
+  // FP extension enable bits
   parameter bit          Xfrep           = 1,
   parameter bit          MulInAlu0       = 1'b1,
-  parameter int unsigned NofAlus         = 1,
-  parameter int unsigned NofLsus         = 1,
+  parameter bit          RVF             = 1,
+  parameter bit          RVD             = 1,
+  parameter bit          XF16            = 1,
+  parameter bit          XF16ALT         = 1,
+  parameter bit          XF8             = 1,
+  parameter bit          XF8ALT          = 1,
+  parameter bit          XFVEC           = 1,
+  // RVV (vector) enable - activates VFU/VLSU paths
+  parameter bit          RVV             = 1,
+  // LSU outstanding transaction limits
+  parameter int unsigned NumOutstandingLoads = 4,
+  parameter int unsigned NumOutstandingMem   = 4,
+  // Scalar ALU configuration
+  parameter int unsigned NofAlus         = 3,
+  parameter int unsigned NofAluRss       = 3,
+  parameter int unsigned NofAluConstants = 8,
+  // Scalar LSU configuration
+  parameter int unsigned NofLsus         = 3,
+  parameter int unsigned NofLsuRss       = 3,
+  parameter int unsigned NofLsuConstants = 8,
+  // Scalar FPU configuration
   parameter int unsigned NofFpus         = 1,
-  parameter int unsigned NofRss          = 1
+  parameter int unsigned NofFpuRss       = 4,
+  parameter int unsigned NofFpuConstants = 8,
+  // Vector VFU / VLSU unit counts
+  parameter int unsigned NofVFU          = 1,
+  parameter int unsigned NofVLSU         = 1,
+  // Spatz sub-unit counts (inside each schnizo_vfu)
+  parameter int unsigned NumSpatzFPUs    = 4,
+  parameter int unsigned NumSpatzIPUs    = 1,
+  // Vector RS depths
+  parameter int unsigned NofVfuRss       = 8,
+  parameter int unsigned NofVlsuRss      = 6,
+  // Vector constant-queue depths
+  parameter int unsigned NofVfuConstants = 8,
+  parameter int unsigned NofVlsuConstants = 6
 ) (
   input  logic                                                    clk_i,
   input  logic                                                    rst_ni,
@@ -52,46 +85,53 @@ module schnizo_fu_stage_synth #(
   input  logic                                                    fpu_wb_result_ready_i
 );
 
+  localparam int unsigned NumSpatzFUs         = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs;
+  localparam int unsigned NumMemPortsPerSpatz = NumSpatzFUs;
+
   localparam integer unsigned NofOperandIfs = NofAlus * 2 +
                                               NofLsus * 4 +
-                                              NofFpus * 3;
+                                              NofFpus * 3 +
+                                              (RVV ? NofVLSU * 2 + NofVFU * 2 : 0);
 
-  localparam integer unsigned NofResReqIfs = NofAlus + NofLsus + NofFpus;
+  localparam integer unsigned NofResReqIfs = NofAlus + NofLsus + NofFpus +
+                                             (RVV ? NofVLSU + NofVFU : 0);
 
   schnizo_fu_stage #(
     .Xfrep(Xfrep),
     .MulInAlu0(MulInAlu0),
     .NofAlus(NofAlus),
-    .AluNofRss(NofRss),
-    .AluNofConstants(4),
+    .AluNofRss(NofAluRss),
+    .AluNofConstants(NofAluConstants),
     .AluNofOperands(2),
     .AluNofResReqIfs(1),
     .AluNofResRspPorts(1),
     .NofLsus(NofLsus),
-    .LsuNofRss(NofRss),
-    .LsuNofConstants(4),
+    .LsuNofRss(NofLsuRss),
+    .LsuNofConstants(NofLsuConstants),
     .LsuNofOperands(4),
     .LsuNofResReqIfs(1),
     .LsuNofResRspPorts(1),
     .NofFpus(NofFpus),
-    .FpuNofRss(NofRss),
-    .FpuNofConstants(4),
+    .FpuNofRss(NofFpuRss),
+    .FpuNofConstants(NofFpuConstants),
     .FpuNofOperands(3),
     .FpuNofResReqIfs(1),
     .FpuNofResRspPorts(1),
-    .VlsuNofRss(1),
-    .VlsuNofConstants(4),
+    .VlsuNofRss(NofVlsuRss),
+    .VlsuNofConstants(NofVlsuConstants),
     .VlsuNofOperands(2),
     .VlsuNofResRspPorts(1),
-    .VfuNofRss(1),
-    .VfuNofConstants(4),
+    .VfuNofRss(NofVfuRss),
+    .VfuNofConstants(NofVfuConstants),
     .VfuNofOperands(2),
     .VfuNofResRspPorts(1),
-    .NofVFU(1),
-    .NofVLSU(1),
+    .NofVFU(NofVFU),
+    .NofVLSU(NofVLSU),
+    .NumSpatzFPUs(NumSpatzFPUs),
+    .NumSpatzIPUs(NumSpatzIPUs),
     .NofOperandIfs(NofOperandIfs),
     .NofResReqIfs(NofResReqIfs),
-    .RVV(0),
+    .RVV(RVV),
     .XLEN(schnizo_synth_pkg::XLEN),
     .FLEN(schnizo_synth_pkg::FLEN),
     .OpLen(schnizo_synth_pkg::OpLen),
@@ -101,16 +141,16 @@ module schnizo_fu_stage_synth #(
     .MaxIterationsW(schnizo_pkg::FrepMaxItersWidth),
     .CaqDepth(8),
     .CaqTagWidth(16),
-    .NumOutstandingLoads(schnizo_synth_pkg::NumIntOutstandingLoads),
-    .NumOutstandingMem(schnizo_synth_pkg::NumIntOutstandingMem),
+    .NumOutstandingLoads(NumOutstandingLoads),
+    .NumOutstandingMem(NumOutstandingMem),
     .FPUImplementation(schnizo_synth_pkg::FpuImplementation),
-    .RVF(1),
-    .RVD(1),
-    .XF16(0),
-    .XF16ALT(0),
-    .XF8(0),
-    .XF8ALT(0),
-    .XFVEC(0),
+    .RVF(RVF),
+    .RVD(RVD),
+    .XF16(XF16),
+    .XF16ALT(XF16ALT),
+    .XF8(XF8),
+    .XF8ALT(XF8ALT),
+    .XFVEC(XFVEC),
     .RegisterFPUIn(0),
     .RegisterFPUOut(0),
     .producer_id_t(schnizo_synth_pkg::producer_id_t),
@@ -124,7 +164,11 @@ module schnizo_fu_stage_synth #(
     .alu_result_t(schnizo_synth_pkg::alu_result_t),
     .alu_res_val_t(schnizo_synth_pkg::alu_res_val_t),
     .dreq_t(schnizo_synth_pkg::data_req_t),
-    .drsp_t(schnizo_synth_pkg::data_rsp_t)
+    .drsp_t(schnizo_synth_pkg::data_rsp_t),
+    .tcdm_req_chan_t(schnizo_synth_pkg::tcdm_req_chan_t),
+    .tcdm_rsp_chan_t(schnizo_synth_pkg::tcdm_rsp_chan_t),
+    .tcdm_req_t(schnizo_synth_pkg::tcdm_req_t),
+    .tcdm_rsp_t(schnizo_synth_pkg::tcdm_rsp_t)
   ) i_fu_stage (
     .clk_i,
     .rst_i(!rst_ni),

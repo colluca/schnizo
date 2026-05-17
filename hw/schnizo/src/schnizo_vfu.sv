@@ -159,6 +159,11 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       vtype:     DefaultVtype
     };
 
+    // Intermediate signal to avoid assignment-pattern-in-port-connection (VER-721).
+    fpnew_pkg::fmt_mode_t fpu_fmt_mode_p;
+    assign fpu_fmt_mode_p.src = issue_req_i[p].fu_data.fpu_fmt_src;
+    assign fpu_fmt_mode_p.dst = issue_req_i[p].fu_data.fpu_fmt_dst;
+
     // VLSU ports [0..NofVLSU-1]: decode only memory (LSU) operations.
     // VFU/VSLDU ports [NofVLSU..NumFuPorts-1]: decode vector arithmetic and
     // slide operations; decode_vlsu is disabled so LSU opcodes are treated as
@@ -176,8 +181,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
         .decoder_rsp_o       (dec_rsp[p]                     ),
         .decoder_rsp_valid_o (/* = issue_req_valid_i[p] */   ),
         .fpu_rnd_mode_i      (issue_req_i[p].fu_data.fpu_rnd_mode),
-        .fpu_fmt_mode_i      ('{src: issue_req_i[p].fu_data.fpu_fmt_src,
-                                 dst: issue_req_i[p].fu_data.fpu_fmt_dst})
+        .fpu_fmt_mode_i      (fpu_fmt_mode_p                 )
       );
     end : gen_vlsu_decoder
     else begin : gen_vfu_decoder
@@ -193,8 +197,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
         .decoder_rsp_o       (dec_rsp[p]                     ),
         .decoder_rsp_valid_o (/* = issue_req_valid_i[p] */   ),
         .fpu_rnd_mode_i      (issue_req_i[p].fu_data.fpu_rnd_mode),
-        .fpu_fmt_mode_i      ('{src: issue_req_i[p].fu_data.fpu_fmt_src,
-                                 dst: issue_req_i[p].fu_data.fpu_fmt_dst})
+        .fpu_fmt_mode_i      (fpu_fmt_mode_p                 )
       );
     end : gen_vfu_decoder
   end : gen_decoder
