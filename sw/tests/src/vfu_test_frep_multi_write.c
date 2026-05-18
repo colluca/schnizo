@@ -12,8 +12,8 @@ int main() {
 #ifdef SNRT_SUPPORTS_FREP
     if (snrt_is_dm_core()) return 0;
 
-    int n_iter = 16;                     // total number of vector adds = n_iter * N
-    int total_elements = N * n_iter;    // = 16
+    int n_iter = 16;  // total number of vector adds = n_iter * N
+    int total_elements = N * n_iter;  // = 16
 
     int64_t x[N * n_iter];
     int64_t y[N * n_iter];
@@ -34,8 +34,9 @@ int main() {
     // Vector length (N elements of 64-bit)
     asm volatile("vsetvli zero, %0, e64, m1, ta, ma" ::"r"(N));
 
-    int frep_count = (n_iter/2) - 1;        // each frep iteration does two vector adds
-    int sz = N * 8;                     // stride for 4 elements (32 bytes)
+    int frep_count =
+        (n_iter / 2) - 1;  // each frep iteration does two vector adds
+    int sz = N * 8;        // stride for 4 elements (32 bytes)
 
     // This code is to test the fallback to HW loop for multiple writes to
     // the same physical register within an FREP block

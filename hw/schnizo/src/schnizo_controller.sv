@@ -171,8 +171,9 @@ module schnizo_controller import schnizo_pkg::*; #(
 
     always_comb begin : proc_lcp1_wr_seen_d
       lcp1_wr_seen_d = (loop_state_o != LoopLcp1) ? '0 : lcp1_wr_seen_q;
-      if (loop_state_o == LoopLcp1 && instr_dispatched && instr_decoded_i.rd_is_vec)
+      if (loop_state_o == LoopLcp1 && instr_dispatched && instr_decoded_i.rd_is_vec) begin
         lcp1_wr_seen_d[instr_decoded_i.rd] = 1'b1;
+      end
     end
     `FFAR(lcp1_wr_seen_q, lcp1_wr_seen_d, '0, clk_i, rst_i)
 
@@ -199,7 +200,7 @@ module schnizo_controller import schnizo_pkg::*; #(
       .stall_i          (stall_o),
       .exception_i      (exception_o),
       .rs_full_i              (rs_full_i),
-      .all_rs_finish_i        (all_rs_finish_i),
+      .all_rs_finish_i        (all_rs_finish_i && !vrf_busy),
       .lcp1_second_write_i    (lcp1_second_write),
 
       .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),

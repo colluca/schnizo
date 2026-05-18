@@ -316,8 +316,10 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .ready_i   (result_ready_i[PORT]  )
     );
 
+    logic [$clog2(VFUBufDepth)-1:0] vfu_tag_usage;
+
     assign issue_req_ready_o[PORT] = is_vcfg ? result_ready_i[PORT] : unit_req_ready;
-    assign busy_o[PORT]            = ~issue_req_ready_o[PORT];
+    assign busy_o[PORT]            = ~issue_req_ready_o[PORT] || (vfu_tag_usage != '0);
 
     logic vfu_req_first;
     schnizo_vfu_unit #(
@@ -381,7 +383,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .rst_ni    (~rst_i                                              ),
       .flush_i   (1'b0                                                ),
       .testmode_i(1'b0                                                ),
-      .usage_o   (/* unused */                                        ),
+      .usage_o   (vfu_tag_usage                                       ),
       .data_i    (issue_req_i[PORT].tag                               ),
       .valid_i   (!is_vcfg && issue_req_valid_i[PORT]
                            && issue_req_ready_o[PORT]                ),
@@ -421,7 +423,8 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // RS consuming the load result, preventing premature lcp_finished assertion.
     // Fast stores never leave IDLE (vlsu_unit_busy stays 0); vlsu_result_valid_q
     // pulses for one cycle to cover their completion window.
-    assign busy_o[j]               = vlsu_unit_busy || vlsu_result_valid_q;
+    logic [$clog2(NrParallelInstructions)-1:0] vlsu_tag_usage;
+    assign busy_o[j]               = vlsu_unit_busy || vlsu_result_valid_q || (vlsu_tag_usage != '0);
 
     // Track whether the issued instruction was a load.
     // Stores are retired at issue (retire_at_issue=true) so they must not generate
@@ -445,7 +448,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .rst_ni    (~rst_i                                              ),
       .flush_i   (1'b0                                                ),
       .testmode_i(1'b0                                                ),
-      .usage_o   (/* unused */                                        ),
+      .usage_o   (vlsu_tag_usage                                      ),
       .data_i    (issue_req_i[j].tag                                  ),
       .valid_i   (vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j] &&
                   vlsu_spatz_req[j].op_mem.is_load                   ),

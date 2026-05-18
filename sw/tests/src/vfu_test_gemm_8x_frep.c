@@ -11,9 +11,9 @@
 // Unroll factor: process 8 rows at a time
 #define M_UNROLL 8
 // Matrix dimensions: M = 8 rows, N = 2*VL (two vector-width tiles), K = 10
-#define M_DIM  M_UNROLL
-#define N_DIM  (2 * VL)
-#define K_DIM  10
+#define M_DIM M_UNROLL
+#define N_DIM (2 * VL)
+#define K_DIM 10
 
 int main() {
 #ifdef SNRT_SUPPORTS_FREP
@@ -26,37 +26,32 @@ int main() {
 
     // Initialise A and B with predictable values
     for (int i = 0; i < M_DIM; i++)
-        for (int k = 0; k < K_DIM; k++)
-            A[i][k] = (float)(i * K_DIM + k + 1);
+        for (int k = 0; k < K_DIM; k++) A[i][k] = (float)(i * K_DIM + k + 1);
 
     for (int k = 0; k < K_DIM; k++)
-        for (int j = 0; j < N_DIM; j++)
-            B[k][j] = (float)(k * N_DIM + j + 1);
+        for (int j = 0; j < N_DIM; j++) B[k][j] = (float)(k * N_DIM + j + 1);
 
     for (int i = 0; i < M_DIM; i++)
-        for (int j = 0; j < N_DIM; j++)
-            C[i][j] = 0.0f;
+        for (int j = 0; j < N_DIM; j++) C[i][j] = 0.0f;
 
     // Scalar golden reference: C = A * B
     for (int i = 0; i < M_DIM; i++)
         for (int j = 0; j < N_DIM; j++) {
             golden[i][j] = 0.0f;
-            for (int k = 0; k < K_DIM; k++)
-                golden[i][j] += A[i][k] * B[k][j];
+            for (int k = 0; k < K_DIM; k++) golden[i][j] += A[i][k] * B[k][j];
         }
 
     // Strides for row-major traversal
     uint32_t inc_b = N_DIM * sizeof(float);  // bytes to next row of B
-    uint32_t inc_a = sizeof(float);          // bytes to next column element of A
+    uint32_t inc_a = sizeof(float);  // bytes to next column element of A
 
     // Set vector length to exactly 8 (256-bit SIMD)
     asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"((uint32_t)VL));
 
     // --- Outer N-tile loop: process VL columns of C per iteration ---
     for (int j_tile = 0; j_tile < N_DIM; j_tile += VL) {
-
         // Reset A pointers to the start of each row for every N-tile
-        float *ptr_b  = &B[0][j_tile];
+        float *ptr_b = &B[0][j_tile];
         float *ptr_a0 = &A[0][0];
         float *ptr_a1 = &A[1][0];
         float *ptr_a2 = &A[2][0];
@@ -82,31 +77,39 @@ int main() {
         ptr_b += N_DIM;
 
         asm volatile("vfmul.vf v0,  v24, %0" : : "f"(t0));
-        ptr_a0++; t0 = *ptr_a0;
+        ptr_a0++;
+        t0 = *ptr_a0;
 
         asm volatile("vfmul.vf v8,  v24, %0" : : "f"(t1));
-        ptr_a1++; t1 = *ptr_a1;
+        ptr_a1++;
+        t1 = *ptr_a1;
 
         asm volatile("vfmul.vf v16, v24, %0" : : "f"(t2));
-        ptr_a2++; t2 = *ptr_a2;
+        ptr_a2++;
+        t2 = *ptr_a2;
 
         asm volatile("vfmul.vf v28, v24, %0" : : "f"(t3));
-        ptr_a3++; t3 = *ptr_a3;
+        ptr_a3++;
+        t3 = *ptr_a3;
 
         asm volatile("vfmul.vf v4,  v24, %0" : : "f"(t4));
-        ptr_a4++; t4 = *ptr_a4;
+        ptr_a4++;
+        t4 = *ptr_a4;
 
         asm volatile("vfmul.vf v12, v24, %0" : : "f"(t5));
-        ptr_a5++; t5 = *ptr_a5;
+        ptr_a5++;
+        t5 = *ptr_a5;
 
         asm volatile("vfmul.vf v20, v24, %0" : : "f"(t6));
-        ptr_a6++; t6 = *ptr_a6;
+        ptr_a6++;
+        t6 = *ptr_a6;
 
         asm volatile("vfmul.vf v22, v24, %0" : : "f"(t7));
-        ptr_a7++; t7 = *ptr_a7;
+        ptr_a7++;
+        t7 = *ptr_a7;
 
         // frep.o hardware loop for k = 1 .. K_DIM-1
-        uint32_t n_frep = K_DIM - 2;   // already handled k=0
+        uint32_t n_frep = K_DIM - 2;  // already handled k=0
 
         // The body of the loop is exactly 27 instructions (see below).
         // frep.o repeats the next 27 instructions n_frep times.
@@ -149,21 +152,16 @@ int main() {
             "add      %[ptr_a7], %[ptr_a7], %[inc_a]     \n"  // 26
             "flw      %[ft7], 0(%[ptr_a7])               \n"  // 27
             // --- 27-instruction block (end) ---
-            : [ptr_b]  "+r"(ptr_b),
-              [ptr_a0] "+r"(ptr_a0), [ptr_a1] "+r"(ptr_a1),
-              [ptr_a2] "+r"(ptr_a2), [ptr_a3] "+r"(ptr_a3),
-              [ptr_a4] "+r"(ptr_a4), [ptr_a5] "+r"(ptr_a5),
-              [ptr_a6] "+r"(ptr_a6), [ptr_a7] "+r"(ptr_a7),
-              [ft0]    "+f"(t0),      [ft1]    "+f"(t1),
-              [ft2]    "+f"(t2),      [ft3]    "+f"(t3),
-              [ft4]    "+f"(t4),      [ft5]    "+f"(t5),
-              [ft6]    "+f"(t6),      [ft7]    "+f"(t7)
-            : [inc_b]  "r"(inc_b),
-              [inc_a]  "r"(inc_a),
-              [n_frep] "r"(n_frep)
-            : "v0", "v8", "v16", "v28", "v4", "v12", "v20", "v22",
-              "v24", "v26", "memory"
-        );
+            : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
+              [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
+              [ ptr_a3 ] "+r"(ptr_a3), [ ptr_a4 ] "+r"(ptr_a4),
+              [ ptr_a5 ] "+r"(ptr_a5), [ ptr_a6 ] "+r"(ptr_a6),
+              [ ptr_a7 ] "+r"(ptr_a7), [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1),
+              [ ft2 ] "+f"(t2), [ ft3 ] "+f"(t3), [ ft4 ] "+f"(t4),
+              [ ft5 ] "+f"(t5), [ ft6 ] "+f"(t6), [ ft7 ] "+f"(t7)
+            : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a), [ n_frep ] "r"(n_frep)
+            : "v0", "v8", "v16", "v28", "v4", "v12", "v20", "v22", "v24", "v26",
+              "memory");
 
         // Store the 8 result rows into the current N-tile of C
         float *ptr_c0 = &C[0][j_tile];
@@ -194,15 +192,17 @@ int main() {
             float diff = C[i][j] - golden[i][j];
             if (diff < 0.0f) diff = -diff;
             if (diff > golden[i][j] * 1e-4f) {
-                printf("Mismatch C[%d][%d]: got %f expected %f\n",
-                       i, j, C[i][j], golden[i][j]);
+                printf("Mismatch C[%d][%d]: got %f expected %f\n", i, j,
+                       C[i][j], golden[i][j]);
                 errors++;
             }
         }
     }
 
     if (!errors)
-        printf("vfu_gemm_dummy PASS: 8x16 C=A*B, K=10 frep iterations, 256-bit SIMD\n");
+        printf(
+            "vfu_gemm_dummy PASS: 8x16 C=A*B, K=10 frep iterations, 256-bit "
+            "SIMD\n");
 
     return errors;
 #else

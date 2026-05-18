@@ -2,13 +2,11 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
-// Tests loop-carried RAW (inter-iteration RAW) in vector frep.
-// The accumulator v0 is both read and written by the same instruction
-// (vadd.vv v0, v0, v1) in every iteration.  Iteration N+1 must read the
-// value written by iteration N; if the hardware does not correctly stall or
-// forward across iteration boundaries, the accumulated sum will be wrong.
-// This exercises integer accumulation; floating-point loop-carried RAW is
-// already covered by the vfmacc-based gemm frep tests.
+// Float version of vfu_test_frep_raw_loop.c.
+// Tests loop-carried RAW (inter-iteration RAW) in vector frep using
+// single-precision floating-point accumulation.
+// The accumulator v0 is both read and written by vfadd.vv v0, v0, v1 in every
+// iteration.  Iteration N+1 must read the value written by iteration N.
 
 #include <snrt.h>
 #include <stdint.h>
@@ -23,21 +21,19 @@ int main() {
     int n_iter = 4;
     int total = VL * n_iter;
 
-    int32_t x[VL * n_iter];
-    // For some reason if this isn't added the stackalignment is completly screwd up
-    // and the acc has an offset by one...
-    int32_t acc[VL] __attribute__((aligned(8)));
+    float x[VL * n_iter];
+    float acc[VL];
 
-    for (int i = 0; i < total; i++) x[i] = i + 1;
+    for (int i = 0; i < total; i++) x[i] = (float)(i + 1);
 
-    int32_t *px = x;
+    float *px = x;
 
-    // Initialise accumulator register to zero before the frep loop.
+    // Initialise accumulator register to 0.0 before the frep loop.
     asm volatile(
         "vsetvli zero, %[vl], e32, m1, ta, ma  \n"
-        "vmv.v.i v0, 0                          \n"
+        "vfmv.v.f v0, %[zero]                  \n"
         :
-        : [ vl ] "r"(VL)
+        : [ vl ] "r"(VL), [ zero ] "f"(0.0f)
         : "v0");
 
     // Body (3 instructions):
@@ -47,7 +43,7 @@ int main() {
     asm volatile(
         "frep.o %[iter], 3, 0, 0          \n"
         "vle32.v  v1,    (%[px])          \n"
-        "vadd.vv  v0,    v0, v1           \n"
+        "vfadd.vv v0,    v0, v1           \n"
         "addi     %[px], %[px], %[sz]     \n"
         : [ px ] "+r"(px)
         : [ iter ] "r"(n_iter - 1), [ sz ] "i"(VL * 4)
@@ -61,15 +57,16 @@ int main() {
     // Expected: acc[j] = sum of x[k*VL + j] for k in 0 .. n_iter-1
     int error = 0;
     for (int j = 0; j < VL; j++) {
-        int32_t expected = 0;
+        float expected = 0.0f;
         for (int k = 0; k < n_iter; k++) expected += x[k * VL + j];
         if (acc[j] != expected) {
-            printf("Lane %d: acc=%d expected=%d\n", j, acc[j], expected);
+            printf("Lane %d: acc=%f expected=%f\n", j, (double)acc[j],
+                   (double)expected);
             error = 1;
         }
     }
     if (!error)
-        printf("Loop-carried RAW test PASS: integer accumulation correct.\n");
+        printf("Float loop-carried RAW test PASS: fp accumulation correct.\n");
     return error;
 #else
     return 0;

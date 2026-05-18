@@ -58,8 +58,10 @@ int main() {
     for (int i = 0; i < total_elements; i++) {
         int64_t expected = x[i] + y[i];
         if (z[i] != expected) {
-            printf("Mismatch at index %d: z=%lld, expected=%lld\n", i, z[i],expected);
-            printf("Mismatch at index %d: z=%lld, expected=%lld\n", i, x[i], y[i]);
+            printf("Mismatch at index %d: z=%lld, expected=%lld\n", i, z[i],
+                   expected);
+            printf("Mismatch at index %d: z=%lld, expected=%lld\n", i, x[i],
+                   y[i]);
             error = 1;
         }
     }

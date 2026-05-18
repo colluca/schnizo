@@ -11,7 +11,7 @@
 #include "args.h"
 #include "snrt.h"
 
-#define SCHNIZO_VL_F64    4
+#define SCHNIZO_VL_F64 4
 #define SCHNIZO_VEC_BYTES (SCHNIZO_VL_F64 * (int)sizeof(double))
 
 #define BANK_ALIGNMENT 8
@@ -24,10 +24,10 @@
 // Precondition: n divisible by SCHNIZO_VL_F64 * num_cores.
 // ---------------------------------------------------------------------------
 static inline void axpy_simd_frep(uint32_t n, double a, double *x, double *y,
-                                   double *z) {
-    int core_idx  = snrt_cluster_core_idx();
+                                  double *z) {
+    int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
-    int frac  = n / num_cores;
+    int frac = n / num_cores;
     int n_vec = frac / SCHNIZO_VL_F64;
 
     double *px = x + core_idx * frac;
@@ -46,8 +46,8 @@ static inline void axpy_simd_frep(uint32_t n, double a, double *x, double *y,
         "vfmacc.vf v8,   %[a],  v0       \n"
         "vse64.v  v8,    (%[pz])         \n"
         "add      %[pz], %[pz], %[inc]   \n"
-        : [px] "+r"(px), [py] "+r"(py), [pz] "+r"(pz)
-        : [nv] "r"(n_vec - 1), [a] "f"(a), [inc] "i"(SCHNIZO_VEC_BYTES)
+        : [ px ] "+r"(px), [ py ] "+r"(py), [ pz ] "+r"(pz)
+        : [ nv ] "r"(n_vec - 1), [ a ] "f"(a), [ inc ] "i"(SCHNIZO_VEC_BYTES)
         : "v0", "v8", "memory");
     snrt_mcycle();
     asm volatile("fence");
@@ -58,15 +58,15 @@ static inline void axpy_simd_frep(uint32_t n, double a, double *x, double *y,
 // Processes floor(frac/VL)*VL elements per core.
 // ---------------------------------------------------------------------------
 static inline void axpy_simd_loop(uint32_t n, double a, double *x, double *y,
-                                   double *z) {
-    int core_idx  = snrt_cluster_core_idx();
+                                  double *z) {
+    int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
-    int frac      = n / num_cores;
+    int frac = n / num_cores;
 
     double *px = x + core_idx * frac;
     double *py = y + core_idx * frac;
     double *pz = z + core_idx * frac;
-    int rem    = frac;
+    int rem = frac;
 
     asm volatile("vsetvli zero, %0, e64, m1, ta, ma" ::"r"(SCHNIZO_VL_F64));
 
@@ -121,8 +121,10 @@ static inline void axpy_job(axpy_args_t *args) {
     local_z[0] = (double *)local_z0_addr;
     if (double_buffer) {
         local_x1_addr = ALIGN_UP_TCDM(local_z0_addr + size);
-        local_y1_addr = ALIGN_UP_TCDM(local_x1_addr + size) + 8 * BANK_ALIGNMENT;
-        local_z1_addr = ALIGN_UP_TCDM(local_y1_addr + size) + 16 * BANK_ALIGNMENT;
+        local_y1_addr =
+            ALIGN_UP_TCDM(local_x1_addr + size) + 8 * BANK_ALIGNMENT;
+        local_z1_addr =
+            ALIGN_UP_TCDM(local_y1_addr + size) + 16 * BANK_ALIGNMENT;
         local_x[1] = (double *)local_x1_addr;
         local_y[1] = (double *)local_y1_addr;
         local_z[1] = (double *)local_z1_addr;

@@ -17,7 +17,8 @@ class AxpyDataGen(du.DataGen):
     BURST_ALIGNMENT = 4096
     # Function pointers to alternative implementations
     FUNCPTRS = ["axpy_naive", "axpy_fma", "axpy_opt", "axpy_frep", "axpy_naive_unrolled",
-                "axpy_vec_frep", "axpy_vec_naive"]
+                "axpy_vec_frep", "axpy_vec_naive",
+                "axpy_simd_frep", "axpy_simd_loop"]
 
     def golden_model(self, a, x, y):
         return a*x + y

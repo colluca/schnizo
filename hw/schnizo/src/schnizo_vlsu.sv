@@ -5,10 +5,19 @@
 // Minimal VLSU for Schnizo.  Replaces spatz_vlsu with a low-latency pipeline
 // that exploits the combinational vregfile and eliminates all spill-registers.
 //
-// Load  latency: 2 cycles  (cycle 0: issue TCDM reads;
-//                            cycle 1: all responses ? combinational VRF write ? done)
-// Store latency: 1 cycle   (VRF read is combinational; stores fire-and-forget)
-//                           Falls back to STORE_ISSUE when TCDM back-pressures.
+// Aligned fast path (rs1[2:0] == 0):
+//   Load  latency: 2 cycles  (cycle 0: issue all NrMemPorts reads;
+//                              cycle 1: all responses -> combinational VRF write -> done)
+//   Store latency: 1 cycle   (VRF read combinational; stores fire-and-forget)
+//                              Falls back to STORE_ISSUE when TCDM back-pressures.
+//
+// Unaligned slow path (rs1[2:0] != 0), modeled after spatz_vlsu:
+//   Processes one element per cycle using port 0 only.
+//   Address aligned down to 8-byte boundary; byte strobe selects the valid bytes.
+//   Load data barrel-rotated right by offset to extract element; written with wbe.
+//   Store data barrel-rotated left by offset, written with per-element strobe.
+//   Latency: 3 cycles/element for loads (issue -> rsp -> VRF write),
+//             1 cycle/element for stores (one port, fire-and-forget).
 
 module schnizo_vlsu
   import spatz_pkg::*, rvv_pkg::*; #(
@@ -56,24 +65,30 @@ module schnizo_vlsu
   output logic spatz_mem_str_finished_o,
 
   // High whenever the VLSU has an instruction in flight (not IDLE).
-  // Does NOT pulse for fast stores that complete without leaving IDLE.
+  // Does NOT pulse for fast aligned stores that complete without leaving IDLE.
   output logic busy_o
 );
 
 `include "common_cells/registers.svh"
 
   // VRF word address = reg_number << $clog2(NrWordsPerVector).
-  // For VLEN=256, N_FU=4, ELEN=64 ? NrWordsPerVector=1 ? shift=0.
+  // For VLEN=256, N_FU=4, ELEN=64 -> NrWordsPerVector=1 -> shift=0.
   localparam int unsigned VrfAddrShift = $clog2(NrWordsPerVector);
+
+  // Total bytes transferred per vector operation.
+  localparam int unsigned TotalBytes = NrMemPorts * ELENB; // 4 * 8 = 32
 
   ////////////
   //  State //
   ////////////
 
-  typedef enum logic [1:0] {
+  typedef enum logic [2:0] {
     IDLE,
-    LOAD_WAIT,
-    STORE_ISSUE   // only entered when TCDM back-pressures a store
+    LOAD_WAIT,            // fast aligned load: waiting for all port responses
+    STORE_ISSUE,          // fast aligned store: retry on TCDM back-pressure
+    UNALIGNED_LOAD_ISSUE, // unaligned load: issuing single-element read on port 0
+    UNALIGNED_LOAD_RSP,   // unaligned load: waiting for response, then writing VRF
+    UNALIGNED_STORE       // unaligned store: issuing one element per cycle on port 0
   } state_e;
 
   state_e state_q, state_d;
@@ -84,40 +99,110 @@ module schnizo_vlsu
   ////////////////////////////
 
   spatz_req_t             req_q;          // latched request
-  vrf_data_t              store_data_q;   // latched VRF data for store retry
-  logic [NrMemPorts-1:0]  store_sent_q;   // which store ports accepted so far
+  vrf_data_t              store_data_q;   // latched VRF data for store
+  logic [NrMemPorts-1:0]  store_sent_q;   // which fast-store ports accepted so far
 
-  // Load response accumulation
+  // Fast load response accumulation
   elen_t [NrMemPorts-1:0] rsp_data_q,  rsp_data_d;
   logic  [NrMemPorts-1:0] rsp_valid_q, rsp_valid_d;
+
+  // Unaligned operation state
+  logic [5:0] ua_byte_q;    // byte offset of current element within the vector (0..TotalBytes-1)
+  elen_t      ua_rsp_q;     // latched TCDM response for current unaligned load element
+  logic       ua_rsp_vld_q; // response received for current element
 
   spatz_req_t            req_d;
   vrf_data_t             store_data_d;
   logic [NrMemPorts-1:0] store_sent_d;
+  logic [5:0]            ua_byte_d;
+  elen_t                 ua_rsp_d;
+  logic                  ua_rsp_vld_d;
+
+  ///////////////////////////////////////////
+  //  Unaligned helper signals             //
+  ///////////////////////////////////////////
+
+  // Misalignment detection
+  logic is_unaligned_i; // from incoming request (combinational, used in IDLE)
+  logic is_unaligned_q; // from latched request (used in UNALIGNED_* states)
+  assign is_unaligned_i = spatz_req_i.rs1[2:0] != '0;
+  assign is_unaligned_q = req_q.rs1[2:0] != '0;
+
+  // Element size in bytes from latched request vsew field
+  logic [3:0]     elem_bytes_q; // 1, 2, or 4
+  logic [ELENB-1:0] elem_mask_q; // byte-enable mask for one element (within an 8B TCDM word)
+  always_comb begin
+    elem_bytes_q = 4'h1 << req_q.vtype.vsew;
+    elem_mask_q  = '0;
+    case (req_q.vtype.vsew)
+      EW_8:    elem_mask_q = 8'h01;
+      EW_16:   elem_mask_q = 8'h03;
+      default: elem_mask_q = 8'h0F; // EW_32 (and EW_64 treated as aligned)
+    endcase
+  end
+
+  // Address of the current unaligned element
+  elen_t ua_byte_addr;
+  elen_t ua_aligned_addr;
+  logic [2:0] ua_offset;
+  assign ua_byte_addr    = req_q.rs1 + elen_t'(ua_byte_q);
+  assign ua_aligned_addr = {ua_byte_addr[63:3], 3'b0}; // snap to 8-byte boundary
+  assign ua_offset       = ua_byte_addr[2:0];           // byte offset within that word
+
+  // Last-element flag: will we be done after processing the current element?
+  logic ua_last_elem;
+  assign ua_last_elem = (ua_byte_q + 6'(elem_bytes_q) >= 6'(TotalBytes));
+
+  // Unaligned load: current element at LSB (barrel-shifted from memory response)
+  elen_t ua_load_elem;
+  assign ua_load_elem = ua_rsp_q >> ({3'b0, ua_offset} * 8);
+
+  // Unaligned store: element extracted from VRF word, rotated into memory position
+  elen_t          ua_store_mem_data;
+  logic [ELENB-1:0] ua_store_strb;
+  elen_t ua_vrf_elem;
+  assign ua_vrf_elem         = ELEN'(store_data_q >> ({1'b0, ua_byte_q} * 8));
+  assign ua_store_mem_data   = (ua_vrf_elem & ELEN'(elem_mask_q)) << ({3'b0, ua_offset} * 8);
+  assign ua_store_strb       = ELENB'(elem_mask_q) << ua_offset;
+
+  // Completion conditions for unaligned states
+  logic ua_load_elem_done;   // current load element's VRF write accepted
+  logic ua_store_req_done;   // current store element's TCDM request accepted
+  assign ua_load_elem_done = (state_q == UNALIGNED_LOAD_RSP) && ua_rsp_vld_q && vrf_wvalid_i;
+  assign ua_store_req_done = (state_q == UNALIGNED_STORE) &&
+                             spatz_mem_req_valid_o[0] && spatz_mem_req_ready_i[0];
+
+  ///////////////////////////////////////////
+  //  Registered state next-value logic    //
+  ///////////////////////////////////////////
 
   always_comb begin : proc_registered_state_d
-    req_d        = req_q;
-    store_data_d = store_data_q;
-    store_sent_d = store_sent_q;
-    rsp_data_d   = rsp_data_q;
-    rsp_valid_d  = rsp_valid_q;
+    req_d         = req_q;
+    store_data_d  = store_data_q;
+    store_sent_d  = store_sent_q;
+    rsp_data_d    = rsp_data_q;
+    rsp_valid_d   = rsp_valid_q;
+    ua_byte_d     = ua_byte_q;
+    ua_rsp_d      = ua_rsp_q;
+    ua_rsp_vld_d  = ua_rsp_vld_q;
 
-    // Capture new request only when it is actually accepted (valid && ready).
-    // For loads that is always; for stores vrf_rvalid_i[0] must be 1 so that
-    // store_data_q holds real VRF data and not a stale/garbage value.
+    // Capture new request when accepted in IDLE
     if (state_q == IDLE && spatz_req_valid_i &&
         (spatz_req_i.op_mem.is_load || vrf_rvalid_i[0])) begin
       req_d = spatz_req_i;
       if (spatz_req_i.op_mem.is_load) begin
-        rsp_valid_d = '0;
+        rsp_valid_d  = '0;
+        ua_byte_d    = '0;
+        ua_rsp_vld_d = 1'b0;
       end else begin
-        // Latch VRF data (combinational) and accepted-ports mask for STORE_ISSUE retry
         store_data_d = vrf_rdata_i[0];
-        store_sent_d = spatz_mem_req_ready_i;
+        ua_byte_d    = '0;
+        // For aligned fast store: track which ports accepted in IDLE
+        store_sent_d = is_unaligned_i ? '0 : spatz_mem_req_ready_i;
       end
     end
 
-    // Accumulate load responses as they arrive (possibly out of order)
+    // Fast aligned load: accumulate responses (possibly out of order)
     if (state_q == LOAD_WAIT) begin
       for (int p = 0; p < NrMemPorts; p++) begin
         if (spatz_mem_rsp_valid_i[p] && !rsp_valid_q[p]) begin
@@ -127,12 +212,29 @@ module schnizo_vlsu
       end
     end
 
-    // Track which store ports have been accepted during STORE_ISSUE
+    // Fast aligned store: track newly-accepted ports in STORE_ISSUE
     if (state_q == STORE_ISSUE) begin
       for (int p = 0; p < NrMemPorts; p++) begin
         if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p])
           store_sent_d[p] = 1'b1;
       end
+    end
+
+    // Unaligned load: latch TCDM response when it arrives
+    if (state_q == UNALIGNED_LOAD_RSP && !ua_rsp_vld_q && spatz_mem_rsp_valid_i[0]) begin
+      ua_rsp_d     = spatz_mem_rsp_i[0].data;
+      ua_rsp_vld_d = 1'b1;
+    end
+
+    // Unaligned load: advance byte counter after VRF write is accepted
+    if (ua_load_elem_done) begin
+      ua_byte_d    = ua_byte_q + 6'(elem_bytes_q);
+      ua_rsp_vld_d = 1'b0;
+    end
+
+    // Unaligned store: advance byte counter after TCDM request is accepted
+    if (ua_store_req_done) begin
+      ua_byte_d = ua_byte_q + 6'(elem_bytes_q);
     end
   end
 
@@ -141,13 +243,16 @@ module schnizo_vlsu
   `FF(store_sent_q, store_sent_d, '0, clk_i, rst_ni)
   `FF(rsp_data_q,   rsp_data_d,   '0, clk_i, rst_ni)
   `FF(rsp_valid_q,  rsp_valid_d,  '0, clk_i, rst_ni)
+  `FF(ua_byte_q,    ua_byte_d,    '0, clk_i, rst_ni)
+  `FF(ua_rsp_q,     ua_rsp_d,     '0, clk_i, rst_ni)
+  `FF(ua_rsp_vld_q, ua_rsp_vld_d, '0, clk_i, rst_ni)
 
   ////////////////////////////////////////////////////////
   //  Combinatorial response accumulation (same-cycle)  //
   ////////////////////////////////////////////////////////
 
   // Combine already-latched responses with those arriving this very cycle so
-  // the load can complete without an extra register stage.
+  // the fast load can complete without an extra register stage.
   logic  [NrMemPorts-1:0] rsp_valid_now;
   elen_t [NrMemPorts-1:0] rsp_data_now;
   for (genvar p = 0; p < NrMemPorts; p++) begin : gen_rsp_now
@@ -172,11 +277,10 @@ module schnizo_vlsu
   //  State machine   //
   //////////////////////
 
-  // A store that has all TCDM ports accept immediately (common case) resolves in
-  // IDLE without transitioning to STORE_ISSUE.
+  // Aligned store that completes immediately in IDLE (all ports accept, VRF ready)
   logic idle_store_done;
   assign idle_store_done = spatz_req_valid_i && !spatz_req_i.op_mem.is_load &&
-                           vrf_rvalid_i[0] && &spatz_mem_req_ready_i;
+                           !is_unaligned_i && vrf_rvalid_i[0] && &spatz_mem_req_ready_i;
 
   always_comb begin
     state_d = state_q;
@@ -184,22 +288,44 @@ module schnizo_vlsu
       IDLE: begin
         if (spatz_req_valid_i) begin
           if (spatz_req_i.op_mem.is_load) begin
-            // Only advance once every TCDM port has accepted; stay in IDLE
-            // (keeping valid_o asserted) if any port back-pressures.
-            state_d = &spatz_mem_req_ready_i ? LOAD_WAIT : IDLE;
+            if (is_unaligned_i)
+              state_d = UNALIGNED_LOAD_ISSUE;
+            else
+              // Only advance when all ports accepted (valid stays high until then)
+              state_d = &spatz_mem_req_ready_i ? LOAD_WAIT : IDLE;
+          end else if (vrf_rvalid_i[0]) begin
+            if (is_unaligned_i)
+              state_d = UNALIGNED_STORE;
+            else
+              state_d = idle_store_done ? IDLE : STORE_ISSUE;
           end
-          else if (vrf_rvalid_i[0]) begin
-            // Store: VRF data is ready this cycle.
-            // If all TCDM ports accepted, stay in IDLE; otherwise retry in STORE_ISSUE.
-            state_d = idle_store_done ? IDLE : STORE_ISSUE;
-          end
-          // else !vrf_rvalid_i[0]: VRF bank conflict; spatz_req_ready_o=0 so the
-          // instruction is not consumed ? stay in IDLE and retry next cycle.
         end
       end
-      LOAD_WAIT:   if (all_rsp_done   && vrf_wvalid_i) state_d = IDLE;
-      STORE_ISSUE: if (all_store_done)                  state_d = IDLE;
-      default:     state_d = IDLE;
+
+      LOAD_WAIT:
+        if (all_rsp_done && vrf_wvalid_i)
+          state_d = IDLE;
+
+      STORE_ISSUE:
+        if (all_store_done)
+          state_d = IDLE;
+
+      UNALIGNED_LOAD_ISSUE:
+        // Wait until port 0 accepts the request
+        if (spatz_mem_req_valid_o[0] && spatz_mem_req_ready_i[0])
+          state_d = UNALIGNED_LOAD_RSP;
+
+      UNALIGNED_LOAD_RSP:
+        // Wait for response and VRF write; then either next element or done
+        if (ua_load_elem_done)
+          state_d = ua_last_elem ? IDLE : UNALIGNED_LOAD_ISSUE;
+
+      UNALIGNED_STORE:
+        // Each accepted request advances; last one returns to IDLE
+        if (ua_store_req_done)
+          state_d = ua_last_elem ? IDLE : UNALIGNED_STORE;
+
+      default: state_d = IDLE;
     endcase
   end
 
@@ -207,47 +333,113 @@ module schnizo_vlsu
   //  Request handshake    //
   ///////////////////////////
 
-  // Stall stores if the VRF bank is occupied by a higher-priority VFU read this cycle.
-  // vrf_rvalid_i[0] is combinational: it is 0 only when the shared bank port 0 is
-  // taken by VFU_VS2_RD in the same cycle.
-  // For loads, the upstream must stall until all TCDM ports accept (ready_i all 1).
-  // Otherwise valid_o would be deasserted before ready ? a handshake violation.
+  // For aligned loads: stall until all NrMemPorts TCDM ports accept simultaneously.
+  // For unaligned loads: accept immediately (no TCDM ports fired in IDLE).
+  // For stores (aligned or not): stall until VRF data is ready.
   assign spatz_req_ready_o = (state_q == IDLE) &&
       (!spatz_req_valid_i ||
-       (spatz_req_i.op_mem.is_load && &spatz_mem_req_ready_i) ||
+       (spatz_req_i.op_mem.is_load  && (is_unaligned_i || &spatz_mem_req_ready_i)) ||
        (!spatz_req_i.op_mem.is_load && vrf_rvalid_i[0]));
 
   /////////////////////
   //  Memory requests //
   /////////////////////
 
-  for (genvar p = 0; p < NrMemPorts; p++) begin : gen_mem_req
+  // Port 0 gets its own always_comb so the unaligned path (which exclusively uses
+  // port 0) is driven from a single process.  Ports 1+ share a separate loop.
+  // Mixing a genvar `if (p==0)` guard inside one always_comb causes vsim-7033
+  // (multiple-driver) because the elaborator sees spatz_mem_req_o[0] referenced
+  // in every loop instance's always_comb block.
+
+  always_comb begin : gen_mem_req_port0
+    spatz_mem_req_o[0]       = '0;
+    spatz_mem_req_valid_o[0] = 1'b0;
+
+    // Fast aligned load
+    if (state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
+        spatz_req_i.op_mem.is_load) begin
+      spatz_mem_req_o[0].addr  = spatz_req_i.rs1;
+      spatz_mem_req_o[0].write = 1'b0;
+      spatz_mem_req_o[0].amo   = reqrsp_pkg::AMONone;
+      spatz_mem_req_o[0].strb  = '1;
+      spatz_mem_req_o[0].user  = '0;
+      spatz_mem_req_valid_o[0] = 1'b1;
+    end
+
+    // Fast aligned store
+    if (state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
+        !spatz_req_i.op_mem.is_load && vrf_rvalid_i[0]) begin
+      spatz_mem_req_o[0].addr  = spatz_req_i.rs1;
+      spatz_mem_req_o[0].write = 1'b1;
+      spatz_mem_req_o[0].amo   = reqrsp_pkg::AMONone;
+      spatz_mem_req_o[0].data  = vrf_rdata_i[0][ELEN*0 +: ELEN];
+      spatz_mem_req_o[0].strb  = '1;
+      spatz_mem_req_o[0].user  = '0;
+      spatz_mem_req_valid_o[0] = 1'b1;
+    end
+
+    // Fast aligned store retry
+    if (state_q == STORE_ISSUE && !store_sent_q[0]) begin
+      spatz_mem_req_o[0].addr  = req_q.rs1;
+      spatz_mem_req_o[0].write = 1'b1;
+      spatz_mem_req_o[0].amo   = reqrsp_pkg::AMONone;
+      spatz_mem_req_o[0].data  = store_data_q[ELEN*0 +: ELEN];
+      spatz_mem_req_o[0].strb  = '1;
+      spatz_mem_req_o[0].user  = '0;
+      spatz_mem_req_valid_o[0] = 1'b1;
+    end
+
+    // Unaligned load: single 8-byte-aligned read for current element
+    if (state_q == UNALIGNED_LOAD_ISSUE) begin
+      spatz_mem_req_o[0].addr  = ua_aligned_addr;
+      spatz_mem_req_o[0].write = 1'b0;
+      spatz_mem_req_o[0].amo   = reqrsp_pkg::AMONone;
+      spatz_mem_req_o[0].strb  = '1;
+      spatz_mem_req_o[0].user  = '0;
+      spatz_mem_req_valid_o[0] = 1'b1;
+    end
+
+    // Unaligned store: single write with element rotated into position
+    if (state_q == UNALIGNED_STORE) begin
+      spatz_mem_req_o[0].addr  = ua_aligned_addr;
+      spatz_mem_req_o[0].write = 1'b1;
+      spatz_mem_req_o[0].amo   = reqrsp_pkg::AMONone;
+      spatz_mem_req_o[0].data  = ua_store_mem_data;
+      spatz_mem_req_o[0].strb  = ua_store_strb;
+      spatz_mem_req_o[0].user  = '0;
+      spatz_mem_req_valid_o[0] = 1'b1;
+    end
+  end : gen_mem_req_port0
+
+  for (genvar p = 1; p < NrMemPorts; p++) begin : gen_mem_req
     always_comb begin
       spatz_mem_req_o[p]       = '0;
       spatz_mem_req_valid_o[p] = 1'b0;
 
-      if (state_q == IDLE && spatz_req_valid_i) begin
-        if (spatz_req_i.op_mem.is_load) begin
-          // Issue all NrMemPorts read requests in one shot
-          spatz_mem_req_o[p].addr  = spatz_req_i.rs1 + elen_t'(p * ELENB);
-          spatz_mem_req_o[p].write = 1'b0;
-          spatz_mem_req_o[p].amo   = reqrsp_pkg::AMONone;
-          spatz_mem_req_o[p].strb  = '1;
-          spatz_mem_req_o[p].user  = '0;
-          spatz_mem_req_valid_o[p] = 1'b1;
-        end else if (vrf_rvalid_i[0]) begin
-          // Store: VRF read is combinational; drive all write requests immediately
-          spatz_mem_req_o[p].addr  = spatz_req_i.rs1 + elen_t'(p * ELENB);
-          spatz_mem_req_o[p].write = 1'b1;
-          spatz_mem_req_o[p].amo   = reqrsp_pkg::AMONone;
-          spatz_mem_req_o[p].data  = vrf_rdata_i[0][ELEN*p +: ELEN];
-          spatz_mem_req_o[p].strb  = '1;
-          spatz_mem_req_o[p].user  = '0;
-          spatz_mem_req_valid_o[p] = 1'b1;
-        end
+      // Fast aligned load
+      if (state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
+          spatz_req_i.op_mem.is_load) begin
+        spatz_mem_req_o[p].addr  = spatz_req_i.rs1 + elen_t'(p * ELENB);
+        spatz_mem_req_o[p].write = 1'b0;
+        spatz_mem_req_o[p].amo   = reqrsp_pkg::AMONone;
+        spatz_mem_req_o[p].strb  = '1;
+        spatz_mem_req_o[p].user  = '0;
+        spatz_mem_req_valid_o[p] = 1'b1;
       end
 
-      // Retry unsent store ports (only entered on TCDM back-pressure)
+      // Fast aligned store
+      if (state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
+          !spatz_req_i.op_mem.is_load && vrf_rvalid_i[0]) begin
+        spatz_mem_req_o[p].addr  = spatz_req_i.rs1 + elen_t'(p * ELENB);
+        spatz_mem_req_o[p].write = 1'b1;
+        spatz_mem_req_o[p].amo   = reqrsp_pkg::AMONone;
+        spatz_mem_req_o[p].data  = vrf_rdata_i[0][ELEN*p +: ELEN];
+        spatz_mem_req_o[p].strb  = '1;
+        spatz_mem_req_o[p].user  = '0;
+        spatz_mem_req_valid_o[p] = 1'b1;
+      end
+
+      // Fast aligned store retry
       if (state_q == STORE_ISSUE && !store_sent_q[p]) begin
         spatz_mem_req_o[p].addr  = req_q.rs1 + elen_t'(p * ELENB);
         spatz_mem_req_o[p].write = 1'b1;
@@ -257,6 +449,7 @@ module schnizo_vlsu
         spatz_mem_req_o[p].user  = '0;
         spatz_mem_req_valid_o[p] = 1'b1;
       end
+      // Ports 1+ are idle during UNALIGNED_* states.
     end
   end : gen_mem_req
 
@@ -264,29 +457,41 @@ module schnizo_vlsu
   //  VRF read (stores) //
   ///////////////////////
 
-  // vrf_rdata_i[0] is live in the same cycle re_o[0] is asserted (combinational vregfile).
+  // Read VRF combinatorially when a store arrives in IDLE (aligned or unaligned).
+  // For aligned stores the data is used immediately; for unaligned it is latched
+  // into store_data_q and consumed element-by-element in UNALIGNED_STORE.
   assign vrf_raddr_o[0] = spatz_req_i.vd << VrfAddrShift;
   assign vrf_re_o[0]    = (state_q == IDLE && spatz_req_valid_i && !spatz_req_i.op_mem.is_load);
-  assign vrf_raddr_o[1] = '0;   // vs2 indexed loads ? not used in schnizo
+  assign vrf_raddr_o[1] = '0;   // vs2 indexed loads: not used in schnizo
   assign vrf_re_o[1]    = '0;
 
   ////////////////////////
   //  VRF write (loads) //
   ////////////////////////
 
-  // Drive the write as soon as all responses are in; vrf_wvalid_i is combinational.
   always_comb begin
     vrf_we_o    = 1'b0;
     vrf_waddr_o = '0;
     vrf_wdata_o = '0;
     vrf_wbe_o   = '0;
+
+    // Fast aligned load: write all NrMemPorts words at once when all responses in
     if (state_q == LOAD_WAIT && all_rsp_done) begin
       vrf_we_o    = 1'b1;
       vrf_waddr_o = req_q.vd << VrfAddrShift;
-      for (int p = 0; p < NrMemPorts; p++) begin
+      for (int p = 0; p < NrMemPorts; p++)
         vrf_wdata_o[ELEN*p +: ELEN] = rsp_data_now[p];
-      end
       vrf_wbe_o = '1;
+    end
+
+    // Unaligned load: write one element with byte-enable when response is available.
+    // ua_load_elem = response >> (offset*8) places the element at the LSB.
+    // Shifting left by ua_byte_q*8 positions it at the correct byte in the VRF word.
+    if (state_q == UNALIGNED_LOAD_RSP && ua_rsp_vld_q) begin
+      vrf_we_o    = 1'b1;
+      vrf_waddr_o = req_q.vd << VrfAddrShift;
+      vrf_wdata_o = vrf_data_t'(ua_load_elem) << ({1'b0, ua_byte_q} * 8);
+      vrf_wbe_o   = vrf_be_t'(elem_mask_q) << ua_byte_q;
     end
   end
 
@@ -295,16 +500,24 @@ module schnizo_vlsu
   ////////////////////////
 
   assign vlsu_rsp_valid_o =
-    (state_q == LOAD_WAIT  && all_rsp_done   && vrf_wvalid_i   ) ||
-    (state_q == IDLE       && idle_store_done                   ) ||
-    (state_q == STORE_ISSUE && all_store_done                   );
+    // Fast aligned load done
+    (state_q == LOAD_WAIT          && all_rsp_done    && vrf_wvalid_i      ) ||
+    // Fast aligned store done immediately in IDLE
+    (state_q == IDLE               && idle_store_done                       ) ||
+    // Fast aligned store done after STORE_ISSUE retry
+    (state_q == STORE_ISSUE        && all_store_done                        ) ||
+    // Unaligned load: last element's VRF write accepted
+    (state_q == UNALIGNED_LOAD_RSP && ua_load_elem_done && ua_last_elem     ) ||
+    // Unaligned store: last element's TCDM request accepted
+    (state_q == UNALIGNED_STORE    && ua_store_req_done && ua_last_elem     );
 
   assign vlsu_rsp_o = '{id: (state_q == IDLE ? spatz_req_i.id : req_q.id), default: '0};
 
   assign spatz_mem_finished_o     = vlsu_rsp_valid_o;
   assign spatz_mem_str_finished_o = vlsu_rsp_valid_o &&
-                                    ((state_q == IDLE && !spatz_req_i.op_mem.is_load) ||
-                                      state_q == STORE_ISSUE);
+                                    ((state_q == IDLE           && !spatz_req_i.op_mem.is_load) ||
+                                      state_q == STORE_ISSUE    ||
+                                      state_q == UNALIGNED_STORE);
   assign busy_o = (state_q != IDLE);
 
   // Unused
@@ -318,13 +531,14 @@ module schnizo_vlsu
   if (NrMemPorts != N_FU)
     $error("[schnizo_vlsu] NrMemPorts must equal N_FU (%0d)", N_FU);
 
-  // In normal snitch-cluster operation TCDM is always ready; this fires if
-  // the fall-back STORE_ISSUE path is ever triggered (useful for debug).
   // synthesis translate_off
   always @(posedge clk_i) begin
-    if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE)) begin
-      $display("[schnizo_vlsu] WARNING: TCDM back-pressure on store ? entering STORE_ISSUE");
-    end
+    if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE))
+      $display("[schnizo_vlsu] WARNING: TCDM back-pressure on aligned store -> entering STORE_ISSUE");
+    if (rst_ni && (state_d == UNALIGNED_LOAD_ISSUE) && (state_q == IDLE))
+      $display("[schnizo_vlsu] INFO: unaligned load at 0x%08x", spatz_req_i.rs1);
+    if (rst_ni && (state_d == UNALIGNED_STORE) && (state_q == IDLE))
+      $display("[schnizo_vlsu] INFO: unaligned store at 0x%08x", spatz_req_i.rs1);
   end
   // synthesis translate_on
   // pragma translate_on

@@ -9,9 +9,13 @@ runs:
   - elf: ../sw/tests/build/vfu_test_frep.elf
   - elf: ../sw/tests/build/vfu_test_frep_multi_write.elf
   - elf: ../sw/tests/build/vfu_test_frep_raw_chain.elf
+  - elf: ../sw/tests/build/vfu_test_frep_raw_chain_f.elf
   - elf: ../sw/tests/build/vfu_test_frep_raw_loop.elf
+  - elf: ../sw/tests/build/vfu_test_frep_raw_loop_f.elf
   - elf: ../sw/tests/build/vfu_test_frep_war.elf
+  - elf: ../sw/tests/build/vfu_test_frep_war_f.elf
   - elf: ../sw/tests/build/vfu_test_frep_waw_chain.elf
+  - elf: ../sw/tests/build/vfu_test_frep_waw_chain_f.elf
   - elf: ../sw/tests/build/vfu_test_axpy_frep_f32.elf
   - elf: ../sw/tests/build/vfu_test_axpy_frep_i32.elf
   - elf: ../sw/tests/build/vfu_test_gemm_1x_frep.elf

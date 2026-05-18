@@ -48,17 +48,16 @@ int main() {
 
     asm volatile(
         "frep.o %[iter], 7, 0, 0          \n"
-        "vle32.v  v0,    (%[px])          \n"   // (1) 1st write v0 = x
-        "vadd.vv  v1,    v0, v0           \n"   // (2) RAW v0;  v1 = 2*x
-        "vadd.vv  v0,    v1, v1           \n"   // (3) RAW v1;  2nd write v0 = 4*x  [WAW]
-        "vadd.vv  v2,    v0, v1           \n"   // (4) RAW v0 (2nd), v1; v2 = 6*x
-        "vse32.v  v2,    (%[pz])          \n"   // (5) store 6*x
-        "addi     %[px], %[px], %[sz]     \n"   // (6)
-        "addi     %[pz], %[pz], %[sz]     \n"   // (7)
-        : [px] "+r"(px), [pz] "+r"(pz)
-        : [iter] "r"(n_iter - 1), [sz] "i"(VL * 4)
-        : "v0", "v1", "v2", "memory"
-    );
+        "vle32.v  v0,    (%[px])          \n"  // (1) 1st write v0 = x
+        "vadd.vv  v1,    v0, v0           \n"  // (2) RAW v0;  v1 = 2*x
+        "vadd.vv  v0,    v1, v1           \n"  // (3) RAW v1;  2nd write v0 = 4*x  [WAW]
+        "vadd.vv  v2,    v0, v1           \n"  // (4) RAW v0 (2nd), v1; v2 = 6*x
+        "vse32.v  v2,    (%[pz])          \n"  // (5) store 6*x
+        "addi     %[px], %[px], %[sz]     \n"  // (6)
+        "addi     %[pz], %[pz], %[sz]     \n"  // (7)
+        : [ px ] "+r"(px), [ pz ] "+r"(pz)
+        : [ iter ] "r"(n_iter - 1), [ sz ] "i"(VL * 4)
+        : "v0", "v1", "v2", "memory");
 
     snrt_fpu_fence();
 
@@ -71,8 +70,10 @@ int main() {
         }
     }
     if (!error)
-        printf("WAW chain test PASS: transitive RAW between writes correct for %d elements.\n",
-               total);
+        printf(
+            "WAW chain test PASS: transitive RAW between writes correct for %d "
+            "elements.\n",
+            total);
     return error;
 #else
     return 0;

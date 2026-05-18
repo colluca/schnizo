@@ -2,11 +2,11 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
-// Tests a depth-3 RAW dependency chain within a single frep body iteration:
-//   vle -> vadd (depth 1) -> vadd (depth 2) -> vadd (depth 3) -> vse
-// Each vadd reads the result of the immediately preceding vadd.  The hardware
-// must stall or forward correctly at all three levels before issuing the next
-// dependent instruction.
+// Float version of vfu_test_frep_raw_chain.c.
+// Tests a depth-3 RAW dependency chain within a single frep body iteration
+// using single-precision floating-point arithmetic:
+//   vle -> vfadd v1,v0,v0 (2x) -> vfadd v2,v1,v1 (4x) -> vfadd v3,v2,v2 (8x) -> vse
+// Each vfadd reads the result of the immediately preceding vfadd.
 
 #include <snrt.h>
 #include <stdint.h>
@@ -21,16 +21,16 @@ int main() {
     int n_iter = 4;
     int total = VL * n_iter;
 
-    int32_t x[VL * n_iter];
-    int32_t z[VL * n_iter];
+    float x[VL * n_iter];
+    float z[VL * n_iter];
 
     for (int i = 0; i < total; i++) {
-        x[i] = i + 1;
-        z[i] = 0;
+        x[i] = (float)(i + 1);
+        z[i] = 0.0f;
     }
 
-    int32_t *px = x;
-    int32_t *pz = z;
+    float *px = x;
+    float *pz = z;
 
     asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(VL));
 
@@ -44,9 +44,9 @@ int main() {
     asm volatile(
         "frep.o %[iter], 7, 0, 0          \n"
         "vle32.v  v0,    (%[px])          \n"
-        "vadd.vv  v1,    v0, v0           \n"
-        "vadd.vv  v2,    v1, v1           \n"
-        "vadd.vv  v3,    v2, v2           \n"
+        "vfadd.vv v1,    v0, v0           \n"
+        "vfadd.vv v2,    v1, v1           \n"
+        "vfadd.vv v3,    v2, v2           \n"
         "vse32.v  v3,    (%[pz])          \n"
         "addi     %[px], %[px], %[sz]     \n"
         "addi     %[pz], %[pz], %[sz]     \n"
@@ -58,15 +58,16 @@ int main() {
 
     int error = 0;
     for (int i = 0; i < total; i++) {
-        int32_t expected = 8 * x[i];
+        float expected = 8.0f * x[i];
         if (z[i] != expected) {
-            printf("Mismatch at %d: z=%d expected=%d\n", i, z[i], expected);
+            printf("Mismatch at %d: z=%f expected=%f\n", i, (double)z[i],
+                   (double)expected);
             error = 1;
         }
     }
     if (!error)
         printf(
-            "RAW chain test PASS: depth-3 forwarding correct for %d "
+            "Float RAW chain test PASS: depth-3 forwarding correct for %d "
             "elements.\n",
             total);
     return error;
