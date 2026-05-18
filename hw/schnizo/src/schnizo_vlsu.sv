@@ -215,8 +215,9 @@ module schnizo_vlsu
     // Fast aligned store: track newly-accepted ports in STORE_ISSUE
     if (state_q == STORE_ISSUE) begin
       for (int p = 0; p < NrMemPorts; p++) begin
-        if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p])
+        if (spatz_mem_req_valid_o[p] && spatz_mem_req_ready_i[p]) begin
           store_sent_d[p] = 1'b1;
+        end
       end
     end
 
@@ -288,42 +289,45 @@ module schnizo_vlsu
       IDLE: begin
         if (spatz_req_valid_i) begin
           if (spatz_req_i.op_mem.is_load) begin
-            if (is_unaligned_i)
+            if (is_unaligned_i) begin
               state_d = UNALIGNED_LOAD_ISSUE;
-            else
+            end else begin
               // Only advance when all ports accepted (valid stays high until then)
               state_d = &spatz_mem_req_ready_i ? LOAD_WAIT : IDLE;
+            end
           end else if (vrf_rvalid_i[0]) begin
-            if (is_unaligned_i)
+            if (is_unaligned_i) begin
               state_d = UNALIGNED_STORE;
-            else
+            end else begin
               state_d = idle_store_done ? IDLE : STORE_ISSUE;
+            end
           end
         end
       end
 
       LOAD_WAIT:
-        if (all_rsp_done && vrf_wvalid_i)
-          state_d = IDLE;
+        if (all_rsp_done && vrf_wvalid_i) state_d = IDLE;
 
       STORE_ISSUE:
-        if (all_store_done)
-          state_d = IDLE;
+        if (all_store_done) state_d = IDLE;
 
       UNALIGNED_LOAD_ISSUE:
         // Wait until port 0 accepts the request
-        if (spatz_mem_req_valid_o[0] && spatz_mem_req_ready_i[0])
+        if (spatz_mem_req_valid_o[0] && spatz_mem_req_ready_i[0]) begin
           state_d = UNALIGNED_LOAD_RSP;
+        end
 
       UNALIGNED_LOAD_RSP:
         // Wait for response and VRF write; then either next element or done
-        if (ua_load_elem_done)
+        if (ua_load_elem_done) begin
           state_d = ua_last_elem ? IDLE : UNALIGNED_LOAD_ISSUE;
+        end
 
       UNALIGNED_STORE:
         // Each accepted request advances; last one returns to IDLE
-        if (ua_store_req_done)
+        if (ua_store_req_done) begin
           state_d = ua_last_elem ? IDLE : UNALIGNED_STORE;
+        end
 
       default: state_d = IDLE;
     endcase
@@ -479,8 +483,9 @@ module schnizo_vlsu
     if (state_q == LOAD_WAIT && all_rsp_done) begin
       vrf_we_o    = 1'b1;
       vrf_waddr_o = req_q.vd << VrfAddrShift;
-      for (int p = 0; p < NrMemPorts; p++)
+      for (int p = 0; p < NrMemPorts; p++) begin
         vrf_wdata_o[ELEN*p +: ELEN] = rsp_data_now[p];
+      end
       vrf_wbe_o = '1;
     end
 
@@ -528,17 +533,21 @@ module schnizo_vlsu
   ////////////////
 
   // pragma translate_off
-  if (NrMemPorts != N_FU)
+  if (NrMemPorts != N_FU) begin
     $error("[schnizo_vlsu] NrMemPorts must equal N_FU (%0d)", N_FU);
+  end
 
   // synthesis translate_off
   always @(posedge clk_i) begin
-    if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE))
+    if (rst_ni && (state_d == STORE_ISSUE) && (state_q == IDLE)) begin
       $display("[schnizo_vlsu] WARNING: TCDM back-pressure on aligned store -> entering STORE_ISSUE");
-    if (rst_ni && (state_d == UNALIGNED_LOAD_ISSUE) && (state_q == IDLE))
+    end
+    if (rst_ni && (state_d == UNALIGNED_LOAD_ISSUE) && (state_q == IDLE)) begin
       $display("[schnizo_vlsu] INFO: unaligned load at 0x%08x", spatz_req_i.rs1);
-    if (rst_ni && (state_d == UNALIGNED_STORE) && (state_q == IDLE))
+    end
+    if (rst_ni && (state_d == UNALIGNED_STORE) && (state_q == IDLE)) begin
       $display("[schnizo_vlsu] INFO: unaligned store at 0x%08x", spatz_req_i.rs1);
+    end
   end
   // synthesis translate_on
   // pragma translate_on
