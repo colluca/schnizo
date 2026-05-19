@@ -26,6 +26,7 @@
 // As of now, all accelerator responses target the integer register file.
 // This should not be a problem, as the Snitch FPR is only in the FP_SS present.
 module schnova_writeback import schnova_pkg::*; #(
+  parameter bit UseFreeList              = 1,
   parameter int unsigned PipeWidth       = 1,
   parameter int unsigned RobTagWidth     = 1,
   parameter int unsigned XLEN            = 32,
@@ -351,7 +352,7 @@ module schnova_writeback import schnova_pkg::*; #(
           fpr_wdata_o[port] = fpr_data[src].data;
           // Only update the ROB in superscalar mode
           wb_fpr_valid[port]   = en_superscalar_i;
-          wb_fpr_rob_idx[port] = fpr_data[src].rob_tag;
+          wb_fpr_rob_idx[port] = UseFreeList ? fpr_data[src].rob_tag : '0;
         end
       end
     end
@@ -369,7 +370,12 @@ module schnova_writeback import schnova_pkg::*; #(
   end
 
   assign wb_valid_o = {wb_fpr_valid, wb_gpr_valid};
-  assign wb_rob_idx_o = {wb_fpr_rob_idx, wb_gpr_rob_idx};
+
+  if (UseFreeList) begin
+    assign wb_rob_idx_o = {wb_fpr_rob_idx, wb_gpr_rob_idx};
+  end else begin
+    assign wb_rob_idx_o = '0;
+  end
 
   // ---------------------------
   // Core Events

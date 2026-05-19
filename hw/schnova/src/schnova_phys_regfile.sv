@@ -8,10 +8,14 @@
 module schnova_phys_regfile #(
   parameter int unsigned DataWidth    = 32,
   parameter int unsigned OpLen        = 32,
+  parameter int unsigned NofAlus      = 1,
+  parameter int unsigned NofLsus      = 1,
+  parameter int unsigned NofFpus      = 1,
   parameter int unsigned NrReadPorts  = 2,
   parameter int unsigned NrWritePorts = 1,
+  parameter int unsigned NrOperandReadPorts = 1,
   parameter int unsigned NofOperandIfs = 1,
-  parameter bit          ZeroRegZero  = 0,
+  parameter bit          IsGpr         = 0,
   parameter int unsigned PhysAddrWidth = 6,
   parameter int unsigned AddrWidth    = 4,
   parameter int unsigned NumRegs      = 32,
@@ -27,62 +31,101 @@ module schnova_phys_regfile #(
   input  logic [NrWritePorts-1:0][AddrWidth-1:0]  waddr_i,
   input  logic [NrWritePorts-1:0][DataWidth-1:0]  wdata_i,
   input  logic [NrWritePorts-1:0]                 we_i,
-  // Scoreboard read port
-  output logic [NofOperandIfs-1:0][PhysAddrWidth-1:0] sb_raddr_o,
-  input  logic [NofOperandIfs-1:0]                    sb_reg_busy_i,
   // operand request  port
   input operand_req_t [NofOperandIfs-1:0]         op_reqs_i,
   // operand response port
-  output logic [NofOperandIfs-1:0][OpLen-1:0]     op_rsps_data_o,
-  output logic [NofOperandIfs-1:0]                op_rsps_valid_o
+  output logic [NofOperandIfs-1:0][OpLen-1:0]     op_rsps_data_o
 );
   // We have to have a read port for every read port and every operand interface
-  localparam int unsigned NrRegfileReadPorts = NrReadPorts + NofOperandIfs;
+  localparam int unsigned NrRegfileReadPorts = NrReadPorts + NrOperandReadPorts;
 
   logic [NrRegfileReadPorts-1:0][AddrWidth-1:0] rf_raddr;
   logic [NrRegfileReadPorts-1:0][DataWidth-1:0] rf_rdata;
 
-  // ---------------------------
+  // The operand requests are placed in the following order
+  // 1) ALU operand requests
+  // 2) LSU operand requests
+  // 3) FPU operand requests
+  // For more details see the file schnova_fu_stage.sv
+
+  // ----------------
   // Pack read ports
-  // ---------------------------
-  always_comb begin
-    automatic integer port_idx = 0;
+  // ----------------
+  always_comb begin : read_port_packing
+      automatic integer unsigned port_idx = 0;
+      automatic integer unsigned base_op = 0;
 
-    rf_raddr = '0;
-    rdata_o  = '0;
-    op_rsps_data_o = '0;
+      rf_raddr = '0;
+      rdata_o  = '0;
+      op_rsps_data_o = '0;
 
-    for (int unsigned i = 0; i < NrReadPorts; i++) begin
-      rf_raddr[port_idx] = raddr_i[i];
-      rdata_o[i]         = rf_rdata[port_idx];
-      port_idx = port_idx + 1;
-    end
+      for (int unsigned i = 0; i < NrReadPorts; i++) begin
+        rf_raddr[port_idx] = raddr_i[i];
+        rdata_o[i]         = rf_rdata[port_idx];
+        port_idx = port_idx + 1;
+      end
 
-    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      rf_raddr[port_idx] = op_reqs_i[op].phy_reg[AddrWidth-1:0];
-      op_rsps_data_o[op] = rf_rdata[port_idx];
-      port_idx = port_idx + 1;
-    end
-  end
+      // ALU Section (Each ALU has 2 operands, always GPR)
+      base_op = 0; // ALU requests start at index 0
+      for (int unsigned alu = 0; alu < NofAlus; alu++) begin
+        if (IsGpr) begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (alu*2) + 0].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (alu*2)] = rf_rdata[port_idx];
+          port_idx++;
 
-  // Pack the read address for the scoreboard entries that should be read.
-  always_comb begin
-    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      sb_raddr_o[op] = op_reqs_i[op].phy_reg;
-    end
-  end
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (alu*2) + 1].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (alu*2) + 1] = rf_rdata[port_idx];
+          port_idx++;
+        end
+      end
 
-  // Response Handling
-  always_comb begin : op_rsp_handling
-    // We don't need the ready signal, we just always forward the scoreboard entry
-    // of the currently requested data. The ROB makes sure that this entry
-    // does not suddendly get invalidate once it was valid (not busy) for
-    // as long as other insturctions need to consume this value.
-    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      // The response is valid as soon as the scoreboard entry
-      // for that physical register file is not busy anymore
-      op_rsps_valid_o[op] = ~sb_reg_busy_i[op];
-    end
+      // LSU Section (Starts after all ALUs; each LSU has 2 operands)
+      base_op = NofAlus * 2; 
+      for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+        // Operand 0 (Address Generation) is ALWAYS GPR
+        if (IsGpr) begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (lsu*2) + 0].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (lsu*2) + 0] = rf_rdata[port_idx];
+          port_idx++;
+        end
+
+        // Operand 1 (Store Data) can be GPR or FPR
+        if (IsGpr) begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (lsu*2) + 1].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (lsu*2) + 1] = rf_rdata[port_idx];
+          port_idx++;
+        end else begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (lsu*2) + 1].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (lsu*2) + 1] = rf_rdata[port_idx];
+          port_idx++;
+        end
+      end
+
+      // FPU Section (Starts after ALUs + LSUs; each FPU has 3 operands)
+      base_op = (NofAlus * 2) + (NofLsus * 2);
+      for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+        // Operand 0 (e.g., Conversion source / FP Move) can be GPR
+        if (IsGpr) begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (fpu*3) + 0].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (fpu*3) + 0] = rf_rdata[port_idx];
+          port_idx++;
+        end else begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (fpu*3) + 0].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (fpu*3) + 0] = rf_rdata[port_idx];
+          port_idx++;
+        end
+
+        // Operands 1 and 2 are strictly FPR
+        if (!IsGpr) begin
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (fpu*3) + 1].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (fpu*3) + 1] = rf_rdata[port_idx];
+          port_idx++;
+
+          rf_raddr[port_idx]       = op_reqs_i[base_op + (fpu*3) + 2].phy_reg[AddrWidth-1:0];
+          op_rsps_data_o[base_op + (fpu*3) + 2] = rf_rdata[port_idx];
+          port_idx++;
+        end
+      end
   end
 
   // Register file that contains the values
@@ -90,7 +133,7 @@ module schnova_phys_regfile #(
     .DataWidth   (DataWidth),
     .NrReadPorts (NrRegfileReadPorts),
     .NrWritePorts(NrWritePorts),
-    .ZeroRegZero (ZeroRegZero),
+    .ZeroRegZero (IsGpr),
     .AddrWidth   (AddrWidth),
     .NumRegs(NumRegs)
   ) i_regfile (

@@ -77,6 +77,9 @@ module schnova_cc #(
   parameter int unsigned NofPhysGpr         = 64,
   parameter int unsigned NofPhysFpr         = 64,
   parameter int unsigned PhysRegAddrWidth   = 6,
+  /// If a freelist based physical register reclamation strategy is used
+  /// or a refernce counting based strategy.
+  parameter bit UseFreeList = 0,
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
@@ -232,6 +235,7 @@ module schnova_cc #(
     .drsp_t                (drsp_t),
     .acc_req_t             (acc_req_t),
     .acc_resp_t            (acc_resp_t),
+    .UseFreeList           (UseFreeList),
     // FU configuration
     .NofAlus               (NumAlus),
     .NofLsus               (NumLsus),

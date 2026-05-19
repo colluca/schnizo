@@ -12,6 +12,7 @@
 // This module instantiates the RS and performs the necessary demuxing and muxing to bypass or go
 // through the RS.
 module schnova_fu_block import schnova_pkg::*; #(
+  parameter bit          UseFreeList = 1'b1,
   /// Instruction stream parameters
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
@@ -33,7 +34,8 @@ module schnova_fu_block import schnova_pkg::*; #(
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
   parameter type         phy_id_t       = logic,
-  localparam integer unsigned NofOperands = (RsType == ALU_RS) ? 2 : 3
+  parameter type         refcnt_req_t   = logic,
+  localparam integer unsigned NofOperands = (RsType == FPU_RS) ? 3 : 2
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -70,7 +72,10 @@ module schnova_fu_block import schnova_pkg::*; #(
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i
+  input  logic     [NofOperands-1:0] op_rsps_valid_i,
+  // Refcounte issue request intefrace
+  output logic        issue_clr_req_valid_o,
+  output refcnt_req_t issue_clr_req_o
 );
 
   ////////////////////////
@@ -152,6 +157,7 @@ module schnova_fu_block import schnova_pkg::*; #(
   // ---------------------------
 
   schnova_res_stat #(
+    .UseFreeList   (UseFreeList),
     .NofRss        (NofRss),
     .NofOperands   (NofOperands),
     .RsType        (RsType),
@@ -167,7 +173,8 @@ module schnova_fu_block import schnova_pkg::*; #(
     .slot_id_t     (slot_id_t),
     .phy_id_t      (phy_id_t),
     .operand_req_t (operand_req_t),
-    .operand_t     (operand_t)
+    .operand_t     (operand_t),
+    .refcnt_req_t  (refcnt_req_t)
   ) i_res_stat (
     .clk_i,
     .rst_i,
@@ -192,7 +199,10 @@ module schnova_fu_block import schnova_pkg::*; #(
     .op_reqs_o          (op_reqs_o),
     // Operand response interface - incoming - returning result as operand
     .op_rsps_i          (op_rsps_i),
-    .op_rsps_valid_i    (op_rsps_valid_i)
+    .op_rsps_valid_i    (op_rsps_valid_i),
+    // Refcount issue request interface
+    .issue_clr_req_valid_o(issue_clr_req_valid_o),
+    .issue_clr_req_o    (issue_clr_req_o)
   );
 
 endmodule

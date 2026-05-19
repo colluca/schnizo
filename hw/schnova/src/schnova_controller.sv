@@ -63,7 +63,7 @@ module schnova_controller import schnova_pkg::*; #(
   output logic fpu_instr_exec_commit_o,
   output logic stall_o,
   // From rename
-  input logic freelist_ready_i,
+  input logic phy_reg_alloc_ready_i,
   // From ROB
   input logic rob_ready_i,
   // Asserted if all reservation stations have no instructions in flight.
@@ -385,7 +385,7 @@ module schnova_controller import schnova_pkg::*; #(
   // We have to stall in superscalar mode if the freelist does not have enough
   // physical registers to rename all instructions
   logic freelist_stall;
-  assign freelist_stall = en_superscalar_o ? ~freelist_ready_i : 1'b0;
+  assign freelist_stall = en_superscalar_o ? ~phy_reg_alloc_ready_i : 1'b0;
 
   // We have to stall in superscalar mode if the rob does not have enough
   // entries for all the instructions we want to dispatch in this

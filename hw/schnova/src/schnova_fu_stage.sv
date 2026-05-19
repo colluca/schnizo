@@ -13,14 +13,14 @@
 // Instantiates all the FUs and connects each FU to an FU block (containing the RS).
 // Further instantiates the operand distribution network (ODN) and connects FU blocks to it.
 module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
-  // Globally enable the superscalar feature
+  parameter bit          UseFreeList       = 1'b1,
   parameter bit          MulInAlu0         = 1'b1,
   parameter int unsigned NofAlus           = 1,
   parameter int unsigned AluNofRss         = 3,
   parameter int unsigned AluNofOperands    = 2,
   parameter int unsigned NofLsus           = 1,
   parameter int unsigned LsuNofRss         = 3,
-  parameter int unsigned LsuNofOperands    = 4,
+  parameter int unsigned LsuNofOperands    = 2,
   parameter int unsigned NofFpus           = 1,
   parameter int unsigned FpuNofRss         = 2,
   parameter int unsigned FpuNofOperands    = 3,
@@ -63,7 +63,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
   parameter type         rs_id_t        = logic,
-  parameter type         operand_id_t   = logic, // used for tracer function
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         fu_data_t      = logic,
@@ -77,6 +76,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter type         phy_id_t       = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
+  parameter type         refcnt_req_t   = logic,
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
@@ -143,6 +143,14 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Operand response interface
   input  operand_t [NofOperandIfs-1:0] op_rsps_i,
   input  logic     [NofOperandIfs-1:0] op_rsps_valid_i,
+
+  // Reference counter interface
+  output logic        [NofAlus-1:0]    issue_alu_clr_req_valid_o,
+  output refcnt_req_t [NofAlus-1:0]    issue_alu_clr_req_o,
+  output logic        [NofLsus-1:0]    issue_lsu_clr_req_valid_o,
+  output refcnt_req_t [NofLsus-1:0]    issue_lsu_clr_req_o,
+  output logic        [NofFpus-1:0]    issue_fpu_clr_req_valid_o,
+  output refcnt_req_t [NofFpus-1:0]    issue_fpu_clr_req_o,
 
   // FU results
   output alu_result_t [NofAlus-1:0] alu_results_o,
@@ -314,6 +322,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // pragma translate_on
 
     schnova_fu_block #(
+      .UseFreeList(UseFreeList),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
@@ -328,7 +337,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .slot_id_t     (slot_id_t),
       .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
-      .operand_t     (operand_t)
+      .operand_t     (operand_t),
+      .refcnt_req_t  (refcnt_req_t)
     ) i_fu_block (
       .clk_i,
       .rst_i,
@@ -353,7 +363,10 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       /// Operand distribution network
       .op_reqs_o          (alu_op_reqs[alu]),
       .op_rsps_i          (alu_op_rsps[alu]),
-      .op_rsps_valid_i    (alu_op_rsps_valid[alu])
+      .op_rsps_valid_i    (alu_op_rsps_valid[alu]),
+      /// Refcount issue requests
+      .issue_clr_req_valid_o(issue_alu_clr_req_valid_o[alu]),
+      .issue_clr_req_o(issue_alu_clr_req_o[alu])
     );
 
     // Map the results fromn the FU to the result ports
@@ -468,6 +481,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // pragma translate_on
 
     schnova_fu_block #(
+      .UseFreeList(UseFreeList),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
@@ -482,7 +496,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .slot_id_t     (slot_id_t),
       .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
-      .operand_t     (operand_t)
+      .operand_t     (operand_t),
+      .refcnt_req_t  (refcnt_req_t)
     ) i_fu_block (
       .clk_i,
       .rst_i,
@@ -507,7 +522,10 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       /// Operand distribution network
       .op_reqs_o          (lsu_op_reqs[lsu]),
       .op_rsps_i          (lsu_op_rsps[lsu]),
-      .op_rsps_valid_i    (lsu_op_rsps_valid[lsu])
+      .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
+      /// Refcount issue requests
+      .issue_clr_req_valid_o(issue_lsu_clr_req_valid_o[lsu]),
+      .issue_clr_req_o(issue_lsu_clr_req_o[lsu])
     );
 
     // Map the results fromn the FU to the writeback arbiter signals
@@ -617,6 +635,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // pragma translate_on
 
     schnova_fu_block #(
+      .UseFreeList(UseFreeList),
       .disp_req_t    (disp_req_t),
       .disp_rsp_t    (disp_rsp_t),
       .issue_req_t   (issue_req_t),
@@ -631,7 +650,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .slot_id_t     (slot_id_t),
       .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
-      .operand_t     (operand_t)
+      .operand_t     (operand_t),
+      .refcnt_req_t  (refcnt_req_t)
     ) i_fu_block (
       .clk_i,
       .rst_i,
@@ -656,7 +676,10 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       /// Operand distribution network
       .op_reqs_o          (fpu_op_reqs[fpu]),
       .op_rsps_i          (fpu_op_rsps[fpu]),
-      .op_rsps_valid_i    (fpu_op_rsps_valid[fpu])
+      .op_rsps_valid_i    (fpu_op_rsps_valid[fpu]),
+      /// Refcount issue requests
+      .issue_clr_req_valid_o(issue_fpu_clr_req_valid_o[fpu]),
+      .issue_clr_req_o(issue_fpu_clr_req_o[fpu])
     );
 
     // Map the results from the FU to the writeback arbiter signals
@@ -778,40 +801,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     fu_name = rs_to_string(producer_id.rs_id);
 
     return $sformatf("%s.%0d", fu_name, producer_id.slot_id);
-  endfunction
-
-  // This function converts a consumer id to a string depending on the number of FUs.
-  // As the crossbar is independent of the number of slots there is no information about
-  // which slot is the actual consumer. But we add the information about the request port.
-  // Returns "FU.x.y" where FU is the actual FU type, x is the port id and y the operand id.
-  function automatic string consumer_to_string(operand_id_t consumer_id);
-    int unsigned consumer = unsigned'(consumer_id);
-    int unsigned num_ops;
-    int unsigned rs_id;
-    int unsigned op_id;
-    string fu_name;
-
-    if (consumer < LsuOpIdOffset) begin
-      num_ops = AluNofOperands;
-      consumer = consumer - AluOpIdOffset;
-      fu_name = "ALU";
-    end else if (consumer < FpuOpIdOffset) begin
-      num_ops = LsuNofOperands;
-      consumer = consumer - LsuOpIdOffset;
-      fu_name = "LSU";
-    end else begin
-      num_ops = FpuNofOperands;
-      consumer = consumer - FpuOpIdOffset;
-      fu_name = "FPU";
-    end
-
-    rs_id = consumer / num_ops;
-    // Reduce into operand range of current RS.
-    // --> range of 0..(num_ops - 1)
-    consumer = consumer - (rs_id * num_ops);
-    op_id = consumer % num_ops;
-
-    return $sformatf("%s%0d.%0d", fu_name, rs_id, op_id);
   endfunction
 
   // pragma translate_on

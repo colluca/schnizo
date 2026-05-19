@@ -6,6 +6,7 @@
 
 // Schnizo core tracer.
 module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
+  parameter bit UseFreeList = 1,
   parameter int unsigned PipeWidth  = 1,
   parameter int unsigned NofAlus    = 3,
   parameter int unsigned NofLsus    = 1,
@@ -15,7 +16,8 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned FpuNofRss  = 4,
   parameter int unsigned NofOperandIfs = 1,
   parameter bit          EnableAllocTrace = 1,
-  parameter int unsigned NofPhysReg = 64,
+  parameter int unsigned NofPhysGpr = 64,
+  parameter int unsigned NofPhysFpr = 64,
   parameter bit          Xfrep      = 1
 ) (
   input  logic clk_i,
@@ -293,10 +295,15 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign cur_nof_allocated_rss[NofAlus+NofLsus+fpu] = i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.num_allocated_rss_q;
   end
   // verilog_lint: waive-stop line-length
-
-  assign cur_nof_allocated_rob_entries = i_rob.allocated_entries;
-  assign cur_nof_allocated_gpr = NofPhysReg - i_rename.i_gpr_free_list.free_count;
-  assign cur_nof_allocated_fpr = NofPhysReg - i_rename.i_fpr_free_list.free_count;
+  if (UseFreeList) begin
+    assign cur_nof_allocated_rob_entries = gen_freelist_reg_manage.i_rob.allocated_entries;
+    assign cur_nof_allocated_gpr = NofPhysGpr - gen_freelist_reg_manage.i_gpr_free_list.free_count;
+    assign cur_nof_allocated_fpr = NofPhysFpr - gen_freelist_reg_manage.i_fpr_free_list.free_count;
+  end else begin
+    assign cur_nof_allocated_rob_entries = '0; // There is no ROB in this design
+    assign cur_nof_allocated_gpr = NofPhysGpr - gen_refcount_reg_manage.i_refcount.gpr_free_count;
+    assign cur_nof_allocated_fpr = NofPhysFpr - gen_refcount_reg_manage.i_refcount.fpr_free_count;
+  end
 
   final begin
     if (EnableAllocTrace) begin

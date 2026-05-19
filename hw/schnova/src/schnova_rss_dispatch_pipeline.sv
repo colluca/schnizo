@@ -5,6 +5,7 @@
 // Combines initial slot update, operand request generation, operand response handling,
 // and issue logic into a single module.
 module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
+  parameter bit          UseFreeList      = 1'b1,
   parameter int unsigned NofOperands      = 2,
   parameter int unsigned NofConsts        = 3,
   parameter rs_type_e    RsType           = 0,
@@ -16,7 +17,8 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   parameter type         operand_req_t    = logic,
   parameter type         operand_t        = logic,
   parameter type         rss_idx_t        = logic,
-  parameter type         issue_req_t      = logic
+  parameter type         issue_req_t      = logic,
+  parameter type         refcnt_req_t     = logic
 ) (
   // Control
   input  producer_id_t    disp_producer_id_i,
@@ -37,6 +39,10 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   // Operand response
   input  operand_t     [NofOperands-1:0] op_rsps_i,
   input  logic         [NofOperands-1:0] op_rsps_valid_i,
+
+  // Issue reference counting interface
+  output logic         issue_clr_req_valid_o,
+  output refcnt_req_t  issue_clr_req_o,
 
   // Issue
   input  logic         issue_req_ready_i,
@@ -266,8 +272,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         issue_req_o.fu_data.fpu_op       = schnova_pkg::FpuOpFadd;
         issue_req_o.fu_data.operand_a    = op_rsps_i[0];
         issue_req_o.fu_data.operand_b    = op_rsps_i[1];
-        issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
-                                                                              : op_rsps_i[2];
+        issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].value;
         issue_req_o.fu_data.lsu_size     = slot_op_rsp.lsu_size;
         issue_req_o.fu_data.fpu_fmt_src  = fpnew_pkg::FP32;
         issue_req_o.fu_data.fpu_fmt_dst  = fpnew_pkg::FP32;
@@ -311,5 +316,57 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
     // The RSS is ready to accept a dispatch request as long as the reservation station is not full
   assign disp_req_ready_o = !rs_full_i || issue_hs_o;
   assign disp_hs_o = disp_req_valid_i && disp_req_ready_o;
+
+  ////////////////////////////
+  // Issue Request Snooping //
+  ////////////////////////////
+
+  // The refence counting based reclamation needs to snoop the issue requests
+  if (UseFreeList) begin : gen_no_clr_req
+    // These requests are not used in a freelist based
+    // physical register reclamation approach
+    assign issue_clr_req_o = '0;
+    assign issue_clr_req_valid_o = 1'b0;
+  end else begin : gen_clr_req
+    assign issue_clr_req_valid_o = issue_hs;
+    if (RsType == ALU_RS) begin: gen_alu_clr_req
+      // For the ALU there are only two potential src registers
+      assign issue_clr_req_o = '{
+        phy_reg_op_a: slot_op_rsp.operands[0].phy_reg_src,
+        is_op_a_fp:   1'b0, // op a is never a FPR for the ALU
+        is_op_a_cnst: slot_op_rsp.constants[0].is_valid,
+        phy_reg_op_b: slot_op_rsp.operands[1].phy_reg_src,
+        is_op_b_fp:   1'b0, // op b is never a FPR for the ALU
+        is_op_b_cnst: slot_op_rsp.constants[1].is_valid,
+        phy_reg_op_c: '0, // There is no third operand for the ALU
+        is_op_c_cnst: 1'b0
+      };
+    end else if (RsType == LSU_RS) begin : gen_lsu_clr_req
+      // For the LSU there are only two potential src registers
+      assign issue_clr_req_o = '{
+        phy_reg_op_a: slot_op_rsp.operands[0].phy_reg_src,
+        is_op_a_fp:   1'b0, // op a always targets the GPR for the LSU
+        is_op_a_cnst: 1'b0, // op a is never a constant
+        phy_reg_op_b: slot_op_rsp.operands[1].phy_reg_src,
+        is_op_b_fp:   slot_op_rsp.operands[1].is_fp,
+        is_op_b_cnst: 1'b0, // op b is never a constant
+        phy_reg_op_c: '0, // There is no third operand for the LSU
+        is_op_c_cnst: 1'b0
+      };
+    end else if (RsType == FPU_RS) begin : gen_fpu_clr_req
+      // For the FPU all sources can potentially be a register
+      assign issue_clr_req_o = '{
+        phy_reg_op_a: slot_op_rsp.operands[0].phy_reg_src,
+        is_op_a_fp:   slot_op_rsp.operands[0].is_fp,
+        is_op_a_cnst: 1'b0, // op a is never a constant
+        phy_reg_op_b: slot_op_rsp.operands[1].phy_reg_src,
+        is_op_b_fp:   1'b1, // op b always targets the FPR for the FPU
+        is_op_b_cnst: 1'b0, // op b is never a constant
+        phy_reg_op_c: slot_op_rsp.operands[2].phy_reg_src,
+        is_op_c_cnst: slot_op_rsp.constants[0].is_valid
+      };
+    end
+      
+  end
 
 endmodule

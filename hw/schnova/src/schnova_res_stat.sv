@@ -15,6 +15,7 @@
 //      information for the superscalar execution.
 // RF:  Register File
 module schnova_res_stat import schnova_pkg::*; #(
+  parameter bit          UseFreeList = 1'b1,
   parameter int unsigned NofRss         = 4,
   parameter int unsigned NofOperands    = 2,
   parameter rs_type_e    RsType         = ALU_RS,
@@ -33,6 +34,7 @@ module schnova_res_stat import schnova_pkg::*; #(
   parameter type         phy_id_t       = logic,
   parameter type         operand_req_t  = logic,
   parameter type         operand_t      = logic,
+  parameter type         refcnt_req_t   = logic,
   // We need two constants for ALU reservation stations and one for all other
   localparam integer unsigned NofConsts = (RsType == ALU_RS) ? 2 : 1,
   localparam integer unsigned CNSTLEN = ((RsType == ALU_RS) || (RsType == LSU_RS)) ? XLEN : FLEN
@@ -69,7 +71,10 @@ module schnova_res_stat import schnova_pkg::*; #(
 
   // Operand response interface - incoming - returning result as operand
   input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i
+  input  logic     [NofOperands-1:0] op_rsps_valid_i,
+  // Refcounte issue request intefrace
+  output logic        issue_clr_req_valid_o,
+  output refcnt_req_t issue_clr_req_o
 );
 
   /////////////////////////////////////
@@ -227,6 +232,7 @@ module schnova_res_stat import schnova_pkg::*; #(
   generate
     if (RsType == ALU_RS) begin : gen_alu_rs
       schnova_res_stat_slots #(
+        .UseFreeList(UseFreeList),
         .NofRss          (NofRss),
         .NofOperands     (NofOperands),
         .NofConsts       (NofConsts),
@@ -241,7 +247,8 @@ module schnova_res_stat import schnova_pkg::*; #(
         .producer_id_t   (producer_id_t),
         .slot_id_t       (slot_id_t),
         .operand_req_t   (operand_req_t),
-        .operand_t       (operand_t)
+        .operand_t       (operand_t),
+        .refcnt_req_t    (refcnt_req_t)
       ) i_slots (
         .clk_i,
         .rst_i,
@@ -262,10 +269,13 @@ module schnova_res_stat import schnova_pkg::*; #(
         .instr_exec_commit_o,
         .op_reqs_o,
         .op_rsps_i,
-        .op_rsps_valid_i
+        .op_rsps_valid_i,
+        .issue_clr_req_valid_o,
+        .issue_clr_req_o
       );
     end else if (RsType == LSU_RS) begin : gen_lsu_rs
       schnova_res_stat_slots #(
+        .UseFreeList(UseFreeList),
         .NofRss          (NofRss),
         .NofOperands     (NofOperands),
         .NofConsts       (NofConsts),
@@ -280,7 +290,8 @@ module schnova_res_stat import schnova_pkg::*; #(
         .producer_id_t   (producer_id_t),
         .slot_id_t       (slot_id_t),
         .operand_req_t   (operand_req_t),
-        .operand_t       (operand_t)
+        .operand_t       (operand_t),
+        .refcnt_req_t    (refcnt_req_t)
       ) i_slots (
         .clk_i,
         .rst_i,
@@ -301,10 +312,13 @@ module schnova_res_stat import schnova_pkg::*; #(
         .instr_exec_commit_o,
         .op_reqs_o,
         .op_rsps_i,
-        .op_rsps_valid_i
+        .op_rsps_valid_i,
+        .issue_clr_req_valid_o,
+        .issue_clr_req_o
       );
     end else if (RsType == FPU_RS) begin : gen_fpu_rs
       schnova_res_stat_slots #(
+        .UseFreeList(UseFreeList),
         .NofRss          (NofRss),
         .NofOperands     (NofOperands),
         .NofConsts       (NofConsts),
@@ -319,7 +333,8 @@ module schnova_res_stat import schnova_pkg::*; #(
         .producer_id_t   (producer_id_t),
         .slot_id_t       (slot_id_t),
         .operand_req_t   (operand_req_t),
-        .operand_t       (operand_t)
+        .operand_t       (operand_t),
+        .refcnt_req_t    (refcnt_req_t)
       ) i_slots (
         .clk_i,
         .rst_i,
@@ -340,7 +355,9 @@ module schnova_res_stat import schnova_pkg::*; #(
         .instr_exec_commit_o,
         .op_reqs_o,
         .op_rsps_i,
-        .op_rsps_valid_i
+        .op_rsps_valid_i,
+        .issue_clr_req_valid_o,
+        .issue_clr_req_o
       );
     end
   endgenerate

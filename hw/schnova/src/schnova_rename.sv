@@ -23,25 +23,16 @@ module schnova_rename import schnova_pkg::*; #(
   input  logic         rst_i,
   input  instr_dec_t   [PipeWidth-1:0]  instr_dec_i,
   input  logic [PipeWidth-1:0]         instr_rename_gpr_valid_i,
-  input  logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_i,
   input  logic [PipeWidth-1:0]         instr_rename_fpr_valid_i,
-  input  logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_i,
   input  logic dispatched_i,
   input  logic en_superscalar_i,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
   output reg_map_t [PipeWidth-1:0]  reg_map_o,
-  // To controller
-  output logic freelist_ready_o,
-  // From ROB
-  input logic freelist_push_i,
-  input [$clog2(PipeWidth):0] freelist_gpr_push_count_i,
-  input phy_id_t [PipeWidth-1:0] retired_gpr_regs_i,
-  input [$clog2(PipeWidth):0] freelist_fpr_push_count_i,
-  input phy_id_t [PipeWidth-1:0] retired_fpr_regs_i
+  // From freelist
+  input phy_id_t    [PipeWidth-1:0] allocated_gpr_regs_i,
+  input phy_id_t    [PipeWidth-1:0] allocated_fpr_regs_i
 );
-
-  localparam int unsigned NumArchRegs = 2**RegAddrSize;
 
   logic       [RmtNrIntReadPorts-1:0][RegAddrSize-1:0] rmt_int_raddr;
   logic       [RmtNrFpReadPorts-1:0][RegAddrSize-1:0]  rmt_fp_raddr;
@@ -50,8 +41,6 @@ module schnova_rename import schnova_pkg::*; #(
 
   logic       [RmtNrWritePorts-1:0][RegAddrSize-1:0] rmt_waddr;
   // We have to insert a new mapping in the RTM for every instruction
-  phy_id_t    [PipeWidth-1:0]                        allocated_gpr_regs;
-  phy_id_t    [PipeWidth-1:0]                        allocated_fpr_regs;
   phy_id_t    [RmtNrWritePorts-1:0]                  new_mapping_rd;
   logic       [RmtNrWritePorts-1:0]                  rmt_int_we;
   logic       [RmtNrWritePorts-1:0]                  rmt_fp_we;
@@ -64,10 +53,6 @@ module schnova_rename import schnova_pkg::*; #(
   phy_id_t [PipeWidth-1:0] mapping_rs3;
   phy_id_t [PipeWidth-1:0] mapping_rd;
 
-  // Physical register allocation signals
-  logic pop_freelist;
-  logic freelist_gpr_ready;
-  logic freelist_fpr_ready;
 
   /////////////////
   // RMT readout //
@@ -108,51 +93,6 @@ module schnova_rename import schnova_pkg::*; #(
     end
   end
 
-  ///////////////////////////
-  // Reading the Free List //
-  ///////////////////////////
-
-  // We pop physical registers from the free list
-  // once we have sucessfully dispatched instructions
-  // and are in the scalar execution mode.
-  assign pop_freelist = dispatched_i & en_superscalar_i;
-
-  schnova_free_list #(
-    .PipeWidth(PipeWidth),
-    .NumPhysRegs(NofPhysGpr),
-    .NumArchRegs(NumArchRegs),
-    .phy_id_t(phy_id_t)
-  ) i_gpr_free_list (
-    .clk_i,
-    .rst_i,
-    .pop_i(pop_freelist),
-    .freelist_ready_o(freelist_gpr_ready),
-    .pop_count_i(instr_rename_gpr_count_i),
-    .allocated_regs_o(allocated_gpr_regs),
-    .push_i(freelist_push_i),
-    .push_count_i(freelist_gpr_push_count_i),
-    .retired_regs_i(retired_gpr_regs_i)
-  );
-
-  schnova_free_list #(
-    .PipeWidth(PipeWidth),
-    .NumPhysRegs(NofPhysFpr),
-    .NumArchRegs(NumArchRegs),
-    .phy_id_t(phy_id_t)
-  ) i_fpr_free_list (
-    .clk_i,
-    .rst_i,
-    .pop_i(pop_freelist),
-    .freelist_ready_o(freelist_fpr_ready),
-    .pop_count_i(instr_rename_fpr_count_i),
-    .allocated_regs_o(allocated_fpr_regs),
-    .push_i(freelist_push_i),
-    .push_count_i(freelist_fpr_push_count_i),
-    .retired_regs_i(retired_fpr_regs_i)
-  );
-
-  assign freelist_ready_o = freelist_fpr_ready & freelist_gpr_ready;
-
   // Mapping the physical registers to the instructions that need renaming
   always_comb begin: map_phys_regs
     // No renaming is performed per default
@@ -162,11 +102,11 @@ module schnova_rename import schnova_pkg::*; #(
     alloc_fpr_idx = '0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       if(instr_rename_gpr_valid_i[i]) begin
-        new_mapping_rd[i] = allocated_gpr_regs[alloc_gpr_idx];
+        new_mapping_rd[i] = allocated_gpr_regs_i[alloc_gpr_idx];
         // Increment to the next allocated registers
         alloc_gpr_idx = alloc_gpr_idx + 1;
       end else if (instr_rename_fpr_valid_i[i]) begin
-        new_mapping_rd[i] = allocated_fpr_regs[alloc_fpr_idx];
+        new_mapping_rd[i] = allocated_fpr_regs_i[alloc_fpr_idx];
         // Increment to the next allocated registers
         alloc_fpr_idx = alloc_fpr_idx + 1;
       end else begin

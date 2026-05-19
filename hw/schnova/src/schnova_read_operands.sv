@@ -109,7 +109,7 @@ module schnova_read_operands import schnova_pkg::*; #(
       // Operand C - reuses imm field
       if (instr_dec_i[instr_idx].use_imm_as_rs3) begin
         if (instr_idx == 0) begin
-        fu_data_o[instr_idx].imm[FLEN-1:0] = fpr_rdata_i[2];
+          fu_data_o[instr_idx].imm[FLEN-1:0] = fpr_rdata_i[2];
         end else begin
           // For all other instructions we just assign a dummy value
           fu_data_o[instr_idx].imm[FLEN-1:0] = '0;

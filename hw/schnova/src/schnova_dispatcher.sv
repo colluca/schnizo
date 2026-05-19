@@ -13,6 +13,9 @@
 // specific FU of that type to dispatch the instruction to.
 // It itself instantiates the RMT and updates it based on the dispatch and write back information.
 module schnova_dispatcher import schnova_pkg::*; #(
+  /// If a freelist based physical register reclamation strategy is used
+  /// or a refernce counting based strategy.
+  parameter bit UseFreeList = 1,
   parameter int unsigned PipeWidth       = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
@@ -52,13 +55,10 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   // From rename stage
   input  reg_map_t [PipeWidth-1:0] reg_map_i,
-  output sb_disp_data_t [PipeWidth-1:0] sb_disp_data_o,
 
   // From/to ROB
-  output logic                                 rob_push_o,
-  output logic [$clog2(PipeWidth):0]           rob_push_count_o,
-  output phy_id_t [PipeWidth-1:0]              rob_phy_reg_rd_old_o,
-  output logic    [PipeWidth-1:0]              rob_phy_reg_rd_old_is_fp_o,
+  output logic                                 first_instr_dispatched_o,
+  output logic                                 multi_cycle_dispatch_o,
   input logic [PipeWidth-1:0][RobTagWidth-1:0] rob_idx_i,
   // Each FU has a response which must be valid at dispatch request handshake.
   // ALU
@@ -97,7 +97,10 @@ module schnova_dispatcher import schnova_pkg::*; #(
   // Asserted if the RSS are cleared synchronously.
   input  logic        restart_i,
   // Memory consistency mode during FREP loop
-  input frep_mem_cons_mode_e frep_mem_cons_mode_i
+  input frep_mem_cons_mode_e frep_mem_cons_mode_i,
+  // To refcount
+  output logic      [PipeWidth-1:0] disp_set_req_valid_o,
+  output disp_req_t [PipeWidth-1:0] disp_req_o
 );
 
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
@@ -128,9 +131,9 @@ module schnova_dispatcher import schnova_pkg::*; #(
   `FFAR(lsu_idx_raw_q, lsu_idx_raw_d, '0, clk_i, rst_i);
   `FFAR(fpu_idx_raw_q, fpu_idx_raw_d, '0, clk_i, rst_i);
 
-  // Rob Tag
+  
+  // Rob Tag state
   logic [PipeWidth-1:0][RobTagWidth-1:0] rob_tag_d, rob_tag_q;
-  `FFAR(rob_tag_q, rob_tag_d, '0, clk_i, rst_i);
 
   logic [PipeWidth-1:0] instr_dispatched;
 
@@ -178,17 +181,19 @@ module schnova_dispatcher import schnova_pkg::*; #(
       disp_req[i].tag.producer_id    = fu_response[i].producer; // Only needed for the tracer
       // pragma translate_on
       disp_req[i].tag.dest_reg       = en_superscalar_i ? reg_map_i[i].phy_reg_rd_new
-                                                          : reg_map_i[i].phy_reg_rd_old;
+                                                        : reg_map_i[i].phy_reg_rd_old;
       disp_req[i].tag.dest_reg_is_fp = instr_dec_i[i].rd_is_fp;
       disp_req[i].tag.is_branch      = instr_dec_i[i].is_branch;
       disp_req[i].tag.is_jump        = instr_dec_i[i].is_jal | instr_dec_i[i].is_jalr;
-      // If we have already dispatched some instructions we have to use the rob tag we saved
-      // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
-      // tags starating from the current tail pointer
-      disp_req[i].tag.rob_tag        = (|dispatched_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
-      // Only assign a different rob tag if this instruction really needs a rob entry
-      if (instr_rename_fpr_valid_i[i] || instr_rename_gpr_valid_i[i]) begin
-        rob_idx++;
+      if (UseFreeList) begin
+        // If we have already dispatched some instructions we have to use the rob tag we saved
+        // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
+        // tags starating from the current tail pointer
+        disp_req[i].tag.rob_tag        = (|dispatched_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
+        // Only assign a different rob tag if this instruction really needs a rob entry
+        if (instr_rename_fpr_valid_i[i] || instr_rename_gpr_valid_i[i]) begin
+          rob_idx++;
+        end
       end
     end
   end
@@ -697,80 +702,45 @@ module schnova_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  //////////////////////////////////////////
-  // Generate the ROB allocation requests //
-  //////////////////////////////////////////
+  ///////////////////////////////////////
+  // Reorder buffer tag state update   //
+  // and scorebored signal handlign    //
+  ///////////////////////////////////////
 
-  logic [$clog2(PipeWidth):0] alloc_idx;
+  assign first_instr_dispatched_o = (|instr_dispatched) &
+                                    !(|dispatched_q);
 
-  // The incoming dispatch request will only be valid
-  // if we have enough ROB entries otherwise the controller
-  // would stall the dispatch by forcing the valid to zero.
+  assign multi_cycle_dispatch_o = |dispatched_q;
 
-  // The amount of new entries we allocated, is the amount of instructions
-  // that have to be allocated
-  assign rob_push_count_o = instr_rename_gpr_count_i + instr_rename_fpr_count_i;
-
-  // We only allocate new entries in the ROB in superscalar mode
-  // The allocation happens once the first instruction is successfully dispatched.
-  // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched
-  assign rob_push_o = (|instr_dispatched)      &
-                      !(|dispatched_q)         &
-                      en_superscalar_i;
-
-  // We have to remember the first ROB tags because of partial dispatch
-  always_comb begin
-    rob_tag_d = rob_tag_q;
-    // Remember the rob tags the next cycle we pushed these into the ROB
-    if (rob_push_o) begin
-      rob_tag_d = rob_idx_i;
-    end
-    if (restart_i) begin
-      rob_tag_d = '0;
-    end
-  end
-
-  // The ROB assumes that the incoming data is valid in a block
-  // that means all the mappings that should be allocated are in contiguous elements
-  // The ROB will then allocate an entry for rob_phy_reg_rd_old_o[0] at the tail pointer
-  // (tail_ptr) and rob_phy_reg_rd_old_o[1] at tail_ptr + 1.
-  always_comb begin : map_phy_reg_rd_old
-    // Per default we don't assign a mapping
-    rob_phy_reg_rd_old_o = '0;
-    rob_phy_reg_rd_old_is_fp_o = '0;
-
-    alloc_idx = '0;
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (instr_rename_gpr_valid_i[i]) begin
-        rob_phy_reg_rd_old_o[alloc_idx] = reg_map_i[i].phy_reg_rd_old;
-
-        alloc_idx = alloc_idx + 1;
-      end else if (instr_rename_fpr_valid_i[i]) begin
-        rob_phy_reg_rd_old_o[alloc_idx] = reg_map_i[i].phy_reg_rd_old;
-        rob_phy_reg_rd_old_is_fp_o[alloc_idx] = 1'b1;
-
-        alloc_idx = alloc_idx + 1;
+  // Only need to send the rob tag in case we do free list based reclamation
+  if (UseFreeList) begin : gen_rob_tag
+    // Only needed for the refcounter based implementation.
+    assign disp_set_req_valid_o = '0;
+    assign disp_req_o = '0;
+    // Delacre the tag FF
+    `FFAR(rob_tag_q, rob_tag_d, '0, clk_i, rst_i);
+    // We have to remember the first ROB tags because of partial dispatch
+    always_comb begin
+      rob_tag_d = rob_tag_q;
+      // Remember the rob tags the next cycle we pushed these into the ROB
+      if (first_instr_dispatched_o & en_superscalar_i) begin
+        rob_tag_d = rob_idx_i;
+      end
+      if (restart_i) begin
+        rob_tag_d = '0;
       end
     end
-  end
-
-  //////////////////////////////////////////
-  // Generate the scoreboard dispatch data //
-  //////////////////////////////////////////
-
-  always_comb begin : gen_scoreboard_update
-    // Forward the new destination mappings to the rename stage
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      // In scalar mode we don't perform renaming, so we use the old value stored in the rmt
-        sb_disp_data_o[i].rd             = en_superscalar_i ? reg_map_i[i].phy_reg_rd_new
-                                                            : reg_map_i[i].phy_reg_rd_old;
-        sb_disp_data_o[i].rd_is_fp       = instr_dec_i[i].rd_is_fp;
-        sb_disp_data_o[i].rs1            = reg_map_i[i].phy_reg_rs1;
-        sb_disp_data_o[i].rs1_is_fp      = instr_dec_i[i].rs1_is_fp;
-        sb_disp_data_o[i].rs2            = reg_map_i[i].phy_reg_rs2;
-        sb_disp_data_o[i].rs2_is_fp      = instr_dec_i[i].rs2_is_fp;
-        sb_disp_data_o[i].rs3            = reg_map_i[i].phy_reg_rs3;
-        sb_disp_data_o[i].use_imm_as_rs3 = instr_dec_i[i].use_imm_as_rs3;
+  end else begin: gen_refcnt_set_req
+    assign rob_tag_q = '0;
+    assign rob_tag_d = '0;
+    always_comb begin
+      disp_set_req_valid_o = '0;
+      disp_req_o = '0;
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
+        disp_set_req_valid_o[i] = en_superscalar_i ? (instr_valid_i[i] & fu_ready[i] & !dispatched_q[i])
+                                                   : '0; // Do not change the reference counter in scalar mode
+        disp_req_o[i] = disp_req[i];
+      end
     end
   end
 

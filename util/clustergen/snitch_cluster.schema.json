@@ -38,6 +38,11 @@
                     "description": "Whether the schnova or schnizo core is used in the cluster.",
                     "default": false
                 },
+                "use_freelist": {
+                    "type": "boolean",
+                    "description": "Whether free list based register reclamation is used in the schnova core. If false, a reference counter based implementation is used",
+                    "default": true
+                },
                 "num_phy_gpr": {
                     "type": "number",
                     "description": "The number of general purpose physical registers of schnova.",

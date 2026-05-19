@@ -74,6 +74,9 @@ module snitch_cluster
   parameter int unsigned NumExpWideTcdmPorts = 1,
   /// Whether the schnova or schnizo core is used in the cluster
   parameter bit          UseSchnovaCore      = 0,
+  /// If a freelist based physical register reclamation strategy is used
+  /// or a refernce counting based strategy.
+  parameter bit          UseFreeList = 1,
   /// Number of physical general purpose registers
   parameter int unsigned NofPhysGpr = 64,
   /// Number of physical floating point registers
@@ -1203,6 +1206,7 @@ module snitch_cluster
         .NofPhysFpr(NofPhysFpr),
         .PhysRegAddrWidth(PhysRegAddrWidth),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
+        .UseFreeList (UseFreeList),
         // TODO(colluca): add Xpulpv2 to Schnizo
         // .Xpulppostmod (Xpulppostmod[i]),
         // .Xpulpabs (Xpulpabs[i]),

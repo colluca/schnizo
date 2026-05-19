@@ -7,6 +7,7 @@
 // Datapath of the Reservation Station.
 // Contains the slot registers, dispatch pipeline, result capture, and RF writeback path.
 module schnova_res_stat_slots import schnova_pkg::*; #(
+  parameter  bit              UseFreeList = 1'b1,
   parameter  int unsigned     NofRss           = 4,
   parameter  int unsigned     NofOperands      = 3,
   parameter  int unsigned     NofConsts        = 1,
@@ -23,6 +24,7 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   parameter  type             phy_id_t         = logic,
   parameter  type             operand_req_t    = logic,
   parameter  type             operand_t        = logic,
+  parameter  type             refcnt_req_t     = logic,
   localparam integer unsigned NofRssWidth      = cf_math_pkg::idx_width(NofRss),
   localparam type             rss_idx_t        = logic [NofRssWidth-1:0]
 ) (
@@ -56,7 +58,10 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
 
   // Operand response
   input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i
+  input  logic     [NofOperands-1:0] op_rsps_valid_i,
+  // Refcount issue request intefrace
+  output logic        issue_clr_req_valid_o,
+  output refcnt_req_t issue_clr_req_o
 );
 
   /////////////////
@@ -118,6 +123,7 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   issue_req_t issue_req_raw;
 
   schnova_rss_dispatch_pipeline #(
+    .UseFreeList     (UseFreeList),
     .NofOperands     (NofOperands),
     .NofConsts       (NofConsts),
     .RsType          (RsType),
@@ -129,7 +135,8 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .operand_req_t   (operand_req_t),
     .operand_t       (operand_t),
     .issue_req_t     (issue_req_t),
-    .rss_idx_t       (rss_idx_t)
+    .rss_idx_t       (rss_idx_t),
+    .refcnt_req_t    (refcnt_req_t)
   ) i_dispatch_pipeline (
     .disp_producer_id_i     (rss_ids[disp_idx_i]),
     .issue_producer_id_i    (rss_ids[issue_idx_i]),
@@ -145,6 +152,8 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .op_reqs_o              (op_reqs_o),
     .op_rsps_i              (op_rsps_i),
     .op_rsps_valid_i        (op_rsps_valid_i),
+    .issue_clr_req_valid_o  (issue_clr_req_valid_o),
+    .issue_clr_req_o        (issue_clr_req_o),
     .issue_req_o            (issue_req_raw),
     .issue_req_valid_o      (issue_req_valid_raw),
     .issue_req_ready_i      (issue_req_ready_i),
