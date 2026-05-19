@@ -13,16 +13,8 @@ OPCODES=(opcodes-pseudo opcodes-rv32i opcodes-rv64i opcodes-rv32m opcodes-rv64m 
 #######
 # RTL #
 #######
-# OPCODES+=(opcodes-rvv opcodes-ipu_CUSTOM)
-# Add all RVV opcode files
-OPCODES+=(
-  opcodes-rvv
-  opcodes-rvv-memidx
-  opcodes-rvv-mask
-  opcodes-rvv-slide
-  opcodes-rvv-reduction
-  opcodes-rvv-convert
-)
+OPCODES+=(opcodes-rvv opcodes-ipu_CUSTOM)
+EXTRA_OPCODES=($ROOT/sw/deps/opcodes-rvv-spatz)
 
 INSTR_SV=$ROOT/hw/snitch/src/riscv_instr.sv
 
@@ -33,5 +25,5 @@ cat > $INSTR_SV <<- EOM
 
 EOM
 echo -e "// verilog_lint: waive-start parameter-name-style" >> $INSTR_SV
-cd $RISCV_OPCODES && cat ${OPCODES[@]} | ./parse_opcodes -sverilog --warn-overlap >> $INSTR_SV
+cd $RISCV_OPCODES && cat ${OPCODES[@]} ${EXTRA_OPCODES[@]} | $ROOT/sw/deps/parse_opcodes -sverilog --warn-overlap >> $INSTR_SV
 echo -e "// verilog_lint: waive-stop parameter-name-style" >> $INSTR_SV

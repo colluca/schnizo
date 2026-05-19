@@ -1,224 +1,86 @@
-![CI](https://github.com/pulp-platform/snitch_cluster/actions/workflows/ci.yml/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-# Snitch Cluster
+# Schnizo
 
-This repository hosts the hardware and software for the Snitch cluster and its generator. Snitch is a high-efficiency compute cluster platform focused on floating-point workloads. It is developed as part of the PULP project, a joint effort between ETH Zurich and the University of Bologna.
+This branch hosts the **Schnizo core** ? a simple RISC-V integer core that supports **hardware loops** (`frep`) and **out-of-order execution** within those hardware loops via a reservation-station-based scoreboard. The hardware-loop mechanism allows the core to issue independent instructions from the loop body while waiting for results, effectively hiding latency and improving throughput without a full out-of-order pipeline.
+
+Example tests exercising the hardware-loop and chaining features can be found in [sw/tests/src/](sw/tests/src/), including:
+
+- [frep1d.c](sw/tests/src/frep1d.c) ? basic single-loop smoke test
+- [frep2d_1.c](sw/tests/src/frep2d_1.c) ? nested hardware loops
+- [frep.c](sw/tests/src/frep.c) ? three levels of nested loops with independent iterations
+- [gemm_frep.c](sw/tests/src/gemm_frep.c) ? matrix multiply using nested hardware loops
+
+## Experimental SIMD Support (this branch)
+
+This branch adds experimental **SIMD support** using the [RISC-V Vector (RVV) extension](https://github.com/riscv/riscv-v-spec) encoding, backed by the hardware elements of [Spatz](https://github.com/jogut445/schnizo) (see the linked branch for the VFU microarchitecture).
+
+The vector functional unit (`schnizo_vfu.sv`, `schnizo_vlsu.sv`) is integrated into the Schnizo pipeline and dispatched through the existing hardware-loop and scoreboard infrastructure, enabling **vectorized loops with out-of-order vector execution**.
+
+> **Important:** This is **not a compliant RVV implementation.** The hardware reuses the RVV instruction encoding as a convenient ISA surface, but only implements a subset of the specification and deliberately deviates from the full standard in key ways:
+> - Only **fixed 256-bit SIMD** operation is supported. There is no variable-length vector model ? `vl` must always match the full 256-bit width for the chosen element type.
+> - Some instructions of the RVV instruction set are **not implemented**. Unimplemented instructions will produce undefined behavior.
+> - Features such as fractional LMUL, tail/mask agnostic policies beyond `ta/ma`, and segment load/store are not supported.
+> **Key Feature:** With sufficient loop unrolling inside `frep`, the VFU can sustain **one `vfmacc` per cycle** ? 100% utilization. The 8-row-unrolled GEMM kernel in [vfu_test_gemm_8x_frep.c](sw/tests/src/vfu_test_gemm_8x_frep.c) demonstrates this: by interleaving eight independent accumulator chains within a single `frep.o` body, the out-of-order scoreboard keeps the VFU fully occupied across all iterations.
+
+Example tests:
+
+- [vfu_test_vec_instr_1_int_vv.c](sw/tests/src/vfu_test_vec_instr_1_int_vv.c) ? integer vector-vector operations
+- [vfu_test_vec_instr_4_fp_vv.c](sw/tests/src/vfu_test_vec_instr_4_fp_vv.c) ? floating-point vector operations
+- [vfu_test_axpy_frep_f32.c](sw/tests/src/vfu_test_axpy_frep_f32.c) ? AXPY kernel using hardware loops + RVV
 
 ## Getting Started
 
-To get started working with Snitch check out our [documentation pages](https://pulp-platform.github.io/snitch_cluster). The documentation is built from the latest commit on the main branch.
+The repository structure and build system are modelled closely on the [Snitch Cluster](https://github.com/pulp-platform/snitch_cluster) ? refer to that project's [documentation](https://pulp-platform.github.io/snitch_cluster) for general setup, tool requirements, and simulation flow. The `make` targets and `cfg/` layout follow the same conventions.
 
-## Content
+## SIMD Programmability
 
-What can you expect to find in this repository?
+The vector unit operates exclusively on **256-bit wide vectors**. There is no support for shorter or wider configurations ? the `vtype` must be set accordingly before issuing any vector instruction.
 
-- The RISC-V [Snitch integer core](https://pulp-platform.github.io/snitch_cluster/rm/hw/snitch.html). This can be useful stand-alone if you are just interested in re-using the core for your project, e.g., as a tiny control core or you want to make a peripheral smart. The sky is the limit.
-- The [Snitch cluster](https://pulp-platform.github.io/snitch_cluster/rm/hw/snitch_cluster.html). A highly configurable cluster containing one to many integer cores with optional floating-point capabilities as well as our custom ISA extensions `Xssr`, `Xfrep`, and `Xdma`.
-- A runtime and example applications for the Snitch cluster.
-- RTL simulation environments for Verilator, Questa Advanced Simulator, and VCS, as well as configurations for the [GVSoC system simulator](https://github.com/gvsoc/gvsoc).
+Always configure the vector length with `vsetvli` before use. The element width (`e32` for 32-bit, `e64` for 64-bit) determines the number of elements per vector:
 
-This code was previously hosted in the [Snitch monorepo](https://github.com/pulp-platform/snitch) and was spun off into its own repository to simplify maintenance and dependency handling. Note that our Snitch-based manycore system [Occamy](https://github.com/pulp-platform/occamy) has also moved.
+```c
+// 8 x 32-bit elements = 256 bits
+asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(8));
+
+// 4 x 64-bit elements = 256 bits
+asm volatile("vsetvli zero, %0, e64, m1, ta, ma" : : "r"(4));
+```
+
+A complete example ? 32-element AXPY using hardware loops over 256-bit RVV vectors:
+
+```c
+#define VL 8  // 8 x f32 = 256 bits
+
+asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(VL));
+
+asm volatile(
+    "frep.o %[iter], 8, 0, 0       \n"
+    "vle32.v  v0, (%[px])          \n"   // load x
+    "vle32.v  v1, (%[py])          \n"   // load y
+    "vfmul.vf v2, v0, %[alpha]     \n"   // v2 = alpha * x
+    "vfadd.vv v3, v2, v1           \n"   // v3 = alpha*x + y
+    "vse32.v  v3, (%[pz])          \n"   // store result
+    "addi %[px], %[px], %[sz]      \n"
+    "addi %[py], %[py], %[sz]      \n"
+    "addi %[pz], %[pz], %[sz]      \n"
+    : [px] "+r"(px), [py] "+r"(py), [pz] "+r"(pz)
+    : [iter] "r"(n_iter - 1), [alpha] "f"(alpha), [sz] "i"(VL * 4)
+    : "v0", "v1", "v2", "v3");
+```
+
+The key constraints to keep in mind:
+
+- `vsetvli` must appear before every vector code region ? the VFU does not infer the vector length.
+- Only 256-bit operation is supported (`m1` with matching element count). Smaller or larger `vl` values will produce incorrect results.
+- Vector operations are issued through the hardware-loop dispatcher; using them outside an `frep` loop is possible but loses the out-of-order benefit.
 
 ## License
 
-Snitch is being made available under permissive open source licenses.
-
-The following files are released under Solderpad v0.51 (`SHL-0.51`) see `hw/LICENSE`:
+The following files are released under Solderpad v0.51 (`SHL-0.51`) ? see `hw/LICENSE`:
 
 - `hw/`
 
-The `sw/deps` directory references submodules that come with their own
-licenses. See the respective folder for the licenses used.
+The `sw/deps` directory references submodules that come with their own licenses. See the respective folders for details.
 
-- `sw/deps/`
-
-All other files are released under Apache License 2.0 (`Apache-2.0`) see `LICENSE`.
-
-## Contributing
-
-If you would like to contribute to this project, please check our [contribution guidelines](CONTRIBUTING.md).
-
-
-## Publications
-
-<!--start-publications-->
-
-If you use the Snitch cluster or its extensions in your work, you can cite us:
-
-<details>
-<summary><b><a href="https://doi.org/10.1109/TC.2020.3027900">Snitch: A Tiny Pseudo Dual-Issue Processor for Area and Energy Efficient Execution of Floating-Point Intensive Workloads</a></a></b></summary>
-<p>
-
-```
-@ARTICLE{zaruba2021snitch,
-  author={Zaruba, Florian and Schuiki, Fabian and Hoefler, Torsten and Benini, Luca},
-  journal={IEEE Transactions on Computers}, 
-  title={Snitch: A Tiny Pseudo Dual-Issue Processor for Area and Energy Efficient Execution of Floating-Point Intensive Workloads}, 
-  year={2021},
-  volume={70},
-  number={11},
-  pages={1845-1860},
-  doi={10.1109/TC.2020.3027900}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://doi.org/10.1109/TC.2020.2987314">Stream Semantic Registers: A Lightweight RISC-V ISA Extension Achieving Full Compute Utilization in Single-Issue Cores</a></b></summary>
-<p>
-
-```
-@ARTICLE{schuiki2021ssr,
-  author={Schuiki, Fabian and Zaruba, Florian and Hoefler, Torsten and Benini, Luca},
-  journal={IEEE Transactions on Computers}, 
-  title={Stream Semantic Registers: A Lightweight RISC-V ISA Extension Achieving Full Compute Utilization in Single-Issue Cores}, 
-  year={2021},
-  volume={70},
-  number={2},
-  pages={212-227},
-  doi={10.1109/TC.2020.2987314}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://doi.org/10.1109/TPDS.2023.3322029">Sparse Stream Semantic Registers: A Lightweight ISA Extension Accelerating General Sparse Linear Algebra</a></b></summary>
-<p>
-
-```
-@ARTICLE{scheffler2023sparsessr,
-  author={Scheffler, Paul and Zaruba, Florian and Schuiki, Fabian and Hoefler, Torsten and Benini, Luca},
-  journal={IEEE Transactions on Parallel and Distributed Systems}, 
-  title={Sparse Stream Semantic Registers: A Lightweight ISA Extension Accelerating General Sparse Linear Algebra}, 
-  year={2023},
-  volume={34},
-  number={12},
-  pages={3147-3161},
-  doi={10.1109/TPDS.2023.3322029}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://doi.org/10.1109/TC.2023.3329930">A High-Performance, Energy-Efficient Modular DMA Engine Architecture</a></b></summary>
-<p>
-
-```
-@ARTICLE{benz2024idma,
-  author={Benz, Thomas and Rogenmoser, Michael and Scheffler, Paul and Riedel, Samuel and Ottaviano, Alessandro and Kurth, Andreas and Hoefler, Torsten and Benini, Luca},
-  journal={IEEE Transactions on Computers}, 
-  title={A High-Performance, Energy-Efficient Modular DMA Engine Architecture}, 
-  year={2024},
-  volume={73},
-  number={1},
-  pages={263-277},
-  doi={10.1109/TC.2023.3329930}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://doi.org/10.1109/ARITH54963.2022.00010">MiniFloat-NN and ExSdotp: An ISA Extension and a Modular Open Hardware Unit for Low-Precision Training on RISC-V Cores</a></b></summary>
-<p>
-
-```
-@INPROCEEDINGS{bertaccini2022minifloat,
-  author={Bertaccini, Luca and Paulin, Gianna and Fischer, Tim and Mach, Stefan and Benini, Luca},
-  booktitle={2022 IEEE 29th Symposium on Computer Arithmetic (ARITH)}, 
-  title={MiniFloat-NN and ExSdotp: An ISA Extension and a Modular Open Hardware Unit for Low-Precision Training on RISC-V Cores}, 
-  year={2022},
-  volume={},
-  number={},
-  pages={1-8},
-  doi={10.1109/ARITH54963.2022.00010}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://doi.org/10.1109/ISVLSI54635.2022.00021">Soft Tiles: Capturing Physical Implementation Flexibility for Tightly-Coupled Parallel Processing Clusters</a></b></summary>
-<p>
-
-```
-@INPROCEEDINGS{paulin2022softtiles,
-  author={Paulin, Gianna and Cavalcante, Matheus and Scheffler, Paul and Bertaccini, Luca and Zhang, Yichao and Gürkaynak, Frank and Benini, Luca},
-  booktitle={2022 IEEE Computer Society Annual Symposium on VLSI (ISVLSI)}, 
-  title={Soft Tiles: Capturing Physical Implementation Flexibility for Tightly-Coupled Parallel Processing Clusters}, 
-  year={2022},
-  volume={},
-  number={},
-  pages={44-49},
-  doi={10.1109/ISVLSI54635.2022.00021}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://doi.org/10.1145/3649329.3658494">SARIS: Accelerating Stencil Computations on Energy-Efficient RISC-V Compute Clusters with Indirect Stream Registers</a></b></summary>
-<p>
-
-```
-@INPROCEEDINGS{scheffler2024saris,
-  author={Paul Scheffler and Luca Colagrande and Luca Benini},
-  title={SARIS: Accelerating Stencil Computations on Energy-Efficient RISC-V Compute Clusters with Indirect Stream Registers},
-  booktitle = {Proceedings of the 61st ACM/IEEE Design Automation Conference},
-  year={2024},
-  doi = {10.1145/3649329.3658494}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://arxiv.org/abs/2503.20590">Dual-Issue Execution of Mixed Integer and Floating-Point Workloads on Energy-Efficient In-Order RISC-V Cores</a></b></summary>
-<p>
-
-```
-@misc{colagrande2025copift,
-  title={Dual-Issue Execution of Mixed Integer and Floating-Point Workloads on Energy-Efficient In-Order RISC-V Cores},
-  author={Luca Colagrande and Luca Benini},
-  year={2025},
-  eprint={2503.20590},
-  archivePrefix={arXiv},
-  primaryClass={cs.AR},
-  url={https://arxiv.org/abs/2503.20590}
-}
-```
-
-</p>
-</details>
-
-<details>
-<summary><b><a href="https://arxiv.org/abs/2503.20609">Late Breaking Results: A RISC-V ISA Extension for Chaining in Scalar Processors</a></b></summary>
-<p>
-
-```
-@misc{colagrande2025chaining,
-  title={Late Breaking Results: A RISC-V ISA Extension for Chaining in Scalar Processors},
-  author={Luca Colagrande and Jayanth Jonnalagadda and Luca Benini},
-  year={2025},
-  eprint={2503.20609},
-  archivePrefix={arXiv},
-  primaryClass={cs.AR},
-  url={https://arxiv.org/abs/2503.20609}
-}
-```
-
-</p>
-</details>
-
-<!--end-publications-->
+All other files are released under Apache License 2.0 (`Apache-2.0`) ? see `LICENSE`.

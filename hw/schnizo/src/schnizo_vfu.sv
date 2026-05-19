@@ -259,11 +259,15 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     logic is_vcfg;
     assign is_vcfg = (dec_rsp[PORT].spatz_req.op == VCFG);
 
+    // Forward declaration: defined with the response FIFO below; needed here
+    // to gate the vsew update against an in-flight VFU result.
+    logic rsp_fifo_valid;
+
     // Track the current vsew, updated on every accepted VCFG.
     // spatz_decoder defaults to EW_8; schnizo patches it to the last seen vsew.
     vew_e vsew_q;
     `FFLAR(vsew_q, dec_rsp[PORT].spatz_req.vtype.vsew,
-           is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT],
+           is_vcfg && issue_req_valid_i[PORT] && result_ready_i[PORT] && !rsp_fifo_valid,
            MAXEW, clk_i, rst_i)
 
     // Patch vsew and vl into the request before forwarding to the unit.
@@ -295,7 +299,6 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     // Fix: vfu_rsp_ready_i = rsp_fifo_push_ready (FIFO has room), which is 1
     // initially.  The FIFO holds the result until the writeback path consumes it.
     vfu_rsp_t rsp_fifo_out;
-    logic     rsp_fifo_valid;
     logic     rsp_fifo_push_ready;
 
     stream_fifo #(
@@ -318,7 +321,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
 
     logic [$clog2(VFUBufDepth)-1:0] vfu_tag_usage;
 
-    assign issue_req_ready_o[PORT] = is_vcfg ? result_ready_i[PORT] : unit_req_ready;
+    assign issue_req_ready_o[PORT] = is_vcfg ? (result_ready_i[PORT] && !rsp_fifo_valid) : unit_req_ready;
     assign busy_o[PORT]            = ~issue_req_ready_o[PORT] || (vfu_tag_usage != '0);
 
     logic vfu_req_first;
@@ -363,9 +366,15 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
 
     // VCFG: return new vl computed from the decoded vtype.
     // Arithmetic/slide: result comes from the response FIFO.
-    assign result_o[PORT]       = is_vcfg ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
-                                          : rsp_fifo_out.result;
-    assign result_valid_o[PORT] = is_vcfg ? issue_req_valid_i[PORT] : rsp_fifo_valid;
+    // VFU result takes priority: if rsp_fifo has a result pending, present it
+    // before accepting/completing any incoming VCFG (see tag_o and
+    // issue_req_ready_o).  Without this, a VCFG dispatched during vfmin writeback
+    // overwrites tag_o with the VCFG tag, leaving the scoreboard entry for the
+    // VFU instruction permanently set and stalling the core.
+    assign result_o[PORT]       = (is_vcfg && !rsp_fifo_valid)
+                                  ? ELEN'(VLEN >> (3 + dec_rsp[PORT].spatz_req.vtype.vsew))
+                                  : rsp_fifo_out.result;
+    assign result_valid_o[PORT] = rsp_fifo_valid || (is_vcfg && issue_req_valid_i[PORT]);
 
     // Tag FIFO: one entry per instruction accepted into the VFU's internal FIFO.
     // A single latch would be corrupted when a second instruction is dispatched
@@ -392,7 +401,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .valid_o   (/* trusted: matches rsp_fifo occupancy */           ),
       .ready_i   (rsp_fifo_valid && result_ready_i[PORT]             )
     );
-    assign tag_o[PORT] = is_vcfg ? issue_req_i[PORT].tag : vfu_tag_out;
+    assign tag_o[PORT] = rsp_fifo_valid ? vfu_tag_out : issue_req_i[PORT].tag;
   end : gen_vfu
 
   //////////
