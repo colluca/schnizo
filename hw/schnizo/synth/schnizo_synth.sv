@@ -41,10 +41,10 @@ module schnizo_synth #(
   parameter int unsigned NumSpatzIPUs    = 1,
   // Vector RS depths
   parameter int unsigned VfuNofRss       = 8,
-  parameter int unsigned VlsuNofRss      = 6,
+  parameter int unsigned VlsuNofRss      = 4,
   // Vector constant-queue depths
   parameter int unsigned VfuNofConstants  = 8,
-  parameter int unsigned VlsuNofConstants = 6
+  parameter int unsigned VlsuNofConstants = 4
 ) (
   input  logic                                       clk_i,
   input  logic                                       rst_ni,
