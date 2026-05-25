@@ -29,3 +29,4 @@ runs:
   - elf: ../sw/tests/build/vfu_test_vec_instr_3_int_vi_cmp.elf
   - elf: ../sw/tests/build/vfu_test_vec_instr_4_fp_vv.elf
   - elf: ../sw/tests/build/vfu_test_vec_instr_5_fp_vf_wide.elf
+  - elf: ../sw/tests/build/vfu_test_vlsu_unaligned.elf

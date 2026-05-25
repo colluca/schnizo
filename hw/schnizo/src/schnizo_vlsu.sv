@@ -162,7 +162,11 @@ module schnizo_vlsu
   logic [ELENB-1:0] ua_store_strb;
   elen_t ua_vrf_elem;
   assign ua_vrf_elem         = ELEN'(store_data_q >> ({1'b0, ua_byte_q} * 8));
-  assign ua_store_mem_data   = (ua_vrf_elem & ELEN'(elem_mask_q)) << ({3'b0, ua_offset} * 8);
+  // The strobe (ua_store_strb) selects which bytes reach the TCDM, so no
+  // data masking is needed here.  elem_mask_q is a byte-enable pattern
+  // (8'h0F for EW_32); ELEN'(8'h0F) = 64'h0F which would mask only 4 bits,
+  // not 4 bytes, corrupting elements wider than 4 bits.
+  assign ua_store_mem_data   = ua_vrf_elem << ({3'b0, ua_offset} * 8);
   assign ua_store_strb       = ELENB'(elem_mask_q) << ua_offset;
 
   // Completion conditions for unaligned states

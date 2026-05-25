@@ -26,7 +26,7 @@ int main() {
     int32_t x[VL * n_iter];
     // For some reason if this isn't added the stackalignment is completly screwd up
     // and the acc has an offset by one...
-    int32_t acc[VL] __attribute__((aligned(8)));
+    int32_t acc[VL];
 
     for (int i = 0; i < total; i++) x[i] = i + 1;
 
