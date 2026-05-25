@@ -93,6 +93,8 @@ module snitch_cluster
   parameter bit [NrCores-1:0] RVF           = '0,
   /// Per-core enabling of the standard `D` ISA extensions.
   parameter bit [NrCores-1:0] RVD           = '0,
+  /// Per-core Spatz enabling
+  parameter bit [NrCores-1:0] RVV           = '0,
   /// Per-core enabling of `XDivSqrt` ISA extensions.
   parameter bit [NrCores-1:0] XDivSqrt      = '0,
   // Small-float extensions
@@ -161,6 +163,14 @@ module snitch_cluster
   parameter int unsigned NumLsuConstants [NrCores] = '{default: 0},
   /// Per-core number of constants per FPU
   parameter int unsigned NumFpuConstants [NrCores] = '{default: 0},
+  /// Per-core number of reservation stations for the VFU
+  parameter int unsigned NumVfuRss [NrCores] = '{default: 0},
+  /// Per-core number of reservation stations for the VLSU
+  parameter int unsigned NumVlsuRss [NrCores] = '{default: 0},
+  /// Per-core number of constants for the VFU
+  parameter int unsigned NumVfuConstants [NrCores] = '{default: 0},
+  /// Per-core number of constants for the VLSU
+  parameter int unsigned NumVlsuConstants [NrCores] = '{default: 0},
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
@@ -270,6 +280,16 @@ module snitch_cluster
   parameter bit EnableDca                   = 0,
   /// Width of the external DCA interface
   parameter int unsigned DcaDataWidth       = WideDataWidth,
+  // SPATZ
+  // VFU parameters
+  parameter int                          unsigned        NumSpatzFPUs             = 4,
+  parameter int                          unsigned        NumSpatzIPUs             = 1,
+  parameter int                          unsigned        NofVFU                   = 1,
+  parameter int                          unsigned        NofVLSU                  = 1,
+
+  /// Derived parameter *Do not override*
+  parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int                          unsigned        NumMemPortsPerSpatz      = NumSpatzFUs,
   /// Derived parameters
   // TODO(colluca): this currently does not compile in Verilator (https://github.com/verilator/verilator/issues/6818)
   // localparam type dca_req_t = `DCA_REQ_STRUCT(DataWidth),
@@ -377,7 +397,7 @@ module snitch_cluster
   localparam int unsigned DcaLaneDataWidth = NarrowDataWidth;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return NumLsus[core];
+    return RVV[core] ? NofVLSU*NumMemPortsPerSpatz + NumLsus[core] : NumLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1145,6 +1165,8 @@ module snitch_cluster
       .DMANumChannels (DMANumChannels),
       .dreq_t (reqrsp_req_t),
       .drsp_t (reqrsp_rsp_t),
+      .tcdm_rsp_chan_t (tcdm_rsp_chan_t),
+      .tcdm_req_chan_t (tcdm_req_chan_t),
       .tcdm_req_t (tcdm_req_t),
       .tcdm_rsp_t (tcdm_rsp_t),
       .tcdm_user_t (tcdm_user_t),
@@ -1168,6 +1190,7 @@ module snitch_cluster
       .BootAddr (BootAddrInternal),
       .RVF (RVF[i]),
       .RVD (RVD[i]),
+      .RVV (RVV[i]),
       .XF16 (XF16[i]),
       .XF16ALT (XF16ALT[i]),
       .XF8 (XF8[i]),
@@ -1183,6 +1206,10 @@ module snitch_cluster
       .NumAluRss(NumAluRss[i]),
       .NumLsuRss(NumLsuRss[i]),
       .NumFpuRss(NumFpuRss[i]),
+      .VfuNofRss(NumVfuRss[i]),
+      .VlsuNofRss(NumVlsuRss[i]),
+      .VfuNofConstants(NumVfuConstants[i]),
+      .VlsuNofConstants(NumVlsuConstants[i]),
       .NumAluConstants(NumAluConstants[i]),
       .NumLsuConstants(NumLsuConstants[i]),
       .NumFpuConstants(NumFpuConstants[i]),
@@ -1218,10 +1245,14 @@ module snitch_cluster
       .CaqTagWidth (CaqTagWidth),
       .DebugSupport (DebugSupport),
       .TCDMAliasEnable (AliasRegionEnable),
-      .TCDMAliasStart (TCDMAliasStart)
+      .TCDMAliasStart (TCDMAliasStart),
+      .NumSpatzFPUs (NumSpatzFPUs),
+      .NumSpatzIPUs (NumSpatzIPUs),
+      .NofVFU (NofVFU),
+      .NofVLSU (NofVLSU)
       // TODO(colluca): add collectives and DCA to Schnizo
       // .CollectiveWidth (CollectiveWidth),
-      // .EnableDca (EnableDca)  
+      // .EnableDca (EnableDca)
     ) i_snitch_cc (
       .clk_i,
       .clk_d2_i (clk_d2),

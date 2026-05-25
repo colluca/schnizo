@@ -20,7 +20,8 @@ SN_RISCV_OBJDUMP ?= $(SN_LLVM_BINROOT)/llvm-objdump
 
 # Compiler flags
 SN_MCPU ?= snitch
-SN_RISCV_CFLAGS := -mcpu=$(SN_MCPU)
+# SN_RISCV_CFLAGS := -mcpu=$(SN_MCPU)
+SN_RISCV_CFLAGS := -march=rv32imafdv_zfh_xfrep_xssr_xdma_xcopift_xfalthalf_xfquarter_xfaltquarter_xfvecsingle_xfvechalf_xfvecalthalf_xfvecquarter_xfvecaltquarter_xfauxhalf_xfauxalthalf_xfauxquarter_xfauxaltquarter_xfauxvecsingle_xfauxvechalf_xfauxvecalthalf_xfauxvecquarter_xfauxvecaltquarter_xfexpauxvechalf_xfexpauxvecalthalf_xfexpauxvecquarter_xfexpauxvecaltquarter
 SN_RISCV_CFLAGS += -menable-experimental-extensions
 SN_RISCV_CFLAGS += -mabi=ilp32d
 SN_RISCV_CFLAGS += -mcmodel=medany
@@ -32,6 +33,7 @@ SN_RISCV_CFLAGS += -fopenmp
 SN_RISCV_CFLAGS += -ftls-model=local-exec
 SN_RISCV_CFLAGS += -O3
 SN_RISCV_CFLAGS += -Werror
+SN_RISCV_CFLAGS += -DIRQ_M_CLUSTER=19
 ifeq ($(DEBUG), ON)
 SN_RISCV_CFLAGS += -g
 endif
@@ -49,5 +51,5 @@ SN_RISCV_LDFLAGS += -lm
 SN_RISCV_ARFLAGS := rcs
 
 # Objdump flags
-SN_RISCV_OBJDUMP_FLAGS := --mcpu=$(SN_MCPU)
+SN_RISCV_OBJDUMP_FLAGS := --mcpu=$(SN_MCPU) --mattr=+v
 SN_RISCV_OBJDUMP_FLAGS += -D

@@ -92,7 +92,11 @@ module schnizo_controller import schnizo_pkg::*; #(
   input  logic                                        gpr_we_i,
   input  logic [NrIntWritePorts-1:0][RegAddrSize-1:0] gpr_waddr_i,
   input  logic                                        fpr_we_i,
-  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i
+  input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i,
+
+  // VRF retire snooping: cleared when VFU result handshake fires for a vector destination
+  input  logic                  vfu_we_i,
+  input  logic [RegAddrSize-1:0] vfu_waddr_i
 );
 
   logic            instr_dispatched;
@@ -111,6 +115,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   logic registers_ready;
   logic fpr_busy;
   logic gpr_busy;
+  logic vrf_busy;
 
   schnizo_scoreboard #(
     .RegAddrSize(RegAddrSize),
@@ -118,18 +123,19 @@ module schnizo_controller import schnizo_pkg::*; #(
   ) i_scoreboard (
     .clk_i,
     .rst_i,
-    .instr_dec_i        (instr_decoded_i),
-    .operands_ready_o   (operands_ready),
-    .destination_ready_o(destination_ready),
-    .fpr_busy_o         (fpr_busy),
-    .gpr_busy_o         (gpr_busy),
-    .dispatched_i       (instr_dispatched),
-    // The write back is snooped to place the reservations and
-    // enable same cycle WAW conflict detection / resolution
-    .write_enable_gpr_i (gpr_we_i),
-    .waddr_gpr_i        (gpr_waddr_i),
-    .write_enable_fpr_i (fpr_we_i),
-    .waddr_fpr_i        (fpr_waddr_i)
+    .instr_dec_i         (instr_decoded_i),
+    .operands_ready_o    (operands_ready),
+    .destination_ready_o (destination_ready),
+    .fpr_busy_o          (fpr_busy),
+    .gpr_busy_o          (gpr_busy),
+    .vrf_busy_o          (vrf_busy),
+    .dispatched_i        (instr_dispatched),
+    .write_enable_gpr_i  (gpr_we_i),
+    .waddr_gpr_i         (gpr_waddr_i),
+    .write_enable_fpr_i  (fpr_we_i),
+    .waddr_fpr_i         (fpr_waddr_i),
+    .write_enable_vrf_i  (vfu_we_i),
+    .waddr_vrf_i         (vfu_waddr_i)
   );
 
   assign registers_ready = operands_ready & destination_ready;
@@ -158,6 +164,24 @@ module schnizo_controller import schnizo_pkg::*; #(
     logic [FrepBodySizeWidth-1:0] loop_bodysize;
     assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
 
+    // Dispatch-time WAR detection: set when a vec-write instruction is dispatched in LCP1;
+    // fires combinationally when the next dispatch would re-write the same register.
+    logic [2**RegAddrSize-1:0] lcp1_wr_seen_q, lcp1_wr_seen_d;
+    logic lcp1_second_write;
+
+    always_comb begin : proc_lcp1_wr_seen_d
+      lcp1_wr_seen_d = (loop_state_o != LoopLcp1) ? '0 : lcp1_wr_seen_q;
+      if (loop_state_o == LoopLcp1 && instr_dispatched && instr_decoded_i.rd_is_vec) begin
+        lcp1_wr_seen_d[instr_decoded_i.rd] = 1'b1;
+      end
+    end
+    `FFAR(lcp1_wr_seen_q, lcp1_wr_seen_d, '0, clk_i, rst_i)
+
+    assign lcp1_second_write = (loop_state_o == LoopLcp1)
+                               && instr_valid_i
+                               && instr_decoded_i.rd_is_vec
+                               && lcp1_wr_seen_q[instr_decoded_i.rd];
+
     schnizo_loop_controller #(
       .AddrWidth     (32),
       .MaxBodysizeW  (FrepBodySizeWidth),
@@ -175,8 +199,9 @@ module schnizo_controller import schnizo_pkg::*; #(
       .next_instr_addr_i(pc_q + 'd4),
       .stall_i          (stall_o),
       .exception_i      (exception_o),
-      .rs_full_i        (rs_full_i),
-      .all_rs_finish_i  (all_rs_finish_i),
+      .rs_full_i              (rs_full_i),
+      .all_rs_finish_i        (all_rs_finish_i && !vrf_busy),
+      .lcp1_second_write_i    (lcp1_second_write),
 
       .loop_start_req_i   (instr_decoded_i.is_frep & instr_valid_i),
       .loop_start_commit_i(instr_decoded_i.is_frep & frep_exec_commit),
@@ -197,6 +222,7 @@ module schnizo_controller import schnizo_pkg::*; #(
       .rs_restart_o    (rs_restart_o),
       .goto_hw_loop_o  (goto_hw_loop)
     );
+
   end else begin : gen_no_loop_ctrl
     assign loop_start_ready = 1'b0;
     assign loop_jump        = 1'b0;
@@ -209,6 +235,8 @@ module schnizo_controller import schnizo_pkg::*; #(
     assign lep_iterations_o = '0;
     assign rs_restart_o     = 1'b1;
     assign goto_hw_loop     = 1'b0;
+    logic lcp1_second_write;
+    assign lcp1_second_write = 1'b0;
   end
 
   ////////////////
@@ -290,7 +318,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
   logic all_lsus_empty, fence_stall;
   assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
-  assign fence_stall = (instr_decoded_i.is_fence & ~all_lsus_empty) & instr_valid_i;
+  // On a FENCE also wait for any in-flight vector instructions to complete
+  assign fence_stall = (instr_decoded_i.is_fence & (~all_lsus_empty || vrf_busy)) & instr_valid_i;
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
   // We can continue as soon as the cache responds
@@ -317,8 +346,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Before starting an FREP loop all writebacks must be completed. Reason is that during FREP the
   // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
   logic frep_start_stall;
-  assign frep_start_stall = (instr_decoded_i.is_frep & instr_valid_i) ? (fpr_busy | gpr_busy) :
-                                                                        1'b0;
+  assign frep_start_stall = (instr_decoded_i.is_frep & instr_valid_i) ?
+                            (fpr_busy | gpr_busy | vrf_busy) : 1'b0;
 
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 

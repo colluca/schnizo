@@ -1,0 +1,32 @@
+# Copyright 2026 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+# VFU functional test suite for Schnizo.
+# Run with: make vfu-tests
+
+runs:
+  - elf: ../sw/tests/build/vfu_test_frep.elf
+  - elf: ../sw/tests/build/vfu_test_frep_multi_write.elf
+  - elf: ../sw/tests/build/vfu_test_frep_raw_chain.elf
+  - elf: ../sw/tests/build/vfu_test_frep_raw_chain_f.elf
+  - elf: ../sw/tests/build/vfu_test_frep_raw_loop.elf
+  - elf: ../sw/tests/build/vfu_test_frep_raw_loop_f.elf
+  - elf: ../sw/tests/build/vfu_test_frep_war.elf
+  - elf: ../sw/tests/build/vfu_test_frep_war_f.elf
+  - elf: ../sw/tests/build/vfu_test_frep_waw_chain.elf
+  - elf: ../sw/tests/build/vfu_test_frep_waw_chain_f.elf
+  - elf: ../sw/tests/build/vfu_test_axpy_frep_f32.elf
+  - elf: ../sw/tests/build/vfu_test_axpy_frep_i32.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_1x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_2x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_4x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_6x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_8x_frep.elf
+  - elf: ../sw/tests/build/vfu_test_gemm_normal_ex.elf
+  - elf: ../sw/tests/build/vfu_test_vec_instr_1_int_vv.elf
+  - elf: ../sw/tests/build/vfu_test_vec_instr_2_int_vx.elf
+  - elf: ../sw/tests/build/vfu_test_vec_instr_3_int_vi_cmp.elf
+  - elf: ../sw/tests/build/vfu_test_vec_instr_4_fp_vv.elf
+  - elf: ../sw/tests/build/vfu_test_vec_instr_5_fp_vf_wide.elf
+  - elf: ../sw/tests/build/vfu_test_vlsu_unaligned.elf

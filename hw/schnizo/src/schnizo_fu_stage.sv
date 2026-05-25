@@ -34,6 +34,19 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned FpuNofOperands    = 3,
   parameter int unsigned FpuNofResReqIfs   = 3,
   parameter int unsigned FpuNofResRspPorts = 1,
+  // VLSU FU-block parameters (ports 0..NofVLSU-1) ? one block per vector load/store unit
+  parameter int unsigned VlsuNofRss         = 1,
+  parameter int unsigned VlsuNofConstants   = 4,
+  parameter int unsigned VlsuNofOperands    = 2,
+  parameter int unsigned VlsuNofResRspPorts = 1,
+  // VFU arithmetic FU-block parameters (ports NofVLSU..VfuNumFuPorts-1) ? one block per vector ALU
+  parameter int unsigned VfuNofRss          = 1,
+  parameter int unsigned VfuNofConstants    = 4,
+  parameter int unsigned VfuNofOperands     = 2,
+  parameter int unsigned VfuNofResRspPorts  = 1,
+  // Number of VFU / VLSU units inside schnizo_vfu
+  parameter int unsigned NofVFU  = 1,
+  parameter int unsigned NofVLSU = 1,
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
@@ -81,10 +94,30 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         instr_tag_t    = logic,
   parameter type         alu_result_t   = logic,
   parameter type         alu_res_val_t  = logic,
+  // VFU result (ELEN-wide; identical width to FLEN when FLEN=64)
+  parameter type         spatz_result_t = logic [FLEN-1:0],
   parameter type         dreq_t         = logic,
   parameter type         drsp_t         = logic,
+  // VFU Parameters
+  parameter bit          RVV            = 1,
+  parameter int unsigned NumSpatzFPUs   = 4,
+  parameter int unsigned NumSpatzIPUs   = 1,
+  // TCDM Types for Spatz
+  parameter type         tcdm_req_chan_t  = logic,
+  parameter type         tcdm_rsp_chan_t  = logic,
+  parameter type         tcdm_req_t       = logic,
+  parameter type         tcdm_rsp_t       = logic,
+
+  /// Derived parameter *Do not override*
+  parameter int unsigned NumSpatzFUs         = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int unsigned NumMemPortsPerSpatz = NumSpatzFUs,
+  // NofVLSU VLSUs × NumMemPortsPerSpatz TCDM ports each, plus scalar LSU ports
+  parameter int unsigned TCDMPorts           = RVV ? NofVLSU*NumMemPortsPerSpatz + NofLsus : NofLsus,
+
   localparam type addr_t = logic [AddrWidth-1:0],
-  localparam type data_t = logic [DataWidth-1:0]
+  localparam type data_t = logic [DataWidth-1:0],
+  // Total FU ports exposed by schnizo_vfu
+  localparam int unsigned VfuNumFuPorts = NofVFU + NofVLSU
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
@@ -92,12 +125,16 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   // Trace outputs
   // pragma translate_off
-  output issue_alu_trace_t  alu_trace_o        [NofAlus-1:0],
-  output issue_lsu_trace_t  lsu_trace_o        [NofLsus-1:0],
-  output issue_fpu_trace_t  fpu_trace_o        [NofFpus-1:0],
-  output retire_fu_trace_t  alu_retire_trace_o [NofAlus-1:0],
-  output retire_fu_trace_t  lsu_retire_trace_o [NofLsus-1:0],
-  output retire_fu_trace_t  fpu_retire_trace_o [NofFpus-1:0],
+  output issue_alu_trace_t  alu_trace_o         [NofAlus-1:0],
+  output issue_lsu_trace_t  lsu_trace_o         [NofLsus-1:0],
+  output issue_fpu_trace_t  fpu_trace_o         [NofFpus-1:0],
+  output issue_vfu_trace_t  vfu_trace_o         [NofVFU-1:0],
+  output issue_vlsu_trace_t vlsu_trace_o        [NofVLSU-1:0],
+  output retire_fu_trace_t  alu_retire_trace_o  [NofAlus-1:0],
+  output retire_fu_trace_t  lsu_retire_trace_o  [NofLsus-1:0],
+  output retire_fu_trace_t  fpu_retire_trace_o  [NofFpus-1:0],
+  output retire_fu_trace_t  vfu_retire_trace_o  [NofVFU-1:0],
+  output retire_fu_trace_t  vlsu_retire_trace_o [NofVLSU-1:0],
   // pragma translate_on
 
   /// RS control signals
@@ -145,6 +182,13 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output fpnew_pkg::status_t fpu_status_o,
   output logic               fpu_status_valid_o,
 
+  // VFU (schnizo_vfu) dispatch ? one FU block per VFU port
+  input  logic               [VfuNumFuPorts-1:0] vfu_disp_reqs_valid_i,
+  output logic               [VfuNumFuPorts-1:0] vfu_disp_reqs_ready_o,
+  output disp_rsp_t          [VfuNumFuPorts-1:0] vfu_disp_rsp_o,
+  output logic                                   vfu_loop_finish_o,
+  output logic               [VfuNumFuPorts-1:0] vfu_rs_full_o,
+
   // Writeback ports. We only have one per FU type.
   output alu_result_t alu_wb_result_o,
   output instr_tag_t  alu_wb_result_tag_o,
@@ -160,7 +204,18 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output logic [FLEN-1:0] fpu_wb_result_o,
   output instr_tag_t      fpu_wb_result_tag_o,
   output logic            fpu_wb_result_valid_o,
-  input  logic            fpu_wb_result_ready_i
+  input  logic            fpu_wb_result_ready_i,
+
+  // VFU writeback ? arbiter combines all VFU-port results into one port
+  output spatz_result_t   vfu_wb_result_o,
+  output instr_tag_t      vfu_wb_result_tag_o,
+  output logic            vfu_wb_result_valid_o,
+  input  logic            vfu_wb_result_ready_i,
+
+  // VFU TCDM Ports (NofVLSU × NumMemPortsPerSpatz)
+  output tcdm_req_t    [NofVLSU*NumMemPortsPerSpatz-1:0] vfu_tcdm_req_o,
+  input  tcdm_rsp_t    [NofVLSU*NumMemPortsPerSpatz-1:0] vfu_tcdm_rsp_i
+
 );
 
   /////////////////////////////////////
@@ -186,23 +241,28 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // TODO: Add consumer count restriction to achieve a feasible bit width.
   localparam integer unsigned ConsumerCount = AluNofOperands * AluNofRss * NofAlus +
                                               LsuNofOperands * LsuNofRss * NofLsus +
-                                              FpuNofOperands * FpuNofRss * NofFpus;
+                                              FpuNofOperands * FpuNofRss * NofFpus +
+                                              (RVV ? (VlsuNofOperands * VlsuNofRss * NofVLSU +
+                                                      VfuNofOperands  * VfuNofRss  * NofVFU) : 0);
 
   // ---------------------------
   // Operand distribution network
   // ---------------------------
 
-  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus;
+  localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus + (RVV ? VfuNumFuPorts : 0);
   localparam int unsigned TotalNofRss = NofAlus * AluNofRss +
                                         NofLsus * LsuNofRss +
-                                        NofFpus * FpuNofRss;
+                                        NofFpus * FpuNofRss +
+                                        (RVV ? NofVLSU * VlsuNofRss + NofVFU * VfuNofRss : 0);
   localparam int unsigned TotalNofResRspPorts = NofAlus * AluNofResRspPorts +
                                                 NofLsus * LsuNofResRspPorts +
-                                                NofFpus * FpuNofResRspPorts;
+                                                NofFpus * FpuNofResRspPorts +
+                                                (RVV ? NofVLSU * VlsuNofResRspPorts + NofVFU * VfuNofResRspPorts : 0);
 
   typedef int unsigned rs_param_array_t [NofRs-1:0];
 
-  function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam);
+  function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam,
+                                                          int VlsuParam, int VfuParam);
     rs_param_array_t tmp;
     int unsigned k;
 
@@ -219,13 +279,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       tmp[k] = FpuParam;
       k++;
     end
+    for (int unsigned i = 0; i < (RVV ? NofVLSU : 0); i++) begin
+      tmp[k] = VlsuParam;
+      k++;
+    end
+    for (int unsigned i = 0; i < (RVV ? NofVFU : 0); i++) begin
+      tmp[k] = VfuParam;
+      k++;
+    end
 
     return tmp;
   endfunction
 
-  localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss);
+  localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss,
+    VlsuNofRss, VfuNofRss);
   localparam rs_param_array_t NofRspPorts = gen_rs_param_array(AluNofResRspPorts,
-    LsuNofResRspPorts, FpuNofResRspPorts);
+    LsuNofResRspPorts, FpuNofResRspPorts, VlsuNofResRspPorts, VfuNofResRspPorts);
 
   typedef struct packed {
     logic valid;
@@ -280,6 +349,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned AluRsIdOffset = 0;
   localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus;
   localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus;
+  localparam integer unsigned SpatzRsIdOffset = FpuRsIdOffset + NofFpus;
 
   // Each RS needs a globally unique ID for its operand request ports.
   // These IDs are shared between the RSSs of a reservation station.
@@ -288,6 +358,8 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                                               NofAlus * AluNofOperands;
   localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset +
                                               NofLsus * LsuNofOperands;
+  localparam integer unsigned SpatzOpIdOffset = FpuOpIdOffset +
+                                              NofFpus * FpuNofOperands;
 
   ////////////////////////////////////////
   // Operand distribution network (ODN) //
@@ -336,6 +408,36 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_valid;
   logic         [NofFpus-1:0][FpuNofOperands-1:0]  fpu_op_rsps_ready;
 
+  // VLSU FU-block ODN signals (ports 0..NofVLSU-1)
+  operand_req_t      [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_reqs;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_reqs_valid;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_reqs_ready;
+  available_result_t [NofVLSU-1:0][VlsuNofRss-1:0]         vlsu_available_results;
+  ext_res_req_t      [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_reqs;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_reqs_valid;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_reqs_ready;
+  res_rsp_t          [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_rsps;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_rsps_valid;
+  logic              [NofVLSU-1:0][VlsuNofResRspPorts-1:0] vlsu_res_rsps_ready;
+  operand_t          [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_rsps;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_rsps_valid;
+  logic              [NofVLSU-1:0][VlsuNofOperands-1:0]    vlsu_op_rsps_ready;
+
+  // VFU arithmetic FU-block ODN signals (ports NofVLSU..VfuNumFuPorts-1)
+  operand_req_t      [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_reqs;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_reqs_valid;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_reqs_ready;
+  available_result_t [NofVFU-1:0][VfuNofRss-1:0]         vfu_arith_available_results;
+  ext_res_req_t      [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_reqs;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_reqs_valid;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_reqs_ready;
+  res_rsp_t          [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_rsps;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_rsps_valid;
+  logic              [NofVFU-1:0][VfuNofResRspPorts-1:0] vfu_arith_res_rsps_ready;
+  operand_t          [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_rsps;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_rsps_valid;
+  logic              [NofVFU-1:0][VfuNofOperands-1:0]    vfu_arith_op_rsps_ready;
+
   operand_req_t [NofOperandIfs-1:0] op_reqs;
   logic         [NofOperandIfs-1:0] op_reqs_valid;
   logic         [NofOperandIfs-1:0] op_reqs_ready;
@@ -365,19 +467,25 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     always_comb begin : fu_op_reqs_rsps
       automatic integer ope_if = 0;
 
-      op_reqs           = '0;
-      op_reqs_valid     = '0;
-      alu_op_reqs_ready = '0;
-      lsu_op_reqs_ready = '0;
-      fpu_op_reqs_ready = '0;
+      op_reqs                  = '0;
+      op_reqs_valid            = '0;
+      alu_op_reqs_ready        = '0;
+      lsu_op_reqs_ready        = '0;
+      fpu_op_reqs_ready        = '0;
+      vlsu_op_reqs_ready       = '0;
+      vfu_arith_op_reqs_ready  = '0;
 
-      op_rsps_ready     = '0;
-      alu_op_rsps       = '0;
-      alu_op_rsps_valid = '0;
-      lsu_op_rsps       = '0;
-      lsu_op_rsps_valid = '0;
-      fpu_op_rsps       = '0;
-      fpu_op_rsps_valid = '0;
+      op_rsps_ready            = '0;
+      alu_op_rsps              = '0;
+      alu_op_rsps_valid        = '0;
+      lsu_op_rsps              = '0;
+      lsu_op_rsps_valid        = '0;
+      fpu_op_rsps              = '0;
+      fpu_op_rsps_valid        = '0;
+      vlsu_op_rsps             = '0;
+      vlsu_op_rsps_valid       = '0;
+      vfu_arith_op_rsps        = '0;
+      vfu_arith_op_rsps_valid  = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
         for (int op = 0; op < AluNofOperands; op++) begin
@@ -418,6 +526,32 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           ope_if = ope_if + 1;
         end
       end
+      // VLSU FU-block operands (ports 0..NofVLSU-1)
+      if (RVV) begin
+        for (int port = 0; port < NofVLSU; port++) begin
+          for (int op = 0; op < VlsuNofOperands; op++) begin
+            op_reqs[ope_if]                  = vlsu_op_reqs[port][op];
+            op_reqs_valid[ope_if]            = vlsu_op_reqs_valid[port][op];
+            vlsu_op_reqs_ready[port][op]     = op_reqs_ready[ope_if];
+            vlsu_op_rsps[port][op]           = op_rsps[ope_if];
+            vlsu_op_rsps_valid[port][op]     = op_rsps_valid[ope_if];
+            op_rsps_ready[ope_if]            = vlsu_op_rsps_ready[port][op];
+            ope_if = ope_if + 1;
+          end
+        end
+        // VFU arithmetic FU-block operands (ports NofVLSU..VfuNumFuPorts-1)
+        for (int port = 0; port < NofVFU; port++) begin
+          for (int op = 0; op < VfuNofOperands; op++) begin
+            op_reqs[ope_if]                      = vfu_arith_op_reqs[port][op];
+            op_reqs_valid[ope_if]                = vfu_arith_op_reqs_valid[port][op];
+            vfu_arith_op_reqs_ready[port][op]    = op_reqs_ready[ope_if];
+            vfu_arith_op_rsps[port][op]          = op_rsps[ope_if];
+            vfu_arith_op_rsps_valid[port][op]    = op_rsps_valid[ope_if];
+            op_rsps_ready[ope_if]                = vfu_arith_op_rsps_ready[port][op];
+            ope_if = ope_if + 1;
+          end
+        end
+      end
     end
 
     // Unpack the linear array of result requests onto the FUs' result request interfaces.
@@ -429,17 +563,21 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       automatic integer rss = 0;
       automatic integer rsp_if = 0;
 
-      res_reqs_ready     = '0;
-      alu_res_reqs       = '0;
-      alu_res_reqs_valid = '0;
-      lsu_res_reqs       = '0;
-      fpu_res_reqs       = '0;
+      res_reqs_ready           = '0;
+      alu_res_reqs             = '0;
+      alu_res_reqs_valid       = '0;
+      lsu_res_reqs             = '0;
+      fpu_res_reqs             = '0;
+      vlsu_res_reqs            = '0;
+      vfu_arith_res_reqs       = '0;
 
-      res_rsps           = '0;
-      res_rsps_valid     = '0;
-      alu_res_rsps_ready = '0;
-      lsu_res_rsps_ready = '0;
-      fpu_res_rsps_ready = '0;
+      res_rsps                 = '0;
+      res_rsps_valid           = '0;
+      alu_res_rsps_ready       = '0;
+      lsu_res_rsps_ready       = '0;
+      fpu_res_rsps_ready       = '0;
+      vlsu_res_rsps_ready      = '0;
+      vfu_arith_res_rsps_ready = '0;
 
       for (int alu = 0; alu < NofAlus; alu++) begin
         for (int alu_rss = 0; alu_rss < AluNofRss; alu_rss++) begin
@@ -499,6 +637,46 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           res_rsps_valid[rsp_if]       = fpu_res_rsps_valid[fpu][rsp];
           fpu_res_rsps_ready[fpu][rsp] = res_rsps_ready[rsp_if];
           rsp_if = rsp_if + 1;
+        end
+      end
+      if (RVV) begin
+        // VLSU FU-blocks (ports 0..NofVLSU-1)
+        for (int vp = 0; vp < NofVLSU; vp++) begin
+          for (int vp_rss = 0; vp_rss < VlsuNofRss; vp_rss++) begin
+            available_results[rss] = vlsu_available_results[vp][vp_rss];
+            rss = rss + 1;
+          end
+          for (int vp_req_if = 0; vp_req_if < VlsuNofResRspPorts; vp_req_if++) begin
+            vlsu_res_reqs[vp][vp_req_if]       = res_reqs[req_if];
+            vlsu_res_reqs_valid[vp][vp_req_if] = res_reqs_valid[req_if];
+            res_reqs_ready[req_if]             = vlsu_res_reqs_ready[vp][vp_req_if];
+            req_if = req_if + 1;
+          end
+          for (int rsp = 0; rsp < VlsuNofResRspPorts; rsp++) begin
+            res_rsps[rsp_if]              = vlsu_res_rsps[vp][rsp];
+            res_rsps_valid[rsp_if]        = vlsu_res_rsps_valid[vp][rsp];
+            vlsu_res_rsps_ready[vp][rsp]  = res_rsps_ready[rsp_if];
+            rsp_if = rsp_if + 1;
+          end
+        end
+        // VFU arithmetic FU-blocks (ports NofVLSU..VfuNumFuPorts-1)
+        for (int vp = 0; vp < NofVFU; vp++) begin
+          for (int vp_rss = 0; vp_rss < VfuNofRss; vp_rss++) begin
+            available_results[rss] = vfu_arith_available_results[vp][vp_rss];
+            rss = rss + 1;
+          end
+          for (int vp_req_if = 0; vp_req_if < VfuNofResRspPorts; vp_req_if++) begin
+            vfu_arith_res_reqs[vp][vp_req_if]       = res_reqs[req_if];
+            vfu_arith_res_reqs_valid[vp][vp_req_if] = res_reqs_valid[req_if];
+            res_reqs_ready[req_if]                  = vfu_arith_res_reqs_ready[vp][vp_req_if];
+            req_if = req_if + 1;
+          end
+          for (int rsp = 0; rsp < VfuNofResRspPorts; rsp++) begin
+            res_rsps[rsp_if]                   = vfu_arith_res_rsps[vp][rsp];
+            res_rsps_valid[rsp_if]             = vfu_arith_res_rsps_valid[vp][rsp];
+            vfu_arith_res_rsps_ready[vp][rsp]  = res_rsps_ready[rsp_if];
+            rsp_if = rsp_if + 1;
+          end
         end
       end
     end
@@ -565,6 +743,7 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign alu_op_reqs_ready = '0;
     assign lsu_op_reqs_ready = '0;
     assign fpu_op_reqs_ready = '0;
+    assign vfu_op_reqs_ready = '0;
 
     assign op_rsps_ready     = '0;
     assign alu_op_rsps       = '0;
@@ -573,18 +752,22 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     assign lsu_op_rsps_valid = '0;
     assign fpu_op_rsps       = '0;
     assign fpu_op_rsps_valid = '0;
+    assign vfu_op_rsps       = '0;
+    assign vfu_op_rsps_valid = '0;
 
     assign res_reqs_ready     = '0;
     assign alu_res_reqs       = '0;
     assign alu_res_reqs_valid = '0;
     assign lsu_res_reqs       = '0;
     assign fpu_res_reqs       = '0;
+    assign vfu_res_reqs       = '0;
 
     assign res_rsps           = '0;
     assign res_rsps_valid     = '0;
     assign alu_res_rsps_ready = '0;
     assign lsu_res_rsps_ready = '0;
     assign fpu_res_rsps_ready = '0;
+    assign vfu_res_rsps_ready = '0;
 
     assign op_reqs_ready  = '0;
     assign res_reqs       = '0;
@@ -1256,12 +1439,326 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign fpu_wb_result_o     = fpu_wb_result_and_tag_out.result;
   assign fpu_wb_result_tag_o = fpu_wb_result_and_tag_out.tag;
 
+  ///////////
+  // VFU   //
+  ///////////
+
+  if (RVV) begin: gen_rvv_block
+
+    // Per-port signals between FU blocks and schnizo_vfu
+    issue_req_t    [VfuNumFuPorts-1:0] vfu_issue_req;
+    logic          [VfuNumFuPorts-1:0] vfu_issue_req_valid;
+    logic          [VfuNumFuPorts-1:0] vfu_issue_req_ready;
+    logic          [VfuNumFuPorts-1:0] vfu_exec_commit;
+    spatz_result_t [VfuNumFuPorts-1:0] vfu_result;
+    instr_tag_t    [VfuNumFuPorts-1:0] vfu_result_tag;
+    logic          [VfuNumFuPorts-1:0] vfu_result_valid;
+    logic          [VfuNumFuPorts-1:0] vfu_result_ready;
+    logic          [VfuNumFuPorts-1:0] vfu_busy;  // driven by schnizo_vfu.busy_o
+
+    // WB arbiter inputs
+    typedef struct packed {
+      spatz_result_t result;
+      instr_tag_t    tag;
+    } vfu_result_and_tag_t;
+
+    vfu_result_and_tag_t [VfuNumFuPorts-1:0] vfu_wbs_result_and_tag;
+    logic                [VfuNumFuPorts-1:0] vfu_wbs_result_valid;
+    logic                [VfuNumFuPorts-1:0] vfu_wbs_result_ready;
+
+    logic [NofVLSU-1:0] vlsu_loop_finish;
+    logic [NofVFU-1:0]  vfu_arith_loop_finish;
+
+    // One schnizo_fu_block per VLSU port (ports 0..NofVLSU-1)
+    for (genvar p = 0; p < NofVLSU; p++) begin : gen_vlsu_blocks
+      spatz_result_t vlsu_wb_result;
+      instr_tag_t    vlsu_wb_result_tag;
+
+      producer_id_t vlsu_producer_id;
+      assign vlsu_producer_id = producer_id_t'{
+        slot_id: '0,
+        rs_id:   rs_id_t'(SpatzRsIdOffset + p)
+      };
+
+      schnizo_fu_block #(
+        .Xfrep              (Xfrep),
+        .disp_req_t         (disp_req_t),
+        .disp_rsp_t         (disp_rsp_t),
+        .issue_req_t        (issue_req_t),
+        .result_t           (spatz_result_t),
+        .instr_tag_t        (instr_tag_t),
+        .NofRss             (VlsuNofRss),
+        .NofConstants       (VlsuNofConstants),
+        .NofOperands        (VlsuNofOperands),
+        .NofResRspIfs       (VlsuNofResRspPorts),
+        .ConsumerCount      (ConsumerCount),
+        .RegAddrWidth       (RegAddrWidth),
+        .MaxIterationsW     (MaxIterationsW),
+        .producer_id_t      (producer_id_t),
+        .slot_id_t          (slot_id_t),
+        .operand_req_t      (operand_req_t),
+        .operand_t          (operand_t),
+        .res_req_t          (res_req_t),
+        .ext_res_req_t      (ext_res_req_t),
+        .available_result_t (available_result_t),
+        .dest_mask_t        (dest_mask_t),
+        .res_rsp_t          (res_rsp_t)
+      ) i_vlsu_block (
+        .clk_i,
+        .rst_i,
+        .producer_id_i      (vlsu_producer_id),
+        .restart_i          (restart_i),
+        .loop_state_i       (loop_state_i),
+        .in_lxp_i           (in_lxp),
+        .lep_iterations_i   (lep_iterations_i),
+        .goto_lcp2_i        (goto_lcp2_i),
+        .fu_busy_i          (vfu_busy[p]),
+        .loop_finish_o      (vlsu_loop_finish[p]),
+        .rs_full_o          (vfu_rs_full_o[p]),
+        .disp_req_i         (disp_req_i),
+        .disp_req_valid_i   (vfu_disp_reqs_valid_i[p]),
+        .disp_req_ready_o   (vfu_disp_reqs_ready_o[p]),
+        .instr_exec_commit_i(instr_exec_commit_i),
+        .disp_rsp_o         (vfu_disp_rsp_o[p]),
+        .issue_req_o        (vfu_issue_req[p]),
+        .issue_req_valid_o  (vfu_issue_req_valid[p]),
+        .issue_req_ready_i  (vfu_issue_req_ready[p]),
+        .instr_exec_commit_o(vfu_exec_commit[p]),
+        .result_i           (vfu_result[p]),
+        .result_tag_i       (vfu_result_tag[p]),
+        .result_valid_i     (vfu_result_valid[p]),
+        .result_ready_o     (vfu_result_ready[p]),
+        .wb_result_o        (vlsu_wb_result),
+        .wb_result_tag_o    (vlsu_wb_result_tag),
+        .wb_result_valid_o  (vfu_wbs_result_valid[p]),
+        .wb_result_ready_i  (vfu_wbs_result_ready[p]),
+        .available_results_o(vlsu_available_results[p]),
+        .op_reqs_o          (vlsu_op_reqs[p]),
+        .op_reqs_valid_o    (vlsu_op_reqs_valid[p]),
+        .op_reqs_ready_i    (vlsu_op_reqs_ready[p]),
+        .res_reqs_i         (vlsu_res_reqs[p]),
+        .res_reqs_valid_i   (vlsu_res_reqs_valid[p]),
+        .res_reqs_ready_o   (vlsu_res_reqs_ready[p]),
+        .res_rsps_o         (vlsu_res_rsps[p]),
+        .res_rsps_valid_o   (vlsu_res_rsps_valid[p]),
+        .res_rsps_ready_i   (vlsu_res_rsps_ready[p]),
+        .op_rsps_i          (vlsu_op_rsps[p]),
+        .op_rsps_valid_i    (vlsu_op_rsps_valid[p]),
+        .op_rsps_ready_o    (vlsu_op_rsps_ready[p])
+      );
+
+      assign vfu_wbs_result_and_tag[p].result = vlsu_wb_result;
+      assign vfu_wbs_result_and_tag[p].tag    = vlsu_wb_result_tag;
+
+      // pragma translate_off
+      string vlsu_producer;
+      always_comb vlsu_producer = $sformatf("VLSU%0d", p);
+      assign vlsu_trace_o[p] = '{
+        valid:        vfu_issue_req_valid[p] && vfu_issue_req_ready[p],
+        instr_iter:   '0,
+        producer:     vlsu_producer,
+        vlsu_is_store: longint'(!i_schnizo_vfu.vlsu_spatz_req[p].op_mem.is_load),
+        vlsu_opa:     longint'(vfu_issue_req[p].fu_data.operand_a),
+        vlsu_opb:     longint'(vfu_issue_req[p].fu_data.operand_b)
+      };
+      assign vlsu_retire_trace_o[p] = '{
+        valid:    vfu_result_valid[p] && vfu_result_ready[p],
+        producer: vlsu_producer
+      };
+      // pragma translate_on
+    end : gen_vlsu_blocks
+
+    // One schnizo_fu_block per VFU arithmetic port (ports NofVLSU..VfuNumFuPorts-1)
+    for (genvar p = 0; p < NofVFU; p++) begin : gen_vfu_arith_blocks
+      spatz_result_t vfu_arith_wb_result;
+      instr_tag_t    vfu_arith_wb_result_tag;
+
+      producer_id_t vfu_arith_producer_id;
+      assign vfu_arith_producer_id = producer_id_t'{
+        slot_id: '0,
+        rs_id:   rs_id_t'(SpatzRsIdOffset + (NofVLSU + p))
+      };
+
+      schnizo_fu_block #(
+        .Xfrep              (Xfrep),
+        .disp_req_t         (disp_req_t),
+        .disp_rsp_t         (disp_rsp_t),
+        .issue_req_t        (issue_req_t),
+        .result_t           (spatz_result_t),
+        .instr_tag_t        (instr_tag_t),
+        .NofRss             (VfuNofRss),
+        .NofConstants       (VfuNofConstants),
+        .NofOperands        (VfuNofOperands),
+        .NofResRspIfs       (VfuNofResRspPorts),
+        .ConsumerCount      (ConsumerCount),
+        .RegAddrWidth       (RegAddrWidth),
+        .MaxIterationsW     (MaxIterationsW),
+        .producer_id_t      (producer_id_t),
+        .slot_id_t          (slot_id_t),
+        .operand_req_t      (operand_req_t),
+        .operand_t          (operand_t),
+        .res_req_t          (res_req_t),
+        .ext_res_req_t      (ext_res_req_t),
+        .available_result_t (available_result_t),
+        .dest_mask_t        (dest_mask_t),
+        .res_rsp_t          (res_rsp_t)
+      ) i_vfu_arith_block (
+        .clk_i,
+        .rst_i,
+        .producer_id_i      (vfu_arith_producer_id),
+        .restart_i          (restart_i),
+        .loop_state_i       (loop_state_i),
+        .in_lxp_i           (in_lxp),
+        .lep_iterations_i   (lep_iterations_i),
+        .goto_lcp2_i        (goto_lcp2_i),
+        .fu_busy_i          (vfu_busy[(NofVLSU + p)]),
+        .loop_finish_o      (vfu_arith_loop_finish[p]),
+        .rs_full_o          (vfu_rs_full_o[(NofVLSU + p)]),
+        .disp_req_i         (disp_req_i),
+        .disp_req_valid_i   (vfu_disp_reqs_valid_i[(NofVLSU + p)]),
+        .disp_req_ready_o   (vfu_disp_reqs_ready_o[(NofVLSU + p)]),
+        .instr_exec_commit_i(instr_exec_commit_i),
+        .disp_rsp_o         (vfu_disp_rsp_o[(NofVLSU + p)]),
+        .issue_req_o        (vfu_issue_req[(NofVLSU + p)]),
+        .issue_req_valid_o  (vfu_issue_req_valid[(NofVLSU + p)]),
+        .issue_req_ready_i  (vfu_issue_req_ready[(NofVLSU + p)]),
+        .instr_exec_commit_o(vfu_exec_commit[(NofVLSU + p)]),
+        .result_i           (vfu_result[(NofVLSU + p)]),
+        .result_tag_i       (vfu_result_tag[(NofVLSU + p)]),
+        .result_valid_i     (vfu_result_valid[(NofVLSU + p)]),
+        .result_ready_o     (vfu_result_ready[(NofVLSU + p)]),
+        .wb_result_o        (vfu_arith_wb_result),
+        .wb_result_tag_o    (vfu_arith_wb_result_tag),
+        .wb_result_valid_o  (vfu_wbs_result_valid[(NofVLSU + p)]),
+        .wb_result_ready_i  (vfu_wbs_result_ready[(NofVLSU + p)]),
+        .available_results_o(vfu_arith_available_results[p]),
+        .op_reqs_o          (vfu_arith_op_reqs[p]),
+        .op_reqs_valid_o    (vfu_arith_op_reqs_valid[p]),
+        .op_reqs_ready_i    (vfu_arith_op_reqs_ready[p]),
+        .res_reqs_i         (vfu_arith_res_reqs[p]),
+        .res_reqs_valid_i   (vfu_arith_res_reqs_valid[p]),
+        .res_reqs_ready_o   (vfu_arith_res_reqs_ready[p]),
+        .res_rsps_o         (vfu_arith_res_rsps[p]),
+        .res_rsps_valid_o   (vfu_arith_res_rsps_valid[p]),
+        .res_rsps_ready_i   (vfu_arith_res_rsps_ready[p]),
+        .op_rsps_i          (vfu_arith_op_rsps[p]),
+        .op_rsps_valid_i    (vfu_arith_op_rsps_valid[p]),
+        .op_rsps_ready_o    (vfu_arith_op_rsps_ready[p])
+      );
+
+      assign vfu_wbs_result_and_tag[(NofVLSU + p)].result = vfu_arith_wb_result;
+      assign vfu_wbs_result_and_tag[(NofVLSU + p)].tag    = vfu_arith_wb_result_tag;
+
+      // pragma translate_off
+      string vfu_arith_producer;
+      always_comb vfu_arith_producer = $sformatf("VFU%0d", p);
+      assign vfu_trace_o[p] = '{
+        valid:      vfu_issue_req_valid[(NofVLSU + p)] && vfu_issue_req_ready[(NofVLSU + p)],
+        instr_iter: '0,
+        producer:   vfu_arith_producer,
+        vfu_opa:    longint'(vfu_issue_req[(NofVLSU + p)].fu_data.operand_a),
+        vfu_opb:    longint'(vfu_issue_req[(NofVLSU + p)].fu_data.operand_b)
+      };
+      assign vfu_retire_trace_o[p] = '{
+        valid:    vfu_result_valid[(NofVLSU + p)] && vfu_result_ready[(NofVLSU + p)],
+        producer: vfu_arith_producer
+      };
+      // pragma translate_on
+    end : gen_vfu_arith_blocks
+
+    // Internal TCDM channel signals (schnizo_vfu uses chan types internally)
+    localparam int unsigned VfuTCDMPorts = NofVLSU * NumMemPortsPerSpatz;
+
+    tcdm_req_chan_t [VfuTCDMPorts-1:0] vfu_tcdm_req_chan;
+    logic           [VfuTCDMPorts-1:0] vfu_tcdm_req_valid_chan;
+    logic           [VfuTCDMPorts-1:0] vfu_tcdm_req_ready_chan;
+    tcdm_rsp_chan_t [VfuTCDMPorts-1:0] vfu_tcdm_rsp_chan;
+    logic           [VfuTCDMPorts-1:0] vfu_tcdm_rsp_valid_chan;
+
+    // schnizo_vfu instance
+    schnizo_vfu #(
+      .NofVFU             (NofVFU),
+      .NofVLSU            (NofVLSU),
+      .NumFPUs            (NumSpatzFPUs),
+      .NumIPUs            (NumSpatzIPUs),
+      .FPUImplementation  (FPUImplementation),
+      .VlsuNofRss         (VlsuNofRss),
+      .VfuNofRss          (VfuNofRss),
+      .issue_req_t        (issue_req_t),
+      .tcdm_req_chan_t    (tcdm_req_chan_t),
+      .tcdm_rsp_chan_t    (tcdm_rsp_chan_t)
+    ) i_schnizo_vfu (
+      .clk_i,
+      .rst_i,
+      .issue_req_i        (vfu_issue_req),
+      .issue_req_valid_i  (vfu_issue_req_valid),
+      .issue_commit_i     (vfu_exec_commit),
+      .issue_req_ready_o  (vfu_issue_req_ready),
+      .result_o           (vfu_result),
+      .result_valid_o     (vfu_result_valid),
+      .result_ready_i     (vfu_result_ready),
+      .tag_o              (vfu_result_tag),
+      .tcdm_req_o         (vfu_tcdm_req_chan),
+      .tcdm_req_valid_o   (vfu_tcdm_req_valid_chan),
+      .tcdm_req_ready_i   (vfu_tcdm_req_ready_chan),
+      .tcdm_rsp_i         (vfu_tcdm_rsp_chan),
+      .tcdm_rsp_valid_i   (vfu_tcdm_rsp_valid_chan),
+      .busy_o             (vfu_busy),
+      .loop_state_i       (loop_state_i)
+    );
+
+    // Wire internal chan signals to external tcdm_req_t / tcdm_rsp_t ports
+    for (genvar p = 0; p < VfuTCDMPorts; p++) begin : gen_vfu_tcdm
+      assign vfu_tcdm_req_o[p] = '{
+        q      : vfu_tcdm_req_chan[p],
+        q_valid: vfu_tcdm_req_valid_chan[p]
+      };
+      assign vfu_tcdm_req_ready_chan[p] = vfu_tcdm_rsp_i[p].q_ready;
+      assign vfu_tcdm_rsp_chan[p]       = vfu_tcdm_rsp_i[p].p;
+      assign vfu_tcdm_rsp_valid_chan[p] = vfu_tcdm_rsp_i[p].p_valid;
+    end : gen_vfu_tcdm
+
+    // WB arbiter ? merges all VFU-port results into a single writeback port
+    vfu_result_and_tag_t vfu_wb_result_and_tag_out;
+    stream_arbiter #(
+      .DATA_T  (vfu_result_and_tag_t),
+      .N_INP   (VfuNumFuPorts),
+      .ARBITER ("prio")
+    ) i_vfu_wb_arbiter (
+      .clk_i,
+      .rst_ni      (~rst_i),
+      .inp_data_i  (vfu_wbs_result_and_tag),
+      .inp_valid_i (vfu_wbs_result_valid),
+      .inp_ready_o (vfu_wbs_result_ready),
+      .oup_data_o  (vfu_wb_result_and_tag_out),
+      .oup_valid_o (vfu_wb_result_valid_o),
+      .oup_ready_i (vfu_wb_result_ready_i)
+    );
+
+    assign vfu_wb_result_o   = vfu_wb_result_and_tag_out.result;
+    assign vfu_wb_result_tag_o = vfu_wb_result_and_tag_out.tag;
+
+    assign vfu_loop_finish_o = &vlsu_loop_finish & &vfu_arith_loop_finish;
+
+  end else begin : gen_no_rvv_block
+
+    assign vfu_loop_finish_o      = 1'b1;
+    assign vfu_disp_reqs_ready_o  = '0;
+    assign vfu_disp_rsp_o         = '0;
+    assign vfu_rs_full_o          = '0;
+    assign vfu_wb_result_o        = '0;
+    assign vfu_wb_result_tag_o    = '0;
+    assign vfu_wb_result_valid_o  = 1'b0;
+    assign vfu_tcdm_req_o         = '0;
+
+  end
+
   ////////////
   // Status //
   ////////////
 
   // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish};
+  assign all_rs_finish_o = &{&alu_loop_finish, &lsu_loop_finish, &fpu_loop_finish, vfu_loop_finish_o};
 
   ////////////////////
   // Tracer helpers //
@@ -1279,9 +1776,12 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     end else if (rs_id < NofAlus + NofLsus) begin
       fu_name = "LSU";
       fu_id = rs_id - NofAlus;
-    end else begin
+    end else if (rs_id < NofAlus + NofLsus + NofFpus) begin
       fu_name = "FPU";
       fu_id = rs_id - NofAlus - NofLsus;
+    end else begin
+      fu_name = "VFU";
+      fu_id = rs_id - NofAlus - NofLsus - NofFpus;
     end
 
     return $sformatf("%s%0d", fu_name, fu_id);
@@ -1318,10 +1818,14 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       num_ops = LsuNofOperands;
       consumer = consumer - LsuOpIdOffset;
       fu_name = "LSU";
-    end else begin
+    end else if (consumer < SpatzOpIdOffset) begin
       num_ops = FpuNofOperands;
       consumer = consumer - FpuOpIdOffset;
       fu_name = "FPU";
+    end else begin
+      num_ops = VlsuNofOperands; // conservative: VLSU and VFU arith have same operand count
+      consumer = consumer - SpatzOpIdOffset;
+      fu_name = "VFU";
     end
 
     rs_id = consumer / num_ops;

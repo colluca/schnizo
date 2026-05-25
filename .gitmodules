@@ -10,3 +10,7 @@
 [submodule "target/asic/ihp13/pdk"]
 	path = target/asic/ihp13/pdk
 	url = git@github.com:IHP-GmbH/IHP-Open-PDK.git
+[submodule "hw/spatz"]
+	path = hw/spatz
+	url = https://github.com/jogut445/spatz
+	branch = schnizo-integration

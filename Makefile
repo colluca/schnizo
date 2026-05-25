@@ -45,7 +45,7 @@ SN_ROOT := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 include $(SN_ROOT)/make/common.mk
 
 TARGET = snitch_cluster
-SN_COMMON_BENDER_FLAGS += -t snitch_cluster_wrapper
+SN_COMMON_BENDER_FLAGS += -t snitch_cluster_wrapper -t spatz
 
 #################
 # Configuration #
@@ -147,11 +147,15 @@ NONFREE_DIR = $(SN_ROOT)/nonfree
 .PHONY: nonfree clean-nonfree
 
 nonfree:
-	cd $(NONFREE_DIR) && \
-	git init && \
-	git remote add origin $(NONFREE_REMOTE) && \
-	git fetch origin && \
-	git checkout $(NONFREE_COMMIT) -f
+	@if [ -f "$(NONFREE_DIR)/Makefile" ]; then \
+		echo "nonfree already present (zip install), skipping git checkout."; \
+	else \
+		cd $(NONFREE_DIR) && \
+		git init && \
+		git remote add origin $(NONFREE_REMOTE) && \
+		git fetch origin && \
+		git checkout $(NONFREE_COMMIT) -f; \
+	fi
 
 clean-nonfree:
 	rm -rf $(NONFREE_DIR)
@@ -174,6 +178,16 @@ clean-tests: sn-clean-tests
 clean-riscv-tests: sn-clean-riscv-tests
 clean-apps: sn-clean-apps
 clean-sw: sn-clean-sw
+
+####################
+# Schnizo test suites #
+####################
+
+include $(SN_ROOT)/make/schnizo_tests.mk
+
+.PHONY: vfu-tests vfu-tests-build vfu-tests-run \
+        spatz-isa-tests spatz-isa-tests-build spatz-isa-tests-run \
+        clean-schnizo-tests
 
 ########
 # Misc #

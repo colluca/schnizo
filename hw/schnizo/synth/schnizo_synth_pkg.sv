@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: SHL-0.51
 
 `include "reqrsp_interface/typedef.svh"
+`include "tcdm_interface/typedef.svh"
 
 package schnizo_synth_pkg;
 
@@ -21,6 +22,7 @@ package schnizo_synth_pkg;
   typedef logic [CoreUserWidth-1:0] user_t;
 
   `REQRSP_TYPEDEF_ALL(data, addr_t, data_t, strb_t, user_t)
+  `TCDM_TYPEDEF_ALL(tcdm, addr_t, data_t, strb_t, user_t)
 
   typedef struct packed {
     snitch_pkg::acc_addr_e addr;
@@ -70,6 +72,7 @@ package schnizo_synth_pkg;
     fpnew_pkg::fp_format_e  fpu_fmt_src;
     fpnew_pkg::fp_format_e  fpu_fmt_dst;
     fpnew_pkg::roundmode_e  fpu_rnd_mode;
+    logic [XLEN-1:0]        raw_instr;
   } fu_data_t;
 
   typedef struct packed {

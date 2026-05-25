@@ -18,38 +18,47 @@ TRUSTED_PKG_SEQ_ID = 22222
 
 
 def extract_fu_details(fu_string):
-    # check with regex:
-    # - if it is only a string without numbers (e.g., "ALU", "LSU", "FPU"). This is the fu_type.
-    # - if it is a string with a number at the end  (e.g. "ALU0", "ALU4", "LSU2"). This is the
-    #   fu_type with the fu_id.
-    # - if it is a with a number, a dot and another number (e.g., "ALU0.0", "FPU2.34"). This is
-    #   the fu_type with the fu_id and the slot_id.
-    # Return the fu_type, fu_id and slot_id
+    """
+    Extract functional unit details from a FU string.
 
-    # Define regex patterns
-    fu_type_pattern = r"^[A-Za-z]+$"
+    Patterns supported:
+    - Just letters: e.g., "ALU", "LSU", "FPU", "VFU", "VLSU", "CSR", "ACC", "NONE"
+    - Letters + number: e.g., "ALU0", "LSU2", "VFU0", "VLSU0"
+    - Letters + number + dot + number: e.g., "ALU0.0", "LSU2.1", "VFU0.1", "VLSU0.1"
+
+    Returns:
+        tuple: (track_name, slot_id) where track_name is the base track name
+               and slot_id is either None or an integer
+    """
+    # Pattern for just letters (no numbers)
+    fu_type_pattern = r"^([A-Za-z]+)$"
+    # Pattern for letters + number (e.g., ALU0, VFU0, VLSU0)
     fu_id_pattern = r"^([A-Za-z]+)(\d+)$"
+    # Pattern for letters + number + dot + number (e.g., ALU0.0, VFU0.1, VLSU0.1)
     fu_slot_pattern = r"^([A-Za-z]+)(\d+)\.(\d+)$"
 
-    fu_type, fu_id, slot_id = None, None, None
-
-    # Match the string against the patterns
-    if re.match(fu_type_pattern, fu_string):
-        fu_type = fu_string
-    elif match := re.match(fu_id_pattern, fu_string):
-        fu_type, fu_id = match.groups()
-        fu_id = int(fu_id)
-    elif match := re.match(fu_slot_pattern, fu_string):
+    # Match slot pattern (letters + number + dot + number)
+    if match := re.match(fu_slot_pattern, fu_string):
         fu_type, fu_id, slot_id = match.groups()
         fu_id = int(fu_id)
         slot_id = int(slot_id)
+        track_name = f'{fu_type}{fu_id}'
+        return track_name, slot_id
+
+    # Match ID pattern (letters + number)
+    elif match := re.match(fu_id_pattern, fu_string):
+        fu_type, fu_id = match.groups()
+        fu_id = int(fu_id)
+        track_name = f'{fu_type}{fu_id}'
+        return track_name, None
+
+    # Match type pattern (just letters)
+    elif match := re.match(fu_type_pattern, fu_string):
+        fu_type = match.group(1)
+        return fu_type, None
+
     else:
         raise ValueError(f"Invalid FU string format to extract details: {fu_string}")
-
-    if slot_id is not None:
-        return f'{fu_type}{fu_id}', slot_id
-    else:
-        return fu_string, slot_id
 
 
 class PerfettoTrace():
@@ -195,8 +204,8 @@ class PerfettoInstructionTrace(PerfettoTrace):
             name: The name/mnemonic of the instruction.
             timestamp: The timestamp when the instruction starts in nanoseconds.
         """
-        # Create a new track for an FU when first encountered
         fu_string, slot_id = extract_fu_details(fu)
+
         if fu_string not in self.tracks:
             self.add_track(fu_string, parent='Instructions')
 
@@ -205,16 +214,14 @@ class PerfettoInstructionTrace(PerfettoTrace):
         # uuid. The name must also match that Perfetto UI merges the tracks.
         # The uuid of the "instruction track" must be unique in the whole trace.
         # See https://perfetto.dev/docs/reference/synthetic-track-event#process-scoped-async-slices
-        # This link points to process-scoped async slices but the nesting work the same way for
-        # custom scoped slices.
         insn_uuid = self.add_track(fu_string, parent='Instructions', unique_name=False)
 
-        # We must keep track of the uuid of the event we started to end it later. We assign it to a
-        # dict with a deque indexed by the hierarchical track uuid.
+        # We must keep track of the uuid of the event we started to end it later.
         self.outstanding_insns[fu_string].appendleft(insn_uuid)
 
         # Create slice begin event
-        annotations['slot_id'] = slot_id
+        if slot_id is not None:
+            annotations['slot_id'] = slot_id
         self.add_event(insn_uuid, TYPE_SLICE_BEGIN, timestamp, name, annotations)
 
         # Update IPC
@@ -228,9 +235,11 @@ class PerfettoInstructionTrace(PerfettoTrace):
 
         Args:
             fu: The functional unit executing the instruction.
-            name: The name/mnemonic of the instruction.
             timestamp: The timestamp when the instruction ends in nanoseconds.
         """
         fu_string, _ = extract_fu_details(fu)
-        insn_uuid = self.outstanding_insns[fu_string].pop()
+        if fu_string not in self.outstanding_insns or len(self.outstanding_insns[fu_string]) == 0:
+            insn_uuid = self.add_track(fu_string, parent='Instructions', unique_name=False)
+        else:
+            insn_uuid = self.outstanding_insns[fu_string].pop()
         self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)

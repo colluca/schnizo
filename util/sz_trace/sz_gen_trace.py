@@ -39,7 +39,7 @@ import formatter
 from formatter import int_lit, flt_lit, flt_fmt
 from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, get_fu_type, CSR_NAMES
 from architecture import LSU_SIZE_TO_FLOAT
-from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_NONE
+from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_VFU, FU_VLSU, FU_NONE
 from processor import ProcessorState
 
 
@@ -51,7 +51,7 @@ CLOCK_PERIOD_NS = 1  # clock in nanoseconds
 PERF_EVAL_KEYS_OMIT = ('start', 'end', 'end_fpss', 'snitch_issues',
                        'snitch_load_latency', 'snitch_fseq_offloads',
                        'fseq_issues', 'fpss_issues', 'fpss_fpu_issues',
-                       'fpss_load_latency', 'fpss_fpu_latency')
+                       'fpss_load_latency', 'fpss_fpu_latency', 'vfu_issues', 'vlsu_issues')
 PERF_EVAL_KEYS_DECIMAL = ('tstart', 'tend', 'cycles')
 
 # -------------------- Architectural constants and enums  --------------------
@@ -184,7 +184,7 @@ def gen_rescap_trace(extras):
 
 
 def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
-                          lsu_pipelines, fpu_pipelines, perf_metrics):
+                          lsu_pipelines, fpu_pipelines, vfu_pipelines, perf_metrics):
     if extras['stall'] and not (loop_state in {LOOP_LEP}):
         return
 
@@ -211,7 +211,10 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
     is_fpu = False
     if ('fu_type' in extras):
         is_fpu = extras['fu_type'] in {FU_FPU}
-        fpu_id = extras['disp_resp'].split('.')[0]
+        if 'disp_resp' in extras:
+            fpu_id = extras['disp_resp'].split('.')[0]
+        else:
+            fpu_id = FU_FPU
     elif ('producer' in extras):
         is_fpu = extras['producer'].startswith(FU_FPU)
         fpu_id = extras['producer'].split('.')[0]
@@ -224,9 +227,10 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
     is_lsu = False
     lsu_id = ""
     if ('fu_type' in extras):
-        is_lsu = extras['disp_resp'].startswith(FU_LSU)
+        is_lsu = extras['disp_resp'].startswith(FU_LSU) if 'disp_resp' in extras else False
         # keep only the first characters and all number until the first .
-        lsu_id = extras['disp_resp'].split('.')[0]
+        if is_lsu:
+            lsu_id = extras['disp_resp'].split('.')[0]
     elif ('producer' in extras):
         is_lsu = extras['producer'].startswith(FU_LSU)
         lsu_id = extras['producer'].split('.')[0]
@@ -246,11 +250,29 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, extras,
             else:
                 perf_metrics[-1]['int_store_issues'] += 1
 
+    # VFU
+    is_vfu = False
+    if ('fu_type' in extras):
+        is_vfu = extras['fu_type'] in {FU_VFU}
+    elif ('producer' in extras):
+        is_vfu = extras['producer'].startswith(FU_VFU)
+    if is_vfu:
+        perf_metrics[-1]['vfu_issues'] += 1
+
+    # VLSU
+    is_vlsu = False
+    if ('fu_type' in extras):
+        is_vlsu = extras['fu_type'] in {FU_VLSU}
+    elif ('producer' in extras):
+        is_vlsu = extras['producer'].startswith(FU_VLSU)
+    if is_vlsu:
+        perf_metrics[-1]['vlsu_issues'] += 1
+
     return 0
 
 
 def handle_retirement_event(cycle, priv_lvl, loop_state, extras,
-                            lsu_pipelines, fpu_pipelines, perf_metrics, permissive):
+                            lsu_pipelines, fpu_pipelines, vfu_pipelines, perf_metrics, permissive):
     if (extras['producer'].startswith(FU_LSU) or extras['producer'].startswith(FU_FPU)):
         try:
             fu_id = extras['producer'].split('.')[0]
@@ -289,14 +311,17 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
 
     if loop_state in {LOOP_REGULAR, LOOP_HWLOOP, LOOP_LCP1, LOOP_LCP2}:
         fu_type = extras['fu_type']
-        # Dispatch response is invalid for CSR, MULDIV, DMA and  NONE
-        if fu_type in {FU_CSR, FU_MULDIV, FU_DMA, FU_NONE}:
+        # Dispatch response is invalid for CSR, MULDIV, DMA, VFU, VLSU and NONE
+        if fu_type in {FU_CSR, FU_MULDIV, FU_DMA, FU_VFU, FU_VLSU, FU_NONE}:
             fu_str = fu_type
             # We don't have infos about the accelerator id at retirement.
             # Thus map everything to ACC.
-            # TODO(colluca): this can be changed
             if (fu_type in {FU_MULDIV, FU_DMA}):
                 fu_str = FU_ACC
+            # VFU/VLSU issue traces carry the specific producer id (e.g. "VFU0").
+            # Use it so the Perfetto start track matches the retirement end track.
+            elif fu_type in {FU_VFU, FU_VLSU}:
+                fu_str = extras.get('producer', fu_type)
         else:
             fu_str = extras['disp_resp']
     elif loop_state in {LOOP_LEP}:
@@ -316,13 +341,15 @@ def gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, extras,
     trace.start_insn(fu_str, mnemonic, cycle * CLOCK_PERIOD_NS, annotations)
 
     # Immediately end instructions for FU_NONE as there is no retirement event.
-    if (fu_str == FU_NONE):
-        # The instruction ends in this cycle. Thus the event is at the end of this cycle.
+    if fu_str == FU_NONE:
         trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
     # Immediately end store instructions as there is no retirement event.
-    if (fu_str.startswith(FU_LSU)):
-        if (extras['lsu_is_store']):
-            # The instruction ends in this cycle. Thus the event is at the end of this cycle.
+    elif fu_str.startswith(FU_LSU):
+        if extras['lsu_is_store']:
+            trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
+    # Immediately end VLSU store instructions (no retirement event for stores).
+    elif fu_str.startswith(FU_VLSU):
+        if extras.get('vlsu_is_store'):
             trace.end_insn(fu_str, (cycle+1) * CLOCK_PERIOD_NS)
 
 
@@ -346,12 +373,11 @@ def gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, extras, trace):
 
 
 def gen_trace_line(line, mc_exec,
-                   lsu_pipelines, fpu_pipelines, trace,
+                   lsu_pipelines, fpu_pipelines, vfu_pipelines, trace,
                    perf_metrics, proc_state, permissive) -> tuple[str, int, int]:
     data = parse_line(line)
 
     # Aliases
-    # TODO(colluca): get rid of these
     sim_time = data['time']
     cycle = data['cycle']
     priv_lvl = data['priv']
@@ -367,7 +393,7 @@ def gen_trace_line(line, mc_exec,
         # We must however prevent that they are parsed, since they may contain illegal data.
         if not data['exception']:
             handle_dispatch_event(sim_time, cycle, priv_lvl, loop_state, data,
-                                  lsu_pipelines, fpu_pipelines,
+                                  lsu_pipelines, fpu_pipelines, vfu_pipelines,
                                   perf_metrics)
             trace_body = gen_dispatch_trace(loop_state, data, proc_state, mc_exec)
             gen_dispatch_perfetto(sim_time, cycle, priv_lvl, loop_state, data,
@@ -384,7 +410,8 @@ def gen_trace_line(line, mc_exec,
         gen_rescap_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
     elif (data['event'] == EVENT_RETIREMENT):
         handle_retirement_event(cycle, priv_lvl, loop_state, data,
-                                lsu_pipelines, fpu_pipelines, perf_metrics, permissive)
+                                lsu_pipelines, fpu_pipelines, vfu_pipelines, perf_metrics,
+                                permissive)
         gen_retirement_perfetto(sim_time, cycle, priv_lvl, loop_state, data, trace)
     else:
         raise ValueError(f"Not a valid event type: {data['event']}\n")
@@ -538,6 +565,7 @@ def main():
         # Dicts to store information about LSU pipeline (for latency). A dict for each LSU.
         lsu_pipelines = defaultdict(deque)
         fpu_pipelines = defaultdict(deque)
+        vfu_pipelines = defaultdict(deque)  # For tracking VFU/VLSU operations
         # ProcessorState tracking active RSS slots during FREP loops
         proc_state = ProcessorState()
         # Various performance metrics of the core
@@ -546,8 +574,6 @@ def main():
         ]  # all values initially 0, also 'start' time of measurement 0
         perf_metrics[0]['start'] = None
 
-        # dma_trans = [{'rep': 1}]
-
         # Parse input line by line
         for lineno, (line, nextl) in enumerate(current_and_next(line_iter)):
             if line:
@@ -555,8 +581,9 @@ def main():
                     # Process each event independently
                     trace_line, sim_time, cycle = gen_trace_line(line, args.mc_exec,
                                                                  lsu_pipelines, fpu_pipelines,
-                                                                 trace, perf_metrics,
-                                                                 proc_state, args.permissive)
+                                                                 vfu_pipelines, trace,
+                                                                 perf_metrics, proc_state,
+                                                                 args.permissive)
                     # The newline character is in the trace line. This way the trace line can also
                     # be empty.
                     print(trace_line, file=trace_file, end="")
@@ -610,6 +637,11 @@ def main():
     for fpu, pipeline in fpu_pipelines.items():
         if len(pipeline) != 0:
             print_warning(f"{len(pipeline)} unfinished operations detected for {fpu}.")
+
+    for vfu, pipeline in vfu_pipelines.items():
+        if len(pipeline) != 0:
+            print_warning(f"{len(pipeline)} unfinished VFU/VLSU operations detected for {vfu}.")
+
     return 0
 
 

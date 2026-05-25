@@ -146,14 +146,16 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     result_t value;
     // If set, the result is valid.
     logic    is_valid;
-    // This flag signals to which iteration (“current” or “next”) the currently stored value in
+    // This flag signals to which iteration (?current? or ?next?) the currently stored value in
     // the Result buffer belongs to. It is toggled each time a new value is written into the
     // buffer.
     logic    iteration;
   } rss_result_t;
 
-  // Result metadata and counters — updated by res_req_handling and result_capture.
+  // Result metadata and counters ? updated by res_req_handling and result_capture.
   typedef struct packed {
+    // Raw instruction for Spatz
+    logic [31:0]                    spatz_raw_instr;
     // How many consumers use the result of this instruction.
     logic [ConsumerCountWidth-1:0]  consumer_count;
     // A counter to keep track how many times the current result has been captured.
@@ -168,15 +170,17 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     logic [RegAddrWidth-1:0]        dest_id;
     // Whether the destination register is a floating point or integer register.
     logic                           dest_is_fp;
+    // Whether the destination register is a vector register (VRF).
+    logic                           dest_is_vec;
     // Specifying whether the last result of the loop is written into the register defined by
     // destination id. This flag is defined during LCP and ensures that at the end of the loop
     // only the last writing instruction does perform a writeback to the RF.
     logic                           do_writeback;
   } rs_slot_result_t;
 
-  // Issue-side state — updated by the dispatch pipeline only.
+  // Issue-side state ? updated by the dispatch pipeline only.
   // TODO(colluca): put all FU-specific fields into a separate struct that is passed
-  // as a parameter, and instantiated as a “user” field. Otherwise, only mandatory fields used
+  // as a parameter, and instantiated as a ?user? field. Otherwise, only mandatory fields used
   // for control logic should be hardcoded here.
   typedef struct packed {
     // Whether the RSS contains an active instruction.
@@ -188,11 +192,14 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     lsu_op_e                        lsu_op;
     fpu_op_e                        fpu_op;
     lsu_size_e                      lsu_size;
+
+    logic [31:0]                    spatz_raw_instr;
+
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
-    // This flag signals to which iteration (“current” or “next”) the currently
-    // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
+    // This flag signals to which iteration (?current? or ?next?) the currently
+    // ?waiting instruction? (not all operands are ready) in the RSS belongs to. It is toggled
     // each time the instruction is issued.
     logic                           instruction_iter;
     // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
