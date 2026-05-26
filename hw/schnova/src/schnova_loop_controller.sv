@@ -128,10 +128,10 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   always_comb begin : gen_valid_mask
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       if (i == 0) begin
-        // The first instruction never has to be masked
+        // The first instruction never has to be masked due to loop end
         // either a younger instruction is the instruction at the loop end
         // or the first instruction is at the loop end
-        valid_mask_o[0] = 1'b1;
+        valid_mask_o[0] = !is_unsupported_instr[0];
       end else begin
         // We have to invalidate the valid bit if a previous instruction
         // was the loop end instruction or if it was invalidated
@@ -144,7 +144,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   // We are at the end of the loop if one instruction of the block is at the end
   assign is_at_loop_end = |(at_loop_end_instr & valid_mask_o);
 
-  assign exit_dep = |(is_unsupported_instr & valid_mask_o);
+  assign exit_dep = |is_unsupported_instr;
 
   logic dispatch_loop_end_instr;
   assign dispatch_loop_end_instr = is_at_loop_end && !stall_i;
