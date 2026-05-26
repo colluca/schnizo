@@ -20,14 +20,11 @@ module schnova_refcount import schnova_pkg::*; #(
     input  logic                         clk_i,
     input  logic                         rst_i,
     // Dispatcher Interface (Set new reference for RAT)
-    // Whether all the instructions of the fetch block are dispatched in this cycle
-    // only asserted if in superscalar mode
-    input  logic                         first_instr_dispatched_i,
-    input  logic                         multi_cycle_dispatch_i,
-    input  logic      [PipeWidth-1:0]    disp_set_req_valid_i,
+    input  logic                         instr_exec_commit_superscalar_i,
+    input  logic      [PipeWidth-1:0]    instr_valid_i,
+    input  logic                         dispatched_i,
     input  disp_req_t [PipeWidth-1:0]    disp_req_i,
     input  phy_id_t   [PipeWidth-1:0]    phy_reg_rd_old_i,
-    input  logic      [PipeWidth-1:0]    phy_reg_rd_is_fp_i,
     // Issue Inteface (Clear / Overwrite entries)
     input  logic        [NofAlus-1:0]    issue_alu_clr_req_valid_i,
     input  refcnt_req_t [NofAlus-1:0]    issue_alu_clr_req_i,
@@ -43,34 +40,84 @@ module schnova_refcount import schnova_pkg::*; #(
     output logic                         phy_reg_alloc_ready_o
 );
 
-    // Local parameters and types
-    localparam int unsigned TotalNofRsSlots = (NofAlus * AluNofRss) + (NofLsus * LsuNofRss) + (NofFpus * FpuNofRss);
-    localparam int unsigned MaxReferences = 1 + TotalNofRsSlots; // +1 for RAT reference
-    localparam int unsigned CntWidth = $clog2(MaxReferences + 1);
+    // GPR Max References: 1 (RAT) + ALU(2/slot) + LSU(2/slot) + FPU(1/slot)
+    localparam int unsigned GprMaxReferences = 1 
+                                             + (NofAlus * AluNofRss * 2) 
+                                             + (NofLsus * LsuNofRss * 2) 
+                                             + (NofFpus * FpuNofRss * 1);
+                                             
+    // FPR Max References: 1 (RAT) + LSU(1/slot) + FPU(3/slot)
+    localparam int unsigned FprMaxReferences = 1 
+                                             + (NofLsus * LsuNofRss * 1) 
+                                             + (NofFpus * FpuNofRss * 3);
+
+    localparam int unsigned GprCntWidth = $clog2(GprMaxReferences + 1);
+    localparam int unsigned FprCntWidth = $clog2(FprMaxReferences + 1);
 
     // We can have 2 src operands per instruction + 1 due to the RAT update
-    localparam int unsigned GprIncWidth = $clog2(PipeWidth*2+1 + 1);
-    // We can have 3 src operands per instruction + 1 due to the RAT update
-    localparam int unsigned FprIncWidth = $clog2(PipeWidth*3+1 + 1);
-    // We can have a decrement from each reservation station and for each instruction
-    localparam int unsigned DecWidth = $clog2(NofAlus+NofLsus+NofFpus + PipeWidth + 1);
+    localparam int unsigned NofGprIncSrcs = PipeWidth*3;
+    // We can have 2 src operands per ALU and LSU, 1 for FPU and 1 for the old RAT entry
+    localparam int unsigned NofGprDecSrcs = PipeWidth + (NofAlus*2) + (NofLsus*2) + NofFpus;
 
-    typedef logic [CntWidth-1:0] cnt_t;
+    // FPR has 3 src operands per instruction + 1 RAT update
+    localparam int unsigned NofFprIncSrcs = PipeWidth*4;
+    // FPR decrements: old RAT entry (Pipe), LSU op_b (1), FPU op_a/b/c (3)
+    localparam int unsigned NofFprDecSrcs = PipeWidth + NofLsus + (NofFpus*3);
+
+
+    typedef logic [GprCntWidth-1:0] gpr_cnt_t;
+    typedef logic [FprCntWidth-1:0] fpr_cnt_t;
+
+    localparam int unsigned GprIncWidth = $clog2(NofGprIncSrcs + 1);
+    localparam int unsigned GprDecWidth = $clog2(NofGprDecSrcs + 1);
+    localparam int unsigned FprIncWidth = $clog2(NofFprIncSrcs + 1);
+    localparam int unsigned FprDecWidth = $clog2(NofFprDecSrcs + 1);
+
+    // GPR One-Hot arrays
+    logic [NofPhysGpr-1:0][PipeWidth-1:0] gpr_disp_rd_oh;
+    logic [NofPhysGpr-1:0][PipeWidth-1:0] gpr_disp_rd_old_oh;
+    logic [NofPhysGpr-1:0][PipeWidth-1:0] gpr_disp_rs1_oh;
+    logic [NofPhysGpr-1:0][PipeWidth-1:0] gpr_disp_rs2_oh;
+    logic [NofPhysGpr-1:0][NofAlus-1:0]   gpr_issue_alu_rs1_oh;
+    logic [NofPhysGpr-1:0][NofAlus-1:0]   gpr_issue_alu_rs2_oh;
+    logic [NofPhysGpr-1:0][NofLsus-1:0]   gpr_issue_lsu_rs1_oh;
+    logic [NofPhysGpr-1:0][NofLsus-1:0]   gpr_issue_lsu_rs2_oh;
+    logic [NofPhysGpr-1:0][NofFpus-1:0]   gpr_issue_fpu_rs1_oh;
+
+    // FPR One-Hot arrays
+    logic [NofPhysFpr-1:0][PipeWidth-1:0] fpr_disp_rd_oh;
+    logic [NofPhysFpr-1:0][PipeWidth-1:0] fpr_disp_rd_old_oh;
+    logic [NofPhysFpr-1:0][PipeWidth-1:0] fpr_disp_rs1_oh;
+    logic [NofPhysFpr-1:0][PipeWidth-1:0] fpr_disp_rs2_oh;
+    logic [NofPhysFpr-1:0][PipeWidth-1:0] fpr_disp_rs3_oh;
+    logic [NofPhysFpr-1:0][NofLsus-1:0]   fpr_issue_lsu_rs2_oh;
+    logic [NofPhysFpr-1:0][NofFpus-1:0]   fpr_issue_fpu_rs1_oh;
+    logic [NofPhysFpr-1:0][NofFpus-1:0]   fpr_issue_fpu_rs2_oh;
+    logic [NofPhysFpr-1:0][NofFpus-1:0]   fpr_issue_fpu_rs3_oh;
+
+    // Flat vectors for the compressor trees
+    logic [NofPhysGpr-1:0][NofGprIncSrcs-1:0] gpr_inc_vec;
+    logic [NofPhysGpr-1:0][NofGprDecSrcs-1:0] gpr_dec_vec;
+    logic [NofPhysFpr-1:0][NofFprIncSrcs-1:0] fpr_inc_vec;
+    logic [NofPhysFpr-1:0][NofFprDecSrcs-1:0] fpr_dec_vec;
+
 
     // Storage arrays for the binary counters and allocated registers
-    cnt_t [NofPhysGpr-1:0] gpr_counters_q, gpr_counters_d;
-    cnt_t [NofPhysFpr-1:0] fpr_counters_q, fpr_counters_d;
+    gpr_cnt_t [NofPhysGpr-1:0] gpr_counters_q, gpr_counters_d;
+    fpr_cnt_t [NofPhysFpr-1:0] fpr_counters_q, fpr_counters_d;
     phy_id_t [PipeWidth-1:0] gpr_allocated_q, gpr_allocated_d;
     phy_id_t [PipeWidth-1:0] fpr_allocated_q, fpr_allocated_d;
     phy_id_t [PipeWidth-1:0] allocated_gpr_regs;
     phy_id_t [PipeWidth-1:0] allocated_fpr_regs;
 
+    logic dispatch_started_d, dispatch_started_q;
+
     // Supporting up to PipeWidth increments per cycle
     logic [NofPhysGpr-1:0][GprIncWidth-1:0] gpr_inc;
     logic [NofPhysFpr-1:0][FprIncWidth-1:0] fpr_inc;
     // Total possible simultaneous clears across all reservation stations (RSs)
-    logic [NofPhysGpr-1:0][DecWidth-1:0] gpr_dec;
-    logic [NofPhysFpr-1:0][DecWidth-1:0] fpr_dec;
+    logic [NofPhysGpr-1:0][GprDecWidth-1:0] gpr_dec;
+    logic [NofPhysFpr-1:0][FprDecWidth-1:0] fpr_dec;
 
 
     // We have to update the counters for every dispatched instructions to track:
@@ -79,155 +126,163 @@ module schnova_refcount import schnova_pkg::*; #(
     // 2) All the sources that which to consume a current physical register to
     // avoid RAW hazard
     always_comb begin : counter_update
-        // Check  every phyiscal register if it needs to update its counter
-        for (int unsigned gpr = 0; gpr < NofPhysGpr; gpr++) begin
-            gpr_inc[gpr] = '0;
-            gpr_dec[gpr] = '0;
+        // Default assignment
+        gpr_disp_rd_oh = '0;
+        gpr_disp_rd_old_oh = '0;
+        gpr_disp_rs1_oh = '0;
+        gpr_disp_rs2_oh = '0;
+        gpr_issue_alu_rs1_oh = '0;
+        gpr_issue_alu_rs2_oh = '0;
+        gpr_issue_lsu_rs1_oh = '0;
+        gpr_issue_lsu_rs2_oh = '0;
+        gpr_issue_fpu_rs1_oh = '0;
 
-            // Generate the decoder structure that perform the counter updates for the GPR
-            for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-                if (disp_set_req_valid_i[instr_idx]) begin
-                    // Update the reference for the new RAT entry
-                    if (!phy_reg_rd_is_fp_i[instr_idx]             &&
-                        (disp_req_i[instr_idx].phy_reg_dest != '0) &&
-                        (disp_req_i[instr_idx].phy_reg_dest == phy_id_t'(gpr))) begin
-                        gpr_inc[gpr] += 1'b1;
+        fpr_disp_rd_oh = '0;
+        fpr_disp_rd_old_oh = '0;
+        fpr_disp_rs1_oh = '0;
+        fpr_disp_rs2_oh = '0;
+        fpr_disp_rs3_oh = '0;
+        fpr_issue_lsu_rs2_oh = '0;
+        fpr_issue_fpu_rs1_oh = '0;
+        fpr_issue_fpu_rs2_oh = '0;
+        fpr_issue_fpu_rs3_oh = '0;
+
+        // Generate the onehot encoding for the dispatch reference updates
+        for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
+            if (instr_exec_commit_superscalar_i && instr_valid_i[instr_idx] && !dispatch_started_q) begin
+                // GPR dispatch updates
+                // Update the reference for the new RAT entry if destination is GPR
+                if (!disp_req_i[instr_idx].tag.dest_reg_is_fp) begin
+                    if (disp_req_i[instr_idx].tag.dest_reg != '0) begin
+                        gpr_disp_rd_oh[disp_req_i[instr_idx].tag.dest_reg][instr_idx] = 1'b1;
                     end
-                    // Clear the reference for the old RAT entry
-                    if (!phy_reg_rd_is_fp_i[instr_idx]      &&
-                        (phy_reg_rd_old_i[instr_idx] != '0) &&
-                        (phy_reg_rd_old_i[instr_idx] == phy_id_t'(gpr))) begin
-                        gpr_dec[gpr] += 1'b1;
-                    end
-                    // Update the reference for all the source registers
-                    // Note if the operand is not valid at the dispatch request this operand will be fetched from the physical register
-                    // otherwise it would be a constant/immediate.
-                    if (!disp_req_i[instr_idx].is_op_a_valid       &&
-                        !disp_req_i[instr_idx].is_op_a_fp          &&
-                        (disp_req_i[instr_idx].phy_reg_op_a != '0) &&
-                        (disp_req_i[instr_idx].phy_reg_op_a == phy_id_t'(gpr))) begin
-                        gpr_inc[gpr] += 1'b1;
-                    end
-                    if (!disp_req_i[instr_idx].is_op_b_valid       &&
-                        !disp_req_i[instr_idx].is_op_b_fp          &&
-                        (disp_req_i[instr_idx].phy_reg_op_b != '0) &&
-                        (disp_req_i[instr_idx].phy_reg_op_b == phy_id_t'(gpr))) begin
-                        gpr_inc[gpr] += 1'b1;
+                    if (phy_reg_rd_old_i[instr_idx] != '0) begin
+                        gpr_disp_rd_old_oh[phy_reg_rd_old_i[instr_idx]][instr_idx] = 1'b1;
                     end
                 end
-            end
-
-            // Decrement the reference counter for every issued instruction from any reservation station
-            for (int unsigned alu = 0; alu < NofAlus; alu++) begin
-                if (issue_alu_clr_req_valid_i[alu]) begin
-                    // There are two potential source operands for an ALU instruction
-                    if (!issue_alu_clr_req_i[alu].is_op_a_cnst      &&
-                        issue_alu_clr_req_i[alu].phy_reg_op_a != '0 &&
-                        issue_alu_clr_req_i[alu].phy_reg_op_a == phy_id_t'(gpr)) begin
-                            gpr_dec[gpr] += 1'b1;
-                    end
-                    if (!issue_alu_clr_req_i[alu].is_op_b_cnst      &&
-                        issue_alu_clr_req_i[alu].phy_reg_op_b != '0 &&
-                        issue_alu_clr_req_i[alu].phy_reg_op_b == phy_id_t'(gpr)) begin
-                            gpr_dec[gpr] += 1'b1;
-                    end
+                // Update the source register references for GPR sources
+                if (!disp_req_i[instr_idx].is_op_a_valid       &&
+                    !disp_req_i[instr_idx].is_op_a_fp          &&
+                    (disp_req_i[instr_idx].phy_reg_op_a != '0)) begin
+                    gpr_disp_rs1_oh[disp_req_i[instr_idx].phy_reg_op_a][instr_idx] = 1'b1;
                 end
-            end
-
-            for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
-                if (issue_lsu_clr_req_valid_i[lsu]) begin
-                    // There are two potential source operands for an LSU instruction
-                    // OP a always has to target the GPR
-                    if (issue_lsu_clr_req_i[lsu].phy_reg_op_a != '0 &&
-                        issue_lsu_clr_req_i[lsu].phy_reg_op_a == phy_id_t'(gpr)) begin
-                        gpr_dec[gpr] += 1'b1; 
-                    end
-                    if (!issue_lsu_clr_req_i[lsu].is_op_b_fp &&
-                        issue_lsu_clr_req_i[lsu].phy_reg_op_b != '0 &&
-                        issue_lsu_clr_req_i[lsu].phy_reg_op_b == phy_id_t'(gpr)) begin
-                        gpr_dec[gpr] += 1'b1; 
-                    end
+                if (!disp_req_i[instr_idx].is_op_b_valid       &&
+                    !disp_req_i[instr_idx].is_op_b_fp          &&
+                    (disp_req_i[instr_idx].phy_reg_op_b != '0)) begin
+                    gpr_disp_rs2_oh[disp_req_i[instr_idx].phy_reg_op_b][instr_idx] = 1'b1;
                 end
-            end
 
-            for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
-                if (issue_fpu_clr_req_valid_i[fpu]) begin
-                    // There are three potential source operands for an FPU instruction
-                    if (!issue_fpu_clr_req_i[fpu].is_op_a_fp &&
-                        issue_fpu_clr_req_i[fpu].phy_reg_op_a != '0 &&
-                        issue_fpu_clr_req_i[fpu].phy_reg_op_a == phy_id_t'(gpr)) begin
-                        gpr_dec[gpr] += 1'b1; 
-                    end
+                // Update the reference for the new RAT entry if destination is FPR
+                if (disp_req_i[instr_idx].tag.dest_reg_is_fp) begin
+                    fpr_disp_rd_oh[disp_req_i[instr_idx].tag.dest_reg][instr_idx] = 1'b1;
+                    fpr_disp_rd_old_oh[phy_reg_rd_old_i[instr_idx]][instr_idx] = 1'b1;
+                end
+                // Update the source register references for FPR sources
+                if (disp_req_i[instr_idx].is_op_a_fp) begin
+                    fpr_disp_rs1_oh[disp_req_i[instr_idx].phy_reg_op_a][instr_idx] = 1'b1;
+                end
+                if (disp_req_i[instr_idx].is_op_b_fp) begin
+                    fpr_disp_rs2_oh[disp_req_i[instr_idx].phy_reg_op_b][instr_idx] = 1'b1;
+                end
+                if (!disp_req_i[instr_idx].is_op_c_valid) begin
+                    fpr_disp_rs3_oh[disp_req_i[instr_idx].phy_reg_op_c][instr_idx] = 1'b1;
+                end                
+            end
+        end
+
+        // Geneate the onehot encoding for the issue reference updates
+        for (int unsigned alu = 0; alu < NofAlus; alu++) begin
+            if (issue_alu_clr_req_valid_i[alu]) begin
+                if (!issue_alu_clr_req_i[alu].is_op_a_cnst && 
+                    issue_alu_clr_req_i[alu].phy_reg_op_a != '0) begin
+                    gpr_issue_alu_rs1_oh[issue_alu_clr_req_i[alu].phy_reg_op_a][alu] = 1'b1;
+                end
+                if (!issue_alu_clr_req_i[alu].is_op_b_cnst &&
+                    issue_alu_clr_req_i[alu].phy_reg_op_b != '0) begin
+                    gpr_issue_alu_rs2_oh[issue_alu_clr_req_i[alu].phy_reg_op_b][alu] = 1'b1;
                 end
             end
         end
 
-        // Generate the decoder structure that perform the counter updates for the FPR
-        for (int unsigned fpr = 0; fpr < NofPhysFpr; fpr++) begin
-            fpr_inc[fpr] = '0;
-            fpr_dec[fpr] = '0;
-
-            for (int unsigned instr_idx = 0; instr_idx < PipeWidth; instr_idx++) begin
-                if (disp_set_req_valid_i[instr_idx]) begin
-                    if (phy_reg_rd_is_fp_i[instr_idx] && (disp_req_i[instr_idx].phy_reg_dest == phy_id_t'(fpr))) begin
-                        // Update the reference for the new RAT entry
-                        fpr_inc[fpr] += 1'b1;
-                    end
-                    if (phy_reg_rd_is_fp_i[instr_idx] && (phy_reg_rd_old_i[instr_idx] == phy_id_t'(fpr))) begin
-                        // Clear the reference for the old RAT entry
-                        fpr_dec[fpr] += 1'b1;
-                    end
-                    // Update the reference for all the source registers
-                    // Note if the operand is not valid at the dispatch request this operand will be fetched from the physical register
-                    // otherwise it would be a constant/immediate.
-                    if (!disp_req_i[instr_idx].is_op_a_valid && 
-                        disp_req_i[instr_idx].is_op_a_fp     && 
-                        (disp_req_i[instr_idx].phy_reg_op_a == phy_id_t'(fpr))) begin
-                        fpr_inc[fpr] += 1'b1;
-                    end
-                    if (!disp_req_i[instr_idx].is_op_b_valid &&
-                        disp_req_i[instr_idx].is_op_b_fp     &&
-                        (disp_req_i[instr_idx].phy_reg_op_b == phy_id_t'(fpr))) begin
-                        fpr_inc[fpr] += 1'b1;
-                    end
-                    if (!disp_req_i[instr_idx].is_op_c_valid &&
-                        (disp_req_i[instr_idx].phy_reg_op_c == phy_id_t'(fpr))) begin
-                        fpr_inc[fpr] += 1'b1;
-                    end
+        for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+            if (issue_lsu_clr_req_valid_i[lsu]) begin
+                // GPRs
+                if (issue_lsu_clr_req_i[lsu].phy_reg_op_a != '0) begin
+                    gpr_issue_lsu_rs1_oh[issue_lsu_clr_req_i[lsu].phy_reg_op_a][lsu] = 1'b1;
                 end
-            end
-
-            // Decrement the reference counter for every issued instruction from any reservation station
-            for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
-                if (issue_lsu_clr_req_valid_i[lsu]) begin
+                if (!issue_lsu_clr_req_i[lsu].is_op_b_fp &&
+                    issue_lsu_clr_req_i[lsu].phy_reg_op_b != '0) begin
+                    gpr_issue_lsu_rs2_oh[issue_lsu_clr_req_i[lsu].phy_reg_op_b][lsu] = 1'b1;
+                end
+                // FPRs
+                if (issue_lsu_clr_req_i[lsu].is_op_b_fp) begin
                     // There is only one potential source operands for an LSU instruction
                     // that targets the FPR
-                    if (issue_lsu_clr_req_i[lsu].is_op_b_fp &&
-                        (issue_lsu_clr_req_i[lsu].phy_reg_op_b == phy_id_t'(fpr))) begin
-                        fpr_dec[fpr] += 1'b1;
-                    end
+                    fpr_issue_lsu_rs2_oh[issue_lsu_clr_req_i[lsu].phy_reg_op_b][lsu] = 1'b1;
                 end
             end
+        end
 
-            for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
-                // There are three potential source operands for an FPU instruction
-                if (issue_fpu_clr_req_valid_i[fpu]) begin
-                    if (issue_fpu_clr_req_i[fpu].is_op_a_fp && 
-                        (issue_fpu_clr_req_i[fpu].phy_reg_op_a == phy_id_t'(fpr))) begin
-                        fpr_dec[fpr] += 1'b1;
-                    end
-                    // Operand b and c always target the FPR
-                    if ((issue_fpu_clr_req_i[fpu].phy_reg_op_b == phy_id_t'(fpr))) begin
-                        fpr_dec[fpr] += 1'b1;
-                    end
-                    if (!issue_fpu_clr_req_i[fpu].is_op_c_cnst &&
-                        (issue_fpu_clr_req_i[fpu].phy_reg_op_c == phy_id_t'(fpr))) begin
-                        fpr_dec[fpr] += 1'b1;
-                    end
+        for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+            if (issue_fpu_clr_req_valid_i[fpu]) begin
+                // GPR
+                if (!issue_fpu_clr_req_i[fpu].is_op_a_fp &&
+                    issue_fpu_clr_req_i[fpu].phy_reg_op_a != '0) begin
+                    gpr_issue_fpu_rs1_oh[issue_fpu_clr_req_i[fpu].phy_reg_op_a][fpu] = 1'b1;
                 end
+                // FPR
+                if (issue_fpu_clr_req_i[fpu].is_op_a_fp) begin
+                    fpr_issue_fpu_rs1_oh[issue_fpu_clr_req_i[fpu].phy_reg_op_a][fpu] = 1'b1;
+                end
+                // op_b always FPR
+                fpr_issue_fpu_rs2_oh[issue_fpu_clr_req_i[fpu].phy_reg_op_b][fpu] = 1'b1; 
+                
+                if (!issue_fpu_clr_req_i[fpu].is_op_c_cnst) begin
+                    fpr_issue_fpu_rs3_oh[issue_fpu_clr_req_i[fpu].phy_reg_op_c][fpu] = 1'b1;
+                end
+            end
+        end
+
+        // POPCOUNT / COMPRESSOR TREES
+        for (int unsigned gpr = 0; gpr < NofPhysGpr; gpr++) begin
+            // Concatenate all 1-bit wires into flat arrays
+            gpr_inc_vec[gpr] = {gpr_disp_rd_oh[gpr], gpr_disp_rs1_oh[gpr], gpr_disp_rs2_oh[gpr]};
+            gpr_dec_vec[gpr] = {gpr_disp_rd_old_oh[gpr], gpr_issue_alu_rs1_oh[gpr], 
+                                gpr_issue_alu_rs2_oh[gpr], gpr_issue_lsu_rs1_oh[gpr], 
+                                gpr_issue_lsu_rs2_oh[gpr], gpr_issue_fpu_rs1_oh[gpr]};
+
+            // Compressor trees (synthesizer automatically implements wallace trees for these loops)
+            gpr_inc[gpr] = '0;
+            for (int i = 0; i < NofGprIncSrcs; i++) begin
+                gpr_inc[gpr] += GprIncWidth'(gpr_inc_vec[gpr][i]);
+            end
+
+            gpr_dec[gpr] = '0;
+            for (int i = 0; i < NofGprDecSrcs; i++) begin
+                gpr_dec[gpr] += GprDecWidth'(gpr_dec_vec[gpr][i]);
+            end
+        end
+
+        for (int unsigned fpr = 0; fpr < NofPhysFpr; fpr++) begin
+            // Concatenate FPR wires
+            fpr_inc_vec[fpr] = {fpr_disp_rd_oh[fpr], fpr_disp_rs1_oh[fpr], 
+                                fpr_disp_rs2_oh[fpr], fpr_disp_rs3_oh[fpr]};
+            fpr_dec_vec[fpr] = {fpr_disp_rd_old_oh[fpr], fpr_issue_lsu_rs2_oh[fpr], 
+                                fpr_issue_fpu_rs1_oh[fpr], fpr_issue_fpu_rs2_oh[fpr], 
+                                fpr_issue_fpu_rs3_oh[fpr]};
+
+            fpr_inc[fpr] = '0;
+            for (int i = 0; i < NofFprIncSrcs; i++) begin
+                fpr_inc[fpr] += FprIncWidth'(fpr_inc_vec[fpr][i]);
+            end
+
+            fpr_dec[fpr] = '0;
+            for (int i = 0; i < NofFprDecSrcs; i++) begin
+                fpr_dec[fpr] += FprDecWidth'(fpr_dec_vec[fpr][i]);
             end
         end
     end
+
 
     // Counter next state logic
     always_comb begin : next_state_logic
@@ -235,14 +290,20 @@ module schnova_refcount import schnova_pkg::*; #(
         fpr_allocated_d = fpr_allocated_q;
         gpr_counters_d = gpr_counters_q;
         fpr_counters_d = fpr_counters_q;
+        dispatch_started_d = dispatch_started_q;
 
         // Allocated register next state logic
-        if (first_instr_dispatched_i) begin
-            // If the first instruction was dispatch we have to rember the registers we had allocated in this
+        if (instr_exec_commit_superscalar_i && !dispatch_started_q) begin
+            dispatch_started_d = 1'b1;
+            // If the first instruction was dispatched we have to remember the registers we had allocated in this
             // cycle. Reason being is that in a multicycle dispatch we have to still hold these values
             // so that the rename stage does not change the register map.
             gpr_allocated_d = allocated_gpr_regs;
             fpr_allocated_d = allocated_fpr_regs;
+        end
+
+        if (dispatched_i) begin
+            dispatch_started_d = 1'b0;
         end
 
         // Counter next state logic
@@ -259,18 +320,20 @@ module schnova_refcount import schnova_pkg::*; #(
 
     always_ff @(posedge clk_i or posedge rst_i) begin : state_holding_element
         if (rst_i) begin
+            dispatch_started_q <= 1'b0;
             for (int unsigned i = 0; i < PipeWidth; i++) begin
                 gpr_allocated_q[i] <= phy_id_t'(i + 32);
                 fpr_allocated_q[i] <= phy_id_t'(i + 32);
             end
             // Bootstrap state: Initial architecturally active registers get a reference count of 1
             for (int unsigned i = 0; i < NofPhysGpr; i++) begin
-                gpr_counters_q[i] <= (i < 32) ? cnt_t'(1) : '0;
+                gpr_counters_q[i] <= (i < 32) ? gpr_cnt_t'(1) : '0;
             end
             for (int unsigned i = 0; i < NofPhysFpr; i++) begin
-                fpr_counters_q[i] <= (i < 32) ? cnt_t'(1) : '0;
+                fpr_counters_q[i] <= (i < 32) ? fpr_cnt_t'(1) : '0;
             end
         end else begin
+            dispatch_started_q <= dispatch_started_d;
             gpr_allocated_q <= gpr_allocated_d;
             fpr_allocated_q <= fpr_allocated_d;
             gpr_counters_q <= gpr_counters_d;
@@ -360,7 +423,7 @@ module schnova_refcount import schnova_pkg::*; #(
         end
     end
 
-    assign allocated_gpr_regs_o = multi_cycle_dispatch_i ? gpr_allocated_q : allocated_gpr_regs;
-    assign allocated_fpr_regs_o = multi_cycle_dispatch_i ? fpr_allocated_q : allocated_fpr_regs;
+    assign allocated_gpr_regs_o = dispatch_started_q ? gpr_allocated_q : allocated_gpr_regs;
+    assign allocated_fpr_regs_o = dispatch_started_q ? fpr_allocated_q : allocated_fpr_regs;
 
 endmodule

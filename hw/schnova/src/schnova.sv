@@ -319,7 +319,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   typedef struct packed {
     producer_id_t               producer_id;
-    logic [PhysRegAddrSize-1:0] dest_reg;
+    phy_id_t                    dest_reg;
     logic [RobTagWidth-1:0]     rob_tag;
     logic                       dest_reg_is_fp;
     logic                       is_branch;
@@ -369,9 +369,37 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic is_op_b_valid;
     phy_id_t phy_reg_op_c;
     logic is_op_c_valid;
-    phy_id_t phy_reg_dest;
     instr_tag_t tag;
   } disp_req_t;
+
+  typedef struct packed {
+    csr_op_e          csr_op;
+    logic [OpLen-1:0] operand_a;
+    logic [11:0]      imm;
+    instr_tag_t tag;
+  } csr_disp_req_t;
+
+  typedef csr_disp_req_t csr_issue_req_t;
+
+  typedef struct packed {
+    alu_op_e alu_op;
+    logic [XLEN-1:0] operand_a;
+    logic [XLEN-1:0] operand_b;
+    instr_tag_t tag;
+  } alu_si_disp_req_t;
+
+  typedef struct packed {
+    alu_op_e alu_op;
+    logic [XLEN-1:0] operand_a;
+    logic [XLEN-1:0] operand_b;
+    instr_tag_t tag;
+    phy_id_t phy_reg_op_a;
+    logic is_op_a_valid;
+    phy_id_t phy_reg_op_b;
+    logic is_op_b_valid;
+  } alu_rs_disp_req_t; 
+
+
 
   typedef struct packed {
     fu_data_t fu_data;
@@ -501,7 +529,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   operand_t [NofOperandIfs-1:0]                  op_rsps_gpr_data;
 
   logic                                          first_instr_dispatched;
-  logic                                          multi_cycle_dispatch;
   logic [PipeWidth-1:0][RobTagWidth-1:0]         rob_idx;
 
   logic rob_ready;
@@ -781,7 +808,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic      [NofLsus-1:0] lsu_disp_req_ready;
   disp_rsp_t [NofLsus-1:0] lsu_disp_rsp;
   logic      [NofLsus-1:0] lsu_rs_full;
-  disp_req_t               csr_disp_req;
+  csr_disp_req_t           csr_disp_req;
   logic                    csr_disp_req_valid;
   logic                    csr_disp_req_ready;
   disp_req_t [NofFpus-1:0] fpu_disp_reqs;
@@ -789,7 +816,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic      [NofFpus-1:0] fpu_disp_req_ready;
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
   logic      [NofFpus-1:0] fpu_rs_full;
-  logic      [PipeWidth-1:0] disp_set_req_valid;
   disp_req_t [PipeWidth-1:0] disp_req;
 
   schnova_dispatcher #(
@@ -804,6 +830,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .rmt_entry_t(rmt_entry_t),
     .phy_id_t(phy_id_t),
     .reg_map_t(reg_map_t),
+    .csr_disp_req_t(csr_disp_req_t),
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
     .producer_id_t(producer_id_t),
@@ -832,7 +859,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_rename_fpr_count_i(instr_rename_fpr_count),
     // ROB
     .first_instr_dispatched_o(first_instr_dispatched),
-    .multi_cycle_dispatch_o(multi_cycle_dispatch),
     .rob_idx_i(rob_idx),
     // ALU
     .alu_disp_reqs_o     (alu_disp_reqs),
@@ -864,15 +890,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .restart_i           (rs_restart),
     .frep_mem_cons_mode_i(frep_mem_cons_mode),
     // To Refcounter
-    .disp_set_req_valid_o(disp_set_req_valid),
     .disp_req_o          (disp_req)
   );
-
-  // Convert dispatch request to issue request for CSR.
-  // The valid/ready is fed through so no extra signals.
-  issue_req_t issue_req;
-  assign issue_req.fu_data = csr_disp_req.fu_data;
-  assign issue_req.tag     = csr_disp_req.tag;
 
   //////////////////////
   // Functional Units //
@@ -1046,6 +1065,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic csr_result_ready;
   instr_tag_t csr_result_tag;
   logic [XLEN-1:0] csr_result;
+  csr_issue_req_t csr_issue_req;
+
+  // Convert dispatch request to issue request for CSR.
+  // The valid/ready is fed through so no extra signals.
+  
+  assign csr_issue_req = csr_disp_req;
 
   schnova_csr #(
     .XLEN        (XLEN),
@@ -1054,7 +1079,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .RVD         (RVD),
     .Xdma        (Xdma),
     .VMSupport   (0),
-    .issue_req_t (issue_req_t),
+    .issue_req_t (csr_issue_req_t),
     .result_tag_t(instr_tag_t),
     .NofAlus     (NofAlus),
     .AluNofRss   (AluNofRss),
@@ -1065,7 +1090,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ) i_csr (
     .clk_i(clk_i),
     .rst_i(rst_i),
-    .issue_req_i        (issue_req),
+    .issue_req_i        (csr_issue_req),
     .issue_req_valid_i  (csr_disp_req_valid),
     .issue_req_ready_o  (csr_disp_req_ready),
     .illegal_csr_instr_o(csr_exception_raw),
@@ -1232,26 +1257,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // 1) Either it is done via a classic approach with a rob and free list
   // 2) Or it is done via a reference counting based approach
-  logic [$clog2(PipeWidth):0] alloc_idx;
-  phy_id_t [PipeWidth-1:0] phy_reg_rd_old;
-  logic    [PipeWidth-1:0] phy_reg_rd_old_is_fp;
-  always_comb begin : pack_old_phy_reg
-    // Per default we don't assign a mapping
-    phy_reg_rd_old = '0;
-    phy_reg_rd_old_is_fp = '0;
-
-    alloc_idx = '0;
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (instr_rename_gpr_valid[i]) begin
-        phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
-        alloc_idx = alloc_idx + 1;
-      end else if (instr_rename_fpr_valid[i]) begin
-        phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
-        phy_reg_rd_old_is_fp[alloc_idx] = 1'b1;
-          alloc_idx = alloc_idx + 1;
-      end
-    end
-  end
 
   if (UseFreeList) begin : gen_freelist_reg_manage
     ///////////////////////////
@@ -1325,7 +1330,29 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     // We only allocate new entries in the ROB in superscalar mode
     // The allocation happens once the first instruction is successfully dispatched.
-    // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched
+    // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched  
+    logic    [$clog2(PipeWidth):0] alloc_idx;
+    phy_id_t [PipeWidth-1:0]       phy_reg_rd_old;
+    logic    [PipeWidth-1:0]       phy_reg_rd_old_is_fp;
+    always_comb begin : pack_old_phy_reg
+      // Per default we don't assign a mapping
+      phy_reg_rd_old = '0;
+      phy_reg_rd_old_is_fp = '0;
+
+      alloc_idx = '0;
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
+        if (instr_rename_gpr_valid[i]) begin
+          phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
+          alloc_idx = alloc_idx + 1;
+        end else if (instr_rename_fpr_valid[i]) begin
+          phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
+          phy_reg_rd_old_is_fp[alloc_idx] = 1'b1;
+            alloc_idx = alloc_idx + 1;
+        end
+      end
+    end
+
+
     assign rob_push = first_instr_dispatched & en_superscalar;
     assign rob_push_count = instr_rename_gpr_count + instr_rename_fpr_count;
 
@@ -1356,14 +1383,20 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     );
   end else begin : gen_refcount_reg_manage
 
-    logic [PipeWidth-1:0] disp_set_req_valid_i;
-    logic instr_dispatched_superscalar;
+    logic instr_exec_commit_superscalar;
+    phy_id_t [PipeWidth-1:0] phy_reg_rd_old;
+
+    always_comb begin : pack_reg_rd_old
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
+          phy_reg_rd_old[i] = reg_map[i].phy_reg_rd_old;
+      end
+    end
 
     // There is no reorder buffer so we set is as always ready
     assign rob_ready = 1'b1;
     assign rob_idx = '0; // Not used
 
-    assign instr_dispatched_superscalar = dispatched & en_superscalar;
+    assign instr_exec_commit_superscalar = en_superscalar ? instr_exec_commit: 1'b0;
 
     schnova_refcount #(
       .PipeWidth(PipeWidth),
@@ -1382,12 +1415,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .clk_i,
       .rst_i,
       // Dispatcher Interface (Set new reference for RAT)
-      .first_instr_dispatched_i(first_instr_dispatched & en_superscalar),
-      .multi_cycle_dispatch_i(multi_cycle_dispatch),
-      .disp_set_req_valid_i(disp_set_req_valid),
+      .instr_exec_commit_superscalar_i(instr_exec_commit_superscalar),
+      .instr_valid_i(instr_valid_masked),
+      .dispatched_i(dispatched),
       .disp_req_i(disp_req),
       .phy_reg_rd_old_i(phy_reg_rd_old),
-      .phy_reg_rd_is_fp_i(phy_reg_rd_old_is_fp),
       // Issue Inteface (Clear / Overwrite entries)
       .issue_alu_clr_req_valid_i(issue_alu_clr_req_valid),
       .issue_alu_clr_req_i(issue_alu_clr_req),
