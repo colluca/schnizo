@@ -37,10 +37,10 @@ module schnizo_fu_stage_synth #(
   parameter int unsigned NumSpatzFPUs    = 4,
   parameter int unsigned NumSpatzIPUs    = 1,
   // Vector RS depths
-  parameter int unsigned NofVfuRss       = 8,
+  parameter int unsigned NofVfuRss       = 6,
   parameter int unsigned NofVlsuRss      = 4,
   // Vector constant-queue depths
-  parameter int unsigned NofVfuConstants = 8,
+  parameter int unsigned NofVfuConstants = 6,
   parameter int unsigned NofVlsuConstants = 4
 ) (
   input  logic                                                    clk_i,

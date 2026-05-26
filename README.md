@@ -21,7 +21,7 @@ The vector functional unit (`schnizo_vfu.sv`, `schnizo_vlsu.sv`) is integrated i
 > - Only **fixed 256-bit SIMD** operation is supported. There is no variable-length vector model — `vl` must always match the full 256-bit width for the chosen element type.
 > - Some instructions of the RVV instruction set are **not implemented**. Unimplemented instructions will produce undefined behavior.
 > - Features such as fractional LMUL, tail/mask agnostic policies beyond `ta/ma`, and segment load/store are not supported.
-> **Key Feature:** With sufficient loop unrolling inside `frep`, the VFU can sustain **one `vfmacc` per cycle** — 100% utilization. The 8-row-unrolled GEMM kernel in [vfu_test_gemm_8x_frep.c](sw/tests/src/vfu_test_gemm_8x_frep.c) demonstrates this: by interleaving eight independent accumulator chains within a single `frep.o` body, the out-of-order scoreboard keeps the VFU fully occupied across all iterations.
+> **Key Feature:** With sufficient loop unrolling inside `frep`, the VFU can sustain **one `vfmacc` per cycle** — 100% utilization. The 6-row-unrolled GEMM kernel in [vfu_test_gemm_6x_frep.c](sw/tests/src/vfu_test_gemm_6x_frep.c) demonstrates this: by interleaving eight independent accumulator chains within a single `frep.o` body, the out-of-order scoreboard keeps the VFU fully occupied across all iterations.
 
 Example tests:
 

@@ -51,7 +51,8 @@ int main() {
     // --- Outer N-tile loop: process VL columns of C per iteration ---
     for (int j_tile = 0; j_tile < N_DIM; j_tile += VL) {
         // Reset A pointers to the start of each row for every N-tile
-        float *ptr_b = &B[0][j_tile];
+        float *ptr_b1 = &B[0][j_tile];
+        float *ptr_b2 = &B[0][j_tile];
         float *ptr_a0 = &A[0][0];
         float *ptr_a1 = &A[1][0];
         float *ptr_a2 = &A[2][0];
@@ -69,8 +70,9 @@ int main() {
 
         // k=0: load B row 0 at column j_tile, multiply into 6 accumulators,
         //      advance A pointers to k=1
-        asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
-        ptr_b += N_DIM;
+        asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b1));
+        ptr_b1 += N_DIM;
+        ptr_b2 += N_DIM;
 
         asm volatile("vfmul.vf v0,  v24, %0" : : "f"(t0));
         ptr_a0++;
@@ -103,11 +105,10 @@ int main() {
         // frep.o repeats the next 20 instructions n_frep times.
 
         asm volatile(
-            "frep.o %[n_frep], 21, 0, 0                  \n"
+            "frep.o %[n_frep], 22, 0, 0                  \n"
             // --- 20-instruction block (start) ---
-            "vle32.v  v24, (%[ptr_b])                    \n"  //  1
-            "vle32.v  v26, (%[ptr_b])                    \n"  //  1
-            "add      %[ptr_b],  %[ptr_b],  %[inc_b]     \n"  //  2
+            "vle32.v  v24, (%[ptr_b1])                    \n"   //  1
+            "add      %[ptr_b1],  %[ptr_b1],  %[inc_b]     \n"  //  2
             // row 0
             "vfmacc.vf v0,  %[ft0], v24                  \n"  //  3
             "add      %[ptr_a0], %[ptr_a0], %[inc_a]     \n"  //  4
@@ -120,6 +121,10 @@ int main() {
             "vfmacc.vf v16, %[ft2], v24                  \n"  //  9
             "add      %[ptr_a2], %[ptr_a2], %[inc_a]     \n"  // 10
             "flw      %[ft2], 0(%[ptr_a2])               \n"  // 11
+
+            "vle32.v  v26, (%[ptr_b2])                    \n"   //  1
+            "add      %[ptr_b2],  %[ptr_b2],  %[inc_b]     \n"  //  2
+
             // row 3
             "vfmacc.vf v28, %[ft3], v26                  \n"  // 12
             "add      %[ptr_a3], %[ptr_a3], %[inc_a]     \n"  // 13
@@ -133,12 +138,12 @@ int main() {
             "add      %[ptr_a5], %[ptr_a5], %[inc_a]     \n"  // 19
             "flw      %[ft5], 0(%[ptr_a5])               \n"  // 20
             // --- 20-instruction block (end) ---
-            : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
-              [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
-              [ ptr_a3 ] "+r"(ptr_a3), [ ptr_a4 ] "+r"(ptr_a4),
-              [ ptr_a5 ] "+r"(ptr_a5), [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1),
-              [ ft2 ] "+f"(t2), [ ft3 ] "+f"(t3), [ ft4 ] "+f"(t4),
-              [ ft5 ] "+f"(t5)
+            : [ ptr_b1 ] "+r"(ptr_b1), [ ptr_a0 ] "+r"(ptr_a0),
+              [ ptr_b2 ] "+r"(ptr_b2), [ ptr_a1 ] "+r"(ptr_a1),
+              [ ptr_a2 ] "+r"(ptr_a2), [ ptr_a3 ] "+r"(ptr_a3),
+              [ ptr_a4 ] "+r"(ptr_a4), [ ptr_a5 ] "+r"(ptr_a5),
+              [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2),
+              [ ft3 ] "+f"(t3), [ ft4 ] "+f"(t4), [ ft5 ] "+f"(t5)
             : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a), [ n_frep ] "r"(n_frep)
             : "v0", "v8", "v16", "v28", "v4", "v12", "v24", "memory");
 

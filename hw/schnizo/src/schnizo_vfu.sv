@@ -443,7 +443,21 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
 
     // Latch the one-shot vlsu_rsp_valid pulse; hold until downstream consumes.
     // For stores, self-clear next cycle (no result_ready_i will ever fire for them).
-    `FFLAR(vlsu_result_valid_q, vlsu_rsp_valid[j],
+    // For loads: if the RS is already ready when vlsu_rsp_valid fires (result_ready_i
+    // asserted), the result is consumed in the same cycle via the combinatorial bypass
+    // on result_valid_o below. In that case D=0 so vlsu_result_valid_q never rises,
+    // saving the one stall cycle that would otherwise block the next VLSU issue.
+    //
+    // The bypass is gated with vlsu_unit_busy: loads fire vlsu_rsp_valid from LOAD_WAIT
+    // (busy=1), while fast aligned stores fire from IDLE (busy=0). Without this gate,
+    // a store firing in IDLE while vlsu_pending_is_load_q is still 1 (not yet updated
+    // from the preceding load) would trigger the bypass spuriously and corrupt the VRF
+    // scoreboard via a ghost writeback with a stale tag.
+    logic vlsu_rsp_is_load;
+    assign vlsu_rsp_is_load = vlsu_rsp_valid[j] && vlsu_unit_busy;
+
+    `FFLAR(vlsu_result_valid_q,
+           vlsu_rsp_valid[j] && !(vlsu_pending_is_load_q && vlsu_unit_busy && result_ready_i[j]),
            vlsu_rsp_valid[j] || (vlsu_pending_is_load_q ? result_ready_i[j] : 1'b1),
            1'b0, clk_i, rst_i)
 
@@ -464,7 +478,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .ready_o   (/* FIFO depth >= single-slot RS depth */            ),
       .data_o    (vlsu_tag_out[j]                                     ),
       .valid_o   (vlsu_tag_valid[j]                                   ),
-      .ready_i   (result_ready_i[j] && vlsu_result_valid_q           )
+      .ready_i   (result_ready_i[j] && (vlsu_result_valid_q || vlsu_rsp_is_load))
     );
 
     schnizo_vlsu #(
@@ -517,8 +531,10 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     end : gen_tcdm
 
     // VLSU has no scalar result; only forward result to RS for loads.
+    // Combinatorial bypass: present the result in the same cycle vlsu_rsp_valid fires
+    // so the RS can capture it without waiting for the registered vlsu_result_valid_q.
     assign result_o[j]       = '0;
-    assign result_valid_o[j] = vlsu_result_valid_q && vlsu_pending_is_load_q;
+    assign result_valid_o[j] = (vlsu_result_valid_q || (vlsu_rsp_valid[j] && vlsu_unit_busy)) && vlsu_pending_is_load_q;
     assign tag_o[j]          = vlsu_tag_out[j];
   end : gen_vlsu
 
