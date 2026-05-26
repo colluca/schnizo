@@ -21,7 +21,7 @@ The vector functional unit (`schnizo_vfu.sv`, `schnizo_vlsu.sv`) is integrated i
 > - Only **fixed 256-bit SIMD** operation is supported. There is no variable-length vector model — `vl` must always match the full 256-bit width for the chosen element type.
 > - Some instructions of the RVV instruction set are **not implemented**. Unimplemented instructions will produce undefined behavior.
 > - Features such as fractional LMUL, tail/mask agnostic policies beyond `ta/ma`, and segment load/store are not supported.
-> **Key Feature:** With sufficient loop unrolling inside `frep`, the VFU can sustain **one `vfmacc` per cycle** ? 100% utilization. The 8-row-unrolled GEMM kernel in [vfu_test_gemm_8x_frep.c](sw/tests/src/vfu_test_gemm_8x_frep.c) demonstrates this: by interleaving eight independent accumulator chains within a single `frep.o` body, the out-of-order scoreboard keeps the VFU fully occupied across all iterations.
+> **Key Feature:** With sufficient loop unrolling inside `frep`, the VFU can sustain **one `vfmacc` per cycle** — 100% utilization. The 8-row-unrolled GEMM kernel in [vfu_test_gemm_8x_frep.c](sw/tests/src/vfu_test_gemm_8x_frep.c) demonstrates this: by interleaving eight independent accumulator chains within a single `frep.o` body, the out-of-order scoreboard keeps the VFU fully occupied across all iterations.
 
 Example tests:
 
@@ -31,7 +31,7 @@ Example tests:
 
 ## Getting Started
 
-The repository structure and build system are modelled closely on the [Snitch Cluster](https://github.com/pulp-platform/snitch_cluster) ? refer to that project's [documentation](https://pulp-platform.github.io/snitch_cluster) for general setup, tool requirements, and simulation flow. The `make` targets and `cfg/` layout follow the same conventions.
+The repository structure and build system are modelled closely on the [Snitch Cluster](https://github.com/pulp-platform/snitch_cluster) — refer to that project's [documentation](https://pulp-platform.github.io/snitch_cluster) for general setup, tool requirements, and simulation flow. The `make` targets and `cfg/` layout follow the same conventions.
 
 ## SIMD Programmability
 
