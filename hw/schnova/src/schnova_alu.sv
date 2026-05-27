@@ -49,7 +49,7 @@ module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   always_comb begin : datapath_select
     sel_mul = 1'b0;
 
-    unique case (issue_req_i.fu_data.alu_op)
+    unique case (issue_req_i.alu_op)
       AluOpAdd,
       AluOpSub,
       AluOpXor,
@@ -89,9 +89,9 @@ module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   alu_op_e         alu_op;
   logic [XLEN-1:0] opa;
   logic [XLEN-1:0] opb;
-  assign alu_op = issue_req_i.fu_data.alu_op;
-  assign opa    = issue_req_i.fu_data.operand_a[XLEN-1:0];
-  assign opb    = issue_req_i.fu_data.operand_b[XLEN-1:0];
+  assign alu_op = issue_req_i.alu_op;
+  assign opa    = issue_req_i.operand_a[XLEN-1:0];
+  assign opb    = issue_req_i.operand_b[XLEN-1:0];
 
   // ------
   // Adder

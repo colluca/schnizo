@@ -64,13 +64,13 @@ module schnova_fpu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   fpnew_pkg::fp_format_e fmt_dst;
   instr_tag_t            tag;
 
-  assign op         = issue_req_i.fu_data.fpu_op;
-  assign rs1        = issue_req_i.fu_data.operand_a;
-  assign rs2        = issue_req_i.fu_data.operand_b;
-  assign rs3        = issue_req_i.fu_data.imm;
-  assign round_mode = issue_req_i.fu_data.fpu_rnd_mode;
-  assign fmt_src    = issue_req_i.fu_data.fpu_fmt_src;
-  assign fmt_dst    = issue_req_i.fu_data.fpu_fmt_dst;
+  assign op         = issue_req_i.fpu_op;
+  assign rs1        = issue_req_i.operand_a;
+  assign rs2        = issue_req_i.operand_b;
+  assign rs3        = issue_req_i.imm;
+  assign round_mode = issue_req_i.fpu_rnd_mode;
+  assign fmt_src    = issue_req_i.fpu_fmt_src;
+  assign fmt_dst    = issue_req_i.fpu_fmt_dst;
   assign tag        = issue_req_i.tag;
 
   // ---------------------------

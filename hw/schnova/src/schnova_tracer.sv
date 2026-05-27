@@ -286,13 +286,13 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // verilog_lint: waive-start line-length
   for (genvar alu = 0; alu < NofAlus; alu++) begin: gen_cur_alu_rss_alloc
-    assign cur_nof_allocated_rss[alu] = i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.num_allocated_rss_q;
+    assign cur_nof_allocated_rss[alu] = i_fu_stage.gen_alus[alu].i_res_stat.num_allocated_rss_q;
   end
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin: gen_cur_lsu_rss_alloc
-    assign cur_nof_allocated_rss[NofAlus+lsu] = i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.num_allocated_rss_q;
+    assign cur_nof_allocated_rss[NofAlus+lsu] = i_fu_stage.gen_lsus[lsu].i_res_stat.num_allocated_rss_q;
   end
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin: gen_cur_fpu_rss_alloc
-    assign cur_nof_allocated_rss[NofAlus+NofLsus+fpu] = i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.num_allocated_rss_q;
+    assign cur_nof_allocated_rss[NofAlus+NofLsus+fpu] = i_fu_stage.gen_fpus[fpu].i_res_stat.num_allocated_rss_q;
   end
   // verilog_lint: waive-stop line-length
   if (UseFreeList) begin

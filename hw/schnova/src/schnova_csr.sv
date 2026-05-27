@@ -320,7 +320,7 @@ module schnova_csr import schnova_pkg::*; #(
   logic illegal_csr_read;
 
   csr_t csr_addr;
-  assign csr_addr = issue_req_i.fu_data.imm[11:0];
+  assign csr_addr = issue_req_i.imm[11:0];
 
   // ---------------------------
   // CSR registers
@@ -455,14 +455,14 @@ module schnova_csr import schnova_pkg::*; #(
     csr_read_en = 1'b1;
     csr_write_en = 1'b1;
 
-    unique case (issue_req_i.fu_data.csr_op)
-      CsrOpSwap:  csr_wdata = issue_req_i.fu_data.operand_a;
+    unique case (issue_req_i.csr_op)
+      CsrOpSwap:  csr_wdata = issue_req_i.operand_a;
       CsrOpWrite: begin
         csr_read_en = 1'b0;
-        csr_wdata = issue_req_i.fu_data.operand_a;
+        csr_wdata = issue_req_i.operand_a;
       end
-      CsrOpSet:   csr_wdata = csr_rdata | issue_req_i.fu_data.operand_a;
-      CsrOpClear: csr_wdata = csr_rdata & ~issue_req_i.fu_data.operand_a;
+      CsrOpSet:   csr_wdata = csr_rdata | issue_req_i.operand_a;
+      CsrOpClear: csr_wdata = csr_rdata & ~issue_req_i.operand_a;
       CsrOpRead:  csr_write_en = 1'b0;
       default: begin
         csr_read_en = 1'b0;

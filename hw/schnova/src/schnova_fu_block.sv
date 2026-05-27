@@ -65,7 +65,7 @@ module schnova_fu_block import schnova_pkg::*; #(
   output issue_req_t issue_req_o,
   output logic       issue_req_valid_o,
   input  logic       issue_req_ready_i,
-  output logic       instr_exec_commit_o,
+  output logic       rs_instr_exec_commit_o,
 
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -77,80 +77,6 @@ module schnova_fu_block import schnova_pkg::*; #(
   output logic        issue_clr_req_valid_o,
   output refcnt_req_t issue_clr_req_o
 );
-
-  ////////////////////////
-  // Datapath selection //
-  ////////////////////////
-
-  // There are two paths between dispatch and issue:
-  // - a path for superscalar execution, which routes dispatch requests into the reservation
-  //   station, which in turn produces issue requests (signals on this path have prefix "rs")
-  // - a direct path for single issue or regular execution, which bypasses the reservation
-  //   station and feeds through dispatch requests to issue requests (signals on this path have
-  //   prefix "si")
-  // This datapath selection block demuxes dispatch requests to the two paths and muxes issue
-  // requests from the two paths.
-
-  // From dispatch interface DEMUX to RS
-  disp_req_t rs_disp_req;
-  logic      rs_disp_req_valid;
-  logic      rs_disp_req_ready;
-  disp_rsp_t rs_disp_rsp;
-  // From dispatch interface DEMUX to dispatch2issue converter
-  disp_req_t si_disp_req;
-  logic      si_disp_req_valid;
-  logic      si_disp_req_ready;
-
-  // From the RS to the Issue MUX
-  issue_req_t rs_issue_req;
-  logic       rs_issue_req_valid;
-  logic       rs_issue_req_ready;
-  logic       rs_instr_exec_commit;
-  // From dispatch2issue converter to issue MUX
-  issue_req_t si_issue_req;
-  logic       si_issue_req_valid;
-  logic       si_issue_req_ready;
-
-  // Dispatch DEMUX
-  assign rs_disp_req = disp_req_i;
-  assign si_disp_req = disp_req_i;
-  stream_demux #(
-    .N_OUP (2)
-  ) i_disp_demux (
-    .inp_valid_i(disp_req_valid_i),
-    .inp_ready_o(disp_req_ready_o),
-    .oup_sel_i  (en_superscalar_i),
-    .oup_valid_o({rs_disp_req_valid, si_disp_req_valid}),
-    .oup_ready_i({rs_disp_req_ready, si_disp_req_ready})
-  );
-  // The dispatch response is always returned. The dispatcher must check when it is valid.
-  // TODO(colluca): why not assign this to zero on the SI path and mux it here?
-  assign disp_rsp_o = rs_disp_rsp;
-
-  // Issue MUX
-  // There is no logic in the regular dispatch and issue path. We can directly use the dispatch
-  // valid/ready signals.
-  // TODO(colluca): dispatch2issue converter for single-issue path is the same as the one
-  //                in the gen_scalar block. Could maybe be reused.
-  assign si_issue_req.fu_data = si_disp_req.fu_data;
-  assign si_issue_req.tag     = si_disp_req.tag;
-  assign si_issue_req_valid = si_disp_req_valid;
-  assign si_disp_req_ready  = si_issue_req_ready;
-
-  stream_mux #(
-    .DATA_T(issue_req_t),
-    .N_INP (2)
-  ) i_fu_issue_mux (
-    .inp_data_i ({rs_issue_req,       si_issue_req}),
-    .inp_valid_i({rs_issue_req_valid, si_issue_req_valid}),
-    .inp_ready_o({rs_issue_req_ready, si_issue_req_ready}),
-    .inp_sel_i  (en_superscalar_i),
-    .oup_data_o (issue_req_o),
-    .oup_valid_o(issue_req_valid_o),
-    .oup_ready_i(issue_req_ready_i)
-  );
-
-  assign instr_exec_commit_o = en_superscalar_i ? rs_instr_exec_commit : instr_exec_commit_i;
 
   // ---------------------------
   // Reservation Station
@@ -185,16 +111,16 @@ module schnova_fu_block import schnova_pkg::*; #(
     .rs_full_o          (rs_full_o),
     .rs_empty_o         (rs_empty_o),
     // The dispatched instruction - from Dispatcher
-    .disp_req_i         (rs_disp_req),
-    .disp_req_valid_i   (rs_disp_req_valid),
-    .disp_req_ready_o   (rs_disp_req_ready),
+    .disp_req_i         (disp_req_i),
+    .disp_req_valid_i   (disp_req_valid_i),
+    .disp_req_ready_o   (disp_req_ready_o),
     .instr_exec_commit_i(instr_exec_commit_i),
-    .disp_rsp_o         (rs_disp_rsp),
+    .disp_rsp_o         (disp_rsp_o),
     // The issued instruction - to FU
-    .issue_req_o        (rs_issue_req),
-    .issue_req_valid_o  (rs_issue_req_valid),
-    .issue_req_ready_i  (rs_issue_req_ready),
-    .instr_exec_commit_o(rs_instr_exec_commit),
+    .issue_req_o        (issue_req_o),
+    .issue_req_valid_o  (issue_req_valid_o),
+    .issue_req_ready_i  (issue_req_ready_i),
+    .instr_exec_commit_o(rs_instr_exec_commit_o),
     // Operand request interface - outgoing - request a result as operand
     .op_reqs_o          (op_reqs_o),
     // Operand response interface - incoming - returning result as operand

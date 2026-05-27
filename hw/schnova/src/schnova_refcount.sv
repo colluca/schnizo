@@ -14,7 +14,6 @@ module schnova_refcount import schnova_pkg::*; #(
     parameter int unsigned NofFpus      = 1,
     parameter int unsigned FpuNofRss    = 2,
     parameter type         phy_id_t     = logic,
-    parameter type         disp_req_t   = logic,
     parameter type         refcnt_req_t = logic
 ) (
     input  logic                         clk_i,
@@ -23,8 +22,10 @@ module schnova_refcount import schnova_pkg::*; #(
     input  logic                         instr_exec_commit_superscalar_i,
     input  logic      [PipeWidth-1:0]    instr_valid_i,
     input  logic                         dispatched_i,
-    input  disp_req_t [PipeWidth-1:0]    disp_req_i,
+    input  refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req_i,
+    input  phy_id_t   [PipeWidth-1:0]    phy_reg_rd_i,
     input  phy_id_t   [PipeWidth-1:0]    phy_reg_rd_old_i,
+    input  logic      [PipeWidth-1:0]    is_rd_fp_i,
     // Issue Inteface (Clear / Overwrite entries)
     input  logic        [NofAlus-1:0]    issue_alu_clr_req_valid_i,
     input  refcnt_req_t [NofAlus-1:0]    issue_alu_clr_req_i,
@@ -152,40 +153,40 @@ module schnova_refcount import schnova_pkg::*; #(
             if (instr_exec_commit_superscalar_i && instr_valid_i[instr_idx] && !dispatch_started_q) begin
                 // GPR dispatch updates
                 // Update the reference for the new RAT entry if destination is GPR
-                if (!disp_req_i[instr_idx].tag.dest_reg_is_fp) begin
-                    if (disp_req_i[instr_idx].tag.dest_reg != '0) begin
-                        gpr_disp_rd_oh[disp_req_i[instr_idx].tag.dest_reg][instr_idx] = 1'b1;
+                if (!is_rd_fp_i[instr_idx]) begin
+                    if (phy_reg_rd_i[instr_idx] != '0) begin
+                        gpr_disp_rd_oh[phy_reg_rd_i[instr_idx]][instr_idx] = 1'b1;
                     end
                     if (phy_reg_rd_old_i[instr_idx] != '0) begin
                         gpr_disp_rd_old_oh[phy_reg_rd_old_i[instr_idx]][instr_idx] = 1'b1;
                     end
                 end
                 // Update the source register references for GPR sources
-                if (!disp_req_i[instr_idx].is_op_a_valid       &&
-                    !disp_req_i[instr_idx].is_op_a_fp          &&
-                    (disp_req_i[instr_idx].phy_reg_op_a != '0)) begin
-                    gpr_disp_rs1_oh[disp_req_i[instr_idx].phy_reg_op_a][instr_idx] = 1'b1;
+                if (!refcnt_disp_req_i[instr_idx].is_op_a_cnst        &&
+                    !refcnt_disp_req_i[instr_idx].is_op_a_fp          &&
+                    (refcnt_disp_req_i[instr_idx].phy_reg_op_a != '0)) begin
+                    gpr_disp_rs1_oh[refcnt_disp_req_i[instr_idx].phy_reg_op_a][instr_idx] = 1'b1;
                 end
-                if (!disp_req_i[instr_idx].is_op_b_valid       &&
-                    !disp_req_i[instr_idx].is_op_b_fp          &&
-                    (disp_req_i[instr_idx].phy_reg_op_b != '0)) begin
-                    gpr_disp_rs2_oh[disp_req_i[instr_idx].phy_reg_op_b][instr_idx] = 1'b1;
+                if (!refcnt_disp_req_i[instr_idx].is_op_b_cnst        &&
+                    !refcnt_disp_req_i[instr_idx].is_op_b_fp          &&
+                    (refcnt_disp_req_i[instr_idx].phy_reg_op_b != '0)) begin
+                    gpr_disp_rs2_oh[refcnt_disp_req_i[instr_idx].phy_reg_op_b][instr_idx] = 1'b1;
                 end
 
                 // Update the reference for the new RAT entry if destination is FPR
-                if (disp_req_i[instr_idx].tag.dest_reg_is_fp) begin
-                    fpr_disp_rd_oh[disp_req_i[instr_idx].tag.dest_reg][instr_idx] = 1'b1;
+                if (is_rd_fp_i[instr_idx]) begin
+                    fpr_disp_rd_oh[phy_reg_rd_i[instr_idx]][instr_idx] = 1'b1;
                     fpr_disp_rd_old_oh[phy_reg_rd_old_i[instr_idx]][instr_idx] = 1'b1;
                 end
                 // Update the source register references for FPR sources
-                if (disp_req_i[instr_idx].is_op_a_fp) begin
-                    fpr_disp_rs1_oh[disp_req_i[instr_idx].phy_reg_op_a][instr_idx] = 1'b1;
+                if (refcnt_disp_req_i[instr_idx].is_op_a_fp) begin
+                    fpr_disp_rs1_oh[refcnt_disp_req_i[instr_idx].phy_reg_op_a][instr_idx] = 1'b1;
                 end
-                if (disp_req_i[instr_idx].is_op_b_fp) begin
-                    fpr_disp_rs2_oh[disp_req_i[instr_idx].phy_reg_op_b][instr_idx] = 1'b1;
+                if (refcnt_disp_req_i[instr_idx].is_op_b_fp) begin
+                    fpr_disp_rs2_oh[refcnt_disp_req_i[instr_idx].phy_reg_op_b][instr_idx] = 1'b1;
                 end
-                if (!disp_req_i[instr_idx].is_op_c_valid) begin
-                    fpr_disp_rs3_oh[disp_req_i[instr_idx].phy_reg_op_c][instr_idx] = 1'b1;
+                if (!refcnt_disp_req_i[instr_idx].is_op_c_cnst) begin
+                    fpr_disp_rs3_oh[refcnt_disp_req_i[instr_idx].phy_reg_op_c][instr_idx] = 1'b1;
                 end                
             end
         end

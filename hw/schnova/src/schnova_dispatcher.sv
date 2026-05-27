@@ -16,7 +16,8 @@ module schnova_dispatcher import schnova_pkg::*; #(
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.
   parameter bit UseFreeList = 1,
-  parameter int unsigned PipeWidth       = 1,
+  parameter int unsigned PipeWidth   = 1,
+  parameter int unsigned XLEN        = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
   parameter int unsigned NofAlus     = 1,
@@ -26,8 +27,16 @@ module schnova_dispatcher import schnova_pkg::*; #(
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
   parameter type         phy_id_t    = logic,
-  parameter type         disp_req_t  = logic,
+  parameter type         instr_tag_t = logic,
+  parameter type         csr_disp_req_t = logic,
+  parameter type         alu_si_disp_req_t = logic,
+  parameter type         lsu_si_disp_req_t = logic,
+  parameter type         fpu_si_disp_req_t = logic,
+  parameter type         alu_rs_disp_req_t = logic,
+  parameter type         lsu_rs_disp_req_t = logic,
+  parameter type         fpu_rs_disp_req_t = logic,
   parameter type         disp_rsp_t  = logic,
+  parameter type         refcnt_req_t = logic,
   parameter type         producer_id_t = logic,
   parameter type         rs_id_t       = logic,
   parameter type         reg_map_t = logic,
@@ -54,53 +63,60 @@ module schnova_dispatcher import schnova_pkg::*; #(
   input  logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_i,
 
   // From rename stage
-  input  reg_map_t [PipeWidth-1:0] reg_map_i,
+  input  reg_map_t [PipeWidth-1:0]             reg_map_i,
 
   // From/to ROB
   output logic                                 first_instr_dispatched_o,
-  output logic                                 multi_cycle_dispatch_o,
   input logic [PipeWidth-1:0][RobTagWidth-1:0] rob_idx_i,
   // Each FU has a response which must be valid at dispatch request handshake.
   // ALU
-  output disp_req_t [NofAlus-1:0] alu_disp_reqs_o,
-  output logic      [NofAlus-1:0] alu_disp_req_valid_o,
-  input  logic      [NofAlus-1:0] alu_disp_req_ready_i,
-  input  disp_rsp_t [NofAlus-1:0] alu_disp_rsp_i,
-  input  logic      [NofAlus-1:0] alu_rs_full_i,
+  output alu_si_disp_req_t               alu_si_disp_req_o,
+  output logic                           alu_si_disp_req_valid_o,
+  input  logic                           alu_si_disp_req_ready_i,
+  output alu_rs_disp_req_t [NofAlus-1:0] alu_rs_disp_reqs_o,
+  output logic      [NofAlus-1:0]        alu_rs_disp_req_valid_o,
+  input  logic      [NofAlus-1:0]        alu_rs_disp_req_ready_i,
+  input  disp_rsp_t [NofAlus-1:0]        alu_rs_disp_rsp_i,
+  input  logic      [NofAlus-1:0]        alu_rs_full_i,
 
   // LSU
-  output disp_req_t [NofLsus-1:0] lsu_disp_reqs_o,
-  output logic      [NofLsus-1:0] lsu_disp_req_valid_o,
-  input  logic      [NofLsus-1:0] lsu_disp_req_ready_i,
-  input  disp_rsp_t [NofLsus-1:0] lsu_disp_rsp_i,
-  input  logic      [NofLsus-1:0] lsu_rs_full_i,
+  output lsu_si_disp_req_t               lsu_si_disp_req_o,
+  output logic                           lsu_si_disp_req_valid_o,
+  input  logic                           lsu_si_disp_req_ready_i,
+  output lsu_rs_disp_req_t [NofLsus-1:0] lsu_rs_disp_reqs_o,
+  output logic      [NofLsus-1:0]        lsu_rs_disp_req_valid_o,
+  input  logic      [NofLsus-1:0]        lsu_rs_disp_req_ready_i,
+  input  disp_rsp_t [NofLsus-1:0]        lsu_rs_disp_rsp_i,
+  input  logic      [NofLsus-1:0]        lsu_rs_full_i,
 
   // Handshake to the CSR FU. There is no response as it does not have a reservation station.
-  output disp_req_t csr_disp_req_o,
-  output logic csr_disp_req_valid_o,
-  input  logic csr_disp_req_ready_i,
+  output csr_disp_req_t                  csr_disp_req_o,
+  output logic                           csr_disp_req_valid_o,
+  input  logic                           csr_disp_req_ready_i,
 
   // FPU
-  output disp_req_t [NofFpus-1:0] fpu_disp_reqs_o,
-  output logic      [NofFpus-1:0] fpu_disp_req_valid_o,
-  input  logic      [NofFpus-1:0] fpu_disp_req_ready_i,
-  input  disp_rsp_t [NofFpus-1:0] fpu_disp_rsp_i,
-  input  logic      [NofFpus-1:0] fpu_rs_full_i,
+  output fpu_si_disp_req_t               fpu_si_disp_req_o,
+  output logic                           fpu_si_disp_req_valid_o,
+  input  logic                           fpu_si_disp_req_ready_i,
+  output fpu_rs_disp_req_t [NofFpus-1:0] fpu_rs_disp_reqs_o,
+  output logic      [NofFpus-1:0]        fpu_rs_disp_req_valid_o,
+  input  logic      [NofFpus-1:0]        fpu_rs_disp_req_ready_i,
+  input  disp_rsp_t [NofFpus-1:0]        fpu_rs_disp_rsp_i,
+  input  logic      [NofFpus-1:0]        fpu_rs_full_i,
 
   // Handshake to the accelerator interface
-  output acc_req_t acc_req_o,
-  output logic     acc_disp_req_valid_o,
-  input  logic     acc_disp_req_ready_i,
+  output acc_req_t                       acc_req_o,
+  output logic                           acc_disp_req_valid_o,
+  input  logic                           acc_disp_req_ready_i,
   // The accelerator response is routed directly to the write back.
 
   // RS control signals
   // Asserted if the RSS are cleared synchronously.
-  input  logic        restart_i,
+  input  logic                           restart_i,
   // Memory consistency mode during FREP loop
-  input frep_mem_cons_mode_e frep_mem_cons_mode_i,
+  input frep_mem_cons_mode_e             frep_mem_cons_mode_i,
   // To refcount
-  output logic      [PipeWidth-1:0] disp_set_req_valid_o,
-  output disp_req_t [PipeWidth-1:0] disp_req_o
+  output refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req_o
 );
 
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
@@ -110,7 +126,9 @@ module schnova_dispatcher import schnova_pkg::*; #(
   localparam bit NofLsusIsPow2 = (NofLsus > 0) && ((NofLsus & (NofLsus - 1)) == 0);
   localparam bit NofFpusIsPow2 = (NofFpus > 0) && ((NofFpus & (NofFpus - 1)) == 0);
 
-  disp_req_t [PipeWidth-1:0] disp_req;
+  alu_rs_disp_req_t [PipeWidth-1:0] alu_rs_disp_reqs;
+  lsu_rs_disp_req_t [PipeWidth-1:0] lsu_rs_disp_reqs;
+  fpu_rs_disp_req_t [PipeWidth-1:0] fpu_rs_disp_reqs;
 
   logic [PipeWidth-1:0] dispatched_q, dispatched_d;
   `FFAR(dispatched_q, dispatched_d, '0, clk_i, rst_i);
@@ -137,64 +155,225 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   logic [PipeWidth-1:0] instr_dispatched;
 
+
+  /////////////////////////////
+  // Single Issue Dispatcher //
+  /////////////////////////////
+
+  // Each RS needs a globally unique ID. We simply count all RS.
+  localparam integer unsigned AluRsIdOffset = 0;
+  localparam integer unsigned LsuRsIdOffset = AluRsIdOffset + NofAlus;
+  localparam integer unsigned FpuRsIdOffset = LsuRsIdOffset + NofLsus;
+
+  // Generate generic alu responses, in Single Issue Mode we never dispatch to the Reservation stations
+  // And dispatch is always targeting the first FU of a type so the fu response is constant
+  producer_id_t alu0_producer_id;
+  producer_id_t lsu0_producer_id;
+  producer_id_t fpu0_producer_id;
+
+  assign alu0_producer_id = '{
+    slot_id: '0,
+    rs_id  : rs_id_t'(AluRsIdOffset)
+  };
+
+  assign lsu0_producer_id = '{
+    slot_id: '0,
+    rs_id  : rs_id_t'(LsuRsIdOffset)
+  };
+
+  assign fpu0_producer_id = '{
+    slot_id: '0,
+    rs_id  : rs_id_t'(FpuRsIdOffset)
+  };
+  
+
+  instr_tag_t si_tag;
+  logic       si_fu_ready;
+  disp_rsp_t  si_fu_response;
+
+  // Dispatch requeset generation
+  always_comb begin : si_dispatch_generation
+    acc_req_o         = '0;
+    csr_disp_req_o    = '0;
+    alu_si_disp_req_o = '0;
+    lsu_si_disp_req_o = '0;
+    fpu_si_disp_req_o = '0;
+
+    // We only ever have to consider the first instruction
+    // pragma translate_off
+    si_tag.producer_id = si_fu_response.producer; // Only needed for the tracer
+    // pragma translate_on
+    si_tag.dest_reg       = reg_map_i[0].phy_reg_rd_old;
+    si_tag.dest_reg_is_fp = instr_dec_i[0].rd_is_fp;
+    si_tag.is_branch      = instr_dec_i[0].is_branch;
+    si_tag.is_jump        = instr_dec_i[0].is_jal | instr_dec_i[0].is_jalr;
+    si_tag.rob_tag        = '0;
+
+    // ACC
+    acc_req_o.id        = si_tag.dest_reg; 
+    acc_req_o.data_op   = instr_fetch_data_i[31:0];
+    acc_req_o.addr      = (instr_dec_i[0].fu == schnova_pkg::MULDIV) ? snitch_pkg::IPU  
+                                                                     : snitch_pkg::DMA_SS;
+    acc_req_o.data_arga = instr_fu_data_i[0].operand_a;
+    acc_req_o.data_argb = instr_fu_data_i[0].operand_b;
+    acc_req_o.data_argc = '0; // Unused
+
+    // CSR
+    csr_disp_req_o.csr_op    = instr_fu_data_i[0].csr_op;
+    csr_disp_req_o.operand_a = instr_fu_data_i[0].operand_a;
+    csr_disp_req_o.imm       = instr_fu_data_i[0].imm[11:0];
+    csr_disp_req_o.tag       = si_tag;
+
+    // ALU
+    alu_si_disp_req_o.alu_op    = instr_fu_data_i[0].alu_op;
+    alu_si_disp_req_o.operand_a = instr_fu_data_i[0].operand_a[XLEN-1:0]; 
+    alu_si_disp_req_o.operand_b = instr_fu_data_i[0].operand_b[XLEN-1:0];
+    alu_si_disp_req_o.tag       = si_tag;
+
+    // LSU
+    lsu_si_disp_req_o.lsu_op    = instr_fu_data_i[0].lsu_op;
+    lsu_si_disp_req_o.operand_a = instr_fu_data_i[0].operand_a[XLEN-1:0];
+    lsu_si_disp_req_o.operand_b = instr_fu_data_i[0].operand_b;
+    lsu_si_disp_req_o.imm       = instr_fu_data_i[0].imm[XLEN-1:0];
+    lsu_si_disp_req_o.lsu_size  = instr_fu_data_i[0].lsu_size;
+    lsu_si_disp_req_o.tag       = si_tag;
+
+    // FPR
+    fpu_si_disp_req_o.fpu_op       = instr_fu_data_i[0].fpu_op;
+    fpu_si_disp_req_o.operand_a    = instr_fu_data_i[0].operand_a;
+    fpu_si_disp_req_o.operand_b    = instr_fu_data_i[0].operand_b;
+    fpu_si_disp_req_o.imm          = instr_fu_data_i[0].imm;
+    fpu_si_disp_req_o.fpu_fmt_src  = instr_fu_data_i[0].fpu_fmt_src;
+    fpu_si_disp_req_o.fpu_fmt_dst  = instr_fu_data_i[0].fpu_fmt_dst;
+    fpu_si_disp_req_o.fpu_rnd_mode = instr_fu_data_i[0].fpu_rnd_mode;
+    fpu_si_disp_req_o.tag          = si_tag;
+  end
+
+  // Dispatch request and response muxing
+  always_comb begin: si_disp_req_rsp_mux
+    // Default assignments
+    acc_disp_req_valid_o    = 1'b0;
+    csr_disp_req_valid_o    = 1'b0;
+    alu_si_disp_req_valid_o = 1'b0;
+    lsu_si_disp_req_valid_o = 1'b0;
+    fpu_si_disp_req_valid_o = 1'b0;
+
+    si_fu_response          = '0;
+    si_fu_ready             = 1'b0;
+
+    unique case (instr_dec_i[0].fu)
+      schnova_pkg::MUL,
+      schnova_pkg::CTRL_FLOW,
+      schnova_pkg::ALU: begin
+        alu_si_disp_req_valid_o = dispatch_valid_i;
+        si_fu_ready             = alu_si_disp_req_ready_i;
+        si_fu_response.producer = alu0_producer_id;
+      end
+      schnova_pkg::LOAD,
+      schnova_pkg::STORE: begin
+        lsu_si_disp_req_valid_o = dispatch_valid_i;
+        si_fu_ready             = lsu_si_disp_req_ready_i;
+        si_fu_response.producer = lsu0_producer_id;
+      end
+      schnova_pkg::CSR : begin
+        // There is no response because there is no reservation station.
+        csr_disp_req_valid_o = dispatch_valid_i;
+        si_fu_ready          = csr_disp_req_ready_i;
+      end
+      schnova_pkg::FPU: begin
+        fpu_si_disp_req_valid_o = dispatch_valid_i;
+        si_fu_ready             = fpu_si_disp_req_ready_i;
+        si_fu_response.producer = fpu0_producer_id;
+      end
+      schnova_pkg::MULDIV,
+      schnova_pkg::DMA: begin
+        acc_disp_req_valid_o = dispatch_valid_i;
+        si_fu_ready          = acc_disp_req_ready_i;
+      end
+      schnova_pkg::NONE: begin
+        // There is no FU, so we always signal ready
+        si_fu_ready         = 1'b1;
+      end
+    endcase
+  end
+
   ////////////////////////
   // Request generation //
   ////////////////////////
   logic [$clog2(PipeWidth):0] rob_idx;
 
+  instr_tag_t [PipeWidth-1:0] rs_tag;
+
   // The dispatch request contains
   // 1) The physical register mappings of the instruction
-  // 2) The data if it is already valid in the physical register
+  // 2) If the operands are constand and therefore don't have to be fetched from
+  // the physical register file
   // 3) The instruction as well as its tag
 
-  always_comb begin : dispatch_generation
+  always_comb begin : rs_dispatch_generation
     rob_idx = '0;
+    alu_rs_disp_reqs = '0;
+    lsu_rs_disp_reqs = '0;
+    fpu_rs_disp_reqs = '0;
+    rs_tag          = '0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-      disp_req[i] = '0;
-      disp_req[i].fu_data = instr_fu_data_i[i];
-
-      // Forward the physical register mapings
-      disp_req[i].phy_reg_op_a = reg_map_i[i].phy_reg_rs1;
-      disp_req[i].phy_reg_op_b = reg_map_i[i].phy_reg_rs2;
-      disp_req[i].phy_reg_op_c = reg_map_i[i].phy_reg_rs3;
-      disp_req[i].phy_reg_dest  = reg_map_i[i].phy_reg_rd_new;
-
-      // If the operand has to be fetched from the PRF, we set it as invalid
-      // if it is an immediate it is already sent with the dispatch request and
-      // is therefore valid
-      disp_req[i].is_op_a_valid = instr_dec_i[i].use_pc_as_op_a |
-                                  instr_dec_i[i].use_rs1addr_as_op_a;
-
-      disp_req[i].is_op_b_valid = (instr_dec_i[i].fu == schnova_pkg::ALU ||
-                                  instr_dec_i[i].fu == schnova_pkg::CTRL_FLOW) &&
-                                  instr_dec_i[i].use_imm_as_op_b &&
-                                  !instr_dec_i[i].is_branch;
-
-      disp_req[i].is_op_c_valid = ~instr_dec_i[i].use_imm_as_rs3;
-
-      // Forward the is fp flag for the source registers
-      disp_req[i].is_op_a_fp = instr_dec_i[i].rs1_is_fp;
-      disp_req[i].is_op_b_fp = instr_dec_i[i].rs2_is_fp;
-
-      // generate the instruction tag
+      // Instruction tag
       // pragma translate_off
-      disp_req[i].tag.producer_id    = fu_response[i].producer; // Only needed for the tracer
+      rs_tag[i].producer_id    = fu_response[i].producer; // Only needed for the tracer
       // pragma translate_on
-      disp_req[i].tag.dest_reg       = en_superscalar_i ? reg_map_i[i].phy_reg_rd_new
-                                                        : reg_map_i[i].phy_reg_rd_old;
-      disp_req[i].tag.dest_reg_is_fp = instr_dec_i[i].rd_is_fp;
-      disp_req[i].tag.is_branch      = instr_dec_i[i].is_branch;
-      disp_req[i].tag.is_jump        = instr_dec_i[i].is_jal | instr_dec_i[i].is_jalr;
+      rs_tag[i].dest_reg       = reg_map_i[i].phy_reg_rd_new;
+      rs_tag[i].dest_reg_is_fp = instr_dec_i[i].rd_is_fp;
+      rs_tag[i].is_branch      = instr_dec_i[i].is_branch;
+      rs_tag[i].is_jump        = instr_dec_i[i].is_jal | instr_dec_i[i].is_jalr;
       if (UseFreeList) begin
         // If we have already dispatched some instructions we have to use the rob tag we saved
         // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
         // tags starating from the current tail pointer
-        disp_req[i].tag.rob_tag        = (|dispatched_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
+        rs_tag[i].rob_tag        = (|dispatched_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
         // Only assign a different rob tag if this instruction really needs a rob entry
         if (instr_rename_fpr_valid_i[i] || instr_rename_gpr_valid_i[i]) begin
           rob_idx++;
         end
       end
+
+      // ALU
+      alu_rs_disp_reqs[i].alu_op       = instr_fu_data_i[i].alu_op;
+      alu_rs_disp_reqs[i].operand_a    = instr_fu_data_i[i].operand_a[XLEN-1:0]; 
+      alu_rs_disp_reqs[i].operand_b    = instr_fu_data_i[i].operand_b[XLEN-1:0];
+      alu_rs_disp_reqs[i].tag          = rs_tag[i];
+
+      alu_rs_disp_reqs[i].phy_reg_op_a = reg_map_i[i].phy_reg_rs1;
+      alu_rs_disp_reqs[i].is_op_a_cnst = instr_dec_i[i].use_pc_as_op_a |
+                                        instr_dec_i[i].use_rs1addr_as_op_a;
+      alu_rs_disp_reqs[i].phy_reg_op_b = reg_map_i[i].phy_reg_rs2;
+      alu_rs_disp_reqs[i].is_op_b_cnst = (instr_dec_i[i].fu == schnova_pkg::ALU ||
+                                        instr_dec_i[i].fu == schnova_pkg::CTRL_FLOW) &&
+                                        instr_dec_i[i].use_imm_as_op_b &&
+                                        !instr_dec_i[i].is_branch;
+
+      // LSU
+      lsu_rs_disp_reqs[i].lsu_op    = instr_fu_data_i[i].lsu_op;
+      lsu_rs_disp_reqs[i].imm       = instr_fu_data_i[i].imm[XLEN-1:0];
+      lsu_rs_disp_reqs[i].lsu_size  = instr_fu_data_i[i].lsu_size;
+      lsu_rs_disp_reqs[i].tag       = rs_tag[i];
+
+      lsu_rs_disp_reqs[i].phy_reg_op_a = reg_map_i[i].phy_reg_rs1;
+      lsu_rs_disp_reqs[i].phy_reg_op_b = reg_map_i[i].phy_reg_rs2;
+      lsu_rs_disp_reqs[i].is_op_b_fp   = instr_dec_i[i].rs2_is_fp;
+
+      // FPU
+      fpu_rs_disp_reqs[i].fpu_op       = instr_fu_data_i[i].fpu_op;
+      fpu_rs_disp_reqs[i].imm          = instr_fu_data_i[i].imm;
+      fpu_rs_disp_reqs[i].fpu_fmt_src  = instr_fu_data_i[i].fpu_fmt_src;
+      fpu_rs_disp_reqs[i].fpu_fmt_dst  = instr_fu_data_i[i].fpu_fmt_dst;
+      fpu_rs_disp_reqs[i].fpu_rnd_mode = instr_fu_data_i[i].fpu_rnd_mode;
+      fpu_rs_disp_reqs[i].tag          = rs_tag[i];
+
+      fpu_rs_disp_reqs[i].phy_reg_op_a = reg_map_i[i].phy_reg_rs1;
+      fpu_rs_disp_reqs[i].is_op_a_fp   = instr_dec_i[i].rs1_is_fp;
+      fpu_rs_disp_reqs[i].phy_reg_op_b = reg_map_i[i].phy_reg_rs2;
+      fpu_rs_disp_reqs[i].phy_reg_op_c = reg_map_i[i].phy_reg_rs3;
+      fpu_rs_disp_reqs[i].is_op_c_cnst = ~instr_dec_i[i].use_imm_as_rs3;
     end
   end
 
@@ -429,56 +608,29 @@ module schnova_dispatcher import schnova_pkg::*; #(
   // Signal valid to the FU we want the instruction to dispatch into.
   // Select the appropriate response channel.
   always_comb begin : fu_selection_req
-    alu_disp_req_valid_o = '0;
-    lsu_disp_req_valid_o = '0;
-    csr_disp_req_valid_o = 1'b0;
-    fpu_disp_req_valid_o = '0;
-    acc_disp_req_valid_o = 1'b0;
+    alu_rs_disp_req_valid_o = '0;
+    lsu_rs_disp_req_valid_o = '0;
+    fpu_rs_disp_req_valid_o = '0;
 
-    alu_disp_reqs_o = '0;
-    lsu_disp_reqs_o = '0;
-    fpu_disp_reqs_o = '0;
+    alu_rs_disp_reqs_o = '0;
+    lsu_rs_disp_reqs_o = '0;
+    fpu_rs_disp_reqs_o = '0;
 
     // Accelerator and CSR instructions are only allowed in scalar mode, hence we only have to consider the
     // the first instruction in the block for them.
-
-    // Accelerator Instruction Request Selection
-    acc_req_o         = '0;
-    acc_req_o.id      = disp_req[0].tag.dest_reg; // TODO (soderma): currently only GPR address supported
-    acc_req_o.data_op = instr_fetch_data_i[31:0];
-
-    if (instr_dec_i[0].fu == schnova_pkg::MULDIV) begin
-      acc_disp_req_valid_o = dispatch_valid_i;
-      acc_req_o.addr         = snitch_pkg::IPU; // TODO: use schnova defined address.
-      acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
-      acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
-      acc_req_o.data_argc    = '0; // unused for shared muldiv
-    end else if (instr_dec_i[0].fu == schnova_pkg::DMA) begin
-      acc_disp_req_valid_o = dispatch_valid_i;
-      acc_req_o.addr         = snitch_pkg::DMA_SS; // TODO: use schnova defined address.
-      acc_req_o.data_arga    = instr_fu_data_i[0].operand_a;
-      acc_req_o.data_argb    = instr_fu_data_i[0].operand_b;
-      acc_req_o.data_argc    = '0; // unused for DMA
-    end
-
-    // CSR Instruction Request Selection
-    csr_disp_req_o = disp_req[0];
-    if (instr_dec_i[0].fu == schnova_pkg::CSR) begin
-      csr_disp_req_valid_o = dispatch_valid_i;
-    end
 
     // Request selection for instructions with reservation stations
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       if ((disp_to_alu0[i] || disp_to_alu[i]) && !instr_has_hazard[i] && !dispatched_q[i]) begin
         // always select ALU0 for branch and MUL instructions
-        alu_disp_req_valid_o[target_alu_port[i]] = dispatch_valid_i;
-        alu_disp_reqs_o[target_alu_port[i]] = disp_req[i];
+        alu_rs_disp_req_valid_o[target_alu_port[i]] = dispatch_valid_i && en_superscalar_i;
+        alu_rs_disp_reqs_o[target_alu_port[i]] = alu_rs_disp_reqs[i];
       end else if (disp_to_lsu[i] && !instr_has_hazard[i] && !dispatched_q[i]) begin
-        lsu_disp_req_valid_o[target_lsu_port[i]] = dispatch_valid_i;
-        lsu_disp_reqs_o[target_lsu_port[i]] = disp_req[i];
+        lsu_rs_disp_req_valid_o[target_lsu_port[i]] = dispatch_valid_i && en_superscalar_i;
+        lsu_rs_disp_reqs_o[target_lsu_port[i]] = lsu_rs_disp_reqs[i];
       end else if (disp_to_fpu[i] && !instr_has_hazard[i] && !dispatched_q[i]) begin
-        fpu_disp_req_valid_o[target_fpu_port[i]] = dispatch_valid_i;
-        fpu_disp_reqs_o[target_fpu_port[i]] = disp_req[i];
+        fpu_rs_disp_req_valid_o[target_fpu_port[i]] = dispatch_valid_i && en_superscalar_i;
+        fpu_rs_disp_reqs_o[target_fpu_port[i]] = fpu_rs_disp_reqs[i];
       end
     end
   end
@@ -494,22 +646,22 @@ module schnova_dispatcher import schnova_pkg::*; #(
         schnova_pkg::CTRL_FLOW,
         schnova_pkg::ALU: begin
           // always select ALU0 for branch and MUL instructions
-          fu_response[i] = alu_disp_rsp_i[target_alu_port[i]];
-          fu_ready[i]    = alu_disp_req_ready_i[target_alu_port[i]] & !instr_has_hazard[i];
+          fu_response[i] = alu_rs_disp_rsp_i[target_alu_port[i]];
+          fu_ready[i]    = alu_rs_disp_req_ready_i[target_alu_port[i]] & !instr_has_hazard[i];
         end
         schnova_pkg::LOAD,
         schnova_pkg::STORE: begin
           // per default take the non consistent mode.
-          fu_response[i] = lsu_disp_rsp_i[target_lsu_port[i]];
-          fu_ready[i]    = lsu_disp_req_ready_i[target_lsu_port[i]] & !instr_has_hazard[i];
+          fu_response[i] = lsu_rs_disp_rsp_i[target_lsu_port[i]];
+          fu_ready[i]    = lsu_rs_disp_req_ready_i[target_lsu_port[i]] & !instr_has_hazard[i];
         end
         schnova_pkg::CSR : begin
           // There is no response because there is no reservation station.
           fu_ready[i] = csr_disp_req_ready_i;
         end
         schnova_pkg::FPU: begin
-          fu_response[i] = fpu_disp_rsp_i[target_fpu_port[i]];
-          fu_ready[i]    = fpu_disp_req_ready_i[target_fpu_port[i]] & !instr_has_hazard[i];
+          fu_response[i] = fpu_rs_disp_rsp_i[target_fpu_port[i]];
+          fu_ready[i]    = fpu_rs_disp_req_ready_i[target_fpu_port[i]] & !instr_has_hazard[i];
         end
         schnova_pkg::MULDIV: begin
           // no dispatch response
@@ -564,7 +716,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     // considered is only the ready signal from the first instruction.
     // Note: this ready path depends on the execution of other functional units because of the writeback arbiter.
     assign dispatched = en_superscalar_i ? (|instr_valid_i) & (&(instr_dispatched | ~instr_valid_i))
-                                       : instr_valid_i[0] & instr_dispatched[0];
+                                         : instr_valid_i[0] & si_fu_ready & instr_exec_commit_i;
   end
 
   // Signal back the dispatch
@@ -704,19 +856,16 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   ///////////////////////////////////////
   // Reorder buffer tag state update   //
-  // and scorebored signal handlign    //
+  // and scorebored signal handling    //
   ///////////////////////////////////////
 
   assign first_instr_dispatched_o = (|instr_dispatched) &
                                     !(|dispatched_q);
 
-  assign multi_cycle_dispatch_o = |dispatched_q;
-
   // Only need to send the rob tag in case we do free list based reclamation
   if (UseFreeList) begin : gen_rob_tag
     // Only needed for the refcounter based implementation.
-    assign disp_set_req_valid_o = '0;
-    assign disp_req_o = '0;
+    assign refcnt_disp_req_o = '0;
     // Delacre the tag FF
     `FFAR(rob_tag_q, rob_tag_d, '0, clk_i, rst_i);
     // We have to remember the first ROB tags because of partial dispatch
@@ -731,15 +880,23 @@ module schnova_dispatcher import schnova_pkg::*; #(
       end
     end
   end else begin: gen_refcnt_set_req
-    assign rob_tag_q = '0;
-    assign rob_tag_d = '0;
     always_comb begin
-      disp_set_req_valid_o = '0;
-      disp_req_o = '0;
+      rob_tag_q = '0;
+      rob_tag_d = '0;
+      refcnt_disp_req_o = '0;
       for (int unsigned i = 0; i < PipeWidth; i++) begin
-        disp_set_req_valid_o[i] = en_superscalar_i ? (instr_valid_i[i] & fu_ready[i] & !dispatched_q[i])
-                                                   : '0; // Do not change the reference counter in scalar mode
-        disp_req_o[i] = disp_req[i];
+        refcnt_disp_req_o[i].phy_reg_op_a = reg_map_i[i].phy_reg_rs1;
+        refcnt_disp_req_o[i].is_op_a_cnst = instr_dec_i[i].use_pc_as_op_a |
+                                            instr_dec_i[i].use_rs1addr_as_op_a;;
+        refcnt_disp_req_o[i].is_op_a_fp   = instr_dec_i[i].rs1_is_fp;
+        refcnt_disp_req_o[i].phy_reg_op_b = reg_map_i[i].phy_reg_rs2;
+        refcnt_disp_req_o[i].is_op_b_cnst = (instr_dec_i[i].fu == schnova_pkg::ALU ||
+                                            instr_dec_i[i].fu == schnova_pkg::CTRL_FLOW) &&
+                                            instr_dec_i[i].use_imm_as_op_b &&
+                                            !instr_dec_i[i].is_branch;
+        refcnt_disp_req_o[i].is_op_b_fp   = instr_dec_i[i].rs2_is_fp;
+        refcnt_disp_req_o[i].phy_reg_op_c = reg_map_i[i].phy_reg_rs3;
+        refcnt_disp_req_o[i].is_op_c_cnst = ~instr_dec_i[i].use_imm_as_rs3;
       end
     end
   end

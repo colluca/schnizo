@@ -60,47 +60,80 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   rss_operand_t op_b_init;
   rss_operand_t op_c_init;
 
-  assign op_a_init = '{
-    phy_reg_src:          disp_req_i.phy_reg_op_a,
-    is_fp:                disp_req_i.is_op_a_fp,
-    is_valid:             disp_req_i.is_op_a_valid
-  };
+  if (RsType == ALU_RS) begin : alu_op_init
+    assign op_a_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_a,
+      is_fp:                1'b0, // Is always an integer value
+      is_valid:             disp_req_i.is_op_a_cnst // Immediately valid if it is a constant
+    };
+    assign op_b_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_b,
+      is_fp:                1'b0, // Is always an integer value
+      is_valid:             disp_req_i.is_op_b_cnst // Immediately valid if it is a constant
+    };
+  end else if (RsType == LSU_RS) begin : lsu_op_init
+    assign op_a_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_a,
+      is_fp:                1'b0, // Is always an integer value
+      is_valid:             1'b0  // Is never a constant hence invalid at the beginning
+    };
+    assign op_b_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_b,
+      is_fp:                disp_req_i.is_op_b_fp,
+      is_valid:             1'b0  // Is never a constant hence invalid at the beginning
+    };
+  end else if (RsType == FPU_RS) begin: fpu_op_int
+    assign op_a_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_a,
+      is_fp:                disp_req_i.is_op_a_fp,
+      is_valid:             1'b0  // Is never a constant hence invalid at the beginning
+    };
 
-  assign op_b_init = '{
-    phy_reg_src:          disp_req_i.phy_reg_op_b,
-    is_fp:                disp_req_i.is_op_b_fp,
-    is_valid:             disp_req_i.is_op_b_valid
-  };
+    assign op_b_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_b,
+      is_fp:                1'b1, // Is always a floating point value
+      is_valid:             1'b0  // Is never a constant hence invalid at the beginning
+    };
 
-  assign op_c_init = '{
-    phy_reg_src:          disp_req_i.phy_reg_op_c,
-    // If op c needs to be fetched from a physical register file
-    // it will always be from the floating point physical register file
-    is_fp:                1'b1,
-    is_valid:             disp_req_i.is_op_c_valid
-  };
+    assign op_c_init = '{
+      phy_reg_src:          disp_req_i.phy_reg_op_c,
+      // If op c needs to be fetched from a physical register file
+      // it will always be from the floating point physical register file
+      is_fp:                1'b1, // Is always a floating point value
+      is_valid:             disp_req_i.is_op_c_cnst
+    };
+
+  end
+
 
   rss_const_t [NofConsts-1:0] const_init;
 
-  if (NofConsts > 1) begin: gen_alu_const_init
+  if (RsType == ALU_RS) begin : alu_cnst_init
     assign const_init[0] = '{
-      value: disp_req_i.fu_data.operand_a,
+      value: disp_req_i.operand_a,
       // There is a valid constant if the operand is valid
       // at dispatch
-      is_valid: disp_req_i.is_op_a_valid
+      is_valid: disp_req_i.is_op_a_cnst
     };
     assign const_init[1] = '{
-      value: disp_req_i.fu_data.operand_b,
+      value: disp_req_i.operand_b,
       // There is a valid constant if the operand is valid
       // at dispatch
-      is_valid: disp_req_i.is_op_b_valid
+      is_valid: disp_req_i.is_op_b_cnst
     };
-  end else begin: gen_const_init
+  end else if (RsType == LSU_RS) begin : lsu_cnst_init
     assign const_init[0] = '{
-      value: disp_req_i.fu_data.imm,
+      value: disp_req_i.imm,
       // There is a valid constant if the operand is valid
       // at dispatch
-      is_valid: disp_req_i.is_op_c_valid
+      is_valid: 1'b1 // Always a constant
+    };
+  end else if (RsType == FPU_RS) begin : fpu_cnst_init
+    assign const_init[0] = '{
+      value: disp_req_i.imm,
+      // There is a valid constant if the operand is valid
+      // at dispatch
+      is_valid: disp_req_i.is_op_c_cnst // Always a constant
     };
   end
 
@@ -117,7 +150,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
       always_comb begin
         slot_init = '{
           is_occupied:      1'b1,
-          alu_op:           disp_req_i.fu_data.alu_op,
+          alu_op:           disp_req_i.alu_op,
           tag:              disp_req_i.tag,
           constants:        '0,
           operands:         '0
@@ -137,8 +170,8 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
       always_comb begin
         slot_init = '{
           is_occupied:      1'b1,
-          lsu_op:           disp_req_i.fu_data.lsu_op,
-          lsu_size:         disp_req_i.fu_data.lsu_size,
+          lsu_op:           disp_req_i.lsu_op,
+          lsu_size:         disp_req_i.lsu_size,
           tag:              disp_req_i.tag,
           constants:        '0,
           operands:         '0
@@ -158,10 +191,10 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
       always_comb begin
         slot_init = '{
           is_occupied:      1'b1,
-          fpu_op:           disp_req_i.fu_data.fpu_op,
-          fpu_fmt_src:      disp_req_i.fu_data.fpu_fmt_src,
-          fpu_fmt_dst:      disp_req_i.fu_data.fpu_fmt_dst,
-          fpu_rnd_mode:     disp_req_i.fu_data.fpu_rnd_mode,
+          fpu_op:           disp_req_i.fpu_op,
+          fpu_fmt_src:      disp_req_i.fpu_fmt_src,
+          fpu_fmt_dst:      disp_req_i.fpu_fmt_dst,
+          fpu_rnd_mode:     disp_req_i.fpu_rnd_mode,
           tag:              disp_req_i.tag,
           constants:        '0,
           operands:         '0
@@ -241,21 +274,12 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         // Tag used for the operation is the slot_id, to identify the result destination in case
         // results can come back OoO from the FU (as is the case for the FPU).
         issue_req_o                      = '0;
-        issue_req_o.fu_data.fu           = NONE; // Not required by FU
-        issue_req_o.fu_data.alu_op       = slot_op_rsp.alu_op;
-        issue_req_o.fu_data.lsu_op       = schnova_pkg::LsuOpLoad;
-        issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-        issue_req_o.fu_data.fpu_op       = schnova_pkg::FpuOpFadd;
-        issue_req_o.fu_data.operand_a    = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
+        issue_req_o.alu_op       = slot_op_rsp.alu_op;
+        issue_req_o.operand_a    = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
                                                                               : op_rsps_i[0];
-        issue_req_o.fu_data.operand_b    = slot_op_rsp.constants[1].is_valid  ? slot_op_rsp.constants[1].value
+        issue_req_o.operand_b    = slot_op_rsp.constants[1].is_valid  ? slot_op_rsp.constants[1].value
                                                                               : op_rsps_i[1];
-        issue_req_o.fu_data.imm          = '0;
-        issue_req_o.fu_data.lsu_size     = Word;
-        issue_req_o.fu_data.fpu_fmt_src  = fpnew_pkg::FP32;
-        issue_req_o.fu_data.fpu_fmt_dst  = fpnew_pkg::FP32;
-        issue_req_o.fu_data.fpu_rnd_mode = fpnew_pkg::RNE;
-        issue_req_o.tag                  = slot_op_rsp.tag;
+        issue_req_o.tag          = slot_op_rsp.tag;
       end
     end else if (RsType == LSU_RS) begin : gen_lsu_issue_req
        always_comb begin
@@ -265,19 +289,12 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         // Tag used for the operation is the slot_id, to identify the result destination in case
         // results can come back OoO from the FU (as is the case for the FPU).
         issue_req_o                      = '0;
-        issue_req_o.fu_data.fu           = NONE; // Not required by FU
-        issue_req_o.fu_data.alu_op       = schnova_pkg::AluOpAdd;
-        issue_req_o.fu_data.lsu_op       = slot_op_rsp.lsu_op;
-        issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-        issue_req_o.fu_data.fpu_op       = schnova_pkg::FpuOpFadd;
-        issue_req_o.fu_data.operand_a    = op_rsps_i[0];
-        issue_req_o.fu_data.operand_b    = op_rsps_i[1];
-        issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].value;
-        issue_req_o.fu_data.lsu_size     = slot_op_rsp.lsu_size;
-        issue_req_o.fu_data.fpu_fmt_src  = fpnew_pkg::FP32;
-        issue_req_o.fu_data.fpu_fmt_dst  = fpnew_pkg::FP32;
-        issue_req_o.fu_data.fpu_rnd_mode = fpnew_pkg::RNE;
-        issue_req_o.tag                  = slot_op_rsp.tag;
+        issue_req_o.lsu_op       = slot_op_rsp.lsu_op;
+        issue_req_o.operand_a    = op_rsps_i[0];
+        issue_req_o.operand_b    = op_rsps_i[1];
+        issue_req_o.imm          = slot_op_rsp.constants[0].value;
+        issue_req_o.lsu_size     = slot_op_rsp.lsu_size;
+        issue_req_o.tag          = slot_op_rsp.tag;
       end
     end else if (RsType == FPU_RS) begin : gen_fpu_issue_req
        always_comb begin
@@ -287,20 +304,15 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
         // Tag used for the operation is the slot_id, to identify the result destination in case
         // results can come back OoO from the FU (as is the case for the FPU).
         issue_req_o                      = '0;
-        issue_req_o.fu_data.fu           = NONE; // Not required by FU
-        issue_req_o.fu_data.alu_op       = schnova_pkg::AluOpAdd;
-        issue_req_o.fu_data.lsu_op       = schnova_pkg::LsuOpLoad;
-        issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
-        issue_req_o.fu_data.fpu_op       = slot_op_rsp.fpu_op;
-        issue_req_o.fu_data.operand_a    = op_rsps_i[0];
-        issue_req_o.fu_data.operand_b    = op_rsps_i[1];
-        issue_req_o.fu_data.imm          = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
+        issue_req_o.fpu_op       = slot_op_rsp.fpu_op;
+        issue_req_o.operand_a    = op_rsps_i[0];
+        issue_req_o.operand_b    = op_rsps_i[1];
+        issue_req_o.imm          = slot_op_rsp.constants[0].is_valid  ? slot_op_rsp.constants[0].value
                                                                               : op_rsps_i[2];
-        issue_req_o.fu_data.lsu_size     = Word;
-        issue_req_o.fu_data.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
-        issue_req_o.fu_data.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
-        issue_req_o.fu_data.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
-        issue_req_o.tag                  = slot_op_rsp.tag;
+        issue_req_o.fpu_fmt_src  = slot_op_rsp.fpu_fmt_src;
+        issue_req_o.fpu_fmt_dst  = slot_op_rsp.fpu_fmt_dst;
+        issue_req_o.fpu_rnd_mode = slot_op_rsp.fpu_rnd_mode;
+        issue_req_o.tag          = slot_op_rsp.tag;
       end
     end
   endgenerate

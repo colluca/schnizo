@@ -358,20 +358,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     phy_id_t phy_reg_rd_old;
   } reg_map_t;
 
-
-  typedef struct packed {
-    fu_data_t   fu_data;
-    phy_id_t phy_reg_op_a;
-    logic is_op_a_fp;
-    logic is_op_a_valid;
-    phy_id_t phy_reg_op_b;
-    logic is_op_b_fp;
-    logic is_op_b_valid;
-    phy_id_t phy_reg_op_c;
-    logic is_op_c_valid;
-    instr_tag_t tag;
-  } disp_req_t;
-
   typedef struct packed {
     csr_op_e          csr_op;
     logic [OpLen-1:0] operand_a;
@@ -382,24 +368,66 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   typedef csr_disp_req_t csr_issue_req_t;
 
   typedef struct packed {
-    alu_op_e alu_op;
+    alu_op_e         alu_op;
     logic [XLEN-1:0] operand_a;
     logic [XLEN-1:0] operand_b;
-    instr_tag_t tag;
+    instr_tag_t      tag;
   } alu_si_disp_req_t;
 
   typedef struct packed {
-    alu_op_e alu_op;
+    alu_op_e         alu_op;
     logic [XLEN-1:0] operand_a;
     logic [XLEN-1:0] operand_b;
-    instr_tag_t tag;
-    phy_id_t phy_reg_op_a;
-    logic is_op_a_valid;
-    phy_id_t phy_reg_op_b;
-    logic is_op_b_valid;
+    instr_tag_t      tag;
+    phy_id_t         phy_reg_op_a;
+    logic            is_op_a_cnst;
+    phy_id_t         phy_reg_op_b;
+    logic            is_op_b_cnst;
   } alu_rs_disp_req_t; 
 
+  typedef struct packed {
+    lsu_op_e          lsu_op;
+    logic [XLEN-1:0]  operand_a; // Can only be an integer value
+    logic [OpLen-1:0] operand_b; // Can be either integer or floating point
+    logic [XLEN-1:0]  imm;       // Only ever used as an integer
+    lsu_size_e        lsu_size;
+    instr_tag_t       tag;
+  } lsu_si_disp_req_t;
 
+  typedef struct packed {
+    lsu_op_e          lsu_op;
+    logic [XLEN-1:0]  imm;       // Only ever used as an integer
+    lsu_size_e        lsu_size;
+    instr_tag_t       tag;
+    phy_id_t          phy_reg_op_a;
+    phy_id_t          phy_reg_op_b;
+    logic             is_op_b_fp;
+  } lsu_rs_disp_req_t;
+
+  typedef struct packed {
+    fpu_op_e               fpu_op;
+    logic [OpLen-1:0]      operand_a;
+    logic [OpLen-1:0]      operand_b;
+    logic [OpLen-1:0]      imm;
+    fpnew_pkg::fp_format_e fpu_fmt_src;
+    fpnew_pkg::fp_format_e fpu_fmt_dst;
+    fpnew_pkg::roundmode_e fpu_rnd_mode;
+    instr_tag_t            tag;
+  } fpu_si_disp_req_t;
+
+  typedef struct packed {
+    fpu_op_e               fpu_op;
+    logic [OpLen-1:0]      imm;
+    fpnew_pkg::fp_format_e fpu_fmt_src;
+    fpnew_pkg::fp_format_e fpu_fmt_dst;
+    fpnew_pkg::roundmode_e fpu_rnd_mode;
+    instr_tag_t            tag;
+    phy_id_t               phy_reg_op_a;
+    logic                  is_op_a_fp;
+    phy_id_t               phy_reg_op_b;
+    phy_id_t               phy_reg_op_c;
+    logic                  is_op_c_cnst;
+  } fpu_rs_disp_req_t;
 
   typedef struct packed {
     fu_data_t fu_data;
@@ -671,6 +699,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .reg_map_t     (reg_map_t),
     .fu_data_t     (fu_data_t)
   ) i_read_operands (
+    .en_superscalar_i(en_superscalar),
     .jump_pc_i(jump_pc),
     .instr_dec_i(instr_decoded),
     // Need the first register map info, since we always read from the physical register
@@ -798,29 +827,39 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   //////////////
 
   // Create the dispatch request
-  disp_req_t [NofAlus-1:0] alu_disp_reqs;
-  logic      [NofAlus-1:0] alu_disp_req_valid;
-  logic      [NofAlus-1:0] alu_disp_req_ready;
-  disp_rsp_t [NofAlus-1:0] alu_disp_rsp;
-  logic      [NofAlus-1:0] alu_rs_full;
-  disp_req_t [NofLsus-1:0] lsu_disp_reqs;
-  logic      [NofLsus-1:0] lsu_disp_req_valid;
-  logic      [NofLsus-1:0] lsu_disp_req_ready;
-  disp_rsp_t [NofLsus-1:0] lsu_disp_rsp;
-  logic      [NofLsus-1:0] lsu_rs_full;
-  csr_disp_req_t           csr_disp_req;
-  logic                    csr_disp_req_valid;
-  logic                    csr_disp_req_ready;
-  disp_req_t [NofFpus-1:0] fpu_disp_reqs;
-  logic      [NofFpus-1:0] fpu_disp_req_valid;
-  logic      [NofFpus-1:0] fpu_disp_req_ready;
-  disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
-  logic      [NofFpus-1:0] fpu_rs_full;
-  disp_req_t [PipeWidth-1:0] disp_req;
+  alu_si_disp_req_t               alu_si_disp_req;
+  logic                           alu_si_disp_req_valid;
+  logic                           alu_si_disp_req_ready;
+  alu_rs_disp_req_t [NofAlus-1:0] alu_rs_disp_reqs;
+  logic             [NofAlus-1:0] alu_rs_disp_req_valid;
+  logic             [NofAlus-1:0] alu_rs_disp_req_ready;
+  disp_rsp_t        [NofAlus-1:0] alu_rs_disp_rsp;
+  logic             [NofAlus-1:0] alu_rs_full;
+  lsu_si_disp_req_t               lsu_si_disp_req;
+  logic                           lsu_si_disp_req_valid;
+  logic                           lsu_si_disp_req_ready;
+  lsu_rs_disp_req_t [NofLsus-1:0] lsu_rs_disp_reqs;
+  logic             [NofLsus-1:0] lsu_rs_disp_req_valid;
+  logic             [NofLsus-1:0] lsu_rs_disp_req_ready;
+  disp_rsp_t        [NofLsus-1:0] lsu_rs_disp_rsp;
+  logic             [NofLsus-1:0] lsu_rs_full;
+  csr_disp_req_t                  csr_disp_req;
+  logic                           csr_disp_req_valid;
+  logic                           csr_disp_req_ready;
+  fpu_si_disp_req_t               fpu_si_disp_req;
+  logic                           fpu_si_disp_req_valid;
+  logic                           fpu_si_disp_req_ready;
+  fpu_rs_disp_req_t [NofFpus-1:0] fpu_rs_disp_reqs;
+  logic             [NofFpus-1:0] fpu_rs_disp_req_valid;
+  logic             [NofFpus-1:0] fpu_rs_disp_req_ready;
+  disp_rsp_t        [NofFpus-1:0] fpu_rs_disp_rsp;
+  logic             [NofFpus-1:0] fpu_rs_full;
+  refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req;
 
   schnova_dispatcher #(
     .UseFreeList(UseFreeList),
     .PipeWidth(PipeWidth),
+    .XLEN     (XLEN),
     .RobTagWidth(RobTagWidth),
     .RegAddrSize(RegAddrSize),
     .NofAlus    (NofAlus),
@@ -830,9 +869,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .rmt_entry_t(rmt_entry_t),
     .phy_id_t(phy_id_t),
     .reg_map_t(reg_map_t),
+    .instr_tag_t(instr_tag_t),
     .csr_disp_req_t(csr_disp_req_t),
-    .disp_req_t (disp_req_t),
+    .alu_si_disp_req_t(alu_si_disp_req_t),
+    .lsu_si_disp_req_t(lsu_si_disp_req_t),
+    .fpu_si_disp_req_t(fpu_si_disp_req_t),
+    .alu_rs_disp_req_t(alu_rs_disp_req_t),
+    .lsu_rs_disp_req_t(lsu_rs_disp_req_t),
+    .fpu_rs_disp_req_t(fpu_rs_disp_req_t),
     .disp_rsp_t (disp_rsp_t),
+    .refcnt_req_t(refcnt_req_t),
     .producer_id_t(producer_id_t),
     .rs_id_t(rs_id_t),
     .fu_data_t  (fu_data_t),
@@ -842,7 +888,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .clk_i,
     .rst_i,
     // Rename interface
-    .reg_map_i(reg_map),
+    .reg_map_i           (reg_map),
     .en_superscalar_i    (en_superscalar),
     .instr_dec_i         (instr_decoded),
     .instr_fu_data_i     (fu_data),
@@ -861,36 +907,45 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .first_instr_dispatched_o(first_instr_dispatched),
     .rob_idx_i(rob_idx),
     // ALU
-    .alu_disp_reqs_o     (alu_disp_reqs),
-    .alu_disp_req_valid_o(alu_disp_req_valid),
-    .alu_disp_req_ready_i(alu_disp_req_ready),
-    .alu_disp_rsp_i      (alu_disp_rsp),
-    .alu_rs_full_i       (alu_rs_full),
+    .alu_si_disp_req_o      (alu_si_disp_req),
+    .alu_si_disp_req_valid_o(alu_si_disp_req_valid),
+    .alu_si_disp_req_ready_i(alu_si_disp_req_ready),
+    .alu_rs_disp_reqs_o     (alu_rs_disp_reqs),
+    .alu_rs_disp_req_valid_o(alu_rs_disp_req_valid),
+    .alu_rs_disp_req_ready_i(alu_rs_disp_req_ready),
+    .alu_rs_disp_rsp_i      (alu_rs_disp_rsp),
+    .alu_rs_full_i          (alu_rs_full),
     // LSU
-    .lsu_disp_reqs_o     (lsu_disp_reqs),
-    .lsu_disp_req_valid_o(lsu_disp_req_valid),
-    .lsu_disp_req_ready_i(lsu_disp_req_ready),
-    .lsu_disp_rsp_i      (lsu_disp_rsp),
-    .lsu_rs_full_i       (lsu_rs_full),
+    .lsu_si_disp_req_o      (lsu_si_disp_req),
+    .lsu_si_disp_req_valid_o(lsu_si_disp_req_valid),
+    .lsu_si_disp_req_ready_i(lsu_si_disp_req_ready),
+    .lsu_rs_disp_reqs_o     (lsu_rs_disp_reqs),
+    .lsu_rs_disp_req_valid_o(lsu_rs_disp_req_valid),
+    .lsu_rs_disp_req_ready_i(lsu_rs_disp_req_ready),
+    .lsu_rs_disp_rsp_i      (lsu_rs_disp_rsp),
+    .lsu_rs_full_i          (lsu_rs_full),
     // CSR
-    .csr_disp_req_o      (csr_disp_req),
-    .csr_disp_req_valid_o(csr_disp_req_valid),
-    .csr_disp_req_ready_i(csr_disp_req_ready),
+    .csr_disp_req_o         (csr_disp_req),
+    .csr_disp_req_valid_o   (csr_disp_req_valid),
+    .csr_disp_req_ready_i   (csr_disp_req_ready),
     // FPU
-    .fpu_disp_reqs_o     (fpu_disp_reqs),
-    .fpu_disp_req_valid_o(fpu_disp_req_valid),
-    .fpu_disp_req_ready_i(fpu_disp_req_ready),
-    .fpu_disp_rsp_i      (fpu_disp_rsp),
-    .fpu_rs_full_i       (fpu_rs_full),
+    .fpu_si_disp_req_o      (fpu_si_disp_req),
+    .fpu_si_disp_req_valid_o(fpu_si_disp_req_valid),
+    .fpu_si_disp_req_ready_i(fpu_si_disp_req_ready),
+    .fpu_rs_disp_reqs_o     (fpu_rs_disp_reqs),
+    .fpu_rs_disp_req_valid_o(fpu_rs_disp_req_valid),
+    .fpu_rs_disp_req_ready_i(fpu_rs_disp_req_ready),
+    .fpu_rs_disp_rsp_i      (fpu_rs_disp_rsp),
+    .fpu_rs_full_i          (fpu_rs_full),
     // Shared accelerator interface
-    .acc_req_o           (acc_qreq_o),
-    .acc_disp_req_valid_o(acc_qvalid_o),
-    .acc_disp_req_ready_i(acc_qready_i),
+    .acc_req_o              (acc_qreq_o),
+    .acc_disp_req_valid_o   (acc_qvalid_o),
+    .acc_disp_req_ready_i   (acc_qready_i),
     // RS control signals
-    .restart_i           (rs_restart),
-    .frep_mem_cons_mode_i(frep_mem_cons_mode),
+    .restart_i              (rs_restart),
+    .frep_mem_cons_mode_i   (frep_mem_cons_mode),
     // To Refcounter
-    .disp_req_o          (disp_req)
+    .refcnt_disp_req_o      (refcnt_disp_req)
   );
 
   //////////////////////
@@ -962,7 +1017,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .producer_id_t      (producer_id_t),
     .slot_id_t          (slot_id_t),
     .rs_id_t            (rs_id_t),
-    .disp_req_t         (disp_req_t),
+    .alu_si_disp_req_t  (alu_si_disp_req_t),
+    .lsu_si_disp_req_t  (lsu_si_disp_req_t),
+    .fpu_si_disp_req_t  (fpu_si_disp_req_t),
+    .alu_rs_disp_req_t  (alu_rs_disp_req_t),
+    .lsu_rs_disp_req_t  (lsu_rs_disp_req_t),
+    .fpu_rs_disp_req_t  (fpu_rs_disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
     .fu_data_t          (fu_data_t),
     .phy_id_t           (phy_id_t),
@@ -997,16 +1057,22 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fpu_retire_trace_o   (fpu_retirements),
     // pragma translate_on
     // ALU
-    .alu_disp_reqs_i      (alu_disp_reqs),
-    .alu_disp_reqs_valid_i(alu_disp_req_valid),
-    .alu_disp_reqs_ready_o(alu_disp_req_ready),
-    .alu_disp_rsp_o       (alu_disp_rsp),
+    .alu_si_disp_req_i      (alu_si_disp_req),
+    .alu_si_disp_req_valid_i(alu_si_disp_req_valid),
+    .alu_si_disp_req_ready_o(alu_si_disp_req_ready),
+    .alu_rs_disp_reqs_i      (alu_rs_disp_reqs),
+    .alu_rs_disp_reqs_valid_i(alu_rs_disp_req_valid),
+    .alu_rs_disp_reqs_ready_o(alu_rs_disp_req_ready),
+    .alu_rs_disp_rsp_o       (alu_rs_disp_rsp),
     .alu_rs_full_o        (alu_rs_full),
     // LSU
-    .lsu_disp_reqs_i      (lsu_disp_reqs),
-    .lsu_disp_reqs_valid_i(lsu_disp_req_valid),
-    .lsu_disp_reqs_ready_o(lsu_disp_req_ready),
-    .lsu_disp_rsp_o       (lsu_disp_rsp),
+    .lsu_si_disp_req_i      (lsu_si_disp_req),
+    .lsu_si_disp_req_valid_i(lsu_si_disp_req_valid),
+    .lsu_si_disp_req_ready_o(lsu_si_disp_req_ready),
+    .lsu_rs_disp_reqs_i      (lsu_rs_disp_reqs),
+    .lsu_rs_disp_reqs_valid_i(lsu_rs_disp_req_valid),
+    .lsu_rs_disp_reqs_ready_o(lsu_rs_disp_req_ready),
+    .lsu_rs_disp_rsp_o       (lsu_rs_disp_rsp),
     .lsu_empty_o          (lsu_empty),
     .lsu_addr_misaligned_o(lsu_addr_misaligned),
     .lsu_dreq_o           (data_req_o), // Each LSU has its own reqrsp port
@@ -1019,10 +1085,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .caq_rsp_valid_i      ('0),
     .caq_rsp_valid_o      (),
     //FPU
-    .fpu_disp_reqs_i      (fpu_disp_reqs),
-    .fpu_disp_reqs_valid_i(fpu_disp_req_valid),
-    .fpu_disp_reqs_ready_o(fpu_disp_req_ready),
-    .fpu_disp_rsp_o       (fpu_disp_rsp),
+    .fpu_si_disp_req_i      (fpu_si_disp_req),
+    .fpu_si_disp_req_valid_i(fpu_si_disp_req_valid),
+    .fpu_si_disp_req_ready_o(fpu_si_disp_req_ready),
+    .fpu_rs_disp_reqs_i      (fpu_rs_disp_reqs),
+    .fpu_rs_disp_reqs_valid_i(fpu_rs_disp_req_valid),
+    .fpu_rs_disp_reqs_ready_o(fpu_rs_disp_req_ready),
+    .fpu_rs_disp_rsp_o       (fpu_rs_disp_rsp),
     .fpu_rs_full_o        (fpu_rs_full),
     .fpu_status_o         (fpu_status),
     .fpu_status_valid_o   (fpu_status_valid),
@@ -1230,7 +1299,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // instructions by the FPU.
   logic [NofFpus-1:0] all_issue_fpu_handshakes;
   for (genvar i = 0; i < NofFpus; i++) begin : gen_issue_fpu
-    assign all_issue_fpu_handshakes[i] = fpu_disp_req_valid[i] & fpu_disp_req_ready[i];
+    if (i == 0) begin
+      assign all_issue_fpu_handshakes[i] = en_superscalar ? fpu_rs_disp_req_valid[i] & fpu_rs_disp_req_ready[i]
+                                                          : fpu_si_disp_req_valid & fpu_si_disp_req_ready;
+    end else begin
+      assign all_issue_fpu_handshakes[i] = fpu_rs_disp_req_valid[i] & fpu_rs_disp_req_ready[i];
+    end
   end
   // TODO (soderma): This was just written to compile
   assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
@@ -1384,11 +1458,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end else begin : gen_refcount_reg_manage
 
     logic instr_exec_commit_superscalar;
+    phy_id_t [PipeWidth-1:0] phy_reg_rd;
     phy_id_t [PipeWidth-1:0] phy_reg_rd_old;
+    logic    [PipeWidth-1:0] is_rd_fp;
 
     always_comb begin : pack_reg_rd_old
       for (int unsigned i = 0; i < PipeWidth; i++) begin
-          phy_reg_rd_old[i] = reg_map[i].phy_reg_rd_old;
+        phy_reg_rd[i]     = en_superscalar ? reg_map[i].phy_reg_rd_new : reg_map[i].phy_reg_rd_old;
+        phy_reg_rd_old[i] = reg_map[i].phy_reg_rd_old;
+        is_rd_fp[i]       = instr_decoded[i].rd_is_fp;
       end
     end
 
@@ -1409,7 +1487,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .NofFpus(NofFpus),
       .FpuNofRss(FpuNofRss),
       .phy_id_t(phy_id_t),
-      .disp_req_t(disp_req_t),
       .refcnt_req_t(refcnt_req_t)
     ) i_refcount (
       .clk_i,
@@ -1418,8 +1495,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .instr_exec_commit_superscalar_i(instr_exec_commit_superscalar),
       .instr_valid_i(instr_valid_masked),
       .dispatched_i(dispatched),
-      .disp_req_i(disp_req),
+      .refcnt_disp_req_i(refcnt_disp_req),
+      .phy_reg_rd_i    (phy_reg_rd),
       .phy_reg_rd_old_i(phy_reg_rd_old),
+      .is_rd_fp_i      (is_rd_fp),
       // Issue Inteface (Clear / Overwrite entries)
       .issue_alu_clr_req_valid_i(issue_alu_clr_req_valid),
       .issue_alu_clr_req_i(issue_alu_clr_req),
@@ -1614,10 +1693,21 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     exception:      exception
   };
 
+  logic dispatch_trace_valid [PipeWidth];
+
+  for (genvar i = 0; i < PipeWidth; i++) begin: gen_disp_trace_valid;
+    if (i == 0) begin
+      assign dispatch_trace_valid[i] = en_superscalar ? (instr_exec_commit && instr_valid_masked[i] && i_dispatcher.fu_ready[i] && !i_dispatcher.dispatched_q[i]) || exception
+                                               : (instr_exec_commit && instr_valid_masked[i] && i_dispatcher.si_fu_ready || exception);
+    end else begin
+      assign dispatch_trace_valid[i] = (instr_exec_commit && instr_valid_masked[i] && i_dispatcher.fu_ready[i] && !i_dispatcher.dispatched_q[i]) || exception;
+    end
+  end
+
   for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_dispatch_traces
     // verilog_lint: waive-start line-length
     assign dispatch_trace[idx] = '{
-      valid:        (instr_exec_commit && instr_valid_masked[idx] && i_dispatcher.fu_ready[idx] && !i_dispatcher.dispatched_q[idx]) || exception,
+      valid:        dispatch_trace_valid[idx],
       pc_q:         i_frontend.pc_q + (idx * 4),
       pc_d:         i_frontend.pc_d,
       instr_data:   instr_fetch_data[idx],
@@ -1644,13 +1734,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_idx_i == rss),
+          valid:          i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.tag.producer_id),
-          alu_opa:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.fu_data.operand_a[XLEN-1:0],
-          alu_opb:        i_fu_stage.gen_alus[alu].i_fu_block.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.fu_data.operand_b[XLEN-1:0]
+                            i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_raw.tag.producer_id),
+          alu_opa:        i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_raw.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_raw.operand_b[XLEN-1:0]
         };
       end else begin : gen_alu_traces_rss_no_trace_resreq
         assign rss_alu_traces[alu][rss]    = '{default: '0};
@@ -1664,11 +1754,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_idx_i == rss),
+          valid:          i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_fu_block.i_res_stat.gen_lsu_rs.i_slots.issue_req_raw.tag.producer_id),
+                            i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_req_raw.tag.producer_id),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1691,16 +1781,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_valid_o &&
-                      i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_ready_i &&
-                      (i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_idx_i == rss),
+          valid:      i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_valid_o &&
+                      i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_ready_i &&
+                      (i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_idx_i == rss),
           producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.tag.producer_id),
-          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.operand_a,
-          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.operand_b,
-          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.imm,
-          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.fpu_fmt_src,
-          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_fu_block.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fu_data.fpu_fmt_dst,
+                        i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.tag.producer_id),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fpu_fmt_dst,
           // Directly access the FPU because theses signals are decoded in the FPU. This requires
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt

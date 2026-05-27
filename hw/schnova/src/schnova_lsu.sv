@@ -105,7 +105,7 @@ module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Therefore, we create a separate adder.
   // !! We may only take the lower XLEN bits as the operands are NOT sign extended
   // to OpLen (OpLen = FLEN > XLEN ? FLEN : XLEN)
-  assign address = issue_req_i.fu_data.operand_a[XLEN-1:0] + issue_req_i.fu_data.imm[XLEN-1:0];
+  assign address = issue_req_i.operand_a[XLEN-1:0] + issue_req_i.imm[XLEN-1:0];
 
   // Convert the 32bit address to a system address.
   always_comb begin
@@ -114,23 +114,23 @@ module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   // Sign extend the data to be stored to the appropriate length
-  assign store_data = $unsigned(issue_req_i.fu_data.operand_b);
+  assign store_data = $unsigned(issue_req_i.operand_b);
 
   // Control signals
-  assign is_store  = issue_req_i.fu_data.lsu_op inside {LsuOpStore, LsuOpFpStore};
+  assign is_store  = issue_req_i.lsu_op inside {LsuOpStore, LsuOpFpStore};
   // All FP loads are signed to NaN box narrower values than FLEN
-  assign is_signed = issue_req_i.fu_data.lsu_op inside {LsuOpLoad, LsuOpAmoLr, LsuOpAmoSc,
+  assign is_signed = issue_req_i.lsu_op inside {LsuOpLoad, LsuOpAmoLr, LsuOpAmoSc,
                                                         LsuOpAmoSwap, LsuOpAmoAdd, LsuOpAmoXor,
                                                         LsuOpAmoAnd, LsuOpAmoOr, LsuOpAmoMin,
                                                         LsuOpAmoMax, LsuOpAmoMinU, LsuOpAmoMaxU,
                                                         LsuOpFpLoad};
 
   // Whether to apply NaN boxing or not
-  assign do_nan_boxing = issue_req_i.fu_data.lsu_op inside {LsuOpFpLoad, LsuOpFpStore};
-  assign ls_size       = issue_req_i.fu_data.lsu_size;
+  assign do_nan_boxing = issue_req_i.lsu_op inside {LsuOpFpLoad, LsuOpFpStore};
+  assign ls_size       = issue_req_i.lsu_size;
 
   always_comb begin
-    unique case (issue_req_i.fu_data.lsu_op)
+    unique case (issue_req_i.lsu_op)
       LsuOpAmoLr:   ls_amo = reqrsp_pkg::AMOLR;
       LsuOpAmoSc:   ls_amo = reqrsp_pkg::AMOSC;
       LsuOpAmoSwap: ls_amo = reqrsp_pkg::AMOSwap;

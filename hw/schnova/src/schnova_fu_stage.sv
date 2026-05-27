@@ -63,7 +63,12 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
   parameter type         rs_id_t        = logic,
-  parameter type         disp_req_t     = logic,
+  parameter type         alu_si_disp_req_t = logic,
+  parameter type         lsu_si_disp_req_t = logic,
+  parameter type         fpu_si_disp_req_t = logic,
+  parameter type         alu_rs_disp_req_t = logic,
+  parameter type         lsu_rs_disp_req_t = logic,
+  parameter type         fpu_rs_disp_req_t = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         fu_data_t      = logic,
   parameter type         instr_tag_t    = logic,
@@ -106,16 +111,22 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // FPU-specific commit: same as instr_exec_commit_i but without instr_addr_misaligned_o in its
   // timing cone (FP instructions are never branches, so instr_addr_misaligned_o is always 0).
   input  logic                    fpu_instr_exec_commit_i,
-  input  disp_req_t [NofAlus-1:0] alu_disp_reqs_i,
-  input  logic      [NofAlus-1:0] alu_disp_reqs_valid_i,
-  output logic      [NofAlus-1:0] alu_disp_reqs_ready_o,
-  output disp_rsp_t [NofAlus-1:0] alu_disp_rsp_o,
+  input  alu_si_disp_req_t        alu_si_disp_req_i,
+  input  logic                    alu_si_disp_req_valid_i,
+  output logic                    alu_si_disp_req_ready_o,
+  input  alu_rs_disp_req_t [NofAlus-1:0] alu_rs_disp_reqs_i,
+  input  logic      [NofAlus-1:0] alu_rs_disp_reqs_valid_i,
+  output logic      [NofAlus-1:0] alu_rs_disp_reqs_ready_o,
+  output disp_rsp_t [NofAlus-1:0] alu_rs_disp_rsp_o,
   output logic      [NofAlus-1:0] alu_rs_full_o,
 
-  input  disp_req_t [NofLsus-1:0] lsu_disp_reqs_i,
-  input  logic      [NofLsus-1:0] lsu_disp_reqs_valid_i,
-  output logic      [NofLsus-1:0] lsu_disp_reqs_ready_o,
-  output disp_rsp_t [NofLsus-1:0] lsu_disp_rsp_o,
+  input  lsu_si_disp_req_t        lsu_si_disp_req_i,
+  input  logic                    lsu_si_disp_req_valid_i,
+  output logic                    lsu_si_disp_req_ready_o,
+  input  lsu_rs_disp_req_t [NofLsus-1:0] lsu_rs_disp_reqs_i,
+  input  logic      [NofLsus-1:0] lsu_rs_disp_reqs_valid_i,
+  output logic      [NofLsus-1:0] lsu_rs_disp_reqs_ready_o,
+  output disp_rsp_t [NofLsus-1:0] lsu_rs_disp_rsp_o,
   output logic                    lsu_empty_o,
   output logic                    lsu_addr_misaligned_o,
   output dreq_t     [NofLsus-1:0] lsu_dreq_o,
@@ -128,10 +139,13 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic      [NofLsus-1:0] caq_rsp_valid_i,
   output logic      [NofLsus-1:0] caq_rsp_valid_o,
 
-  input  disp_req_t          [NofFpus-1:0] fpu_disp_reqs_i,
-  input  logic               [NofFpus-1:0] fpu_disp_reqs_valid_i,
-  output logic               [NofFpus-1:0] fpu_disp_reqs_ready_o,
-  output disp_rsp_t          [NofFpus-1:0] fpu_disp_rsp_o,
+  input  fpu_si_disp_req_t                 fpu_si_disp_req_i,
+  input  logic                             fpu_si_disp_req_valid_i,
+  output logic                             fpu_si_disp_req_ready_o,
+  input  fpu_rs_disp_req_t          [NofFpus-1:0] fpu_rs_disp_reqs_i,
+  input  logic               [NofFpus-1:0] fpu_rs_disp_reqs_valid_i,
+  output logic               [NofFpus-1:0] fpu_rs_disp_reqs_ready_o,
+  output disp_rsp_t          [NofFpus-1:0] fpu_rs_disp_rsp_o,
   output logic               [NofFpus-1:0] fpu_rs_full_o,
   // Combined status of all FPUs
   output fpnew_pkg::status_t fpu_status_o,
@@ -184,6 +198,10 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
                                         NofFpus * FpuNofRss;
 
   typedef int unsigned rs_param_array_t [NofRs-1:0];
+
+  typedef alu_si_disp_req_t alu_issue_req_t;
+  typedef lsu_si_disp_req_t lsu_issue_req_t;
+  typedef fpu_si_disp_req_t fpu_issue_req_t;
 
   function automatic rs_param_array_t gen_rs_param_array(int AluParam, int LsuParam, int FpuParam);
     rs_param_array_t tmp;
@@ -293,17 +311,28 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   //////////
   // ALUs //
   //////////
-
+  
   logic [NofAlus-1:0] alu_rs_empty;
   logic [NofAlus-1:0] alu_rs_busy;
+  alu_issue_req_t alu_si_issue_req;
+  logic           alu_si_issue_req_valid;
+  logic           alu_si_issue_req_ready;
 
+  // Issue and dispatch request are there same for single issue
+  assign alu_si_issue_req        = alu_si_disp_req_i;
+  assign alu_si_issue_req_valid  = alu_si_disp_req_valid_i;
+  assign alu_si_disp_req_ready_o = alu_si_issue_req_ready;
+  
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
 
     // Signals connecting the FU block and the actual FU
-    issue_req_t alu_issue_req;
+    alu_issue_req_t alu_rs_issue_req;
+    logic           alu_rs_issue_req_valid;
+    logic           alu_rs_issue_req_ready;
+    
+    alu_issue_req_t alu_issue_req;
     logic           alu_issue_req_valid;
     logic           alu_issue_req_ready;
-    logic           alu_exec_commit;
     alu_result_t    alu_result;
     instr_tag_t     alu_result_tag;
     logic           alu_result_valid_raw;
@@ -321,53 +350,77 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     issue_alu_trace_t alu_trace_int;
     // pragma translate_on
 
-    schnova_fu_block #(
-      .UseFreeList(UseFreeList),
-      .disp_req_t    (disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (issue_req_t),
-      .instr_tag_t   (instr_tag_t),
+    schnova_res_stat #(
+      .UseFreeList  (UseFreeList),
       .NofRss        (AluNofRss),
+      .NofOperands   (2),
       .RsType        (ALU_RS),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .XLEN          (XLEN),
       .FLEN          (FLEN),
+      .disp_req_t    (alu_rs_disp_req_t),
+      .disp_rsp_t    (disp_rsp_t),
+      .issue_req_t   (alu_issue_req_t),
+      .instr_tag_t   (instr_tag_t),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
       .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .refcnt_req_t  (refcnt_req_t)
-    ) i_fu_block (
+    ) i_res_stat (
       .clk_i,
       .rst_i,
       /// RS control signals
-      .producer_id_i      (producer_start_id),
-      .restart_i          (restart_i),
-      .en_superscalar_i   (en_superscalar_i),
-      .rs_full_o          (alu_rs_full_o[alu]),
-      .rs_empty_o         (alu_rs_empty[alu]),
+      .producer_id_i          (producer_start_id),
+      .restart_i              (restart_i),
+      .en_superscalar_i       (en_superscalar_i),
+      .rs_full_o              (alu_rs_full_o[alu]),
+      .rs_empty_o             (alu_rs_empty[alu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i         (alu_disp_reqs_i[alu]),
-      .disp_req_valid_i   (alu_disp_reqs_valid_i[alu]),
-      .disp_req_ready_o   (alu_disp_reqs_ready_o[alu]),
-      .instr_exec_commit_i(instr_exec_commit_i),
-      .disp_rsp_o         (alu_disp_rsp_o[alu]),
+      .disp_req_i             (alu_rs_disp_reqs_i[alu]),
+      .disp_req_valid_i       (alu_rs_disp_reqs_valid_i[alu]),
+      .disp_req_ready_o       (alu_rs_disp_reqs_ready_o[alu]),
+      .instr_exec_commit_i    (instr_exec_commit_i),
+      .disp_rsp_o             (alu_rs_disp_rsp_o[alu]),
       // To FU
-      .issue_req_o        (alu_issue_req),
-      .issue_req_valid_o  (alu_issue_req_valid),
-      .issue_req_ready_i  (alu_issue_req_ready),
-      .instr_exec_commit_o(alu_exec_commit),
+      .issue_req_o            (alu_rs_issue_req),
+      .issue_req_valid_o      (alu_rs_issue_req_valid),
+      .issue_req_ready_i      (alu_rs_issue_req_ready),
+      .instr_exec_commit_o    (/* Not used */),
       /// Operand distribution network
-      .op_reqs_o          (alu_op_reqs[alu]),
-      .op_rsps_i          (alu_op_rsps[alu]),
-      .op_rsps_valid_i    (alu_op_rsps_valid[alu]),
+      .op_reqs_o              (alu_op_reqs[alu]),
+      .op_rsps_i              (alu_op_rsps[alu]),
+      .op_rsps_valid_i        (alu_op_rsps_valid[alu]),
       /// Refcount issue requests
-      .issue_clr_req_valid_o(issue_alu_clr_req_valid_o[alu]),
-      .issue_clr_req_o(issue_alu_clr_req_o[alu])
+      .issue_clr_req_valid_o  (issue_alu_clr_req_valid_o[alu]),
+      .issue_clr_req_o        (issue_alu_clr_req_o[alu])
     );
+
+    if (alu == 0) begin : gen_rs_si_issue_mux
+      // ALU0 can receive issue requests from either
+      // directly from the dispatcher (single issue)
+      // or from the reservation station
+      stream_mux #(
+        .DATA_T(alu_issue_req_t),
+        .N_INP (2)
+      ) i_alu_issue_mux (
+        .inp_data_i ({alu_rs_issue_req,       alu_si_issue_req}),
+        .inp_valid_i({alu_rs_issue_req_valid, alu_si_issue_req_valid}),
+        .inp_ready_o({alu_rs_issue_req_ready, alu_si_issue_req_ready}),
+        .inp_sel_i  (en_superscalar_i),
+        .oup_data_o (alu_issue_req),
+        .oup_valid_o(alu_issue_req_valid),
+        .oup_ready_i(alu_issue_req_ready)
+      );
+    end else begin : gen_rs_issue_req
+      // Every other alu can only receive requests from the reservation station
+      assign alu_issue_req          = alu_rs_issue_req;
+      assign alu_issue_req_valid    = alu_rs_issue_req_valid;
+      assign alu_rs_issue_req_ready = alu_issue_req_ready;
+    end
 
     // Map the results fromn the FU to the result ports
     assign alu_results_o[alu] = '{
@@ -383,7 +436,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .XLEN         (XLEN),
       .HasBranch    (alu == '0), // only the first ALU has the branch logic
       .HasMultiplier((alu == '0) && MulInAlu0), // only the first ALU has the multiplier
-      .issue_req_t  (issue_req_t),
+      .issue_req_t  (alu_issue_req_t),
       .instr_tag_t  (instr_tag_t)
     ) i_alu (
       .clk_i,
@@ -417,20 +470,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       producer: producer
     };
     // pragma translate_on
-
-    // Guard the result with the commit signal
-    // If we want to dispatch an ALU instruction, in particular a branching instruction, we may only
-    // commit the instruction if there is no instruction address misaligned exception.
-    // Therefore, we must "kill" the writeback if we don't commit. The kill must be after the result
-    // as otherwise we create a loop. For the other FUs the "kill" is before we pass the instruction
-    // downstream.
-    // TODO(colluca): this can no longer be applied after addition of the multiplier which, taking
-    // multiple cycles, does not receive alu_exec_commit in the cycle of its writeback. As a result,
-    // the writeback never occurs.
-    // In any case, this does not sound needed to me. Branch instructions never writeback to the RF.
-    // The only side effect they have is on the PC, but this does not seem to depend on
-    // alu_result_valid at all.
-    // assign alu_result_valid = alu_result_valid_raw & alu_exec_commit;
     assign alu_result_valid = alu_result_valid_raw;
   end
 
@@ -455,20 +494,32 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   logic [NofLsus-1:0] lsu_rs_empty;
   logic [NofLsus-1:0] lsu_rs_busy;
+  lsu_issue_req_t lsu_si_issue_req;
+  logic           lsu_si_issue_req_valid;
+  logic           lsu_si_issue_req_ready;
+
+  // Issue and dispatch request are there same for single issue
+  assign lsu_si_issue_req        = lsu_si_disp_req_i;
+  assign lsu_si_issue_req_valid  = lsu_si_disp_req_valid_i;
+  assign lsu_si_disp_req_ready_o = lsu_si_issue_req_ready;
 
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsus
 
     // Signals connecting the FU block and the actual FU
-    issue_req_t  lsu_issue_req;
-    logic        lsu_issue_req_valid;
-    logic        lsu_issue_req_ready;
-    logic        lsu_exec_commit;
-    logic        lsu_addr_misaligned_raw;
-    lsu_result_t lsu_result;
-    instr_tag_t  lsu_result_tag;
-    logic        lsu_result_valid;
-    logic        lsu_result_ready;
-    logic        lsu_busy;
+    lsu_issue_req_t  lsu_rs_issue_req;
+    logic            lsu_rs_issue_req_valid;
+    logic            lsu_rs_issue_req_ready;
+    lsu_issue_req_t  lsu_issue_req;
+    logic            lsu_issue_req_valid;
+    logic            lsu_issue_req_ready;
+    logic            lsu_rs_exec_commit;
+    logic            lsu_exec_commit;
+    logic            lsu_addr_misaligned_raw;
+    lsu_result_t     lsu_result;
+    instr_tag_t      lsu_result_tag;
+    logic            lsu_result_valid;
+    logic            lsu_result_ready;
+    logic            lsu_busy;
 
     producer_id_t producer_start_id;
     assign producer_start_id = producer_id_t'{
@@ -480,25 +531,26 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     issue_lsu_trace_t lsu_trace_int;
     // pragma translate_on
 
-    schnova_fu_block #(
-      .UseFreeList(UseFreeList),
-      .disp_req_t    (disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (issue_req_t),
-      .instr_tag_t   (instr_tag_t),
+    schnova_res_stat #(
+      .UseFreeList   (UseFreeList),
       .NofRss        (LsuNofRss),
+      .NofOperands   (2),
       .RsType        (LSU_RS),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .XLEN          (XLEN),
       .FLEN          (FLEN),
+      .disp_req_t    (lsu_rs_disp_req_t),
+      .disp_rsp_t    (disp_rsp_t),
+      .issue_req_t   (lsu_issue_req_t),
+      .instr_tag_t   (instr_tag_t),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
       .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .refcnt_req_t  (refcnt_req_t)
-    ) i_fu_block (
+    ) i_res_stat (
       .clk_i,
       .rst_i,
       /// RS control signals
@@ -509,24 +561,51 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .rs_empty_o         (lsu_rs_empty[lsu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i         (lsu_disp_reqs_i[lsu]),
-      .disp_req_valid_i   (lsu_disp_reqs_valid_i[lsu]),
-      .disp_req_ready_o   (lsu_disp_reqs_ready_o[lsu]),
+      .disp_req_i         (lsu_rs_disp_reqs_i[lsu]),
+      .disp_req_valid_i   (lsu_rs_disp_reqs_valid_i[lsu]),
+      .disp_req_ready_o   (lsu_rs_disp_reqs_ready_o[lsu]),
       .instr_exec_commit_i(instr_exec_commit_i),
-      .disp_rsp_o         (lsu_disp_rsp_o[lsu]),
+      .disp_rsp_o         (lsu_rs_disp_rsp_o[lsu]),
       // To FU
-      .issue_req_o        (lsu_issue_req),
-      .issue_req_valid_o  (lsu_issue_req_valid),
-      .issue_req_ready_i  (lsu_issue_req_ready),
-      .instr_exec_commit_o(lsu_exec_commit),
+      .issue_req_o        (lsu_rs_issue_req),
+      .issue_req_valid_o  (lsu_rs_issue_req_valid),
+      .issue_req_ready_i  (lsu_rs_issue_req_ready),
+      .instr_exec_commit_o(lsu_rs_exec_commit),
       /// Operand distribution network
       .op_reqs_o          (lsu_op_reqs[lsu]),
       .op_rsps_i          (lsu_op_rsps[lsu]),
       .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
       /// Refcount issue requests
       .issue_clr_req_valid_o(issue_lsu_clr_req_valid_o[lsu]),
-      .issue_clr_req_o(issue_lsu_clr_req_o[lsu])
+      .issue_clr_req_o      (issue_lsu_clr_req_o[lsu])
     );
+
+    if (lsu == 0) begin
+      // LSU0 can receive issue requests from either
+      // directly from the dispatcher (single issue)
+      // or from the reservation station
+      stream_mux #(
+        .DATA_T(lsu_issue_req_t),
+        .N_INP (2)
+      ) i_lsu_issue_mux (
+        .inp_data_i ({lsu_rs_issue_req,       lsu_si_issue_req}),
+        .inp_valid_i({lsu_rs_issue_req_valid, lsu_si_issue_req_valid}),
+        .inp_ready_o({lsu_rs_issue_req_ready, lsu_si_issue_req_ready}),
+        .inp_sel_i  (en_superscalar_i),
+        .oup_data_o (lsu_issue_req),
+        .oup_valid_o(lsu_issue_req_valid),
+        .oup_ready_i(lsu_issue_req_ready)
+      );
+
+      assign lsu_exec_commit = en_superscalar_i ? lsu_rs_exec_commit : instr_exec_commit_i;
+    end else begin
+      // Every other lsu can only receive requests from the reservation station
+      assign lsu_issue_req          = lsu_rs_issue_req;
+      assign lsu_issue_req_valid    = lsu_rs_issue_req_valid;
+      assign lsu_rs_issue_req_ready = lsu_issue_req_ready;
+
+      assign lsu_exec_commit        = lsu_rs_exec_commit;
+    end
 
     // Map the results fromn the FU to the writeback arbiter signals
     assign lsu_results_o[lsu]     = lsu_result;
@@ -537,7 +616,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     schnova_lsu #(
       .XLEN               (XLEN),
-      .issue_req_t        (issue_req_t),
+      .issue_req_t        (lsu_issue_req_t),
       .AddrWidth          (AddrWidth),
       .DataWidth          (DataWidth),
       .dreq_t             (dreq_t),
@@ -613,12 +692,24 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   logic [NofFpus-1:0] fpu_rs_empty;
   logic [NofFpus-1:0] fpu_rs_busy;
+  fpu_issue_req_t fpu_si_issue_req;
+  logic           fpu_si_issue_req_valid;
+  logic           fpu_si_issue_req_ready;
+
+  // Issue and dispatch request are there same for single issue
+  assign fpu_si_issue_req        = fpu_si_disp_req_i;
+  assign fpu_si_issue_req_valid  = fpu_si_disp_req_valid_i;
+  assign fpu_si_disp_req_ready_o = fpu_si_issue_req_ready;
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpus
     // Signals connecting the FU block and the actual FU
-    issue_req_t     fpu_issue_req;
+    fpu_issue_req_t fpu_rs_issue_req;
+    logic           fpu_rs_issue_req_valid;
+    logic           fpu_rs_issue_req_ready;
+    fpu_issue_req_t fpu_issue_req;
     logic           fpu_issue_req_valid;
     logic           fpu_issue_req_ready;
+    logic           fpu_rs_exec_commit;
     logic           fpu_exec_commit;
     fpu_result_t    fpu_result;
     instr_tag_t     fpu_result_tag;
@@ -634,25 +725,26 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     issue_fpu_trace_t fpu_trace_int;
     // pragma translate_on
 
-    schnova_fu_block #(
-      .UseFreeList(UseFreeList),
-      .disp_req_t    (disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (issue_req_t),
-      .instr_tag_t   (instr_tag_t),
+    schnova_res_stat #(
+      .UseFreeList   (UseFreeList),
       .NofRss        (FpuNofRss),
+      .NofOperands   (3),
       .RsType        (FPU_RS),
       .RegAddrWidth  (RegAddrWidth),
       .MaxIterationsW(MaxIterationsW),
       .XLEN          (XLEN),
       .FLEN          (FLEN),
+      .disp_req_t    (fpu_rs_disp_req_t),
+      .disp_rsp_t    (disp_rsp_t),
+      .issue_req_t   (fpu_issue_req_t),
+      .instr_tag_t   (instr_tag_t),
       .producer_id_t (producer_id_t),
       .slot_id_t     (slot_id_t),
       .phy_id_t      (phy_id_t),
       .operand_req_t (operand_req_t),
       .operand_t     (operand_t),
       .refcnt_req_t  (refcnt_req_t)
-    ) i_fu_block (
+    ) i_res_stat (
       .clk_i,
       .rst_i,
       /// RS control signals
@@ -663,16 +755,16 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .rs_empty_o         (fpu_rs_empty[fpu]),
       /// Instruction stream
       // From dispatcher
-      .disp_req_i         (fpu_disp_reqs_i[fpu]),
-      .disp_req_valid_i   (fpu_disp_reqs_valid_i[fpu]),
-      .disp_req_ready_o   (fpu_disp_reqs_ready_o[fpu]),
+      .disp_req_i         (fpu_rs_disp_reqs_i[fpu]),
+      .disp_req_valid_i   (fpu_rs_disp_reqs_valid_i[fpu]),
+      .disp_req_ready_o   (fpu_rs_disp_reqs_ready_o[fpu]),
       .instr_exec_commit_i(fpu_instr_exec_commit_i),
-      .disp_rsp_o         (fpu_disp_rsp_o[fpu]),
+      .disp_rsp_o         (fpu_rs_disp_rsp_o[fpu]),
       // To FU
-      .issue_req_o        (fpu_issue_req),
-      .issue_req_valid_o  (fpu_issue_req_valid),
-      .issue_req_ready_i  (fpu_issue_req_ready),
-      .instr_exec_commit_o(fpu_exec_commit),
+      .issue_req_o           (fpu_rs_issue_req),
+      .issue_req_valid_o     (fpu_rs_issue_req_valid),
+      .issue_req_ready_i     (fpu_rs_issue_req_ready),
+      .instr_exec_commit_o(fpu_rs_exec_commit),
       /// Operand distribution network
       .op_reqs_o          (fpu_op_reqs[fpu]),
       .op_rsps_i          (fpu_op_rsps[fpu]),
@@ -681,6 +773,33 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .issue_clr_req_valid_o(issue_fpu_clr_req_valid_o[fpu]),
       .issue_clr_req_o(issue_fpu_clr_req_o[fpu])
     );
+
+    if (fpu == 0) begin
+      // FPU0 can receive issue requests from either
+      // directly from the dispatcher (single issue)
+      // or from the reservation station
+      stream_mux #(
+        .DATA_T(fpu_issue_req_t),
+        .N_INP (2)
+      ) i_lsu_issue_mux (
+        .inp_data_i ({fpu_rs_issue_req,       fpu_si_issue_req}),
+        .inp_valid_i({fpu_rs_issue_req_valid, fpu_si_issue_req_valid}),
+        .inp_ready_o({fpu_rs_issue_req_ready, fpu_si_issue_req_ready}),
+        .inp_sel_i  (en_superscalar_i),
+        .oup_data_o (fpu_issue_req),
+        .oup_valid_o(fpu_issue_req_valid),
+        .oup_ready_i(fpu_issue_req_ready)
+      );
+
+      assign fpu_exec_commit = en_superscalar_i ? fpu_rs_exec_commit : instr_exec_commit_i;
+    end else begin
+      // Every other fpu can only receive requests from the reservation station
+      assign fpu_issue_req          = fpu_rs_issue_req;
+      assign fpu_issue_req_valid    = fpu_rs_issue_req_valid;
+      assign fpu_rs_issue_req_ready = fpu_issue_req_ready;
+
+      assign fpu_exec_commit        = fpu_rs_exec_commit;
+    end
 
     // Map the results from the FU to the writeback arbiter signals
     assign fpu_results_o[fpu]     = fpu_result;
@@ -701,7 +820,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .FLEN             (FLEN),
       .RegisterFPUIn    (RegisterFPUIn),
       .RegisterFPUOut   (RegisterFPUOut),
-      .issue_req_t      (issue_req_t),
+      .issue_req_t      (fpu_issue_req_t),
       .instr_tag_t      (instr_tag_t)
     ) i_fpu (
       .clk_i,

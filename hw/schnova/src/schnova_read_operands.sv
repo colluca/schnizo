@@ -21,6 +21,7 @@ module schnova_read_operands import schnova_pkg::*; #(
   parameter type         reg_map_t   = logic,
   parameter type         fu_data_t = logic
 ) (
+  input  logic            en_superscalar_i,
   input  logic [XLEN-1:0] jump_pc_i,
   /// From decoder
   input  instr_dec_t [PipeWidth-1:0]                 instr_dec_i,
@@ -73,7 +74,7 @@ module schnova_read_operands import schnova_pkg::*; #(
       end else if (instr_dec_i[instr_idx].use_rs1addr_as_op_a) begin
         fu_data_o[instr_idx].operand_a[XLEN-1:0] = {{XLEN-5{1'b0}}, instr_dec_i[instr_idx].rs1[4:0]};
       end else begin
-        if (instr_idx == 0) begin
+        if ((instr_idx == 0) && !en_superscalar_i) begin
           if (instr_dec_i[instr_idx].rs1_is_fp) begin
             fu_data_o[instr_idx].operand_a[FLEN-1:0] = fpr_rdata_i[0];
           end else begin
@@ -94,7 +95,7 @@ module schnova_read_operands import schnova_pkg::*; #(
           instr_dec_i[instr_idx].use_imm_as_op_b && !instr_dec_i[instr_idx].is_branch) begin
           fu_data_o[instr_idx].operand_b[XLEN-1:0] = instr_dec_i[instr_idx].imm;
       end else begin
-        if (instr_idx == 0) begin
+        if ((instr_idx == 0) && !en_superscalar_i) begin
           if (instr_dec_i[instr_idx].rs2_is_fp) begin
             fu_data_o[instr_idx].operand_b[FLEN-1:0] = fpr_rdata_i[1];
           end else begin
@@ -108,7 +109,7 @@ module schnova_read_operands import schnova_pkg::*; #(
 
       // Operand C - reuses imm field
       if (instr_dec_i[instr_idx].use_imm_as_rs3) begin
-        if (instr_idx == 0) begin
+        if ((instr_idx == 0) && !en_superscalar_i) begin
           fu_data_o[instr_idx].imm[FLEN-1:0] = fpr_rdata_i[2];
         end else begin
           // For all other instructions we just assign a dummy value

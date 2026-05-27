@@ -260,13 +260,18 @@ module schnova_controller import schnova_pkg::*; #(
 
   // Load and store address are missaligned if LSU assert address misaligned
   // and a load/store operation is currently being processed.
-  // TODO (soderma): In superscalar mode address misalginemdents are ignored
-  // this is also done this way in schnizo at the moment. Hence load
-  // stores address misalignments only have to be checked for the first instruction
-  assign load_addr_misaligned_o  = lsu_addr_misaligned_i && (instr_decoded_i[0].fu == LOAD) &&
-                                   instr_valid[0] && registers_ready_i;
-  assign store_addr_misaligned_o = lsu_addr_misaligned_i && (instr_decoded_i[0].fu == STORE) &&
-                                   instr_valid[0] && registers_ready_i;
+  // In super scalar mode we ignore the LSU misaligned signal (as is done in schnizo) but here we don't check the lsu_addr_misaligned_i signal
+  // when it is ignored anyway.
+  assign load_addr_misaligned_o  = en_superscalar_o ? 1'b0 : 
+                                   lsu_addr_misaligned_i           && 
+                                   (instr_decoded_i[0].fu == LOAD) &&
+                                   instr_valid[0]                  && 
+                                   registers_ready_i;
+  assign store_addr_misaligned_o = en_superscalar_o ? 1'b0 : 
+                                   lsu_addr_misaligned_i            && 
+                                   (instr_decoded_i[0].fu == STORE) &&
+                                   instr_valid[0]                   && 
+                                   registers_ready_i;
 
   // A privilege violation is handled as illegal instruction
   // This is done at a instruction block granularity, we throw an exception
