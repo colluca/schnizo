@@ -10,7 +10,7 @@
 // The M-unroll dimension gives the available variants: 1x, 2x, 4x, 6x, 8x.
 //
 // frep body instruction counts:
-//   1x: 5   2x: 8   4x: 14   6x: 21   8x: 27
+//   1x: 5   2x: 8   4x: 14   6x: 22   8x: 27
 //
 // For 4x/6x/8x the last frep iteration prefetches one element past the end of
 // each A row - this benign out-of-bounds load is intentional and matches the
@@ -413,8 +413,9 @@ static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
 
 // ---------------------------------------------------------------------------
 // gemm_fp32_simd_6x  - 6 output rows per M-loop iteration
-// Rows 0-2 accumulate via v24; rows 3-5 via v26 (same B data, dual-loaded).
-// frep body: 21 instructions.
+// Accumulators: v0-v5 (rows 0-5). B scratch: v6 (ptr_b1), v7 (ptr_b2).
+// Uses all 8 vector registers ? fits exactly in the reduced VRF.
+// frep body: 22 instructions.
 // ---------------------------------------------------------------------------
 static inline void gemm_fp32_simd_6x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -439,7 +440,8 @@ static inline void gemm_fp32_simd_6x(uint32_t setup_ssr,
     for (int j_tile = 0; j_tile < (int)N; j_tile += VL) {
         int i = 0;
         for (; i + 5 < (int)M; i += 6) {
-            float *ptr_b = B + j_tile;
+            float *ptr_b1 = B + j_tile;
+            float *ptr_b2 = B + j_tile;
             float *ptr_a0 = A + i * lda;
             float *ptr_a1 = A + (i + 1) * lda;
             float *ptr_a2 = A + (i + 2) * lda;
@@ -450,133 +452,134 @@ static inline void gemm_fp32_simd_6x(uint32_t setup_ssr,
             float t3 = *ptr_a3, t4 = *ptr_a4, t5 = *ptr_a5;
 
             if (beta) {
-                asm volatile("vle32.v v0,  (%0)" : : "r"(C + i * ldc + j_tile));
-                asm volatile("vle32.v v8,  (%0)"
+                asm volatile("vle32.v v0, (%0)" : : "r"(C + i * ldc + j_tile));
+                asm volatile("vle32.v v1, (%0)"
                              :
                              : "r"(C + (i + 1) * ldc + j_tile));
-                asm volatile("vle32.v v16, (%0)"
+                asm volatile("vle32.v v2, (%0)"
                              :
                              : "r"(C + (i + 2) * ldc + j_tile));
-                asm volatile("vle32.v v28, (%0)"
+                asm volatile("vle32.v v3, (%0)"
                              :
                              : "r"(C + (i + 3) * ldc + j_tile));
-                asm volatile("vle32.v v4,  (%0)"
+                asm volatile("vle32.v v4, (%0)"
                              :
                              : "r"(C + (i + 4) * ldc + j_tile));
-                asm volatile("vle32.v v12, (%0)"
+                asm volatile("vle32.v v5, (%0)"
                              :
                              : "r"(C + (i + 5) * ldc + j_tile));
                 uint32_t n_frep = K - 1;
                 asm volatile(
-                    "frep.o %[n_frep], 21, 0, 0              \n"
-                    "vle32.v  v24, (%[ptr_b])                \n"
-                    "vle32.v  v26, (%[ptr_b])                \n"
-                    "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
-                    "vfmacc.vf v0,  %[ft0], v24              \n"
-                    "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
-                    "flw      %[ft0], 0(%[ptr_a0])           \n"
-                    "vfmacc.vf v8,  %[ft1], v24              \n"
-                    "add      %[ptr_a1], %[ptr_a1], %[inc_a] \n"
-                    "flw      %[ft1], 0(%[ptr_a1])           \n"
-                    "vfmacc.vf v16, %[ft2], v24              \n"
-                    "add      %[ptr_a2], %[ptr_a2], %[inc_a] \n"
-                    "flw      %[ft2], 0(%[ptr_a2])           \n"
-                    "vfmacc.vf v28, %[ft3], v26              \n"
-                    "add      %[ptr_a3], %[ptr_a3], %[inc_a] \n"
-                    "flw      %[ft3], 0(%[ptr_a3])           \n"
-                    "vfmacc.vf v4,  %[ft4], v26              \n"
-                    "add      %[ptr_a4], %[ptr_a4], %[inc_a] \n"
-                    "flw      %[ft4], 0(%[ptr_a4])           \n"
-                    "vfmacc.vf v12, %[ft5], v26              \n"
-                    "add      %[ptr_a5], %[ptr_a5], %[inc_a] \n"
-                    "flw      %[ft5], 0(%[ptr_a5])           \n"
-                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
-                      [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
-                      [ ptr_a3 ] "+r"(ptr_a3), [ ptr_a4 ] "+r"(ptr_a4),
-                      [ ptr_a5 ] "+r"(ptr_a5), [ ft0 ] "+f"(t0),
-                      [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2), [ ft3 ] "+f"(t3),
-                      [ ft4 ] "+f"(t4), [ ft5 ] "+f"(t5)
+                    "frep.o %[n_frep], 22, 0, 0                  \n"
+                    "vle32.v  v6, (%[ptr_b1])                     \n"
+                    "add      %[ptr_b1], %[ptr_b1], %[inc_b]      \n"
+                    "vfmacc.vf v0, %[ft0], v6                     \n"
+                    "add      %[ptr_a0], %[ptr_a0], %[inc_a]      \n"
+                    "flw      %[ft0], 0(%[ptr_a0])                \n"
+                    "vfmacc.vf v1, %[ft1], v6                     \n"
+                    "add      %[ptr_a1], %[ptr_a1], %[inc_a]      \n"
+                    "flw      %[ft1], 0(%[ptr_a1])                \n"
+                    "vfmacc.vf v2, %[ft2], v6                     \n"
+                    "add      %[ptr_a2], %[ptr_a2], %[inc_a]      \n"
+                    "flw      %[ft2], 0(%[ptr_a2])                \n"
+                    "vle32.v  v7, (%[ptr_b2])                     \n"
+                    "add      %[ptr_b2], %[ptr_b2], %[inc_b]      \n"
+                    "vfmacc.vf v3, %[ft3], v7                     \n"
+                    "add      %[ptr_a3], %[ptr_a3], %[inc_a]      \n"
+                    "flw      %[ft3], 0(%[ptr_a3])                \n"
+                    "vfmacc.vf v4, %[ft4], v7                     \n"
+                    "add      %[ptr_a4], %[ptr_a4], %[inc_a]      \n"
+                    "flw      %[ft4], 0(%[ptr_a4])                \n"
+                    "vfmacc.vf v5, %[ft5], v7                     \n"
+                    "add      %[ptr_a5], %[ptr_a5], %[inc_a]      \n"
+                    "flw      %[ft5], 0(%[ptr_a5])                \n"
+                    : [ ptr_b1 ] "+r"(ptr_b1), [ ptr_b2 ] "+r"(ptr_b2),
+                      [ ptr_a0 ] "+r"(ptr_a0), [ ptr_a1 ] "+r"(ptr_a1),
+                      [ ptr_a2 ] "+r"(ptr_a2), [ ptr_a3 ] "+r"(ptr_a3),
+                      [ ptr_a4 ] "+r"(ptr_a4), [ ptr_a5 ] "+r"(ptr_a5),
+                      [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2),
+                      [ ft3 ] "+f"(t3), [ ft4 ] "+f"(t4), [ ft5 ] "+f"(t5)
                     : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
                       [ n_frep ] "r"(n_frep)
-                    : "v0", "v4", "v8", "v12", "v16", "v24", "v26", "v28",
-                      "memory");
+                    : "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "memory");
             } else {
-                asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
-                ptr_b += ldb;
-                asm volatile("vfmul.vf v0,  v24, %0" : : "f"(t0));
+                asm volatile("vle32.v v6, (%0)" : : "r"(ptr_b1));
+                ptr_b1 += ldb;
+                ptr_b2 += ldb;
+                asm volatile("vfmul.vf v0, v6, %0" : : "f"(t0));
                 ptr_a0++;
                 t0 = *ptr_a0;
-                asm volatile("vfmul.vf v8,  v24, %0" : : "f"(t1));
+                asm volatile("vfmul.vf v1, v6, %0" : : "f"(t1));
                 ptr_a1++;
                 t1 = *ptr_a1;
-                asm volatile("vfmul.vf v16, v24, %0" : : "f"(t2));
+                asm volatile("vfmul.vf v2, v6, %0" : : "f"(t2));
                 ptr_a2++;
                 t2 = *ptr_a2;
-                asm volatile("vfmul.vf v28, v24, %0" : : "f"(t3));
+                asm volatile("vfmul.vf v3, v6, %0" : : "f"(t3));
                 ptr_a3++;
                 t3 = *ptr_a3;
-                asm volatile("vfmul.vf v4,  v24, %0" : : "f"(t4));
+                asm volatile("vfmul.vf v4, v6, %0" : : "f"(t4));
                 ptr_a4++;
                 t4 = *ptr_a4;
-                asm volatile("vfmul.vf v12, v24, %0" : : "f"(t5));
+                asm volatile("vfmul.vf v5, v6, %0" : : "f"(t5));
                 ptr_a5++;
                 t5 = *ptr_a5;
                 uint32_t n_frep = K - 2;
                 asm volatile(
-                    "frep.o %[n_frep], 21, 0, 0              \n"
-                    "vle32.v  v24, (%[ptr_b])                \n"
-                    "vle32.v  v26, (%[ptr_b])                \n"
-                    "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
-                    "vfmacc.vf v0,  %[ft0], v24              \n"
-                    "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
-                    "flw      %[ft0], 0(%[ptr_a0])           \n"
-                    "vfmacc.vf v8,  %[ft1], v24              \n"
-                    "add      %[ptr_a1], %[ptr_a1], %[inc_a] \n"
-                    "flw      %[ft1], 0(%[ptr_a1])           \n"
-                    "vfmacc.vf v16, %[ft2], v24              \n"
-                    "add      %[ptr_a2], %[ptr_a2], %[inc_a] \n"
-                    "flw      %[ft2], 0(%[ptr_a2])           \n"
-                    "vfmacc.vf v28, %[ft3], v26              \n"
-                    "add      %[ptr_a3], %[ptr_a3], %[inc_a] \n"
-                    "flw      %[ft3], 0(%[ptr_a3])           \n"
-                    "vfmacc.vf v4,  %[ft4], v26              \n"
-                    "add      %[ptr_a4], %[ptr_a4], %[inc_a] \n"
-                    "flw      %[ft4], 0(%[ptr_a4])           \n"
-                    "vfmacc.vf v12, %[ft5], v26              \n"
-                    "add      %[ptr_a5], %[ptr_a5], %[inc_a] \n"
-                    "flw      %[ft5], 0(%[ptr_a5])           \n"
-                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
-                      [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
-                      [ ptr_a3 ] "+r"(ptr_a3), [ ptr_a4 ] "+r"(ptr_a4),
-                      [ ptr_a5 ] "+r"(ptr_a5), [ ft0 ] "+f"(t0),
-                      [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2), [ ft3 ] "+f"(t3),
-                      [ ft4 ] "+f"(t4), [ ft5 ] "+f"(t5)
+                    "frep.o %[n_frep], 22, 0, 0                  \n"
+                    "vle32.v  v6, (%[ptr_b1])                     \n"
+                    "add      %[ptr_b1], %[ptr_b1], %[inc_b]      \n"
+                    "vfmacc.vf v0, %[ft0], v6                     \n"
+                    "add      %[ptr_a0], %[ptr_a0], %[inc_a]      \n"
+                    "flw      %[ft0], 0(%[ptr_a0])                \n"
+                    "vfmacc.vf v1, %[ft1], v6                     \n"
+                    "add      %[ptr_a1], %[ptr_a1], %[inc_a]      \n"
+                    "flw      %[ft1], 0(%[ptr_a1])                \n"
+                    "vfmacc.vf v2, %[ft2], v6                     \n"
+                    "add      %[ptr_a2], %[ptr_a2], %[inc_a]      \n"
+                    "flw      %[ft2], 0(%[ptr_a2])                \n"
+                    "vle32.v  v7, (%[ptr_b2])                     \n"
+                    "add      %[ptr_b2], %[ptr_b2], %[inc_b]      \n"
+                    "vfmacc.vf v3, %[ft3], v7                     \n"
+                    "add      %[ptr_a3], %[ptr_a3], %[inc_a]      \n"
+                    "flw      %[ft3], 0(%[ptr_a3])                \n"
+                    "vfmacc.vf v4, %[ft4], v7                     \n"
+                    "add      %[ptr_a4], %[ptr_a4], %[inc_a]      \n"
+                    "flw      %[ft4], 0(%[ptr_a4])                \n"
+                    "vfmacc.vf v5, %[ft5], v7                     \n"
+                    "add      %[ptr_a5], %[ptr_a5], %[inc_a]      \n"
+                    "flw      %[ft5], 0(%[ptr_a5])                \n"
+                    : [ ptr_b1 ] "+r"(ptr_b1), [ ptr_b2 ] "+r"(ptr_b2),
+                      [ ptr_a0 ] "+r"(ptr_a0), [ ptr_a1 ] "+r"(ptr_a1),
+                      [ ptr_a2 ] "+r"(ptr_a2), [ ptr_a3 ] "+r"(ptr_a3),
+                      [ ptr_a4 ] "+r"(ptr_a4), [ ptr_a5 ] "+r"(ptr_a5),
+                      [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2),
+                      [ ft3 ] "+f"(t3), [ ft4 ] "+f"(t4), [ ft5 ] "+f"(t5)
                     : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
                       [ n_frep ] "r"(n_frep)
-                    : "v0", "v4", "v8", "v12", "v16", "v24", "v26", "v28",
-                      "memory");
+                    : "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "memory");
             }
-            asm volatile("vse32.v v0,  (%0)"
+            asm volatile("vse32.v v0, (%0)"
                          :
                          : "r"(C + i * ldc + j_tile)
                          : "memory");
-            asm volatile("vse32.v v8,  (%0)"
+            asm volatile("vse32.v v1, (%0)"
                          :
                          : "r"(C + (i + 1) * ldc + j_tile)
                          : "memory");
-            asm volatile("vse32.v v16, (%0)"
+            asm volatile("vse32.v v2, (%0)"
                          :
                          : "r"(C + (i + 2) * ldc + j_tile)
                          : "memory");
-            asm volatile("vse32.v v28, (%0)"
+            asm volatile("vse32.v v3, (%0)"
                          :
                          : "r"(C + (i + 3) * ldc + j_tile)
                          : "memory");
-            asm volatile("vse32.v v4,  (%0)"
+            asm volatile("vse32.v v4, (%0)"
                          :
                          : "r"(C + (i + 4) * ldc + j_tile)
                          : "memory");
-            asm volatile("vse32.v v12, (%0)"
+            asm volatile("vse32.v v5, (%0)"
                          :
                          : "r"(C + (i + 5) * ldc + j_tile)
                          : "memory");
@@ -591,35 +594,35 @@ static inline void gemm_fp32_simd_6x(uint32_t setup_ssr,
                 uint32_t n_frep = K - 1;
                 asm volatile(
                     "frep.o %[n_frep], 5, 0, 0               \n"
-                    "vle32.v  v24, (%[ptr_b])                \n"
+                    "vle32.v  v6, (%[ptr_b])                 \n"
                     "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
-                    "vfmacc.vf v0,  %[ft0], v24              \n"
+                    "vfmacc.vf v0, %[ft0], v6                \n"
                     "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
                     "flw      %[ft0], 0(%[ptr_a0])           \n"
                     : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
                       [ ft0 ] "+f"(t0)
                     : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
                       [ n_frep ] "r"(n_frep)
-                    : "v0", "v24", "memory");
+                    : "v0", "v6", "memory");
             } else {
-                asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
+                asm volatile("vle32.v v6, (%0)" : : "r"(ptr_b));
                 ptr_b += ldb;
-                asm volatile("vfmul.vf v0, v24, %0" : : "f"(t0));
+                asm volatile("vfmul.vf v0, v6, %0" : : "f"(t0));
                 ptr_a0++;
                 t0 = *ptr_a0;
                 uint32_t n_frep = K - 2;
                 asm volatile(
                     "frep.o %[n_frep], 5, 0, 0               \n"
-                    "vle32.v  v24, (%[ptr_b])                \n"
+                    "vle32.v  v6, (%[ptr_b])                 \n"
                     "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
-                    "vfmacc.vf v0,  %[ft0], v24              \n"
+                    "vfmacc.vf v0, %[ft0], v6                \n"
                     "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
                     "flw      %[ft0], 0(%[ptr_a0])           \n"
                     : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
                       [ ft0 ] "+f"(t0)
                     : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
                       [ n_frep ] "r"(n_frep)
-                    : "v0", "v24", "memory");
+                    : "v0", "v6", "memory");
             }
             asm volatile("vse32.v v0, (%0)"
                          :

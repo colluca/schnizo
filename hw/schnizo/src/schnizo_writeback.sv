@@ -201,6 +201,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
         end else if (spatz_gpr_valid) begin
           gpr_we_o = 1'b1;
           gpr_waddr_o = spatz_result_tag_i.dest_reg;
+          spatz_gpr_ready = 1'b1;
           gpr_wdata_o = spatz_result_i[XLEN-1:0];
         end
       end

@@ -25,11 +25,11 @@ module schnizo_fu_stage_synth #(
   // Scalar LSU configuration
   parameter int unsigned NofLsus         = 3,
   parameter int unsigned NofLsuRss       = 3,
-  parameter int unsigned NofLsuConstants = 8,
+  parameter int unsigned NofLsuConstants = 6,
   // Scalar FPU configuration
   parameter int unsigned NofFpus         = 1,
   parameter int unsigned NofFpuRss       = 4,
-  parameter int unsigned NofFpuConstants = 8,
+  parameter int unsigned NofFpuConstants = 6,
   // Vector VFU / VLSU unit counts
   parameter int unsigned NofVFU          = 1,
   parameter int unsigned NofVLSU         = 1,
@@ -37,11 +37,11 @@ module schnizo_fu_stage_synth #(
   parameter int unsigned NumSpatzFPUs    = 4,
   parameter int unsigned NumSpatzIPUs    = 1,
   // Vector RS depths
-  parameter int unsigned NofVfuRss       = 6,
-  parameter int unsigned NofVlsuRss      = 4,
+  parameter int unsigned NofVfuRss       = 8,
+  parameter int unsigned NofVlsuRss      = 6,
   // Vector constant-queue depths
   parameter int unsigned NofVfuConstants = 6,
-  parameter int unsigned NofVlsuConstants = 4
+  parameter int unsigned NofVlsuConstants = 2
 ) (
   input  logic                                                    clk_i,
   input  logic                                                    rst_ni,

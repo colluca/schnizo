@@ -164,9 +164,9 @@ module schnizo_controller import schnizo_pkg::*; #(
     logic [FrepBodySizeWidth-1:0] loop_bodysize;
     assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
 
-    // Set when a vec-write instruction is dispatched in LCP1; lcp1_second_write fires 
+    // Set when a vec-write instruction is dispatched in LCP1; lcp1_second_write fires
     // combinationally when the next dispatch would re-write the same register and forces
-    // the core to go to HW Loop. This is neccessary, since the reference counting scheme 
+    // the core to go to HW Loop. This is neccessary, since the reference counting scheme
     // in the VRF is per physical registers
 
     logic [2**RegAddrSize-1:0] lcp1_wr_seen_q, lcp1_wr_seen_d;

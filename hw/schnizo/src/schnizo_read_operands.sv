@@ -35,7 +35,7 @@ module schnizo_read_operands import schnizo_pkg::*; #(
     fu_data_o              = '0;
     fu_data_o.fu           = instr_dec_i.fu;
     // Pass the raw instruction to the VFU (has its own decoder)
-    fu_data_o.raw_instr   =  instr_fetch_data_i; 
+    fu_data_o.raw_instr   =  instr_fetch_data_i;
     fu_data_o.alu_op       = instr_dec_i.alu_op;
     fu_data_o.lsu_op       = instr_dec_i.lsu_op;
     fu_data_o.csr_op       = instr_dec_i.csr_op;
