@@ -13,7 +13,7 @@
 //   1x: 5   2x: 8   4x: 14   6x: 21   8x: 27
 //
 // For 4x/6x/8x the last frep iteration prefetches one element past the end of
-// each A row — this benign out-of-bounds load is intentional and matches the
+// each A row - this benign out-of-bounds load is intentional and matches the
 // test patterns in sw/tests/src/vfu_test_gemm_*x_frep.c.
 
 #pragma once
@@ -21,7 +21,7 @@
 #include "snrt.h"
 
 // ---------------------------------------------------------------------------
-// gemm_fp32_simd_1x  — 1 output row per M-loop iteration
+// gemm_fp32_simd_1x  - 1 output row per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp32_simd_1x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -96,7 +96,7 @@ static inline void gemm_fp32_simd_1x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp32_simd_2x  — 2 output rows per M-loop iteration
+// gemm_fp32_simd_2x  - 2 output rows per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp32_simd_2x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -236,7 +236,7 @@ static inline void gemm_fp32_simd_2x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp32_simd_4x  — 4 output rows per M-loop iteration
+// gemm_fp32_simd_4x  - 4 output rows per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -412,7 +412,7 @@ static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp32_simd_6x  — 6 output rows per M-loop iteration
+// gemm_fp32_simd_6x  - 6 output rows per M-loop iteration
 // Rows 0-2 accumulate via v24; rows 3-5 via v26 (same B data, dual-loaded).
 // frep body: 21 instructions.
 // ---------------------------------------------------------------------------
@@ -633,7 +633,7 @@ static inline void gemm_fp32_simd_6x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp32_simd_8x  — 8 output rows per M-loop iteration  [DEFAULT]
+// gemm_fp32_simd_8x  - 8 output rows per M-loop iteration  [DEFAULT]
 // Rows 0-3 accumulate via v24; rows 4-7 via v26 (same B data, dual-loaded).
 // frep body: 27 instructions.
 // ---------------------------------------------------------------------------

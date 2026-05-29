@@ -34,7 +34,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
   parameter type         instr_tag_t     = logic,
   parameter type         alu_result_t    = logic,
   parameter type         data_t          = logic,
-  parameter type         spatz_result_t  = logic [FLEN-1:0] // Spatz can give fp results up to 64 bit
+  parameter type         spatz_result_t  = logic [FLEN-1:0] // VFU can give fp results
 ) (
   // ALU interface
   input  alu_result_t     alu_result_i,
@@ -201,8 +201,7 @@ module schnizo_writeback import schnizo_pkg::*; #(
         end else if (spatz_gpr_valid) begin
           gpr_we_o = 1'b1;
           gpr_waddr_o = spatz_result_tag_i.dest_reg;
-          gpr_wdata_o = spatz_result_i[XLEN-1:0]; //TODO: Check size, why this clamping to 32 bits? Maybe it is just to avoid overflows but it should be enforced by the architecture
-          spatz_gpr_ready = 1'b1;
+          gpr_wdata_o = spatz_result_i[XLEN-1:0];
         end
       end
     end

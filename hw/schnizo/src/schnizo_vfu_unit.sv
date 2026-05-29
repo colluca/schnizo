@@ -25,7 +25,7 @@ module schnizo_vfu_unit import spatz_pkg::*, rvv_pkg::*, fpnew_pkg::*; #(
   input  logic             rst_ni,
   input  logic [31:0]      hart_id_i,
 
-  // Unified request ? accepts VFU ops and SLD (slide) ops
+  // Unified request - accepts VFU ops and SLD (slide) ops
   input  spatz_req_t       spatz_req_i,
   input  logic             spatz_req_valid_i,
   output logic             spatz_req_ready_o,

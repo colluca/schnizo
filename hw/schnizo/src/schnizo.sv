@@ -265,7 +265,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
     fpnew_pkg::roundmode_e fpu_rnd_mode;
-    logic [XLEN-1:0]       raw_instr; //Needed for spatz
+    logic [XLEN-1:0]       raw_instr; //Needed for vfu
   } fu_data_t;
 
   // ---------------------------
@@ -291,19 +291,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   // - each operand of each Reservation station has an operand master (1 port)
   // - each RSS has an own result request interface but only each RS has one result response interface.
 
-  // Define how many operand request / response ports each RS has.
-  // A port includes a set of xbar in/outputs for each operand.
-  // I.e. if the ALU has 2 operands, 1 port generates 2 operand interfaces
-  // localparam integer unsigned AluNofOpPorts = 1;
-  // localparam integer unsigned LsuNofOpPorts = 1;
-  // localparam integer unsigned FpuNofOpPorts = 1;
-  // localparam integer unsigned SpatzNofOpPorts = 1;
-
-  // localparam integer unsigned AluNofOperandIfs = AluNofOperands * AluNofOpPorts;
-  // localparam integer unsigned LsuNofOperandIfs = LsuNofOperands * LsuNofOpPorts;
-  // localparam integer unsigned FpuNofOperandIfs = FpuNofOperands * FpuNofOpPorts;
-  // localparam integer unsigned SpatzNofOperandIfs = RVV ? SpatzNofOperands * SpatzNofOpPorts : 0;
-
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperands +
                                               NofLsus * LsuNofOperands +
                                               NofFpus * FpuNofOperands +
@@ -317,12 +304,13 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   localparam integer unsigned AluNofResReqIfs = 1;
   localparam integer unsigned LsuNofResReqIfs = 1;
   localparam integer unsigned FpuNofResReqIfs = 1;
-  localparam integer unsigned SpatzNofResReqIfs = RVV ? 1 : 0; // per VFU FU-block port
+  localparam integer unsigned VfuNofResReqIfs = RVV ? 1 : 0; // per VFU FU-block port
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
                                              NofFpus * FpuNofResReqIfs +
-                                             VfuNumFuPorts * SpatzNofResReqIfs;
+                                             VfuNumFuPorts * VfuNofResReqIfs;
+
   localparam integer unsigned VlsuNofResRspPorts = RVV ? 1 : 0;
   localparam integer unsigned VfuNofResRspPorts  = RVV ? 1 : 0;
 
@@ -571,7 +559,6 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   logic [FrepMaxItersWidth-1:0] lep_iterations;
   logic                         all_rs_finish;
 
-  // VFU WB (declared here because used in controller instantiation below)
   logic            vfu_result_valid;
   logic            vfu_result_ready;
   instr_tag_t      vfu_result_tag;
@@ -645,7 +632,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .gpr_waddr_i            (gpr_waddr),
     .fpr_we_i               (fpr_we),
     .fpr_waddr_i            (fpr_waddr),
-    // VRF retire snooping: clear sbv entry when VFU result handshake fires
+    // VRF Write back snooping for Scoreboard
     .vfu_we_i               (vfu_result_valid && vfu_result_ready &&
                               vfu_result_tag.dest_reg_is_vec),
     .vfu_waddr_i            (vfu_result_tag.dest_reg)
@@ -672,7 +659,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
   logic      [NofFpus-1:0] fpu_rs_full;
 
-  // VFU fu_stage dispatch signals ? sized for VfuNumFuPorts ports
+  // VFU fu_stage dispatch signals - sized for VfuNumFuPorts ports
   // Ports [0..NofVLSU-1] feed the VLSU FU-blocks; [NofVLSU..VfuNumFuPorts-1] feed VFU FU-blocks.
   logic      [VfuNumFuPorts-1:0] vfu_disp_req_valid;
   logic      [VfuNumFuPorts-1:0] vfu_disp_req_ready;
@@ -739,12 +726,12 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
     .fpu_rs_full_i       (fpu_rs_full),
-    // VLSU (vector loads/stores) ? NofVLSU ports
+    // VLSU (vector loads/stores) - NofVLSU ports
     .vlsu_disp_req_valid_o(vlsu_disp_req_valid),
     .vlsu_disp_req_ready_i(vlsu_disp_req_ready),
     .vlsu_disp_rsp_i      (vlsu_disp_rsp),
     .vlsu_rs_full_i       (vlsu_rs_full),
-    // VFU arithmetic ? NofVFU ports
+    // VFU arithmetic - NofVFU ports
     .vfu_disp_req_valid_o (vfu_arith_disp_req_valid),
     .vfu_disp_req_ready_i (vfu_arith_disp_req_ready),
     .vfu_disp_rsp_i       (vfu_arith_disp_rsp),
@@ -1211,7 +1198,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
 
-  // Traces for result requests (each RSS has one signal per request crossbar output)
+  // Traces for result requests (each response port has one signal per request crossbar output)
   resreq_trace_t alu_resreq_traces  [NofAlus][AluNofRss][NofOperandIfs];
   resreq_trace_t lsu_resreq_traces  [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
   resreq_trace_t fpu_resreq_traces  [NofFpus][FpuNofRss][NofOperandIfs];

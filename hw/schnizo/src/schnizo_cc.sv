@@ -32,9 +32,9 @@ module schnizo_cc #(
   parameter type         dreq_t             = logic,
   /// Data port response type.
   parameter type         drsp_t             = logic,
-  // TCDM Types for Spatz
-  parameter type          tcdm_req_chan_t  =  logic,
-  parameter type          tcdm_rsp_chan_t  =  logic,
+  // TCDM Types for VLSU
+  parameter type         tcdm_req_chan_t  =  logic,
+  parameter type         tcdm_rsp_chan_t  =  logic,
   /// TCDM Address Width
   parameter int unsigned TCDMAddrWidth      = 0,
   /// Data port request type.
@@ -124,7 +124,7 @@ module schnizo_cc #(
   /// Optional fixed TCDM alias.
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
-  /// Derived parameter Spatz *Do not override*
+  /// Derived parameter *Do not override*
   parameter int unsigned TCDMPorts = RVV ? NofVLSU*NumMemPortsPerSpatz + NumLsus : NumLsus,
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
@@ -600,12 +600,12 @@ module schnizo_cc #(
   ////////////////
   // Assertions //
   ////////////////
-  // This Asser does not work with Spatz
-  // `ASSERT_INIT(
-  //   TcdmAndLsuInterfacesMatch,
-  //   NofLsus==TCDMPorts,
-  //   "The number of LSU does not match the number of TCDM ports."
-  // );
+
+  `ASSERT_INIT(
+    TcdmAndLsuInterfacesMatch,
+    NofLsus==(RVV ? NofVLSU*NumMemPortsPerSpatz + NumLsus : NumLsus),
+    "The number of LSU + VLSU does not match the number of TCDM ports."
+  );
 
   `ASSERT_INIT(BootAddrAligned, BootAddr[1:0] == 2'b00)
 

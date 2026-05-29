@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: SHL-0.51
 
 module schnizo_synth #(
-  // FP extension enable bits
   parameter bit          Xfrep           = 1'b1,
   parameter bit          MulInAlu0       = 1'b1,
   parameter bit          RVF             = 1,

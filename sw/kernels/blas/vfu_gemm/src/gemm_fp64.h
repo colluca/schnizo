@@ -17,7 +17,7 @@
 #include "snrt.h"
 
 // ---------------------------------------------------------------------------
-// gemm_fp64_simd_1x  — 1 output row per M-loop iteration
+// gemm_fp64_simd_1x  - 1 output row per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp64_simd_1x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -92,7 +92,7 @@ static inline void gemm_fp64_simd_1x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp64_simd_2x  — 2 output rows per M-loop iteration
+// gemm_fp64_simd_2x  - 2 output rows per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp64_simd_2x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -231,7 +231,7 @@ static inline void gemm_fp64_simd_2x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp64_simd_4x  — 4 output rows per M-loop iteration
+// gemm_fp64_simd_4x  - 4 output rows per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp64_simd_4x(uint32_t setup_ssr,
                                      uint32_t partition_banks, uint32_t transa,
@@ -406,7 +406,7 @@ static inline void gemm_fp64_simd_4x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp64_simd_6x  — 6 output rows per M-loop iteration
+// gemm_fp64_simd_6x  - 6 output rows per M-loop iteration
 // Rows 0-2 via v24; rows 3-5 via v26. frep body: 21 instructions.
 // ---------------------------------------------------------------------------
 static inline void gemm_fp64_simd_6x(uint32_t setup_ssr,
@@ -625,7 +625,7 @@ static inline void gemm_fp64_simd_6x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
-// gemm_fp64_simd_8x  — 8 output rows per M-loop iteration  [DEFAULT]
+// gemm_fp64_simd_8x  - 8 output rows per M-loop iteration  [DEFAULT]
 // Rows 0-3 via v24; rows 4-7 via v26. frep body: 27 instructions.
 // ---------------------------------------------------------------------------
 static inline void gemm_fp64_simd_8x(uint32_t setup_ssr,

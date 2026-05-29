@@ -146,15 +146,15 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     result_t value;
     // If set, the result is valid.
     logic    is_valid;
-    // This flag signals to which iteration (?current? or ?next?) the currently stored value in
+    // This flag signals to which iteration (“current” or “next”) the currently stored value in
     // the Result buffer belongs to. It is toggled each time a new value is written into the
     // buffer.
     logic    iteration;
   } rss_result_t;
 
-  // Result metadata and counters ? updated by res_req_handling and result_capture.
+  // Result metadata and counters - updated by res_req_handling and result_capture.
   typedef struct packed {
-    // Raw instruction for Spatz
+    // Raw instruction for vfu
     logic [31:0]                    spatz_raw_instr;
     // How many consumers use the result of this instruction.
     logic [ConsumerCountWidth-1:0]  consumer_count;
@@ -178,9 +178,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     logic                           do_writeback;
   } rs_slot_result_t;
 
-  // Issue-side state ? updated by the dispatch pipeline only.
+  // Issue-side state - updated by the dispatch pipeline only.
   // TODO(colluca): put all FU-specific fields into a separate struct that is passed
-  // as a parameter, and instantiated as a ?user? field. Otherwise, only mandatory fields used
+  // as a parameter, and instantiated as a “user” field. Otherwise, only mandatory fields used
   // for control logic should be hardcoded here.
   typedef struct packed {
     // Whether the RSS contains an active instruction.
@@ -198,8 +198,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     fpnew_pkg::fp_format_e          fpu_fmt_src;
     fpnew_pkg::fp_format_e          fpu_fmt_dst;
     fpnew_pkg::roundmode_e          fpu_rnd_mode;
-    // This flag signals to which iteration (?current? or ?next?) the currently
-    // ?waiting instruction? (not all operands are ready) in the RSS belongs to. It is toggled
+    // This flag signals to which iteration (“current” or “next”) the currently
+    // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
     // each time the instruction is issued.
     logic                           instruction_iter;
     // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.

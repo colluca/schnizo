@@ -32,8 +32,9 @@ module schnizo_loop_controller import schnizo_pkg::*; #(
   input  logic rs_full_i,
   // Asserted if all reservation stations have no instructions in flight.
   input  logic all_rs_finish_i,
-  // Asserted (combinationally) when the instruction at the dispatch stage would write a vector
-  // register that was already written earlier in LCP1 ? i.e. a WAR hazard is present.
+  // Asserted when the instruction at the dispatch stage would write a vector
+  // register that was already written earlier in LCP1. Since the current vfu
+  // does not support this, it will cause a fallback to HW loop
   input  logic lcp1_second_write_i,
 
   // Request a loop start at the current instruction address. Any errors will be checked by the

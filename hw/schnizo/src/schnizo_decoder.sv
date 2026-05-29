@@ -11,7 +11,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
   parameter bit          RVF         = 1,
   /// Enable D Extension (double).
   parameter bit          RVD         = 0,
-  /// Spatz: Enable RVV Extension (vector).
+  /// Enable V Extension (vector).
   parameter bit          RVV         = 1,
   parameter bit          XF16        = 0,
   parameter bit          XF16ALT     = 0,
@@ -203,18 +203,18 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
     instr_dec_o.fpu_op = schnizo_pkg::FpuOpFadd;
     // Set the default rd and rs_is_fp to zero such that if there is no write back required
     // we target register x0. x0 is read only and thus we have encoded that we have no write.
-    instr_dec_o.rd           = '0;
-    instr_dec_o.rd_is_fp     = 0;
-    instr_dec_o.rd_is_vec    = 0;
+    instr_dec_o.rd            = '0;
+    instr_dec_o.rd_is_fp      = 0;
+    instr_dec_o.rd_is_vec     = 0;
     instr_dec_o.use_rd_as_src = 1'b0;
-    instr_dec_o.rs1       = '0;
-    instr_dec_o.rs1_is_fp = 0;
-    instr_dec_o.rs1_is_vec = 0;
-    instr_dec_o.use_rs1   = 1'b0;
-    instr_dec_o.rs2       = '0;
-    instr_dec_o.rs2_is_fp = 0;
-    instr_dec_o.rs2_is_vec = 0;
-    instr_dec_o.use_rs2   = 1'b0;
+    instr_dec_o.rs1           = '0;
+    instr_dec_o.rs1_is_fp     = 0;
+    instr_dec_o.rs1_is_vec    = 0;
+    instr_dec_o.use_rs1       = 1'b0;
+    instr_dec_o.rs2           = '0;
+    instr_dec_o.rs2_is_fp     = 0;
+    instr_dec_o.rs2_is_vec    = 0;
+    instr_dec_o.use_rs2       = 1'b0;
     instr_dec_o.lsu_size       = Word;
     instr_dec_o.fpu_fmt_src    = fpnew_pkg::FP32;
     instr_dec_o.fpu_fmt_dst    = fpnew_pkg::FP32;
@@ -365,30 +365,9 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
       // Floating-Point Load/store
       // --------------------------------
       OpcodeStoreFp: begin // STORE-FP
-        // Added vector store (RVV) dependenc  imm_select = IIMM;
-          // instr_dec_o.rs1 = instr.itype.rs1;
-          // instr_dec_o.use_rs1 = 1'b1;
-          // instr_dec_o.rd = instr.itype.rd;
-          // instr_dec_o.rd_is_fp = 1'b1;
-
-          // // determine load size
-          // instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
-          // instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
-          // unique case (instr.itype.funct3)
-          //   // Only process instruction if corresponding extension is active (static)
-          //   3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FLB
-          //   3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FLH
-          //   3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
-          //   3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
-          //   default: illegal_instr = 1'b1;
-          // endcase
         if (RVV) begin
-          logic vector_store_handled;
-          vector_store_handled = 1'b0;
-          // Vector stores use Store-FP major opcode (0100111)
-          // Only track dependencies (base rs1 integer, data rs2 vector)
           casez (instr.instr)
-            // Unit-stride stores: vs3 (data) is in the rd/vd field [11:7], NOT in rs2 [24:20].
+            // Unit-stride stores: vs3 (data) is in the vd/rd field [11:7], not rs2 [24:20].
             // rs2 [24:20] is lumop (00000 for unit-stride) and carries no data dependency.
             VSE8_V, VSE16_V, VSE32_V, VSE64_V: begin
               instr_dec_o.fu         = schnizo_pkg::VLSU;
@@ -396,8 +375,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.use_rs1    = 1'b1;
               instr_dec_o.rs2        = instr.rtype.rd;  // vs3 = store data (in vd/rd field)
               instr_dec_o.rs2_is_vec = 1'b1;
-              instr_dec_o.rd         = '0; // no destination: ensures no_dest=1 in dispatch pipeline
-              vector_store_handled   = 1'b1;
+              instr_dec_o.rd         = '0;
             end
             // Indexed stores: rs2 [24:20] = vs2 (index vector); vs3 (data) in rd field.
             // Only vs2 (index) is tracked here; vs3 dependency is a known gap.
@@ -408,41 +386,35 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.use_rs1    = 1'b1;
               instr_dec_o.rs2        = instr.stype.rs2; // vs2 = index vector register
               instr_dec_o.rs2_is_vec = 1'b1;
-              instr_dec_o.rd         = '0; // no destination
-              vector_store_handled   = 1'b1;
+              instr_dec_o.rd         = '0;
             end
-            // Strided stores - rs2 holds the stride (integer), rd field holds vs3 data
+            // Strided stores: rs2 holds the stride (integer), rd field holds vs3 data.
             VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V: begin
-              instr_dec_o.fu        = schnizo_pkg::VLSU;
-              instr_dec_o.rs1       = instr.stype.rs1;
-              instr_dec_o.use_rs1   = 1'b1;
-              instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
-              instr_dec_o.use_rs2   = 1'b1;
-              instr_dec_o.rd        = '0; // no destination
-              vector_store_handled  = 1'b1;
+              instr_dec_o.fu       = schnizo_pkg::VLSU;
+              instr_dec_o.rs1      = instr.stype.rs1;
+              instr_dec_o.use_rs1  = 1'b1;
+              instr_dec_o.rs2      = instr.rtype.rs2; // stride (integer)
+              instr_dec_o.use_rs2  = 1'b1;
+              instr_dec_o.rd       = '0;
             end
-            default: ;
+            default: begin
+              instr_dec_o.fu = schnizo_pkg::STORE;
+              imm_select = SIMM;
+              instr_dec_o.rs1 = instr.stype.rs1;
+              instr_dec_o.rs2 = instr.stype.rs2;
+              instr_dec_o.rs2_is_fp = 1'b1;
+              instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStore;
+              instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
+              unique case (instr.stype.funct3)
+                3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FSB
+                3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FSH
+                3'b010: if (!RVF)              illegal_instr = 1'b1; // FSW
+                3'b011: if (!RVD)              illegal_instr = 1'b1; // FSD
+                default: illegal_instr = 1'b1;
+              endcase
+            end
           endcase
-          if (vector_store_handled) begin
-            // Skip scalar FP decoding
-          end else begin
-            instr_dec_o.fu = schnizo_pkg::STORE;
-            imm_select = SIMM;
-            instr_dec_o.rs1 = instr.stype.rs1;
-            instr_dec_o.rs2 = instr.stype.rs2;
-            instr_dec_o.rs2_is_fp = 1'b1;
-            instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStore;
-            instr_dec_o.lsu_size = lsu_size_e'(instr.stype.funct3[13:12]);
-            unique case (instr.stype.funct3)
-              3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FSB
-              3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FSH
-              3'b010: if (!RVF)              illegal_instr = 1'b1; // FSW
-              3'b011: if (!RVD)              illegal_instr = 1'b1; // FSD
-              default: illegal_instr = 1'b1;
-            endcase
-          end
         end else begin
-          // ...existing code (original scalar-only path)...
           instr_dec_o.fu = schnizo_pkg::STORE;
           imm_select = SIMM;
           instr_dec_o.rs1 = instr.stype.rs1;
@@ -465,59 +437,49 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
         end
       end
       OpcodeLoadFp: begin // LOAD-FP
-                // Added vector load (RVV) dependency decoding before scalar FP load decode
         if (RVV) begin
-          logic vector_load_handled;
-          vector_load_handled = 1'b0;
-          // Vector loads use Load-FP major opcode (0000111)
-            casez (instr.instr)
-              // Basic element loads
-              VLE8_V, VLE16_V, VLE32_V, VLE64_V,
-              // Indexed unordered loads
-              VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V,
-              // Indexed ordered (segment) loads
-              VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
-                instr_dec_o.fu        = schnizo_pkg::VLSU;
-                instr_dec_o.rs1       = instr.itype.rs1; // base integer register
-                instr_dec_o.use_rs1   = 1'b1;
-                instr_dec_o.rd        = instr.itype.rd;  // vd
-                instr_dec_o.rd_is_vec = 1'b1;
-                vector_load_handled   = 1'b1;
-              end
-              // Strided loads - rs2 holds the stride (integer)
-              VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V: begin
-                instr_dec_o.fu        = schnizo_pkg::VLSU;
-                instr_dec_o.rs1       = instr.itype.rs1;
-                instr_dec_o.use_rs1   = 1'b1;
-                instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
-                instr_dec_o.use_rs2   = 1'b1;
-                instr_dec_o.rd        = instr.itype.rd;  // vd
-                instr_dec_o.rd_is_vec = 1'b1;
-                vector_load_handled   = 1'b1;
-              end
-              default: ;
-            endcase
-          if (vector_load_handled) begin
-            // Skip scalar FP decoding
-          end else begin
-            instr_dec_o.fu = schnizo_pkg::LOAD;
-            imm_select = IIMM;
-            instr_dec_o.rs1 = instr.itype.rs1;
-            instr_dec_o.use_rs1 = 1'b1;
-            instr_dec_o.rd = instr.itype.rd;
-            instr_dec_o.rd_is_fp = 1'b1;
-            instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
-            instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
-            unique case (instr.itype.funct3)
-              3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FLB
-              3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FLH
-              3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
-              3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
-              default: illegal_instr = 1'b1;
-            endcase
-          end
+          casez (instr.instr)
+            // Basic element loads
+            VLE8_V, VLE16_V, VLE32_V, VLE64_V,
+            // Indexed unordered loads
+            VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V,
+            // Indexed ordered loads
+            VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V: begin
+              instr_dec_o.fu        = schnizo_pkg::VLSU;
+              instr_dec_o.rs1       = instr.itype.rs1; // base integer register
+              instr_dec_o.use_rs1   = 1'b1;
+              instr_dec_o.rd        = instr.itype.rd;  // vd
+              instr_dec_o.rd_is_vec = 1'b1;
+            end
+            // Strided loads: rs2 holds the stride (integer).
+            VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V: begin
+              instr_dec_o.fu        = schnizo_pkg::VLSU;
+              instr_dec_o.rs1       = instr.itype.rs1;
+              instr_dec_o.use_rs1   = 1'b1;
+              instr_dec_o.rs2       = instr.rtype.rs2; // stride (integer)
+              instr_dec_o.use_rs2   = 1'b1;
+              instr_dec_o.rd        = instr.itype.rd;  // vd
+              instr_dec_o.rd_is_vec = 1'b1;
+            end
+            default: begin
+              instr_dec_o.fu = schnizo_pkg::LOAD;
+              imm_select = IIMM;
+              instr_dec_o.rs1 = instr.itype.rs1;
+              instr_dec_o.use_rs1 = 1'b1;
+              instr_dec_o.rd = instr.itype.rd;
+              instr_dec_o.rd_is_fp = 1'b1;
+              instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
+              instr_dec_o.lsu_size = lsu_size_e'(instr.itype.funct3[13:12]);
+              unique case (instr.itype.funct3)
+                3'b000: if (!(XF8 | XF8ALT))   illegal_instr = 1'b1; // FLB
+                3'b001: if (!(XF16 | XF16ALT)) illegal_instr = 1'b1; // FLH
+                3'b010: if (!RVF)              illegal_instr = 1'b1; // FLW
+                3'b011: if (!RVD)              illegal_instr = 1'b1; // FLD
+                default: illegal_instr = 1'b1;
+              endcase
+            end
+          endcase
         end else begin
-          // ...existing code (original scalar-only path)...
           instr_dec_o.fu = schnizo_pkg::LOAD;
           imm_select = IIMM;
           instr_dec_o.rs1 = instr.itype.rs1;
@@ -1096,6 +1058,9 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
           default: illegal_instr = 1'b1;
         endcase
       end
+      // --------------------------------
+      // Vector (RVV) instructions
+      // --------------------------------
       OpcodeVec: begin
         if (RVV) begin
           // Tag as vector arithmetic unit.
@@ -1214,8 +1179,6 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-
-          /// VECTOR FLOATING POINT INSTRUCTIONS: TODO: Double check, they were made with GPT
             // --- Vector-Float vector-scalar (VF): rs1 is FP scalar, vs2 = rs2, vd = rd ---
             VFADD_VF, VFSUB_VF, VFMIN_VF, VFMAX_VF,
             VFSGNJ_VF, VFSGNJN_VF, VFSGNJX_VF,
@@ -1242,7 +1205,7 @@ module schnizo_decoder import schnizo_pkg::*; import riscv_instr::*; #(
               instr_dec_o.rs2_is_vec = 1'b1;
             end
 
-            // --- Vector-Float vector-vector (VV) ops and reductions (vd, vs1, vs2 all vector) ---
+            // --- Vector-Float vector-vector (VV) ops and reductions ---
             VFADD_VV, VFSUB_VV, VFMIN_VV, VFMAX_VV,
             VFSGNJ_VV, VFSGNJN_VV, VFSGNJX_VV,
             VFDIV_VV, VFMUL_VV,

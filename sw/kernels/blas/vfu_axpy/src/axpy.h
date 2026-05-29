@@ -20,7 +20,7 @@
 #define ALIGN_UP_TCDM(addr) ALIGN_UP(addr, TCDM_ALIGNMENT)
 
 // ---------------------------------------------------------------------------
-// axpy_simd_frep — frep drives the entire vector loop (fastest path).
+// axpy_simd_frep - frep drives the entire vector loop (fastest path).
 // Precondition: n divisible by SCHNIZO_VL_F64 * num_cores.
 // ---------------------------------------------------------------------------
 static inline void axpy_simd_frep(uint32_t n, double a, double *x, double *y,
@@ -54,7 +54,7 @@ static inline void axpy_simd_frep(uint32_t n, double a, double *x, double *y,
 }
 
 // ---------------------------------------------------------------------------
-// axpy_simd_loop — C loop drives the vector body (handles any frac).
+// axpy_simd_loop - C loop drives the vector body (handles any frac).
 // Processes floor(frac/VL)*VL elements per core.
 // ---------------------------------------------------------------------------
 static inline void axpy_simd_loop(uint32_t n, double a, double *x, double *y,
@@ -85,7 +85,7 @@ static inline void axpy_simd_loop(uint32_t n, double a, double *x, double *y,
 }
 
 // ---------------------------------------------------------------------------
-// axpy_job — DMA tiling harness; calls args->funcptr for compute.
+// axpy_job - DMA tiling harness; calls args->funcptr for compute.
 // ---------------------------------------------------------------------------
 static inline void axpy_job(axpy_args_t *args) {
     snrt_mcycle();

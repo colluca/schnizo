@@ -1780,8 +1780,15 @@ module schnizo_fu_stage import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       fu_name = "FPU";
       fu_id = rs_id - NofAlus - NofLsus;
     end else begin
-      fu_name = "VFU";
-      fu_id = rs_id - NofAlus - NofLsus - NofFpus;
+      int unsigned spatz_id;
+      spatz_id = rs_id - NofAlus - NofLsus - NofFpus;
+      if (spatz_id < NofVLSU) begin
+        fu_name = "VLSU";
+        fu_id = spatz_id;
+      end else begin
+        fu_name = "VFU";
+        fu_id = spatz_id - NofVLSU;
+      end
     end
 
     return $sformatf("%s%0d", fu_name, fu_id);

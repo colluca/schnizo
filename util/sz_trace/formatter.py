@@ -191,8 +191,6 @@ def format_csr_extras(extras):
 
 
 def format_vfu_extras(extras):
-    # vfu_opa/opb are only present when the VFU issue handshake fires in the same
-    # cycle as dispatch; they may be absent if the issue is delayed.
     if 'vfu_opa' not in extras:
         return ''
     opa = int_lit(extras['vfu_opa'], as_hex=True)

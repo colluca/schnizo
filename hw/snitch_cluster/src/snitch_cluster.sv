@@ -93,7 +93,7 @@ module snitch_cluster
   parameter bit [NrCores-1:0] RVF           = '0,
   /// Per-core enabling of the standard `D` ISA extensions.
   parameter bit [NrCores-1:0] RVD           = '0,
-  /// Per-core Spatz enabling
+  /// Per-core VFU enabling
   parameter bit [NrCores-1:0] RVV           = '0,
   /// Per-core enabling of `XDivSqrt` ISA extensions.
   parameter bit [NrCores-1:0] XDivSqrt      = '0,
@@ -280,13 +280,11 @@ module snitch_cluster
   parameter bit EnableDca                   = 0,
   /// Width of the external DCA interface
   parameter int unsigned DcaDataWidth       = WideDataWidth,
-  // SPATZ
   // VFU parameters
   parameter int                          unsigned        NumSpatzFPUs             = 4,
   parameter int                          unsigned        NumSpatzIPUs             = 1,
   parameter int                          unsigned        NofVFU                   = 1,
   parameter int                          unsigned        NofVLSU                  = 1,
-
   /// Derived parameter *Do not override*
   parameter int                          unsigned        NumSpatzFUs              = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
   parameter int                          unsigned        NumMemPortsPerSpatz      = NumSpatzFUs,

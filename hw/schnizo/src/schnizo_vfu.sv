@@ -34,7 +34,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   parameter int unsigned TCDMPorts  = NofVLSU*NumMemPorts,
   // To schnizo Fu-Blocks
   parameter int unsigned NumFuPorts = NofVLSU + NofVFU,
-  // Types not in any imported package ? passed from the instantiating module
+  // Types not in any imported package - passed from the instantiating module
   parameter type issue_req_t    = logic,
   parameter type tcdm_req_chan_t = logic,
   parameter type tcdm_rsp_chan_t = logic
@@ -86,7 +86,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   //                [3*NofVFU+2*NofVLSU-1:3*NofVFU] = VLSU (vs2,vd per VLSU)
   //                [4*NofVFU+2*NofVLSU-1:3*NofVFU+2*NofVLSU] = VSLDU (vs2 per unit)
   //
-  // For NofVFU=1, NofVLSU=1: NrWritePorts=3, NrReadPorts=6 ? matches
+  // For NofVFU=1, NofVLSU=1: NrWritePorts=3, NrReadPorts=6 - matches
   // spatz_pkg hardcoded enums exactly.
 
   localparam int unsigned NrWritePorts = 2*NofVFU + NofVLSU;
@@ -111,7 +111,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   logic      [NrReadPorts-1:0] vrf_rvalid;
 
   // Fixed SIMD vtype/vl: always fill the full 256-bit VRF word.
-  // vl = VLEN >> (3 + vsew): e8?32, e16?16, e32?8, e64?4.
+  // vl = VLEN >> (3 + vsew): e8=32 elems, e16=16, e32=8, e64=4.
   // SimdVl (e64 baseline, 4 elements) is only used for the VLSU which ignores vl anyway.
   localparam vlen_t  SimdVl       = vlen_t'(VLEN / ELEN);
   localparam vtype_t DefaultVtype = '{vill: 1'b0, vma: 1'b0, vta: 1'b0,
@@ -132,7 +132,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   instr_tag_t [NofVLSU-1:0] vlsu_tag_out;
   logic       [NofVLSU-1:0] vlsu_tag_valid;
 
-  // VLSU memory channels ? NumMemPorts ports per VLSU instance
+  // VLSU memory channels - NumMemPorts ports per VLSU instance
   tcdm_req_chan_t [NofVLSU-1:0][NumMemPorts-1:0] spatz_mem_req;
   logic           [NofVLSU-1:0][NumMemPorts-1:0] spatz_mem_req_valid;
   logic           [NofVLSU-1:0][NumMemPorts-1:0] spatz_mem_req_ready;
@@ -236,7 +236,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
   // Units //
   ///////////
 
-  // Each arithmetic FU port is served by a schnizo_vfu_unit ? a wrapper that
+  // Each arithmetic FU port is served by a schnizo_vfu_unit - a wrapper that
   // contains one spatz_vfu and one spatz_vsldu.  Slide instructions are
   // routed internally to the VSLDU; from here the unit looks identical to a
   // plain spatz_vfu.
@@ -250,7 +250,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
     localparam int unsigned WD      = i;
     // VSLDU write port index (VSLDU_VD_WD)
     localparam int unsigned WD_SLD  = NofVFU + NofVLSU + i;
-    // VFU read port base ? covers vs2, vs1, vd (3 consecutive ports)
+    // VFU read port base - covers vs2, vs1, vd (3 consecutive ports)
     localparam int unsigned RD_BASE = 3*i;
     // VSLDU read port index (VSLDU_VS2_RD)
     localparam int unsigned RD_SLD  = 3*NofVFU + 2*NofVLSU + i;
@@ -359,7 +359,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
 
     // VSLDU re_first: spill_register has 1-cycle latency then one more cycle
     // before running_q enables re_o, so firing one cycle after dispatch accept
-    // is still correct (re_i is 0 at that point ? last_read is harmless).
+    // is still correct (re_i is 0 at that point - last_read is harmless).
     logic vfu_dispatch_q;
     `FFAR(vfu_dispatch_q, issue_req_valid_i[PORT] && unit_req_ready && !is_vcfg, 1'b0, clk_i, rst_i)
     assign vrf_re_first[RD_SLD] = vfu_dispatch_q;
@@ -437,7 +437,7 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
 
     // Track whether the issued instruction was a load.
     // Stores are retired at issue (retire_at_issue=true) so they must not generate
-    // a result_valid pulse back to the RS ? that would underflow issue_in_flight_q.
+    // a result_valid pulse back to the RS - that would underflow issue_in_flight_q.
     `FFLAR(vlsu_pending_is_load_q, vlsu_spatz_req[j].op_mem.is_load,
            vlsu_spatz_req_valid[j] && vlsu_spatz_req_ready[j], 1'b0, clk_i, rst_i)
 

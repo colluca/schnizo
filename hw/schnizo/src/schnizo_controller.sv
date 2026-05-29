@@ -94,8 +94,8 @@ module schnizo_controller import schnizo_pkg::*; #(
   input  logic                                        fpr_we_i,
   input  logic [NrFpWritePorts-1:0][RegAddrSize-1:0]  fpr_waddr_i,
 
-  // VRF retire snooping: cleared when VFU result handshake fires for a vector destination
-  input  logic                  vfu_we_i,
+  // VRF signals for Scoreboard
+  input  logic                   vfu_we_i,
   input  logic [RegAddrSize-1:0] vfu_waddr_i
 );
 
@@ -164,8 +164,11 @@ module schnizo_controller import schnizo_pkg::*; #(
     logic [FrepBodySizeWidth-1:0] loop_bodysize;
     assign loop_bodysize = instr_decoded_i.frep_bodysize + 1;
 
-    // Dispatch-time WAR detection: set when a vec-write instruction is dispatched in LCP1;
-    // fires combinationally when the next dispatch would re-write the same register.
+    // Set when a vec-write instruction is dispatched in LCP1; lcp1_second_write fires 
+    // combinationally when the next dispatch would re-write the same register and forces
+    // the core to go to HW Loop. This is neccessary, since the reference counting scheme 
+    // in the VRF is per physical registers
+
     logic [2**RegAddrSize-1:0] lcp1_wr_seen_q, lcp1_wr_seen_d;
     logic lcp1_second_write;
 
@@ -175,6 +178,7 @@ module schnizo_controller import schnizo_pkg::*; #(
         lcp1_wr_seen_d[instr_decoded_i.rd] = 1'b1;
       end
     end
+
     `FFAR(lcp1_wr_seen_q, lcp1_wr_seen_d, '0, clk_i, rst_i)
 
     assign lcp1_second_write = (loop_state_o == LoopLcp1)
@@ -235,8 +239,6 @@ module schnizo_controller import schnizo_pkg::*; #(
     assign lep_iterations_o = '0;
     assign rs_restart_o     = 1'b1;
     assign goto_hw_loop     = 1'b0;
-    logic lcp1_second_write;
-    assign lcp1_second_write = 1'b0;
   end
 
   ////////////////
@@ -318,7 +320,7 @@ module schnizo_controller import schnizo_pkg::*; #(
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
   logic all_lsus_empty, fence_stall;
   assign all_lsus_empty = &lsu_empty_i; // TODO: combine all LSUs
-  // On a FENCE also wait for any in-flight vector instructions to complete
+  // On a fence also wait for any in-flight vector instructions to complete
   assign fence_stall = (instr_decoded_i.is_fence & (~all_lsus_empty || vrf_busy)) & instr_valid_i;
 
   // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
