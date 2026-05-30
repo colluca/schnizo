@@ -323,5 +323,6 @@ sources:
       - hw/schnizo/synth/schnizo_req_xbar_synth.sv
       - hw/schnizo/synth/schnizo_rsp_xbar_synth.sv
       - hw/schnizo/synth/schnizo_fu_stage_synth.sv
+      - hw/schnizo/synth/schnizo_vfu_synth.sv
       - hw/schnizo/synth/schnizo_synth.sv
       - hw/schnizo/synth/snitch_synth.sv
