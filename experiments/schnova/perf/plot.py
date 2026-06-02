@@ -11,9 +11,19 @@ from scipy.stats import gmean
 
 try:
     from . import experiments
+    from . import instr_mix_experiments
+    from . import experiments_sv1
+    from . import experiments_sv2
+    from . import experiments_sv4
+    from . import experiments_sv8
     from . import model
 except ImportError:
     import experiments
+    import instr_mix_experiments
+    import experiments_sv1
+    import experiments_sv2
+    import experiments_sv4
+    import experiments_sv8
     import model
 
 
@@ -107,9 +117,11 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """ Compare Schnizo (Scalar/Superscalar) vs. Schnova Core """
 
     # Define the configs that are used for the comparison
-    schnizo_cfg = '1x128_1x32_1x64'
-    schnova_cfgs = ['sv_1_3x4_3x4_1x4_6_16', 'sv_2_3x8_3x8_1x8_6_32',
-                      'sv_4_3x16_3x16_1x16_6_64', 'sv_8_3x32_3x32_1x32_6_64']
+    schnizo_cfg = '3x32_3x32_1x64'
+    schnova_cfgs = ['sv_1_3x32_3x32_1x32_32_128_128_256',
+                    'sv_2_3x32_3x32_1x32_32_128_128_256',
+                    'sv_4_3x32_3x32_1x32_32_128_128_256',
+                    'sv_8_3x32_3x32_1x32_32_128_128_256',]
 
     schnizo_df = (df['hw'] == schnizo_cfg)
     schnova_df = (df['hw'].isin(schnova_cfgs)) & (df['mode'] == 'superscalar')
@@ -209,7 +221,7 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         - for vary_by='slots', slot counts are not identical
         """
 
-        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)_(\d+)$"
+        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)$"
         match = re.match(pattern, hw_name)
 
         if not match:
@@ -223,6 +235,9 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
             lsu_slots,
             nof_fpus,
             fpu_slots,
+            alu_buf_slots,
+            lsu_buf_slots,
+            fpu_buf_slots,
             gpr,
             fpr,
             rob_entries,
@@ -242,7 +257,21 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         
         elif vary_by == "fpu_slots":
             return fpu_slots
-
+        
+        elif vary_by == "alus":
+            return nof_alus
+        
+        elif vary_by == "lsus":
+            return nof_lsus
+        
+        elif vary_by == "fpus":
+            return nof_fpus
+        elif vary_by == "alu_buf_slots":
+            return alu_buf_slots
+        elif vary_by == "lsu_buf_slots":
+            return lsu_buf_slots
+        elif vary_by == "fpu_buf_slots":
+            return fpu_buf_slots
         elif vary_by == "gpr":
             return gpr
         
@@ -255,9 +284,15 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         return None
 
     xlabel_map = {
+        "alus": "Number of ALUs",
+        "lsus": "Number of LSUs",
+        "fpus": "Number of FPUs",
         "alu_slots": "Number of ALU Slots",
         "lsu_slots": "Number of LSU Slots",
         "fpu_slots": "Number of FPU Slots",
+        "alu_buf_slots": "Number of ALU dispatch buffer slots",
+        "lsu_buf_slots": "Number of LSU dispatch buffer slots",
+        "fpu_buf_slots": "Number of FPU dispatch buffer slots",
         "gpr": "Number of Physical General Purpose Registers",
         "fpr": "Number of Physical General Floating Point Registers",
         "rob_entries": "Number of ROB Entries",
@@ -336,44 +371,122 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
 
     return geomean_data
 
+def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=None, width=None):
+    """
+    Calculates and prints the geomean of IPC for a given config,
+    followed by the individual Ideal IPC for each app.
+    """
+    # 1. Fetch base superscalar metrics
+    metrics = model.theoretical_metrics(cfg=cfg_data, pipe_width=width)
+    ipc_map = metrics['ipc']['superscalar'].copy()
+    
+    # 2. Swap 'sz_axpy' if unrolled/scalar value is requested
+    if is_axpy_unrolled:
+        axpy_scalar_insns = model.BENCHMARK_INSNS['scalar']['sz_axpy']
+        axpy_scalar_ipc = model.ideal_ipc(axpy_scalar_insns, cfg_data, pipe_width=width)
+        ipc_map['sz_axpy'] = axpy_scalar_ipc
 
-def rsp_ports_tradeoff_plot(df, show=True):
-    """Compare IPC across hw configs for superscalar mode, at max problem size"""
-    df = df[df['mode'] == 'superscalar']
-    idx_max_size = df.groupby(['app', 'hw'])['size'].idxmax()
-    plot_df = df.loc[idx_max_size].pivot(index='app', columns='hw', values='ipc')
+    # 3. Apply App Filter
+    if app_filter is not None:
+        ipc_map = {app: ipc for app, ipc in ipc_map.items() if app in app_filter}
+    
+    # 4. Calculate Geomean
+    ipc_values = list(ipc_map.values())
+    
+    if ipc_values:
+        avg_ipc = gmean(ipc_values)
+        
+        status = "(Axpy Unrolled/Scalar)" if is_axpy_unrolled else "(Default)"
+        filter_status = f" | Filter: {', '.join(app_filter)}" if app_filter else ""
+        
+        print(f"--- Geomean Analysis: {cfg_name} {status}{filter_status} ---")
+        print(f"Geomean IPC: {avg_ipc:.4f}")
+        print("-" * 40)
+        
+        # 5. Print individual Ideal IPCs
+        print(f"{'App Name':<20} | {'Ideal IPC':<10}")
+        print("-" * 33)
+        for app, ipc in ipc_map.items():
+            print(f"{app:<20} | {ipc:<10.4f}")
+        print("-" * 40 + "\n")
+        
+    else:
+        print(f"No IPC data found for {cfg_name} with the provided filter.\n")
 
-    fc_ipc = plot_df['3x32_3x32_1x64']
-    plot_df = plot_df[['3x32_3x32_1x64_1port', '3x32_3x32_1x64_2ports', '3x32_3x32_1x64_3ports']]
-    plot_df = plot_df.rename(columns={
-        '3x32_3x32_1x64': 'fc', '3x32_3x32_1x64_1port': '1 port',
-        '3x32_3x32_1x64_2ports': '2 ports', '3x32_3x32_1x64_3ports': '3 ports'
-    })
 
-    fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax, zorder=3)
+def balanced_comparison_plot(df, metric='fpu_util', show=True):
+    """ Compare Normal Software vs. Balanced Instruction Mix Software """
 
-    # Draw fc IPC as a horizontal line spanning all bars in each app group
-    labeled = False
-    for app_idx, app in enumerate(plot_df.index):
-        bars = [c.patches[app_idx] for c in ax.containers]
-        x_left = bars[0].get_x()
-        x_right = bars[-1].get_x() + bars[-1].get_width()
-        ax.plot([x_left, x_right], [fc_ipc[app], fc_ipc[app]],
-                color='tab:red', zorder=4,
-                label='Idealized' if not labeled else '')
-        labeled = True
+    # Copy data to avoid modifying the original dataframe
+    plot_df = df.copy()
 
-    ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
+    # Identify whether the app name represents the balanced version
+    plot_df['is_bal'] = plot_df['app'].str.endswith('_bal')
+    
+    # Strip the '_bal' suffix to get the common base app name for grouping
+    plot_df['base_app'] = plot_df.apply(
+        lambda row: row['app'][:-4] if row['is_bal'] else row['app'], axis=1
+    )
+    
+    # Map the suffix flag to clean display categories
+    plot_df['config'] = plot_df['is_bal'].map({True: 'Balanced', False: 'Normal'})
+
+    # Find the row with the largest problem size for each base app group
+    idx_max_size = plot_df.groupby(['base_app', 'config'])['size'].idxmax()
+    plot_df = plot_df.loc[idx_max_size].pivot(index='base_app', columns='config', values=metric)
+
+    # Order the columns so 'Normal' always plots before 'Balanced'
+    ordered_cols = ['Normal', 'Balanced']
+    plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
+
+    # Initialize the plot layout (reduced bar width to 0.6 since we only have 2 bars per app)
+    fig, ax = plt.subplots(figsize=(14, 7))
+    plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.6)
+
+    # --- Optional: Ideal IPC Lines ---
+    # Since you now have a single cfg, if you still want to overlay ideal IPC metrics, 
+    # you can uncomment this block and replace 'your_cfg_name' with your actual hardware config.
+    if metric == 'ipc':
+        labeled = False
+        theoretical_data = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']
+
+        for i, col_name in enumerate(plot_df.columns):
+            container = ax.containers[i]
+            for bar, base_app in zip(container, plot_df.index):
+                # Ensure you map to the correct key name expected by your model
+                if base_app in theoretical_data:
+                    ideal = theoretical_data[base_app]
+                    ax.plot([bar.get_x(), bar.get_x() + bar.get_width()],
+                            [ideal, ideal],
+                            color='tab:red', linewidth=2.0, zorder=5,
+                            label='Ideal IPC' if not labeled else '')
+                    labeled = True
+
+    # Apply the styling parameters matching your original configuration
+    ax.axhline(y=1, color='black', linewidth=0.8, zorder=2.5)
+    ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
     ax.set_xlabel('')
-    ax.set_ylabel(METRIC_LABELS['ipc'])
-    labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
-    ax.set_xticklabels(labels, rotation=15, ha='right')
-    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
-    ax.set_axisbelow(True)
-    ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
-    ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
+
+    # Clean up and rotate the base app labels for the x-axis
+    clean_labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
+    ax.set_xticklabels(clean_labels, rotation=15, ha='right')
+
+    ax.legend(title="Software Version", loc='upper left', bbox_to_anchor=(1, 1))
+    ax.grid(True, axis='y', color='gray', linewidth=0.5, alpha=1.0)
+
+    # Set appropriate y-axis boundaries based on the selected metric
+    if metric == 'ipc':
+        ax.set_ylim(bottom=0, top=max(plot_df.max().max() * 1.15, 8.5))
+    elif metric == 'fpu_util':
+        ax.set_ylim(bottom=0, top=1.3)
+
     fig.tight_layout()
+
+    # Print the Geometric Mean performance summary
+    print(f"\n--- Geomean {metric} Performance ---")
+    for col in plot_df.columns:
+        gm = gmean(plot_df[col].dropna())
+        print(f"{col:18}: {format_metric(gm, metric)}")
 
     if show:
         plt.show()
@@ -411,20 +524,35 @@ def plot6(show=True, dir=None):
     return superscalar_comparison_plot(df, 'ipc', show=show)
 
 
-def plot7(show=True, dir=None):
-    df = experiments.results(dir=dir)
-    return rsp_ports_tradeoff_plot(df, show=show)
-
 def plot8(show=True, dir=None, width=1, vary_by='slots', metric='ipc'):
-    df = experiments.results(dir=dir)
+    if width == 1:
+        df = experiments_sv1.results(dir=dir)
+    elif width == 2:
+        df = experiments_sv2.results(dir=dir)
+    elif width == 4:
+        df = experiments_sv4.results(dir=dir)
+    elif width == 8:
+        df = experiments_sv8.results(dir=dir)
     return geomean_plot(df, width, vary_by, metric,show)
 
+def plot9(width=1):
+    if width == 1:
+        print_geomean_ipc("Schnova SV1", model.SCHNOVA_S, True, None, width)
+    elif width == 2:
+        print_geomean_ipc("Schnova SV2", model.SCHNOVA_S,True, None, width)
+    elif width == 4:
+        print_geomean_ipc("Schnova SV1", model.SCHNOVA_M, False, 'sz_axpy', width)
+    elif width == 8:
+        print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, 'sz_axpy', width)
 
+def plot10(show=True, dir=None):
+    df = instr_mix_experiments.results(dir=dir)
+    return balanced_comparison_plot(df, 'ipc', show=show)
 
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot7, plot8]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot8, plot9, plot10]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
@@ -447,7 +575,7 @@ def main():
 
     parser.add_argument(
         "--vary",
-        choices=["alu_slots", "lsu_slots", "fpu_slots", "gpr", "fpr", "rob_entries"],
+        choices=["alus", "lsus", "fpus", "alu_slots", "lsu_slots", "fpu_slots", "alu_buf_slots", "lsu_buf_slots", "fpu_buf_slots", "gpr", "fpr", "rob_entries"],
         default="slots",
         help="Hardware parameter to vary for plot8 "
              "(default: slots)"
@@ -470,6 +598,10 @@ def main():
                 width=args.width,
                 vary_by=args.vary,
                 metric=args.metric,
+            )
+        elif name == "plot9":
+            _ = plot_dict[name](
+                width=args.width,
             )
         else:
             _ = plot_dict[name]()

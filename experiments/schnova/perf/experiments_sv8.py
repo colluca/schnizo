@@ -44,7 +44,7 @@ class ExperimentManager(eu.ExperimentManager):
         return base_axes
 
     def derive_hw_cfg(self, experiment):
-        return Path.cwd() / f"cfg_sv1/{experiment['hw']}.json"
+        return Path.cwd() / f"cfg_sv8/{experiment['hw']}.json"
 
     def derive_data_cfg(self, experiment):
         if experiment['app'] not in ['pi_estimation']:
@@ -55,8 +55,6 @@ class ExperimentManager(eu.ExperimentManager):
         cdefines = {}
         if experiment['mode'] == 'scalar':
             cdefines['FORCE_HW_LOOP'] = 1
-        if experiment['app'] == 'exp' or experiment['app'] == 'log':
-            cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         if experiment['app'] == 'pi_estimation':
             cdefines['N_SAMPLES'] = experiment['data_cfg']['n']
             cdefines['APPLICATION'] = 'APPLICATION_' + experiment['mc_app'].upper()
@@ -68,88 +66,88 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments(ci=False):
     # Define experiment axes
     cfgs_alu_slots = [
-            'sv_1_1x1_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x2_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x3_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x4_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x5_1x32_1x32_128_128_128_128_128_256',
+            'sv_8_3x1_3x32_1x32_128_128_128_128_128_256',
+            'sv_8_3x2_3x32_1x32_128_128_128_128_128_256',
+            'sv_8_3x3_3x32_1x32_128_128_128_128_128_256',
+            'sv_8_3x4_3x32_1x32_128_128_128_128_128_256',
+            'sv_8_3x5_3x32_1x32_128_128_128_128_128_256',
     ]
 
     cfgs_lsu_slots = [
-            'sv_1_1x32_1x1_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x2_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x3_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x4_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x5_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x1_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x2_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x3_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x4_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x5_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x6_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x7_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x8_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x9_1x32_128_128_128_128_128_256',
+            'sv_8_3x32_3x10_1x32_128_128_128_128_128_256',
     ]
 
     cfgs_fpu_slots = [
-            'sv_1_1x32_1x32_1x1_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x2_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x3_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x4_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x5_128_128_128_128_128_256',
-    ]
-
-    cfgs_alu_buf_slots = [
-        'sv_1_1x1_1x1_1x1_1_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_2_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_3_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_4_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_5_128_128_128_128_256',
-    ]
-
-    cfgs_lsu_buf_slots = [
-        'sv_1_1x1_1x1_1x1_128_1_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_2_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_3_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_4_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_5_128_128_128_256',
-    ]
-
-    cfgs_fpu_buf_slots = [
-        'sv_1_1x1_1x1_1x1_128_128_1_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_2_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_3_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_4_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_5_128_128_256',
+            'sv_8_3x32_3x32_1x1_128_128_128_128_128_256',
+            'sv_8_3x32_3x32_1x2_128_128_128_128_128_256',
+            'sv_8_3x32_3x32_1x3_128_128_128_128_128_256',
+            'sv_8_3x32_3x32_1x4_128_128_128_128_128_256',
+            'sv_8_3x32_3x32_1x5_128_128_128_128_128_256',
     ]
 
     cfgs_gpr = [
-            'sv_1_1x32_1x32_1x32_33_128_256',
-            'sv_1_1x32_1x32_1x32_34_128_256',
-            'sv_1_1x32_1x32_1x32_35_128_256',
-            'sv_1_1x32_1x32_1x32_36_128_256',
-            'sv_1_1x32_1x32_1x32_37_128_256',
-            'sv_1_1x32_1x32_1x32_38_128_256',
-            'sv_1_1x32_1x32_1x32_39_128_256',
-            'sv_1_1x32_1x32_1x32_40_128_256',
+            'sv_8_3x32_3x32_1x32_38_128_256',
+            'sv_8_3x32_3x32_1x32_40_128_256',
+            'sv_8_3x32_3x32_1x32_42_128_256',
+            'sv_8_3x32_3x32_1x32_44_128_256',
+            'sv_8_3x32_3x32_1x32_46_128_256',
+            'sv_8_3x32_3x32_1x32_48_128_256',
+            'sv_8_3x32_3x32_1x32_50_128_256',
+            'sv_8_3x32_3x32_1x32_52_128_256',
+            'sv_8_3x32_3x32_1x32_54_128_256',
+            'sv_8_3x32_3x32_1x32_56_128_256',
+            'sv_8_3x32_3x32_1x32_58_128_256',
+            'sv_8_3x32_3x32_1x32_60_128_256',
     ]
 
     cfgs_fpr = [
-            'sv_1_1x32_1x32_1x32_128_33_256',
-            'sv_1_1x32_1x32_1x32_128_34_256',
-            'sv_1_1x32_1x32_1x32_128_35_256',
-            'sv_1_1x32_1x32_1x32_128_36_256',
-            'sv_1_1x32_1x32_1x32_128_37_256',
-            'sv_1_1x32_1x32_1x32_128_38_256',
-            'sv_1_1x32_1x32_1x32_128_39_256',
-            'sv_1_1x32_1x32_1x32_128_40_256',
+            'sv_8_3x32_3x32_1x32_128_38_256',
+            'sv_8_3x32_3x32_1x32_128_40_256',
+            'sv_8_3x32_3x32_1x32_128_42_256',
+            'sv_8_3x32_3x32_1x32_128_44_256',
+            'sv_8_3x32_3x32_1x32_128_46_256',
+            'sv_8_3x32_3x32_1x32_128_48_256',
+            'sv_8_3x32_3x32_1x32_128_50_256',
+            'sv_8_3x32_3x32_1x32_128_52_256',
+            'sv_8_3x32_3x32_1x32_128_54_256',
+            'sv_8_3x32_3x32_1x32_128_56_256',
+            'sv_8_3x32_3x32_1x32_128_58_256',
+            'sv_8_3x32_3x32_1x32_128_60_256',
     ]
 
-    cfgs_rob = [
-        'sv_1_1x32_1x32_1x32_128_128_8',
-        'sv_1_1x32_1x32_1x32_128_128_16',
-        'sv_1_1x32_1x32_1x32_128_128_32',
-        'sv_1_1x32_1x32_1x32_128_128_64',
+    cfgs_gen = [
+        'sv_8_3x1_3x8_1x3_60_60_64',
     ]
 
-    cfgs = ['sv_1_1x1_1x1_1x1_2_2_3_40_40_8']
+    cfgs_alus = [
+        'sv_4_1x32_3x32_1x32_128_128_256',
+        'sv_4_2x32_3x32_1x32_128_128_256',
+        'sv_4_3x32_3x32_1x32_128_128_256',
+    ]
 
-    modes = ['scalar', 'superscalar']
+    cfgs_lsus = [
+        'sv_4_3x32_1x32_1x32_128_128_256',
+        'sv_4_3x32_2x32_1x32_128_128_256',
+        'sv_4_3x32_3x32_1x32_128_128_256',
+    ]
+    
+    cfgs = [
+        'sv_8_3x1_3x8_1x3_60_60_64',
+    ]
+
+    modes = ['superscalar']
     # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]
-    app_filter = None
+    app_filter =  'sz_axpy'
     core = None
 
     # Drop failing tests at 256 when running in CI
@@ -182,7 +180,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnizo',
+                                'funcptr': 'dot_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -197,7 +195,7 @@ def gen_experiments(ci=False):
                                 'n': size,
                                 # Use an unrolled version of the axpy schnova kernel
                                 # Its the same as axpy_baseline but using the superscalar frep mode
-                                'funcptr': 'axpy_schnova_unroll',
+                                'funcptr': 'axpy_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -214,7 +212,7 @@ def gen_experiments(ci=False):
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
-                                'func_ptr': 'vexpf_schnizo',
+                                'func_ptr': 'vexpf_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -228,7 +226,7 @@ def gen_experiments(ci=False):
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
-                                'func_ptr': 'vlogf_schnizo',
+                                'func_ptr': 'vlogf_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -248,7 +246,7 @@ def gen_experiments(ci=False):
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_schnizo',
+                                    'func_ptr': 'calculate_psum_schnova',
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                         sim_bin, "${elf}"],

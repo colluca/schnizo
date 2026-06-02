@@ -1,6 +1,7 @@
 // Copyright 2026 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
+
 module schnova_res_stat_synth import schnova_synth_pkg::*; # (
   parameter int unsigned  NofRss = 4,
   parameter rs_type_e     RsType = ALU_RS,

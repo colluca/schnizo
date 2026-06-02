@@ -22,10 +22,25 @@ SCHNIZO_MC = {
     'lsu': 1,
     'fpu': 2
 }
+
+SCHNOVA_S = {
+    'alu': 1,
+    'lsu': 1,
+    'fpu': 1
+}
+
+SCHNOVA_M = {
+    'alu': 2,
+    'lsu': 2,
+    'fpu': 1
+}
+
 SCHNIZO_CFGS = [
-    ('Schnizo-LA', SCHNIZO_LA),
-    ('Schnizo-TR', SCHNIZO_TR),
-    ('Schnizo-MC', SCHNIZO_MC),
+    ('Schnizo-LA', SCHNIZO_LA, None),
+    ('Schnizo-TR', SCHNIZO_TR, None),
+    ('Schnizo-MC', SCHNIZO_MC, None),
+    ('Schnova-S', SCHNOVA_S, 1),
+    ('Schnova-M', SCHNOVA_M), 2,
 ]
 
 BENCHMARK_INSNS = {
@@ -48,18 +63,32 @@ def insns_per_fu(insns, cfg, fu):
     return math.ceil(insns[fu] / cfg[fu])
 
 
-def ideal_ipc(insns, cfg):
-    """Compute ideal IPC based on instruction mix and FU counts (bottleneck analysis)."""
-    total = sum(insns.values())
-    cycles = max(insns_per_fu(insns, cfg, fu) for fu in cfg if insns.get(fu, 0))
-    return total / cycles
+def ideal_ipc(insns, cfg, pipe_width=None):
+    """
+    Compute ideal IPC considering both FU bottlenecks AND pipeline width.
+    """
+    total_insns = sum(insns.values())
+    
+    # 1. Back-end bottleneck: Cycles limited by specific Functional Units
+    fu_cycles = [math.ceil(insns[fu] / cfg[fu]) for fu in cfg if insns.get(fu, 0)]
+    
+    # 2. Front-end bottleneck: Cycles limited by Fetch/Dispatch width
+    if pipe_width is not None:
+        dispatch_cycles = math.ceil(total_insns / pipe_width)
+    else:
+        dispatch_cycles = 0 # Assume infinite width if None
+        
+    # The slowest stage determines the total cycles
+    total_cycles = max(max(fu_cycles), dispatch_cycles)
+    
+    return total_insns / total_cycles
 
 
 def ideal_fpu_util(insns):
     return insns['fpu'] / sum(insns.values())
 
 
-def theoretical_metrics(cfg=None):
+def theoretical_metrics(cfg=None, pipe_width=None):
     d = {
         'fpu_util': {
             'scalar': {
@@ -71,7 +100,7 @@ def theoretical_metrics(cfg=None):
     if cfg is not None:
         d['ipc'] = {
                 'superscalar': {
-                    app: ideal_ipc(BENCHMARK_INSNS['superscalar'][app], cfg)
+                    app: ideal_ipc(BENCHMARK_INSNS['superscalar'][app], cfg, pipe_width)
                     for app in BENCHMARK_INSNS['superscalar']
                 }
             }

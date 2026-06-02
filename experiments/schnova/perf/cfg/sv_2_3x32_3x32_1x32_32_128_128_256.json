@@ -12,7 +12,7 @@
         atomic_id_width: 5,
         tcdm: {
             size: 128,
-            banks: 32,
+            banks: 128,
         },
         cluster_periph_size: 60, // kB
         zero_mem_size: 64, // kB
@@ -36,10 +36,11 @@
         // Global core configurations
         // If the schnova or schnizo core is used in the cluster
         use_schnova_core: true,
+        use_freelist: true,
         // Number of physical general purpose registers
-        num_phy_gpr: 64,
+        num_phy_gpr: 128,
         // Number of physical floating point registers
-        num_phy_fpr: 50,
+        num_phy_fpr: 128,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -81,7 +82,7 @@
                     ways: 2, // number of ways
                     cacheline: 512, // word size in bits
                     l0_cacheline_count: 16, // Number of cache lines in L0 ICache
-                    fetch_data_width: 128, // number of bits that get fetched per request (has to be a multiple of 32)
+                    fetch_data_width: 64, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -126,10 +127,13 @@
         // Superscalar configuration
         num_alus: 3,
         num_alu_slots: 32,
+        num_alu_buf_slots: 32,
         num_lsus: 3,
         num_lsu_slots: 32,
+        num_lsu_buf_slots: 32,
         num_fpus: 1,
         num_fpu_slots: 32,
+        num_fpu_buf_slots: 32,
         num_rob_entries: 256,
     },
     dma_core_template: {
@@ -143,6 +147,9 @@
         xf8alt: false,
         xfdotp: false,
         xfvec: false,
+        num_alu_buf_slots: 32,
+        num_lsu_buf_slots: 32,
+        num_fpu_buf_slots: 32,
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,

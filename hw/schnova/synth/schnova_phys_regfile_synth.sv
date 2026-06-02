@@ -1,3 +1,7 @@
+// Copyright 2026 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
 module schnova_phys_regfile_synth #(
   parameter int unsigned DataWidth = 32,
   parameter int unsigned NrReadPorts = 2,

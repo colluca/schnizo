@@ -60,23 +60,27 @@ class ExperimentManager(eu.ExperimentManager):
             cdefines['APPLICATION'] = 'APPLICATION_' + experiment['mc_app'].upper()
             cdefines['PRNG'] = 'PRNG_' + experiment['mc_prng'].upper()
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
+
+        if experiment['app'] == 'exp' or experiment['app'] == 'log':
+            cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         return cdefines
 
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    #cfgs = ['3x32_3x32_1x64',
-    #        '1x128_1x32_1x64',
-    #        'sv_1_3x4_3x4_1x4_6_16',
-    #        'sv_2_3x8_3x8_1x8_6_32',
-    #        'sv_4_3x16_3x16_1x16_6_64',
-    #        'sv_8_3x32_3x32_1x32_6_64']
+    cfgs = [
+        '3x32_3x32_1x64',
+        #'sv_1_3x32_3x32_1x32_32_128_128_256',
+        #'sv_2_3x32_3x32_1x32_32_128_128_256',
+        #'sv_4_3x32_3x32_1x32_32_128_128_256',
+        #'sv_8_3x32_3x32_1x32_32_128_128_256',
+    ]
 
-
-    modes = ['scalar', 'superscalar']
+    modes = [#'scalar', 
+             'superscalar']
     # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]
-    app_filter = None
+    app_filter = ['exp']
     core = None
 
     # Drop failing tests at 256 when running in CI
@@ -109,7 +113,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnova',
+                                'funcptr': 'dot_schnova_balanced',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -139,6 +143,7 @@ def gen_experiments(ci=False):
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
+                                'func_ptr': 'vexpf_schnizo'
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -152,6 +157,7 @@ def gen_experiments(ci=False):
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
+                                'func_ptr': 'vlogf_schnizo'
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
                                     sim_bin, "${elf}"],

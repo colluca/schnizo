@@ -36,11 +36,11 @@
         // Global core configurations
         // If the schnova or schnizo core is used in the cluster
         use_schnova_core: true,
-        use_freelist: false,
+        use_freelist: true,
         // Number of physical general purpose registers
-        num_phy_gpr: 58,
+        num_phy_gpr: 128,
         // Number of physical floating point registers
-        num_phy_fpr: 58,
+        num_phy_fpr: 128,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -133,8 +133,8 @@
         num_lsu_buf_slots: 14,
         num_fpus: 1,
         num_fpu_slots: 1,
-        num_fpu_buf_slots: 20,
-        num_rob_entries: 32,
+        num_fpu_buf_slots: 24,
+        num_rob_entries: 256,
     },
     dma_core_template: {
         isa: "rv32imafd",

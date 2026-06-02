@@ -1,8 +1,12 @@
-# area_row.py
-"""
-Defines the AreaRow class for constructing and plotting rows of an area breakdown.
-"""
-from plot_util import PULP_COLORS_BASE, PULP_COLOR
+#!/usr/bin/env python3
+# Copyright 2026 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+
+# Defines the AreaRow class for constructing and plotting rows of an area breakdown.
+
+from plot_util import PULP_COLORS_BASE
 import re
 
 
@@ -11,12 +15,14 @@ class AreaRow:
     Represents one row of the stacked bar chart, including data building and plotting.
     """
     def __init__(self, keys, total_area, threshold, color_source,
-                 preferred=None, merge_rules=None, extra=None, remainder_threshold=None, lift_label=None):
+                 preferred=None, merge_rules=None, extra=None,
+                 remainder_threshold=None, lift_label=None):
         self.keys = keys
         self.total = total_area
         self.threshold = threshold
         # allow separate threshold for including 'Other'
-        self.remainder_threshold = remainder_threshold if remainder_threshold is not None else threshold
+        self.remainder_threshold = (
+            remainder_threshold if remainder_threshold is not None else threshold)
         self.color_source = color_source
         self.preferred = preferred or {}
         self.merge = merge_rules or {}
@@ -69,8 +75,6 @@ class AreaRow:
 
         return self.items
 
-
-
     def _get_color(self, key, cnt):
         """
         Determine a color for a given item, cycling if needed.
@@ -115,8 +119,11 @@ class AreaRow:
             x += fr
 
         # side labels
-        ax.text(1.005, y,  f"{row_total:.1f}" if self.total < 10 else f"{row_total:.0f}", ha='left', va='center', fontsize=10, weight='bold', visible=is_visible)
-        ax.text(1.02, y + pos1*bar_height, 'kGE', ha='left', va='center', fontsize=10, weight='bold', visible=is_visible)
-        ax.text(1.02, y + pos2*bar_height, '%', ha='left', va='center', fontsize=10, weight='bold', visible=is_visible)
+        ax.text(1.005, y,  f"{row_total:.1f}" if self.total < 10 else f"{row_total:.0f}",
+                ha='left', va='center', fontsize=10, weight='bold', visible=is_visible)
+        ax.text(1.02, y + pos1*bar_height, 'kGE', ha='left', va='center', fontsize=10,
+                weight='bold', visible=is_visible)
+        ax.text(1.02, y + pos2*bar_height, '%', ha='left', va='center', fontsize=10,
+                weight='bold', visible=is_visible)
 
         return labels, norm_row, left, y

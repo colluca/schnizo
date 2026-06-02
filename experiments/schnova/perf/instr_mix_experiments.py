@@ -8,28 +8,6 @@ from snitch.util.experiments import experiment_utils as eu
 from snitch.util.experiments.common import MK_DIR
 from pathlib import Path
 
-# TODO(colluca): which kernels partition the data across cores, and which don't?
-
-HARDWARE_ALIASES = {
-    'S': '1x1_1x1_1x1',
-    'M': '1x4_1x4_1x4',
-    'GP-M': '1x128_1x32_1x64',
-    'GP-L': '3x32_3x32_1x64',
-    'LA': '3x4_3x4_1x4',
-    'MC': '3x32_1x0_2x32',
-    'TR': '2x32_1x32_2x32',
-}
-
-APPLICATION_CLASS = {
-    'LA': ['sz_axpy', 'sz_dot'],
-    'MC': ['pi_lcg', 'pi_xoshiro128p', 'poly_lcg', 'poly_xoshiro128p'],
-    'TR': ['log', 'exp'],
-}
-APPLICATION_CLASS['GP'] = [app for classes in APPLICATION_CLASS.values() for app in classes]
-
-# Maps hw string to its target app class; absent keys accept all apps (GP)
-_HW_APP_CLASS = {HARDWARE_ALIASES[cls]: cls for cls in ['LA', 'MC', 'TR']}
-
 
 class ExperimentManager(eu.ExperimentManager):
 
@@ -38,13 +16,15 @@ class ExperimentManager(eu.ExperimentManager):
         if experiment['app'] == 'pi_estimation':
             base_axes['app'] = f"{experiment['mc_app']}_{experiment['mc_prng']}"
         if experiment['app'] in ['sz_axpy', 'sz_dot', 'pi_estimation']:
-            return {**base_axes, 'size': experiment['data_cfg']['n']}
+            base_axes['size'] = experiment['data_cfg']['n']
         if experiment['app'] in ['exp', 'log']:
-            return {**base_axes, 'size': experiment['data_cfg']['len']}
+            base_axes['size'] = experiment['data_cfg']['len']
+        if experiment['bal']:
+            base_axes['app'] = f"{base_axes['app']}_bal" 
         return base_axes
 
     def derive_hw_cfg(self, experiment):
-        return Path.cwd() / f"cfg_sv1/{experiment['hw']}.json"
+        return Path.cwd() / f"cfg/{experiment['hw']}.json"
 
     def derive_data_cfg(self, experiment):
         if experiment['app'] not in ['pi_estimation']:
@@ -55,100 +35,26 @@ class ExperimentManager(eu.ExperimentManager):
         cdefines = {}
         if experiment['mode'] == 'scalar':
             cdefines['FORCE_HW_LOOP'] = 1
-        if experiment['app'] == 'exp' or experiment['app'] == 'log':
-            cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         if experiment['app'] == 'pi_estimation':
             cdefines['N_SAMPLES'] = experiment['data_cfg']['n']
             cdefines['APPLICATION'] = 'APPLICATION_' + experiment['mc_app'].upper()
             cdefines['PRNG'] = 'PRNG_' + experiment['mc_prng'].upper()
+            cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
+
+        if experiment['app'] == 'exp' or experiment['app'] == 'log':
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         return cdefines
 
 
 def gen_experiments(ci=False):
     # Define experiment axes
-    cfgs_alu_slots = [
-            'sv_1_1x1_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x2_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x3_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x4_1x32_1x32_128_128_128_128_128_256',
-            'sv_1_1x5_1x32_1x32_128_128_128_128_128_256',
+    cfgs = [
+        'sv_8_3x32_3x32_1x32_32_128_128_256',
     ]
 
-    cfgs_lsu_slots = [
-            'sv_1_1x32_1x1_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x2_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x3_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x4_1x32_128_128_128_128_128_256',
-            'sv_1_1x32_1x5_1x32_128_128_128_128_128_256',
-    ]
-
-    cfgs_fpu_slots = [
-            'sv_1_1x32_1x32_1x1_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x2_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x3_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x4_128_128_128_128_128_256',
-            'sv_1_1x32_1x32_1x5_128_128_128_128_128_256',
-    ]
-
-    cfgs_alu_buf_slots = [
-        'sv_1_1x1_1x1_1x1_1_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_2_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_3_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_4_128_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_5_128_128_128_128_256',
-    ]
-
-    cfgs_lsu_buf_slots = [
-        'sv_1_1x1_1x1_1x1_128_1_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_2_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_3_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_4_128_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_5_128_128_128_256',
-    ]
-
-    cfgs_fpu_buf_slots = [
-        'sv_1_1x1_1x1_1x1_128_128_1_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_2_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_3_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_4_128_128_256',
-        'sv_1_1x1_1x1_1x1_128_128_5_128_128_256',
-    ]
-
-    cfgs_gpr = [
-            'sv_1_1x32_1x32_1x32_33_128_256',
-            'sv_1_1x32_1x32_1x32_34_128_256',
-            'sv_1_1x32_1x32_1x32_35_128_256',
-            'sv_1_1x32_1x32_1x32_36_128_256',
-            'sv_1_1x32_1x32_1x32_37_128_256',
-            'sv_1_1x32_1x32_1x32_38_128_256',
-            'sv_1_1x32_1x32_1x32_39_128_256',
-            'sv_1_1x32_1x32_1x32_40_128_256',
-    ]
-
-    cfgs_fpr = [
-            'sv_1_1x32_1x32_1x32_128_33_256',
-            'sv_1_1x32_1x32_1x32_128_34_256',
-            'sv_1_1x32_1x32_1x32_128_35_256',
-            'sv_1_1x32_1x32_1x32_128_36_256',
-            'sv_1_1x32_1x32_1x32_128_37_256',
-            'sv_1_1x32_1x32_1x32_128_38_256',
-            'sv_1_1x32_1x32_1x32_128_39_256',
-            'sv_1_1x32_1x32_1x32_128_40_256',
-    ]
-
-    cfgs_rob = [
-        'sv_1_1x32_1x32_1x32_128_128_8',
-        'sv_1_1x32_1x32_1x32_128_128_16',
-        'sv_1_1x32_1x32_1x32_128_128_32',
-        'sv_1_1x32_1x32_1x32_128_128_64',
-    ]
-
-    cfgs = ['sv_1_1x1_1x1_1x1_2_2_3_40_40_8']
-
-    modes = ['scalar', 'superscalar']
-    # sizes = [256, 512, 1024, 2048, 4096]
+    modes = ['superscalar']
     sizes = [4096]
+    bal_mix = [False, True]
     app_filter = None
     core = None
 
@@ -163,26 +69,20 @@ def gen_experiments(ci=False):
         # Check if this config targets the schnova core
         is_schnova_core = cfg.startswith('sv')
         core = 'schnova' if is_schnova_core else None
-        app_class = _HW_APP_CLASS.get(cfg)
-        compatible = set(APPLICATION_CLASS[app_class] if app_class else APPLICATION_CLASS['GP'])
         for mode in modes:
-            # Scalar experiments do not depend on the response xbar configuration
-            # And it does not make sense to test scalar code with a scalar pipeline in schnova
-            if mode == 'scalar':
-                if cfg != '3x32_3x32_1x64':
-                    continue
             for size in sizes:
-                sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
-                if compatible & set(APPLICATION_CLASS['LA']):
+                for bal in bal_mix:
+                    sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
                     experiments.extend([
                         {
                             'app': 'sz_dot',
                             'hw': cfg,
+                            'bal': bal,
                             'mode': mode,
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnizo',
+                                'funcptr': 'dot_schnova' if bal else 'dot_schnizo',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -191,30 +91,29 @@ def gen_experiments(ci=False):
                         {
                             'app': 'sz_axpy',
                             'hw': cfg,
+                            'bal': bal,
                             'mode': mode,
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                # Use an unrolled version of the axpy schnova kernel
-                                # Its the same as axpy_baseline but using the superscalar frep mode
-                                'funcptr': 'axpy_schnova_unroll',
+                                'funcptr': 'axpy_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
                             'roi': Path("roi/sz_axpy_roi.json.tpl")
                         },
                     ])
-                if compatible & set(APPLICATION_CLASS['TR']):
                     experiments.extend([
                         {
                             'app': 'exp',
                             'hw': cfg,
+                            'bal': bal,
                             'mode': mode,
                             'core': core,
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
-                                'func_ptr': 'vexpf_schnizo',
+                                'func_ptr': 'vexpf_schnova' if bal else 'vexpf_schnizo'
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -223,37 +122,39 @@ def gen_experiments(ci=False):
                         {
                             'app': 'log',
                             'hw': cfg,
+                            'bal': bal,
                             'mode': mode,
                             'core': core,
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
-                                'func_ptr': 'vlogf_schnizo',
+                                'func_ptr': 'vlogf_schnova' if bal else 'vlogf_schnizo'
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
                                     sim_bin, "${elf}"],
                             'roi': Path("roi/log.json.tpl")
                         },
                     ])
-                if compatible & set(APPLICATION_CLASS['MC']):
                     for mc_app in ['pi', 'poly']:
                         for mc_prng in ['lcg', 'xoshiro128p']:
                             experiments.append({
                                 # TODO(colluca): rename app montecarlo
                                 'app': 'pi_estimation',
                                 'hw': cfg,
+                                'bal': bal,
                                 'mc_app': mc_app,
                                 'mc_prng': mc_prng,
                                 'mode': mode,
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_schnizo',
+                                    'func_ptr': 'calculate_psum_schnova' if bal else 'calculate_psum_schnizo',
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                         sim_bin, "${elf}"],
                                 'roi': Path("roi/pi_estimation.json.tpl")
                             })
+
 
     # Filter by apps
     if app_filter is not None:
