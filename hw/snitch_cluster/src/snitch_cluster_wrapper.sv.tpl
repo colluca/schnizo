@@ -78,6 +78,9 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAlus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alus')}};
   localparam int unsigned NumLsus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsus')}};
   localparam int unsigned NumFpus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpus')}};
+  localparam int unsigned NumAluBufEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_buf_slots')}};
+  localparam int unsigned NumLsuBufEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_buf_slots')}};
+  localparam int unsigned NumFpuBufEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_buf_slots')}};
   localparam int unsigned NumAluRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_slots')}};
   localparam int unsigned NumLsuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_slots')}};
   localparam int unsigned NumFpuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_slots')}};
@@ -177,6 +180,9 @@ module ${cfg['cluster']['name']}_wrapper (
     .NumAlus (NumAlus),
     .NumLsus (NumLsus),
     .NumFpus (NumFpus),
+    .NumAluBufEntries(NumAluBufEntries),
+    .NumLsuBufEntries(NumLsuBufEntries),
+    .NumFpuBufEntries(NumFpuBufEntries),
     .NumAluRss (NumAluRss),
     .NumLsuRss (NumLsuRss),
     .NumFpuRss (NumFpuRss),

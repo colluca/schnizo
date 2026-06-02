@@ -46,6 +46,12 @@ package schnova_tracer_pkg;
   } dispatch_trace_t;
 
   typedef struct {
+    logic valid;
+    int unsigned rs_id;
+    string disp_resp;
+  } disp_req_trace_t;
+
+  typedef struct {
     logic   valid; // high if handshake happens
     string  producer;
     longint alu_opa;

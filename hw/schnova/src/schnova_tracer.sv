@@ -23,9 +23,12 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic clk_i,
   input  logic rst_i,
   input  logic [31:0] hart_id_i,
-  input  int unsigned      dispatch_rs_id [PipeWidth],
-  input  core_trace_t     core_trace,
-  input  dispatch_trace_t         dispatch_trace[PipeWidth],
+  input  core_trace_t             core_trace,
+  input  dispatch_trace_t         si_dispatch_trace,
+  input  dispatch_trace_t         rs_dispatch_trace[PipeWidth],
+  input  disp_req_trace_t         alu_disp_req_trace[NofAlus],
+  input  disp_req_trace_t         lsu_disp_req_trace[NofLsus],
+  input  disp_req_trace_t         fpu_disp_req_trace[NofFpus],
   input  issue_alu_trace_t        alu_trace [NofAlus],
   input  issue_lsu_trace_t        lsu_trace [NofLsus],
   input  issue_fpu_trace_t        fpu_trace [NofFpus],
@@ -89,6 +92,11 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   integer unsigned max_nof_allocated_fpr;
   integer unsigned cur_nof_allocated_fpr;
 
+
+  // Shadow Queues to mirror the dispatch hardware buffers
+  dispatch_detail_t alu_shadow_q[$];
+  dispatch_detail_t lsu_shadow_q[$];
+  dispatch_detail_t fpu_shadow_q[$];
   dispatch_detail_t dispatch_queue[NofFus][$];
 
   // verilog_lint: waive-start always-ff-non-blocking
@@ -99,6 +107,9 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     string lsu_dispatch_event[NofLsus];
     string fpu_dispatch_event[NofFpus];
     dispatch_detail_t details[PipeWidth];
+    dispatch_detail_t alu_disp_req_details[NofAlus];
+    dispatch_detail_t lsu_disp_req_details[NofAlus];
+    dispatch_detail_t fpu_disp_req_details[NofAlus];
     dispatch_detail_t alu_dep_details[NofAlus];
     dispatch_detail_t lsu_dep_details[NofLsus];
     dispatch_detail_t fpu_dep_details[NofFpus];
@@ -110,14 +121,45 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // This trace is extended with the details of the active FU.
       trace_header = format_trace_header($time, cycle, core_trace);
 
-      for (int unsigned i   = 0; i < PipeWidth; i++) begin
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
         details[i] = '{
           header: trace_header,
-          dispatch_trace: dispatch_trace[i]
+          dispatch_trace: rs_dispatch_trace[i]
         };
 
-        if (dispatch_trace[i].valid && (core_trace.loop_state inside {LoopDep})) begin
-          dispatch_queue[dispatch_rs_id[i]].push_back(details[i]);
+        if (rs_dispatch_trace[i].valid && (core_trace.loop_state inside {LoopDep})) begin
+          unique case (i_dispatcher.instr_dec_i[i].fu)
+            schnova_pkg::MUL,
+            schnova_pkg::CTRL_FLOW,
+            schnova_pkg::ALU:       alu_shadow_q.push_back(details[i]);
+            schnova_pkg::LOAD,
+            schnova_pkg::STORE:     lsu_shadow_q.push_back(details[i]);
+            schnova_pkg::FPU:       fpu_shadow_q.push_back(details[i]);
+          endcase
+        end
+      end
+
+      for (int unsigned alu = 0; alu < NofAlus; alu++) begin
+        if (alu_disp_req_trace[alu].valid && (core_trace.loop_state inside {LoopDep})) begin
+          alu_disp_req_details[alu] = alu_shadow_q.pop_front();
+          alu_disp_req_details[alu].dispatch_trace.disp_resp = alu_disp_req_trace[alu].disp_resp;
+          dispatch_queue[alu_disp_req_trace[alu].rs_id].push_back(alu_disp_req_details[alu]);
+        end
+      end
+
+      for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+        if (lsu_disp_req_trace[lsu].valid && (core_trace.loop_state inside {LoopDep})) begin
+          lsu_disp_req_details[lsu] = lsu_shadow_q.pop_front();
+          lsu_disp_req_details[lsu].dispatch_trace.disp_resp = lsu_disp_req_trace[lsu].disp_resp;
+          dispatch_queue[lsu_disp_req_trace[lsu].rs_id].push_back(lsu_disp_req_details[lsu]);
+        end
+      end
+
+      for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+        if (fpu_disp_req_trace[fpu].valid && (core_trace.loop_state inside {LoopDep})) begin
+          fpu_disp_req_details[fpu] = fpu_shadow_q.pop_front();
+          fpu_disp_req_details[fpu].dispatch_trace.disp_resp = fpu_disp_req_trace[fpu].disp_resp;
+          dispatch_queue[fpu_disp_req_trace[fpu].rs_id].push_back(fpu_disp_req_details[fpu]);
         end
       end
 
@@ -127,7 +169,7 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
         // only be one active single issue request. The format functions return "" if the trace is
         // not valid. Therefore, we can combine the formatting functions into one chain.
         // The naked dispatch_event contains the None FU dispatches (currently only for FREP).
-        dispatch_event = format_dispatch_extras(dispatch_trace[0]);
+        dispatch_event = format_dispatch_extras(si_dispatch_trace);
 
         for (int alu = 0; alu < NofAlus; alu++) begin
           dispatch_event = $sformatf("%s%s", dispatch_event, format_alu_trace(alu_trace[alu]));
@@ -141,7 +183,7 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
         dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
         dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
 
-        write_trace_event(file_id, trace_header, "dispatch", dispatch_event, dispatch_trace[0].valid);
+        write_trace_event(file_id, trace_header, "dispatch", dispatch_event, si_dispatch_trace.valid);
       end else begin
         // Format the single dispatch event but capture the producer by taking RSS issue trace.
         // There should also be one FU issue request active. Invalid traces are formated as "".
@@ -188,12 +230,12 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
         // CSR and ACC instructions are not supported in FREP but can still execute (fallback in
         // hw loop mode). These are not cut and thus dispatch immediately.
-        dispatch_event = format_dispatch_extras(dispatch_trace[0]);
+        dispatch_event = format_dispatch_extras(si_dispatch_trace);
         dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
         dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
 
         write_trace_event(file_id, trace_header, "dispatch", dispatch_event,
-                          dispatch_trace[0].valid && (csr_trace.valid || acc_trace.valid));
+                          si_dispatch_trace.valid && (csr_trace.valid || acc_trace.valid));
       end
       // Writeback events - We must consider all writebacks at all times.
       for (int alu = 0; alu < NofAlus; alu++) begin
@@ -281,6 +323,9 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
       max_nof_allocated_rob_entries = '0;
       max_nof_allocated_fpr = '0;
       max_nof_allocated_gpr = '0;
+      alu_shadow_q.delete();
+      lsu_shadow_q.delete();
+      fpu_shadow_q.delete();
     end
   end
 

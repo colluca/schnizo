@@ -162,6 +162,12 @@ module snitch_cluster
   parameter int unsigned NumLsus [NrCores] = '{default: 1},
   /// Per-core number of FPUs
   parameter int unsigned NumFpus [NrCores] = '{default: 0},
+  /// Per-core number of ALU dispatch buffer entries
+  parameter int unsigned NumAluBufEntries [NrCores] = '{default: 0},
+  /// Per-core number of LSU dispatch buffer entries
+  parameter int unsigned NumLsuBufEntries [NrCores] = '{default: 0},
+  /// Per-core number of FPU dispatch buffer entries
+  parameter int unsigned NumFpuBufEntries [NrCores] = '{default: 0},
   /// Per-core number of Slots per ALU
   parameter int unsigned NumAluRss [NrCores] = '{default: 0},
   /// Per-core number of Slots per LSU
@@ -1198,6 +1204,9 @@ module snitch_cluster
         .NumAlus(NumAlus[i]),
         .NumLsus(NumLsus[i]),
         .NumFpus(NumFpus[i]),
+        .NumAluBufEntries(NumAluBufEntries[i]),
+        .NumLsuBufEntries(NumLsuBufEntries[i]),
+        .NumFpuBufEntries(NumFpuBufEntries[i]),
         .NumAluRss(NumAluRss[i]),
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),

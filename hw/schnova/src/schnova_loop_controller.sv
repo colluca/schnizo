@@ -47,7 +47,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   output logic                      en_superscalar_o,
 
   // Asserted if all reservation stations have no instructions in flight.
-  input  logic                      all_rs_finish_i,
+  input  logic                      rs_idle_i,
   output logic                      loop_stall_o
 );
 
@@ -114,7 +114,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
 
       // All these instructions except for frep are unsuported during superscalar execution
       is_unsupported_instr[i] = (instr_decoded_i[i].fu inside {NONE, MULDIV, CSR, DMA}) &
-                                        en_superscalar_o                            &
+                                        en_superscalar_o                                &
                                         instr_valid_i[i];
     end
   end
@@ -125,18 +125,25 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
                           instr_valid_i[blk_ctrl_info_i.instr_idx]       &
                           blk_ctrl_info_i.is_ctrl;
 
+  logic [PipeWidth-1:0] inside_loop_mask;
+
   always_comb begin : gen_valid_mask
+    inside_loop_mask = '0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       if (i == 0) begin
         // The first instruction never has to be masked due to loop end
         // either a younger instruction is the instruction at the loop end
         // or the first instruction is at the loop end
         valid_mask_o[0] = !is_unsupported_instr[0];
+        // The first instruction cant be masked due to a loop end instruction
+        inside_loop_mask[0] = 1'b1;
       end else begin
         // We have to invalidate the valid bit if a previous instruction
         // was the loop end instruction or if it was invalidated
         // or if this instruction is unsupported
         valid_mask_o[i] = valid_mask_o[i-1] & !at_loop_end_instr[i-1] & !is_unsupported_instr[i];
+
+        inside_loop_mask[i] = inside_loop_mask[i-1] & !at_loop_end_instr[i-1];
       end
     end
   end
@@ -144,7 +151,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   // We are at the end of the loop if one instruction of the block is at the end
   assign is_at_loop_end = |(at_loop_end_instr & valid_mask_o);
 
-  assign exit_dep = |is_unsupported_instr;
+  assign exit_dep = |(is_unsupported_instr & inside_loop_mask);
 
   logic dispatch_loop_end_instr;
   assign dispatch_loop_end_instr = is_at_loop_end && !stall_i;
@@ -196,7 +203,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
         if (exit_dep || wait_hwl_retirement_q) begin
           // If no RS is busy and we did not dispatch an instruction in this cycle
           // it is save to change to Hardware loop.
-          if (all_rs_finish_i && !dispatched_i) begin
+          if (rs_idle_i && !dispatched_i) begin
             // Change back to hardware loop in the next cycle
             wait_hwl_retirement_d = 1'b0;
             loop_info_d.loop_state = LoopHwLoop;
@@ -212,7 +219,7 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
         if (current_loop_finish || exception_i || wait_dep_retirement_q) begin
           // If no RS is busy and we did not dispatch an instruction in this cycle
           // it is save to change to Hardware loop.
-          if (all_rs_finish_i && !dispatched_i) begin
+          if (rs_idle_i && !dispatched_i) begin
             wait_dep_retirement_d  = 1'b0;
             loop_valid_d           = 1'b0;
             loop_info_d            = loop_info_reset;

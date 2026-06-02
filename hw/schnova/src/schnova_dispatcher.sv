@@ -23,6 +23,9 @@ module schnova_dispatcher import schnova_pkg::*; #(
   parameter int unsigned NofAlus     = 1,
   parameter int unsigned NofLsus     = 1,
   parameter int unsigned NofFpus     = 1,
+  parameter int unsigned NofAluBufEntries = 32,
+  parameter int unsigned NofLsuBufEntries = 32,
+  parameter int unsigned NofFpuBufEntries = 32,
   parameter int unsigned RobTagWidth = 1,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
@@ -109,7 +112,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   output logic                           acc_disp_req_valid_o,
   input  logic                           acc_disp_req_ready_i,
   // The accelerator response is routed directly to the write back.
-
+  output logic                           disp_buffers_empty_o,
   // RS control signals
   // Asserted if the RSS are cleared synchronously.
   input  logic                           restart_i,
@@ -122,20 +125,10 @@ module schnova_dispatcher import schnova_pkg::*; #(
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
+  localparam int unsigned InstIdxW = cf_math_pkg::idx_width(PipeWidth);
   localparam bit NofAlusIsPow2 = (NofAlus > 0) && ((NofAlus & (NofAlus - 1)) == 0);
   localparam bit NofLsusIsPow2 = (NofLsus > 0) && ((NofLsus & (NofLsus - 1)) == 0);
   localparam bit NofFpusIsPow2 = (NofFpus > 0) && ((NofFpus & (NofFpus - 1)) == 0);
-
-  alu_rs_disp_req_t [PipeWidth-1:0] alu_rs_disp_reqs;
-  lsu_rs_disp_req_t [PipeWidth-1:0] lsu_rs_disp_reqs;
-  fpu_rs_disp_req_t [PipeWidth-1:0] fpu_rs_disp_reqs;
-
-  logic [PipeWidth-1:0] dispatched_q, dispatched_d;
-  `FFAR(dispatched_q, dispatched_d, '0, clk_i, rst_i);
-
-  logic      [PipeWidth-1:0] fu_ready;
-  disp_rsp_t [PipeWidth-1:0] fu_response;
-  logic       dispatched;
 
   // FU selection counters
   logic [NofAlusW-1:0] alu_idx;
@@ -149,7 +142,15 @@ module schnova_dispatcher import schnova_pkg::*; #(
   `FFAR(lsu_idx_raw_q, lsu_idx_raw_d, '0, clk_i, rst_i);
   `FFAR(fpu_idx_raw_q, fpu_idx_raw_d, '0, clk_i, rst_i);
 
-  
+  alu_rs_disp_req_t [PipeWidth-1:0] alu_rs_disp_reqs;
+  lsu_rs_disp_req_t [PipeWidth-1:0] lsu_rs_disp_reqs;
+  fpu_rs_disp_req_t [PipeWidth-1:0] fpu_rs_disp_reqs;
+
+  logic [PipeWidth-1:0] dispatched_q, dispatched_d;
+  `FFAR(dispatched_q, dispatched_d, '0, clk_i, rst_i);
+
+  logic       dispatched;
+
   // Rob Tag state
   logic [PipeWidth-1:0][RobTagWidth-1:0] rob_tag_d, rob_tag_q;
 
@@ -297,6 +298,21 @@ module schnova_dispatcher import schnova_pkg::*; #(
     endcase
   end
 
+  ////////////////////////////
+  // Multi Issue Dispatcher //
+  ////////////////////////////
+
+  typedef struct packed {
+    alu_rs_disp_req_t disp_req;
+    logic             disp_to_alu0;
+  } alu_buf_t;
+
+  typedef struct packed {
+    lsu_rs_disp_req_t disp_req;
+    logic             disp_to_lsu0;
+  } lsu_buf_t;
+  typedef fpu_rs_disp_req_t fpu_buf_t;
+
   ////////////////////////
   // Request generation //
   ////////////////////////
@@ -318,9 +334,6 @@ module schnova_dispatcher import schnova_pkg::*; #(
     rs_tag          = '0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       // Instruction tag
-      // pragma translate_off
-      rs_tag[i].producer_id    = fu_response[i].producer; // Only needed for the tracer
-      // pragma translate_on
       rs_tag[i].dest_reg       = reg_map_i[i].phy_reg_rd_new;
       rs_tag[i].dest_reg_is_fp = instr_dec_i[i].rd_is_fp;
       rs_tag[i].is_branch      = instr_dec_i[i].is_branch;
@@ -377,11 +390,9 @@ module schnova_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  //////////////////
-  // FU selection //
-  //////////////////
+  // 1) FU selection
 
-  // 1) For every instruction in the pipe, determine which FU type with an RS it needs
+  // For every instruction in the pipe, determine which FU type with an RS it needs
 
   logic [PipeWidth-1:0] disp_to_alu;
   logic [PipeWidth-1:0] disp_to_alu0;
@@ -389,312 +400,130 @@ module schnova_dispatcher import schnova_pkg::*; #(
   logic [PipeWidth-1:0] disp_to_fpu;
 
   always_comb begin: identify_fu_type
+    disp_to_alu0 = '0;
+    disp_to_alu  = '0;
+    disp_to_lsu  = '0;
+    disp_to_fpu  = '0;
+
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       disp_to_alu0[i] = ((instr_dec_i[i].fu == schnova_pkg::MUL)       |
                         (instr_dec_i[i].fu == schnova_pkg::CTRL_FLOW)) &
                         instr_valid_i[i]                               &
-                        !dispatched_q[i];
+                        !dispatched_q[i]                               &
+                        dispatch_valid_i;
       disp_to_alu[i] = (instr_dec_i[i].fu == schnova_pkg::ALU) &
                         instr_valid_i[i]                       &
-                        !dispatched_q[i];
+                        !dispatched_q[i]                       &
+                        dispatch_valid_i;
       disp_to_lsu[i] =  ((instr_dec_i[i].fu == schnova_pkg::LOAD)  |
                         (instr_dec_i[i].fu == schnova_pkg::STORE)) &
                         instr_valid_i[i]                           &
-                        !dispatched_q[i];
+                        !dispatched_q[i]                           &
+                        dispatch_valid_i;
       disp_to_fpu[i] = (instr_dec_i[i].fu == schnova_pkg::FPU) &
                         instr_valid_i[i]                       &
-                        !dispatched_q[i];
+                        !dispatched_q[i]                       &
+                        dispatch_valid_i;
     end
   end
 
-  // 2) Calculate the rank of the instruction for each FU type (Prefix Sum calculation)
-  // i.e. if we have 3 ALU instructions in the same cycle, they will have the rank 0, 1 and 2 for the ALU FU selection.
-  // This is used to select the FU port in case there are multiple FUs of the same type.
-  logic [PipeWidth-1:0][$clog2(PipeWidth):0] alu_rank;
-  logic [PipeWidth-1:0][$clog2(PipeWidth):0] lsu_rank;
-  logic [PipeWidth-1:0][$clog2(PipeWidth):0] fpu_rank;
+  // 2) Hazard detection
 
-  always_comb begin: identify_fu_rank
-    // Per default the rank of every instruction is 0
-    alu_rank = '0;
-    lsu_rank = '0;
-    fpu_rank = '0;
+  // Each instruction must dispatch in order in respect to the same functional unit type
+  // This works without deadlock since before the dispatch request is valid the physical registers
+  // and rob entries (if used) already are allocated.
 
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (i == 0) begin
-        // The first instruction always has the highest rank because there is no previous instruction that can have the same FU type.
-        alu_rank[i] = '0;
-        lsu_rank[i] = '0;
-        fpu_rank[i] = '0;
-      end else begin
-        // In case the rank is not larger than the number of functional units of that type
-        // we can increase the rank for the next instruction that dispatches to the same
-        // functional unit.
-        // If the rank of the previous instruction is larger than the number of functional units
-        // - 1. Then we have already assigned a rank to as many instructions as there are functional units
-        // we then assign an abitrary rank for all younger instructions. That way the instruction
-        // hazard logic will naturally stall these instructions from dispatching. As they have not yet
-        // got a valid port they can dispatch to.
-        // The reason this is done, is that in case of the number of functional units are not a power of two
-        // the if this condition is not met it could lead to multiple warp arounds. In that case the logic that
-        // calculates the wrap around with a single substraction would be wrong.
-        alu_rank[i] = disp_to_alu[i-1] && (alu_rank[i-1] < NofAlus - 1) ? alu_rank[i-1] + 1'b1
-                                                                        : alu_rank[i-1];
-        lsu_rank[i] = disp_to_lsu[i-1] && (lsu_rank[i-1] < NofLsus - 1) ? lsu_rank[i-1] + 1'b1
-                                                                        : lsu_rank[i-1];
-        fpu_rank[i] = disp_to_fpu[i-1] && (fpu_rank[i-1] < NofFpus - 1) ? fpu_rank[i-1] + 1'b1
-                                                                        : fpu_rank[i-1];
-      end
-    end
-  end
+  logic [PipeWidth-1:0]                  instr_has_hazard;
+  logic [PipeWidth-1:0][InstIdxW-1:0]    alu_push_idx;
+  logic [PipeWidth-1:0][InstIdxW-1:0]    lsu_push_idx;
+  logic [PipeWidth-1:0][InstIdxW-1:0]    fpu_push_idx;
 
-  // 3) Select the FU of that type to dispatch to. If there is only one FU of that type, select it. If there are multiple, select the next one in a round robin fashion.
-  logic [PipeWidth-1:0][NofAlusW-1:0] target_alu_port;
-  logic [PipeWidth-1:0][NofLsusW-1:0] target_lsu_port;
-  logic [PipeWidth-1:0][NofFpusW-1:0] target_fpu_port;
+  logic                                  alu_disp_buf_push;
+  logic     [$clog2(PipeWidth):0]        alu_disp_buf_push_count;
+  alu_buf_t [PipeWidth-1:0]              alu_disp_buf_push_data;
+  logic     [$clog2(NofAluBufEntries):0] alu_buf_free_count;
+  logic                                  alu_disp_buf_pop;
+  logic     [$clog2(NofAlus):0]          alu_disp_pop_count;
+  alu_buf_t [NofAlus-1:0]                alu_disp_buf_pop_data;
+  logic     [NofAlus-1:0]                alu_disp_buf_pop_data_valid;
 
-  if (NofAlusIsPow2) begin : gen_alu_port_pow2
-    always_comb begin
-      target_alu_port = '0;
+  logic                                  lsu_disp_buf_push;
+  logic     [$clog2(PipeWidth):0]        lsu_disp_buf_push_count;
+  lsu_buf_t [PipeWidth-1:0]              lsu_disp_buf_push_data;
+  logic     [$clog2(NofLsuBufEntries):0] lsu_buf_free_count;
+  logic                                  lsu_disp_buf_pop;
+  logic     [$clog2(NofLsus):0]          lsu_disp_pop_count;
+  lsu_buf_t [NofLsus-1:0]                lsu_disp_buf_pop_data;
+  logic     [NofLsus-1:0]                lsu_disp_buf_pop_data_valid;
 
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (disp_to_alu[i] && (NofAlus > 1) && !disp_to_alu0[i]) begin
-          target_alu_port[i] = alu_idx + alu_rank[i];
-        end
-      end
-    end
-  end else begin : gen_alu_port
-    // Use 1 more bit to catch overflow
-    logic [PipeWidth-1:0][NofAlusW:0] target_alu_port_unwrapped;
-    always_comb begin
-      target_alu_port = '0;
-      target_alu_port_unwrapped = '0;
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (disp_to_alu[i] && (NofAlus > 1) && !disp_to_alu0[i]) begin
-          target_alu_port_unwrapped[i] = alu_idx + alu_rank[i];
-          // Wrap around if the index exceeds the number of FUs
-          if (target_alu_port_unwrapped[i] >= NofAlus) begin
-            target_alu_port[i] = target_alu_port_unwrapped[i] - NofAlus;
-          end else begin
-            target_alu_port[i] = target_alu_port_unwrapped[i][NofAlusW-1:0];
-          end
-        end
-      end
-    end
-  end
-
-  if (NofLsusIsPow2) begin : gen_lsu_port_pow2
-    always_comb begin
-      target_lsu_port = '0;
-
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (disp_to_lsu[i] &&
-            (NofLsus > 1)  &&
-            (frep_mem_cons_mode_i != FrepMemSerialized)) begin
-          target_lsu_port[i] = lsu_idx + lsu_rank[i];
-        end
-      end
-    end
-  end else begin : gen_lsu_port
-    // Use 1 more bit to catch overflow
-    logic [PipeWidth-1:0][NofLsusW:0] target_lsu_port_unwrapped;
-    always_comb begin
-      target_lsu_port = '0;
-      target_lsu_port_unwrapped = '0;
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (disp_to_lsu[i] &&
-            (NofLsus > 1)  &&
-            (frep_mem_cons_mode_i != FrepMemSerialized)) begin
-          target_lsu_port_unwrapped[i] = lsu_idx + lsu_rank[i];
-          // Wrap around if the index exceeds the number of FUs
-          if (target_lsu_port_unwrapped[i] >= NofLsus) begin
-            target_lsu_port[i] = target_lsu_port_unwrapped[i] - NofLsus;
-          end else begin
-            target_lsu_port[i] = target_lsu_port_unwrapped[i][NofLsusW-1:0];
-          end
-        end
-      end
-    end
-  end
-
-  if (NofFpusIsPow2) begin : gen_fpu_port_pow2
-    always_comb begin
-      target_fpu_port = '0;
-
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (disp_to_fpu[i] && (NofFpus > 1)) begin
-          target_fpu_port[i] = fpu_idx + fpu_rank[i];
-        end
-      end
-    end
-  end else begin : gen_fpu_port
-    // Use 1 more bit to catch overflow
-    logic [PipeWidth-1:0][NofFpusW:0] target_fpu_port_unwrapped;
-    always_comb begin
-      target_fpu_port = '0;
-      target_fpu_port_unwrapped = '0;
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (disp_to_fpu[i] && (NofFpus > 1)) begin
-          target_fpu_port_unwrapped[i] = fpu_idx + fpu_rank[i];
-          // Wrap around if the index exceeds the number of FUs
-          if (target_fpu_port_unwrapped[i] >= NofFpus) begin
-            target_fpu_port[i] = target_fpu_port_unwrapped[i] - NofFpus;
-          end else begin
-            target_fpu_port[i] = target_fpu_port_unwrapped[i][NofFpusW-1:0];
-          end
-        end
-      end
-    end
-  end
-
-  // 4) Check for hazards
-  // The instructions can have an hazard due to the following reasons:
-  // - Dispatching happens in order to avoid deadlocks. Thus, if an older
-  // has an hazard, younger instructions cannot be dispatched even if they themselves could be dispatched
-  // - This instruction uses the same port as an older instruction that was not yet dispatched.
-  logic [PipeWidth-1:0] instr_has_hazard;
-  logic [NofAlus-1:0] port_claimed_alu;
-  logic [NofLsus-1:0] port_claimed_lsu;
-  logic [NofFpus-1:0] port_claimed_fpu;
+  logic                                  fpu_disp_buf_push;
+  logic     [$clog2(PipeWidth):0]        fpu_disp_buf_push_count;
+  fpu_buf_t [PipeWidth-1:0]              fpu_disp_buf_push_data;
+  logic     [$clog2(NofFpuBufEntries):0] fpu_buf_free_count;
+  logic                                  fpu_disp_buf_pop;
+  logic     [$clog2(NofFpus):0]          fpu_disp_pop_count;
+  fpu_buf_t [NofFpus-1:0]                fpu_disp_buf_pop_data;
+  logic     [NofFpus-1:0]                fpu_disp_buf_pop_data_valid;
 
   always_comb begin : hazard_detection
     // Per default no port is claimed and no instruciton has an hazard
     instr_has_hazard = '0;
-    port_claimed_alu = '0;
-    port_claimed_lsu = '0;
-    port_claimed_fpu = '0;
+    alu_disp_buf_push_count = '0;
+    lsu_disp_buf_push_count = '0;
+    fpu_disp_buf_push_count = '0;
+    alu_push_idx = '0;
+    lsu_push_idx = '0;
+    fpu_push_idx = '0;
 
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if (i == 0) begin
-        // There are no younger instructions in this block
-        // it never has a hazard since it is the first instruction
-        // that has to be dispatched.
-        instr_has_hazard[i] = 1'b0;
-      end else begin
-        // The instruction has an hazard if an older instruction has an hazard or
-        // if an older instruction claimed the same port this instruction needs.
-        // or if an older instruction was not yet dispatched in this cycle
-        // we need to strictly enforce in order dispatch
-        instr_has_hazard[i] =   instr_has_hazard[i-1]                                    ||
-                                !instr_dispatched[i-1]                                   ||
-                                ((disp_to_alu0[i] || disp_to_alu[i]) &&
-                                port_claimed_alu[target_alu_port[i]])                    ||
-                                (disp_to_lsu[i] && port_claimed_lsu[target_lsu_port[i]]) ||
-                                (disp_to_fpu[i] && port_claimed_fpu[target_fpu_port[i]]);
-      end
-
-      // Claim the port for this instruction if it was not already dispatched
-      if (!dispatched_q[i]) begin
-        if (disp_to_alu0[i]) begin
-          port_claimed_alu[0] = 1'b1;
-        end else if (disp_to_alu[i]) begin
-          port_claimed_alu[target_alu_port[i]] = 1'b1;
-        end
-
-        if (disp_to_lsu[i]) begin
-          port_claimed_lsu[target_lsu_port[i]] = 1'b1;
-        end
-
-        if (disp_to_fpu[i]) begin
-          port_claimed_fpu[target_fpu_port[i]] = 1'b1;
+      if (disp_to_alu[i] || disp_to_alu0[i]) begin
+        if (alu_disp_buf_push_count < alu_buf_free_count) begin
+          // ALU dispatch buffer has enough space
+          alu_push_idx[i] = alu_disp_buf_push_count[InstIdxW-1:0];
+          alu_disp_buf_push_count = alu_disp_buf_push_count + 1'b1;
+          
+        end else begin
+          // ALU dispatcher does not have enough space
+          instr_has_hazard[i] = 1'b1;
         end
       end
-    end
-  end
+      
+      if (disp_to_lsu[i]) begin
+        if (lsu_disp_buf_push_count < lsu_buf_free_count) begin
+          // LSU dispatch buffer has enough space
+          lsu_push_idx[i] = lsu_disp_buf_push_count[InstIdxW-1:0];
+          lsu_disp_buf_push_count = lsu_disp_buf_push_count + 1'b1;
+          
+        end else begin
+          // LSU dispatcher does not have enough space
+          instr_has_hazard[i] = 1'b1;
+        end
+      end
 
-  // 5) Demux the dispatch requests to the selected FU.
-
-
-  // Signal valid to the FU we want the instruction to dispatch into.
-  // Select the appropriate response channel.
-  always_comb begin : fu_selection_req
-    alu_rs_disp_req_valid_o = '0;
-    lsu_rs_disp_req_valid_o = '0;
-    fpu_rs_disp_req_valid_o = '0;
-
-    alu_rs_disp_reqs_o = '0;
-    lsu_rs_disp_reqs_o = '0;
-    fpu_rs_disp_reqs_o = '0;
-
-    // Accelerator and CSR instructions are only allowed in scalar mode, hence we only have to consider the
-    // the first instruction in the block for them.
-
-    // Request selection for instructions with reservation stations
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      if ((disp_to_alu0[i] || disp_to_alu[i]) && !instr_has_hazard[i] && !dispatched_q[i]) begin
-        // always select ALU0 for branch and MUL instructions
-        alu_rs_disp_req_valid_o[target_alu_port[i]] = dispatch_valid_i && en_superscalar_i;
-        alu_rs_disp_reqs_o[target_alu_port[i]] = alu_rs_disp_reqs[i];
-      end else if (disp_to_lsu[i] && !instr_has_hazard[i] && !dispatched_q[i]) begin
-        lsu_rs_disp_req_valid_o[target_lsu_port[i]] = dispatch_valid_i && en_superscalar_i;
-        lsu_rs_disp_reqs_o[target_lsu_port[i]] = lsu_rs_disp_reqs[i];
-      end else if (disp_to_fpu[i] && !instr_has_hazard[i] && !dispatched_q[i]) begin
-        fpu_rs_disp_req_valid_o[target_fpu_port[i]] = dispatch_valid_i && en_superscalar_i;
-        fpu_rs_disp_reqs_o[target_fpu_port[i]] = fpu_rs_disp_reqs[i];
+      if (disp_to_fpu[i]) begin
+        if (fpu_disp_buf_push_count < fpu_buf_free_count) begin
+          // LSU dispatch buffer has enough space
+          fpu_push_idx[i] = fpu_disp_buf_push_count[InstIdxW-1:0];
+          fpu_disp_buf_push_count = fpu_disp_buf_push_count + 1'b1;
+          
+        end else begin
+          // LSU dispatcher does not have enough space
+          instr_has_hazard[i] = 1'b1;
+        end
       end
     end
   end
 
-  // Mux the response from the selected FU
-  always_comb begin : fu_selection_rsp
-    fu_response = '0;
-    fu_ready    = 1'b0;
-
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      unique case (instr_dec_i[i].fu)
-        schnova_pkg::MUL,
-        schnova_pkg::CTRL_FLOW,
-        schnova_pkg::ALU: begin
-          // always select ALU0 for branch and MUL instructions
-          fu_response[i] = alu_rs_disp_rsp_i[target_alu_port[i]];
-          fu_ready[i]    = alu_rs_disp_req_ready_i[target_alu_port[i]] & !instr_has_hazard[i];
-        end
-        schnova_pkg::LOAD,
-        schnova_pkg::STORE: begin
-          // per default take the non consistent mode.
-          fu_response[i] = lsu_rs_disp_rsp_i[target_lsu_port[i]];
-          fu_ready[i]    = lsu_rs_disp_req_ready_i[target_lsu_port[i]] & !instr_has_hazard[i];
-        end
-        schnova_pkg::CSR : begin
-          // There is no response because there is no reservation station.
-          fu_ready[i] = csr_disp_req_ready_i;
-        end
-        schnova_pkg::FPU: begin
-          fu_response[i] = fpu_rs_disp_rsp_i[target_fpu_port[i]];
-          fu_ready[i]    = fpu_rs_disp_req_ready_i[target_fpu_port[i]] & !instr_has_hazard[i];
-        end
-        schnova_pkg::MULDIV: begin
-          // no dispatch response
-          fu_ready[i] = acc_disp_req_ready_i;
-        end
-        schnova_pkg::DMA: begin
-          // no dispatch response
-          fu_ready[i] = acc_disp_req_ready_i;
-        end
-        schnova_pkg::NONE: begin
-          // There is no FU, so we always signal ready
-          fu_ready[i] = 1'b1;
-        end
-        default: begin
-          // CRASH - should never happen as long as decoder returns valid decoding.
-          // TODO: handle crash
-        end
-      endcase
-    end
-  end
-
-  ////////////////////
-  // Dispatch logic //
-  ////////////////////
+  // Dispatch tracking
 
   always_comb begin
     instr_dispatched = '0;
     dispatched_d = dispatched_q;
 
     for (int unsigned i = 0; i < PipeWidth; i++) begin
-      // An instruction is dispatched if the functional unit
-      //signals ready or it was already dispatched in a previous cycle
-      instr_dispatched[i] = (instr_exec_commit_i & fu_ready[i]) | dispatched_q[i];
+      // An instruction is dispatched to the dispatch buffer
+      // in this cycle if it does not have a hazard
+      instr_dispatched[i] = (!instr_has_hazard[i] & instr_exec_commit_i) | dispatched_q[i];
     end
 
     if (dispatched || restart_i) begin
@@ -708,64 +537,307 @@ module schnova_dispatcher import schnova_pkg::*; #(
 
   // All instructions are successfully dispatched if all the instructions are being dispatched in this cycle
   // that are valid in the first place
-  if (PipeWidth == 1) begin: gen_dispatched_scalar
-    assign dispatched = instr_valid_i & instr_dispatched;
-  end else begin: gen_dispatched_superscalar
-    // This change optimizes a path away. Otherwise in scalar mode the ready can depend on ready signals
-    // from the single issue direct dispatch path for every instruction in the fetch block eventhough what really has to be
-    // considered is only the ready signal from the first instruction.
-    // Note: this ready path depends on the execution of other functional units because of the writeback arbiter.
-    assign dispatched = en_superscalar_i ? (|instr_valid_i) & (&(instr_dispatched | ~instr_valid_i))
-                                         : instr_valid_i[0] & si_fu_ready & instr_exec_commit_i;
-  end
+  assign dispatched = en_superscalar_i ? (|instr_valid_i) & (&instr_dispatched)
+                                       : instr_valid_i[0] & si_fu_ready & instr_exec_commit_i;
 
   // Signal back the dispatch
   assign dispatch_ready_o = dispatched;
 
-  logic [$clog2(PipeWidth):0] alu_idx_inc_raw;
-  logic [$clog2(PipeWidth):0] alu_idx_inc;
-  logic [$clog2(PipeWidth):0] lsu_idx_inc_raw;
-  logic [$clog2(PipeWidth):0] lsu_idx_inc;
-  logic [$clog2(PipeWidth):0] fpu_idx_inc;
+  // 3) Dispatch Buffer Management
+  always_comb begin
+    alu_disp_buf_push_data = '0;
+    lsu_disp_buf_push_data = '0;
+    fpu_disp_buf_push_data = '0;
 
-  // Calculate the increments for the FU selection counters
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_alu_idx_inc_count (
-    .data_i(disp_to_alu & instr_dispatched),
-    .popcount_o(alu_idx_inc_raw)
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      // Only pack the data if it can be disaptched into the buffer this cycle
+      if ((disp_to_alu[i] || disp_to_alu0[i]) && !instr_has_hazard[i]) begin
+        alu_disp_buf_push_data[alu_push_idx[i]] = '{
+                                                    disp_req: alu_rs_disp_reqs[i],
+                                                    disp_to_alu0: disp_to_alu0[i]
+                                                  };
+      end
+      if (disp_to_lsu[i] && !instr_has_hazard[i]) begin
+        lsu_disp_buf_push_data[lsu_push_idx[i]] = '{
+                                                    disp_req: lsu_rs_disp_reqs[i],
+                                                    disp_to_lsu0: (frep_mem_cons_mode_i == FrepMemSerialized) ? 1'b1 : 1'b0
+                                                  }; ;
+        
+      end
+      if (disp_to_fpu[i] && !instr_has_hazard[i]) begin 
+        fpu_disp_buf_push_data[fpu_push_idx[i]] = fpu_rs_disp_reqs[i];
+      end
+    end
+
+    // We push if we have valid instructions queued 
+    alu_disp_buf_push = en_superscalar_i ? (alu_disp_buf_push_count > 0) && instr_exec_commit_i : 1'b0;
+    lsu_disp_buf_push = en_superscalar_i ? (lsu_disp_buf_push_count > 0) && instr_exec_commit_i : 1'b0;
+    fpu_disp_buf_push = en_superscalar_i ? (fpu_disp_buf_push_count > 0) && instr_exec_commit_i : 1'b0;
+  end
+
+  logic alu_disp_buf_empty;
+  logic lsu_disp_buf_empty;
+  logic fpu_disp_buf_empty;
+
+  schnova_disp_buffer #(
+    .PipeWidth (PipeWidth),
+    .NumEntries(NofAluBufEntries),
+    .NumFus    (NofAlus),
+    .data_t    (alu_buf_t)
+  ) alu_disp_buffer (
+    .clk_i,
+    .rst_i,
+    // Allocation Interface
+    .push_i      (alu_disp_buf_push),
+    .push_count_i(alu_disp_buf_push_count),
+    .disp_data_i (alu_disp_buf_push_data),
+    .free_count_o(alu_buf_free_count),
+    // Deallocation Interface
+    .pop_i       (alu_disp_buf_pop),
+    .pop_count_i (alu_disp_pop_count),
+    .disp_data_o (alu_disp_buf_pop_data),
+    .disp_valid_o(alu_disp_buf_pop_data_valid),
+    .empty_o     (alu_disp_buf_empty)
   );
 
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_lsu_idx_inc_count (
-    .data_i(disp_to_lsu & instr_dispatched),
-    .popcount_o(lsu_idx_inc_raw)
+  schnova_disp_buffer #(
+    .PipeWidth (PipeWidth),
+    .NumEntries(NofLsuBufEntries),
+    .NumFus    (NofLsus),
+    .data_t    (lsu_buf_t)
+  ) lsu_disp_buffer (
+    .clk_i,
+    .rst_i,
+    // Allocation Interface
+    .push_i      (lsu_disp_buf_push),
+    .push_count_i(lsu_disp_buf_push_count),
+    .disp_data_i (lsu_disp_buf_push_data),
+    .free_count_o(lsu_buf_free_count),
+    // Deallocation Interface
+    .pop_i       (lsu_disp_buf_pop),
+    .pop_count_i (lsu_disp_pop_count),
+    .disp_data_o (lsu_disp_buf_pop_data),
+    .disp_valid_o(lsu_disp_buf_pop_data_valid),
+    .empty_o     (lsu_disp_buf_empty)
   );
 
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_fpu_idx_inc_count (
-    .data_i(disp_to_fpu & instr_dispatched),
-    .popcount_o(fpu_idx_inc)
+  schnova_disp_buffer #(
+    .PipeWidth (PipeWidth),
+    .NumEntries(NofFpuBufEntries),
+    .NumFus    (NofFpus),
+    .data_t    (fpu_buf_t)
+  ) fpu_disp_buffer (
+    .clk_i,
+    .rst_i,
+    // Allocation Interface
+    .push_i      (fpu_disp_buf_push),
+    .push_count_i(fpu_disp_buf_push_count),
+    .disp_data_i (fpu_disp_buf_push_data),
+    .free_count_o(fpu_buf_free_count),
+    // Deallocation Interface
+    .pop_i       (fpu_disp_buf_pop),
+    .pop_count_i (fpu_disp_pop_count),
+    .disp_data_o (fpu_disp_buf_pop_data),
+    .disp_valid_o(fpu_disp_buf_pop_data_valid),
+    .empty_o     (fpu_disp_buf_empty)
   );
 
-  // In case we dispatched at least one instruction to ALU0 we have to increment the ALU index by 1
-  assign alu_idx_inc = |disp_to_alu0  ? alu_idx_inc_raw + 1
-                                      : alu_idx_inc_raw;
+  assign disp_buffers_empty_o = (alu_disp_buf_empty & lsu_disp_buf_empty & fpu_disp_buf_empty);
 
-  // If we are in serialized mode, we dont increment the LSU index since all instructions get dispatched
-  // to LSU0
+  logic [NofAlus-1:0]               alu_assigned;       // Whether this dispatch req was assigned an rs
+  logic [NofAlus-1:0][NofAlusW-1:0] alu_port;           // The assigned alu port
+  logic [NofAlus-1:0]               alu_claimed;        // Whether this rs was already claimed
+  logic                             alu_older_stalled;  // Cascade flag for strict in-order blocking
+  logic [NofAlusW-1:0]              alu_rot_idx;
+
+  always_comb begin : alu_buffer_pop_steering
+    alu_rs_disp_reqs_o      = '0;
+    alu_rs_disp_req_valid_o = '0;
+    alu_assigned            = '0;
+    alu_claimed             = '0;
+    alu_port                = '0;
+    alu_disp_pop_count      = '0;
+    alu_older_stalled       = 1'b0;
+    alu_rot_idx             = '0;
+
+    for (int unsigned i = 0; i < NofAlus; i++) begin
+      if (alu_disp_buf_pop_data_valid[i] && !alu_older_stalled) begin
+        // Condition A: Restricted to ALU 0
+        if (alu_disp_buf_pop_data[i].disp_to_alu0) begin
+          if (alu_rs_disp_req_ready_i[0] && !alu_claimed[0]) begin
+            alu_assigned[i] = 1'b1;
+            alu_claimed[0]  = 1'b1;
+            alu_port[i]     = NofAlusW'(0); 
+          end
+        end else begin
+          // Condition B: General ALU instruction with explicit wrap-around
+          for (int unsigned j = 0; j < NofAlus; j++) begin
+            if (NofAlusIsPow2) begin
+              alu_rot_idx = alu_idx + NofAlusW'(j);
+            end else begin
+              alu_rot_idx = ((alu_idx + NofAlusW'(j)) >= NofAlus) ? (alu_idx + NofAlusW'(j)) - NofAlus
+                                                                  : (alu_idx + NofAlusW'(j));
+            end
+            
+            if (alu_rs_disp_req_ready_i[alu_rot_idx] && !alu_claimed[alu_rot_idx] && !alu_assigned[i]) begin
+              alu_assigned[i]       = 1'b1;
+              alu_claimed[alu_rot_idx] = 1'b1;
+              alu_port[i]           = alu_rot_idx;
+            end
+          end
+        end
+
+        if (alu_assigned[i]) begin
+          alu_rs_disp_reqs_o[alu_port[i]]      = alu_disp_buf_pop_data[i].disp_req;
+          // pragma translate_off
+          alu_rs_disp_reqs_o[alu_port[i]].tag.producer_id = alu_rs_disp_rsp_i[alu_port[i]].producer;
+          // pragma translate_on
+          alu_rs_disp_req_valid_o[alu_port[i]] = 1'b1;
+          alu_disp_pop_count                   = i + 1;
+        end else begin
+          alu_older_stalled = 1'b1;
+        end
+      end
+    end
+
+    alu_disp_buf_pop = (alu_disp_pop_count > 0);
+  end
+
+  logic [NofLsus-1:0]               lsu_assigned;       // Whether this dispatch req was assigned an rs
+  logic [NofLsus-1:0][NofLsusW-1:0] lsu_port;           // The assigned lsu port
+  logic [NofLsus-1:0]               lsu_claimed;        // Whether this rs was already claimed
+  logic                             lsu_older_stalled;  // Cascade flag for strict in-order blocking
+  logic [NofLsusW-1:0]              lsu_rot_idx;
+
+  always_comb begin : lsu_buffer_pop_steering
+    lsu_rs_disp_reqs_o      = '0;
+    lsu_rs_disp_req_valid_o = '0;
+    lsu_assigned            = '0;
+    lsu_claimed             = '0;
+    lsu_port                = '0;
+    lsu_disp_pop_count      = '0;
+    lsu_older_stalled       = 1'b0;
+    lsu_rot_idx             = '0;
+
+    for (int unsigned i = 0; i < NofLsus; i++) begin
+      if (lsu_disp_buf_pop_data_valid[i] && !lsu_older_stalled) begin
+
+        // Condition A: Restricted to LSU 0
+        if (lsu_disp_buf_pop_data[i].disp_to_lsu0) begin
+          if (lsu_rs_disp_req_ready_i[0] && !lsu_claimed[0]) begin
+            lsu_assigned[i] = 1'b1;
+            lsu_claimed[0]  = 1'b1;
+            lsu_port[i]     = NofLsusW'(0); 
+          end
+        end else begin
+          // Condition B: General LSU instruction with explicit wrap-around
+          for (int unsigned j = 0; j < NofLsus; j++) begin
+            
+            // Explicit modulo implementation
+            if (NofLsusIsPow2) begin
+              lsu_rot_idx = lsu_idx + NofLsusW'(j);
+            end else begin
+              lsu_rot_idx = ((lsu_idx + NofLsusW'(j)) >= NofLsus) ? (lsu_idx + NofLsusW'(j)) - NofLsus
+                                                                  : (lsu_idx + NofLsusW'(j));
+            end
+            
+            if (lsu_rs_disp_req_ready_i[lsu_rot_idx] && !lsu_claimed[lsu_rot_idx] && !lsu_assigned[i]) begin
+              lsu_assigned[i]       = 1'b1;
+              lsu_claimed[lsu_rot_idx] = 1'b1;
+              lsu_port[i]           = lsu_rot_idx;
+            end
+          end
+        end
+    
+        if (lsu_assigned[i]) begin
+          lsu_rs_disp_reqs_o[lsu_port[i]]      = lsu_disp_buf_pop_data[i].disp_req;
+          // pragma translate_off
+          lsu_rs_disp_reqs_o[lsu_port[i]].tag.producer_id = lsu_rs_disp_rsp_i[lsu_port[i]].producer;
+          // pragma translate_on
+          lsu_rs_disp_req_valid_o[lsu_port[i]] = 1'b1;
+          lsu_disp_pop_count                   = i + 1;
+        end else begin
+          lsu_older_stalled = 1'b1;
+        end
+      end
+    end
+
+    lsu_disp_buf_pop = (lsu_disp_pop_count > 0);
+  end
+
+  logic [NofFpus-1:0]               fpu_assigned;       // Whether this dispatch req was assigned an rs
+  logic [NofFpus-1:0][NofFpusW-1:0]  fpu_port;           // The assigned fpu port
+  logic [NofFpus-1:0]               fpu_claimed;        // Whether this rs was already claimed
+  logic                             fpu_older_stalled;  // Cascade flag for strict in-order blocking
+  logic [NofFpusW-1:0]              fpu_rot_idx;
+
+  always_comb begin : fpu_buffer_pop_steering
+    fpu_rs_disp_reqs_o      = '0;
+    fpu_rs_disp_req_valid_o = '0;
+    fpu_assigned            = '0;
+    fpu_claimed             = '0;
+    fpu_port                = '0;
+    fpu_disp_pop_count      = '0;
+    fpu_older_stalled       = 1'b0;
+    fpu_rot_idx             = '0;
+
+    for (int unsigned i = 0; i < NofFpus; i++) begin
+      if (fpu_disp_buf_pop_data_valid[i] && !fpu_older_stalled) begin
+        
+        // General FPU instruction with explicit wrap-around
+        for (int unsigned j = 0; j < NofFpus; j++) begin
+          
+          // Explicit modulo implementation
+          if (NofFpusIsPow2) begin
+            fpu_rot_idx = fpu_idx + NofFpusW'(j);
+          end else begin
+            fpu_rot_idx = ((fpu_idx + NofFpusW'(j)) >= NofFpus) ? (fpu_idx + NofFpusW'(j)) - NofFpus
+                                                                : (fpu_idx + NofFpusW'(j));
+          end
+          
+          if (fpu_rs_disp_req_ready_i[fpu_rot_idx] && !fpu_claimed[fpu_rot_idx] && !fpu_assigned[i]) begin
+            fpu_assigned[i]       = 1'b1;
+            fpu_claimed[fpu_rot_idx] = 1'b1;
+            fpu_port[i]           = fpu_rot_idx;
+          end
+        end
+    
+        if (fpu_assigned[i]) begin
+          fpu_rs_disp_reqs_o[fpu_port[i]]      = fpu_disp_buf_pop_data[i];
+          // pragma translate_off
+          fpu_rs_disp_reqs_o[fpu_port[i]].tag.producer_id = fpu_rs_disp_rsp_i[fpu_port[i]].producer;
+          // pragma translate_on
+          fpu_rs_disp_req_valid_o[fpu_port[i]] = 1'b1;
+          fpu_disp_pop_count                   = i + 1;
+        end else begin
+          fpu_older_stalled = 1'b1;
+        end
+      end
+    end
+
+    fpu_disp_buf_pop = (fpu_disp_pop_count > 0);
+  end
+
+
+  logic [$clog2(NofAlus):0] alu_idx_inc;
+  logic [$clog2(NofLsus):0] lsu_idx_inc_raw;
+  logic [$clog2(NofLsus):0] lsu_idx_inc;
+  logic [$clog2(NofFpus):0] fpu_idx_inc;
+
+  // For the ALU and FPU the increment is always equal to the pop count
+  assign alu_idx_inc = alu_disp_pop_count;
+  assign fpu_idx_inc = fpu_disp_pop_count;
+
+  // For the LSU it can be that we are in the serialized mode then we don't have to increment
+  assign lsu_idx_inc_raw = lsu_disp_pop_count;
   assign lsu_idx_inc = (frep_mem_cons_mode_i inside {FrepMemSerialized}) ? '0 : lsu_idx_inc_raw;
 
   // ---------------------------
   // FU selection counters
   // ---------------------------
-  // Only select the counters during superscalar exectuion. Without this the first instruction after DEP would be
-  // executed on the "next" FU instead of the zero-th.
-  assign alu_idx = (en_superscalar_i & (NofAlus > 1)) ? alu_idx_raw_q : '0;
-  assign lsu_idx = (en_superscalar_i & (NofLsus > 1)) ? lsu_idx_raw_q : '0;
-  assign fpu_idx = (en_superscalar_i & (NofFpus > 1)) ? fpu_idx_raw_q : '0;
+  assign alu_idx = (NofAlus > 1) ? alu_idx_raw_q : '0;
+  assign lsu_idx = (NofLsus > 1) ? lsu_idx_raw_q : '0;
+  assign fpu_idx = (NofFpus > 1) ? fpu_idx_raw_q : '0;
 
   // ALU counter
   if (NofAlusIsPow2) begin : gen_alu_idx_pow2
@@ -773,7 +845,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     always_comb begin: alu_idx_calculation
       if (restart_i) begin
         alu_idx_raw_d = '0;
-      end else if (en_superscalar_i &  (|instr_dispatched)) begin
+      end else if (alu_disp_buf_pop) begin
         alu_idx_raw_d = alu_idx_raw_q + alu_idx_inc;
       end else begin
         alu_idx_raw_d = alu_idx_raw_q;
@@ -787,7 +859,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       alu_idx_sum = alu_idx_raw_q + alu_idx_inc;
       if (restart_i) begin
         alu_idx_raw_d = '0;
-      end else if (en_superscalar_i & (|instr_dispatched)) begin
+      end else if (alu_disp_buf_pop) begin
         alu_idx_raw_d = (alu_idx_sum >= NofAlus)  ? alu_idx_sum - NofAlus
                                                   : alu_idx_sum[NofAlusW-1:0];
       end else begin
@@ -802,7 +874,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     always_comb begin: lsu_idx_calculation
       if (restart_i) begin
         lsu_idx_raw_d = '0;
-      end else if (en_superscalar_i & (|instr_dispatched)) begin
+      end else if (lsu_disp_buf_pop) begin
         lsu_idx_raw_d = lsu_idx_raw_q + lsu_idx_inc;
       end else begin
         lsu_idx_raw_d = lsu_idx_raw_q;
@@ -816,7 +888,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       lsu_idx_sum = lsu_idx_raw_q + lsu_idx_inc;
       if (restart_i) begin
         lsu_idx_raw_d = '0;
-      end else if (en_superscalar_i & (|instr_dispatched)) begin
+      end else if (lsu_disp_buf_pop) begin
         lsu_idx_raw_d = (lsu_idx_sum >= NofLsus)  ? lsu_idx_sum - NofLsus
                                                   : lsu_idx_sum[NofLsusW-1:0];
       end else begin
@@ -831,7 +903,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
     always_comb begin: fpu_idx_calculation
       if (restart_i) begin
         fpu_idx_raw_d = '0;
-      end else if (en_superscalar_i & (|instr_dispatched)) begin
+      end else if (fpu_disp_buf_pop) begin
         fpu_idx_raw_d = fpu_idx_raw_q + fpu_idx_inc;
       end else begin
         fpu_idx_raw_d = fpu_idx_raw_q;
@@ -845,7 +917,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
       fpu_idx_sum = fpu_idx_raw_q + fpu_idx_inc;
       if (restart_i) begin
         fpu_idx_raw_d = '0;
-      end else if (en_superscalar_i & (|instr_dispatched)) begin
+      end else if (fpu_disp_buf_pop) begin
         fpu_idx_raw_d = (fpu_idx_sum >= NofFpus)  ? fpu_idx_sum - NofFpus
                                                   : fpu_idx_sum[NofFpusW-1:0];
       end else begin
@@ -859,7 +931,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   // and scorebored signal handling    //
   ///////////////////////////////////////
 
-  assign first_instr_dispatched_o = (|instr_dispatched) &
+  assign first_instr_dispatched_o = (|(instr_dispatched & instr_valid_i)) &
                                     !(|dispatched_q);
 
   // Only need to send the rob tag in case we do free list based reclamation

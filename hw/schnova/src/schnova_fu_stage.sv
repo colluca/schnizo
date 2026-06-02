@@ -660,7 +660,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign lsu_rs_busy[lsu] = (en_superscalar_i & lsu_busy) | ~lsu_rs_empty[lsu];
 
     // Suppress exceptions in superscalar mode for now because we anyway don't handle them one cycle later.
-    assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw & !en_superscalar_i;
+    assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw;
 
     // Populate the producer and instr_iter fields of the trace
     // pragma translate_off
@@ -679,7 +679,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // LSU empty & misalign signal combination
   assign lsu_empty_o = (&lsu_empty);
-  assign lsu_addr_misaligned_o =(|lsu_addr_misaligned);
+  // We only care about address misalignments of LSU0 for now, since this is the only LSU that executes
+  // in scalar mode
+  assign lsu_addr_misaligned_o = lsu_addr_misaligned[0];
 
   //////////
   // FPUs //

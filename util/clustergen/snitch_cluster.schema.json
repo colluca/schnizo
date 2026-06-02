@@ -569,6 +569,12 @@
                                             "description": "Number of ALUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
                                             "default": 1
                                         },
+                                        "num_alu_buf_slots": {
+                                            "type": "number",
+                                            "title": "Number of ALU dispatch buffer Slots",
+                                            "description": "The number of slots the shared dispatch buffer has for the ALU in schnova",
+                                            "default": 1
+                                        },
                                         "num_alu_slots": {
                                             "type": "number",
                                             "title": "Number of Slots per ALU",
@@ -587,6 +593,12 @@
                                             "description": "Number of LSUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
                                             "default": 1
                                         },
+                                        "num_lsu_buf_slots": {
+                                            "type": "number",
+                                            "title": "Number of LSU dispatch buffer Slots",
+                                            "description": "The number of slots the shared dispatch buffer has for the LSU in schnova",
+                                            "default": 1
+                                        },
                                         "num_lsu_slots": {
                                             "type": "number",
                                             "title": "Number of Slots per LSU",
@@ -603,6 +615,12 @@
                                             "type": "number",
                                             "title": "Number of FPUs",
                                             "description": "Number of FPUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
+                                            "default": 1
+                                        },
+                                        "num_fpu_buf_slots": {
+                                            "type": "number",
+                                            "title": "Number of FPU dispatch buffer Slots",
+                                            "description": "The number of slots the shared dispatch buffer has for the FPU in schnova",
                                             "default": 1
                                         },
                                         "num_fpu_slots": {

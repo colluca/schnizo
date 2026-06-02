@@ -61,6 +61,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned AluNofRss  = 3,
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
+  /// Dispatch buffer configurations
+  parameter int unsigned NofAluBufEntries = 32,
+  parameter int unsigned NofLsuBufEntries = 32,
+  parameter int unsigned NofFpuBufEntries = 32,
   parameter bit          MulInAlu0  = 1'b1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
@@ -570,6 +574,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic registers_ready;
   logic sb_busy;
 
+  logic disp_buffers_empty;
+
   // ---------------------------
   // Core Events
   // ---------------------------
@@ -717,8 +723,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ////////////////
 
   logic                         all_rs_finish;
+  logic                         rs_idle;
   logic                         rs_restart;
   loop_state_e                  loop_state;
+
+  // The reservation is idle if there are no instructions inflight targeting reservation stations
+  // This is the case if
+  // 1) The dispatch buffer is empty (otherwise new instruction can be dispatched to the rs even if the frontend is stalled)
+  // 2) The reservation stations is empty and the functional units are not busy
+  assign rs_idle = all_rs_finish && disp_buffers_empty;
 
   schnova_controller #(
     .PipeWidth          (PipeWidth),
@@ -758,7 +771,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .flush_backend_o (flush_backend),
     .dispatched_o(dispatched),
     .phy_reg_alloc_ready_i(phy_reg_alloc_ready),
-    .all_rs_finish_i(all_rs_finish),
+    .rs_idle_i(rs_idle),
     .rs_restart_o(rs_restart),
     // ROB
     .rob_ready_i(rob_ready),
@@ -865,6 +878,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NofAlus    (NofAlus),
     .NofLsus    (NofLsus),
     .NofFpus    (NofFpus),
+    .NofAluBufEntries(NofAluBufEntries),
+    .NofLsuBufEntries(NofLsuBufEntries),
+    .NofFpuBufEntries(NofFpuBufEntries),
     .instr_dec_t(instr_dec_t),
     .rmt_entry_t(rmt_entry_t),
     .phy_id_t(phy_id_t),
@@ -945,7 +961,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .restart_i              (rs_restart),
     .frep_mem_cons_mode_i   (frep_mem_cons_mode),
     // To Refcounter
-    .refcnt_disp_req_o      (refcnt_disp_req)
+    .refcnt_disp_req_o      (refcnt_disp_req),
+    .disp_buffers_empty_o   (disp_buffers_empty)
   );
 
   //////////////////////
@@ -1528,8 +1545,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // Forward the new destination mappings to the rename stage
     for (int unsigned i = 0; i < PipeWidth; i++) begin
       // In scalar mode we don't perform renaming, so we use the old value stored in the rmt
-      disp_data[i].rd             = en_superscalar ? reg_map[i].phy_reg_rd_new
-                                                          : reg_map[i].phy_reg_rd_old;
+      disp_data[i].rd             = en_superscalar  ? reg_map[i].phy_reg_rd_new
+                                                    : reg_map[i].phy_reg_rd_old;
       disp_data[i].rd_is_fp       = instr_decoded[i].rd_is_fp;
       disp_data[i].rs1            = reg_map[i].phy_reg_rs1;
       disp_data[i].rs1_is_fp      = instr_decoded[i].rs1_is_fp;
@@ -1661,8 +1678,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // Core and dispatch traces
   core_trace_t     core_trace;
-  dispatch_trace_t dispatch_trace[PipeWidth];
-  int unsigned     dispatch_rs_id[PipeWidth];
+  dispatch_trace_t rs_dispatch_trace[PipeWidth];
+  dispatch_trace_t si_dispatch_trace;
+
+  disp_req_trace_t alu_disp_req_trace[NofAlus];
+  disp_req_trace_t lsu_disp_req_trace[NofLsus];
+  disp_req_trace_t fpu_disp_req_trace[NofFpus];
 
   // Traces for regular execution
   issue_csr_trace_t csr_trace;
@@ -1693,21 +1714,30 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     exception:      exception
   };
 
-  logic dispatch_trace_valid [PipeWidth];
+  assign si_dispatch_trace =  '{
+      valid:        (instr_exec_commit && instr_valid_masked[0] && i_dispatcher.si_fu_ready) || exception,
+      pc_q:         i_frontend.pc_q,
+      pc_d:         i_frontend.pc_d,
+      instr_data:   instr_fetch_data[0],
+      rs1:          instr_decoded[0].rs1,
+      phy_rs1:      reg_map[0].phy_reg_rs1,
+      rs2:          instr_decoded[0].rs2,
+      phy_rs2:      reg_map[0].phy_reg_rs2,
+      rs3:          instr_decoded[0].imm, // fused FPU instructions use imm as operand
+      phy_rs3:      reg_map[0].phy_reg_rs3,
+      rd:           instr_decoded[0].rd,
+      phy_rd:       reg_map[0].phy_reg_rd_old,
+      rs1_is_fp:    instr_decoded[0].rs1_is_fp,
+      rs2_is_fp:    instr_decoded[0].rs2_is_fp,
+      rd_is_fp:     instr_decoded[0].rd_is_fp,
+      fu_type:      schnova_pkg::fu_to_string(instr_decoded[0].fu),
+      disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.si_tag.producer_id)
+    };
 
-  for (genvar i = 0; i < PipeWidth; i++) begin: gen_disp_trace_valid;
-    if (i == 0) begin
-      assign dispatch_trace_valid[i] = en_superscalar ? (instr_exec_commit && instr_valid_masked[i] && i_dispatcher.fu_ready[i] && !i_dispatcher.dispatched_q[i]) || exception
-                                               : (instr_exec_commit && instr_valid_masked[i] && i_dispatcher.si_fu_ready || exception);
-    end else begin
-      assign dispatch_trace_valid[i] = (instr_exec_commit && instr_valid_masked[i] && i_dispatcher.fu_ready[i] && !i_dispatcher.dispatched_q[i]) || exception;
-    end
-  end
-
-  for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_dispatch_traces
+  for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_rs_dispatch_traces
     // verilog_lint: waive-start line-length
-    assign dispatch_trace[idx] = '{
-      valid:        dispatch_trace_valid[idx],
+    assign rs_dispatch_trace[idx] = '{
+      valid:        (instr_exec_commit && instr_valid_masked[idx] && !i_dispatcher.instr_has_hazard[idx]) || exception,
       pc_q:         i_frontend.pc_q + (idx * 4),
       pc_d:         i_frontend.pc_d,
       instr_data:   instr_fetch_data[idx],
@@ -1723,13 +1753,20 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       rs2_is_fp:    instr_decoded[idx].rs2_is_fp,
       rd_is_fp:     instr_decoded[idx].rd_is_fp,
       fu_type:      schnova_pkg::fu_to_string(instr_decoded[idx].fu),
-      disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.fu_response[idx].producer)
+      disp_resp:    "" // Not used in superscalar dispatch
     };
-    // verilog_lint: waive-stop line-length
-    assign dispatch_rs_id[idx] = i_dispatcher.fu_response[idx].producer.rs_id;
   end
 
+
+
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alu_traces
+
+    assign alu_disp_req_trace[alu] = '{
+      valid: alu_rs_disp_req_valid[alu] && alu_rs_disp_req_ready[alu],
+      rs_id: alu,
+      disp_resp:  i_fu_stage.producer_to_string(alu_rs_disp_reqs[alu].tag.producer_id)
+    };
+
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace
@@ -1750,6 +1787,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsu_traces
+
+    assign lsu_disp_req_trace[lsu] = '{
+      valid: lsu_rs_disp_req_valid[lsu] && lsu_rs_disp_req_ready[lsu],
+      rs_id: NofAlus + lsu,
+      disp_resp:  i_fu_stage.producer_to_string(lsu_rs_disp_reqs[lsu].tag.producer_id)
+    };
+
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace
@@ -1777,6 +1821,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpu_traces
+
+    assign fpu_disp_req_trace[fpu] = '{
+      valid: fpu_rs_disp_req_valid[fpu] && fpu_rs_disp_req_ready[fpu],
+      rs_id: NofAlus + NofLsus + fpu,
+      disp_resp:  i_fu_stage.producer_to_string(fpu_rs_disp_reqs[fpu].tag.producer_id)
+    };
+
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
@@ -1902,9 +1953,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .clk_i              (clk_i),
     .rst_i              (rst_i),
     .hart_id_i          (hart_id_i),
-    .dispatch_rs_id     (dispatch_rs_id),
     .core_trace         (core_trace),
-    .dispatch_trace     (dispatch_trace),
+    .si_dispatch_trace  (si_dispatch_trace),
+    .rs_dispatch_trace  (rs_dispatch_trace),
+    .alu_disp_req_trace (alu_disp_req_trace),
+    .lsu_disp_req_trace (lsu_disp_req_trace),
+    .fpu_disp_req_trace (fpu_disp_req_trace),
     .alu_trace          (alu_trace),
     .lsu_trace          (lsu_trace),
     .fpu_trace          (fpu_trace),

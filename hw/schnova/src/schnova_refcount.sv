@@ -13,6 +13,9 @@ module schnova_refcount import schnova_pkg::*; #(
     parameter int unsigned LsuNofRss    = 3,
     parameter int unsigned NofFpus      = 1,
     parameter int unsigned FpuNofRss    = 2,
+    parameter int unsigned NofAluBufEntries = 32,
+    parameter int unsigned NofLsuBufEntries = 32,
+    parameter int unsigned NofFpuBufEntries = 32,
     parameter type         phy_id_t     = logic,
     parameter type         refcnt_req_t = logic
 ) (
@@ -42,15 +45,22 @@ module schnova_refcount import schnova_pkg::*; #(
 );
 
     // GPR Max References: 1 (RAT) + ALU(2/slot) + LSU(2/slot) + FPU(1/slot)
-    localparam int unsigned GprMaxReferences = 1 
-                                             + (NofAlus * AluNofRss * 2) 
-                                             + (NofLsus * LsuNofRss * 2) 
-                                             + (NofFpus * FpuNofRss * 1);
-                                             
+    // + 2/ALU Buffer entry + 2/LSU Buffer entry + 1/FPU Buffer entry
+    localparam int unsigned GprMaxReferences = 1
+                                             + (NofAlus * AluNofRss * 2)
+                                             + (NofLsus * LsuNofRss * 2)
+                                             + (NofFpus * FpuNofRss * 1)
+                                             + (NofAluBufEntries * 2)
+                                             + (NofLsuBufEntries * 2)
+                                             + (NofFpuBufEntries * 1);
+
     // FPR Max References: 1 (RAT) + LSU(1/slot) + FPU(3/slot)
-    localparam int unsigned FprMaxReferences = 1 
-                                             + (NofLsus * LsuNofRss * 1) 
-                                             + (NofFpus * FpuNofRss * 3);
+    // + 1/LSU Buffer entry + 3/FPU Buffer entry
+    localparam int unsigned FprMaxReferences = 1
+                                             + (NofLsus * LsuNofRss * 1)
+                                             + (NofFpus * FpuNofRss * 3)
+                                             + (NofLsuBufEntries * 1)
+                                             + (NofFpuBufEntries * 3);
 
     localparam int unsigned GprCntWidth = $clog2(GprMaxReferences + 1);
     localparam int unsigned FprCntWidth = $clog2(FprMaxReferences + 1);

@@ -152,42 +152,6 @@ module schnova_res_stat import schnova_pkg::*; #(
     rss_operand_t [NofOperands-1:0] operands;
   } rs_fpu_slot_issue_t;
 
-  //////////////////////////
-  // Cut dispatch request //
-  //////////////////////////
-
-  disp_req_t disp_req_i_q;
-  logic      disp_req_valid_i_q;
-  logic      disp_req_ready_o_q;
-
-  // The cut will result in delayed exceptions. If an exception occurs it will trigger the
-  // exception at the next instruction.
-  logic disp_req_valid_guarded;
-  logic disp_req_ready_o_raw;
-
-  // Only accept it if we commit to the dispatch.
-  assign disp_req_valid_guarded = disp_req_valid_i &&
-                                  instr_exec_commit_i;
-
-  // Only assert ready when the reservation station is not full
-  assign disp_req_ready_o = disp_req_ready_o_raw &&
-                            instr_exec_commit_i;
-
-  spill_register_flushable #(
-    .T     (disp_req_t),
-    .Bypass(0)
-  ) i_disp_cut (
-    .clk_i,
-    .rst_ni (~rst_i),
-    .valid_i(disp_req_valid_guarded),
-    .flush_i(restart_i),
-    .ready_o(disp_req_ready_o_raw),
-    .data_i (disp_req_i),
-    .valid_o(disp_req_valid_i_q),
-    // The rs is always ready to accept a new instruction on this side
-    .ready_i(disp_req_ready_o_q),
-    .data_o (disp_req_i_q)
-  );
 
   //////////////////////////////
   // RS allocation controller //
@@ -257,9 +221,9 @@ module schnova_res_stat import schnova_pkg::*; #(
         .disp_idx_i        (dispatch_idx),
         .issue_idx_i       (issue_idx),
         .retiring_o        (retiring),
-        .disp_req_i        (disp_req_i_q),
-        .disp_req_valid_i  (disp_req_valid_i_q),
-        .disp_req_ready_o  (disp_req_ready_o_q),
+        .disp_req_i        (disp_req_i),
+        .disp_req_valid_i  (disp_req_valid_i),
+        .disp_req_ready_o  (disp_req_ready_o),
         .disp_hs_o         (dispatch_hs),
         .disp_rsp_o        (disp_rsp_o),
         .rs_full_i         (rs_full_o),
@@ -300,9 +264,9 @@ module schnova_res_stat import schnova_pkg::*; #(
         .disp_idx_i        (dispatch_idx),
         .issue_idx_i       (issue_idx),
         .retiring_o        (retiring),
-        .disp_req_i        (disp_req_i_q),
-        .disp_req_valid_i  (disp_req_valid_i_q),
-        .disp_req_ready_o  (disp_req_ready_o_q),
+        .disp_req_i        (disp_req_i),
+        .disp_req_valid_i  (disp_req_valid_i),
+        .disp_req_ready_o  (disp_req_ready_o),
         .disp_hs_o         (dispatch_hs),
         .disp_rsp_o        (disp_rsp_o),
         .rs_full_i         (rs_full_o),
@@ -343,9 +307,9 @@ module schnova_res_stat import schnova_pkg::*; #(
         .disp_idx_i        (dispatch_idx),
         .issue_idx_i       (issue_idx),
         .retiring_o        (retiring),
-        .disp_req_i        (disp_req_i_q),
-        .disp_req_valid_i  (disp_req_valid_i_q),
-        .disp_req_ready_o  (disp_req_ready_o_q),
+        .disp_req_i        (disp_req_i),
+        .disp_req_valid_i  (disp_req_valid_i),
+        .disp_req_ready_o  (disp_req_ready_o),
         .disp_hs_o         (dispatch_hs),
         .disp_rsp_o        (disp_rsp_o),
         .rs_full_i         (rs_full_o),
