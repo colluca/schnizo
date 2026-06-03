@@ -2,13 +2,11 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// TODO(colluca): the following would be best moved to the cluster level
-
 `include "common_cells/assertions.svh"
 `include "common_cells/registers.svh"
 `include "snitch_vm/typedef.svh"
 
-// The Schnizo core complex.
+// The Schnova core complex.
 //
 // A container for Schnizo and core-local accelerators such as the DMA, connected through the
 // accelerator offload interface.

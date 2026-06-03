@@ -218,12 +218,12 @@ package schnova_tracer_pkg;
     return extras;
   endfunction
 
-  function automatic string format_fu_retire_trace(retire_fu_trace_t trace);
+  function automatic string format_fu_retire_trace(retire_fu_trace_t trace, logic is_load);
     string extras = "";
     if (!trace.valid) begin
       return "";
     end
-    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':\"%s\", '%s':0x%0x", extras, "producer", trace.producer, "is_load", is_load);
     return extras;
   endfunction
 

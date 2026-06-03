@@ -18,38 +18,29 @@ TRUSTED_PKG_SEQ_ID = 22222
 
 
 def extract_fu_details(fu_string):
-    # check with regex:
-    # - if it is only a string without numbers (e.g., "ALU", "LSU", "FPU"). This is the fu_type.
-    # - if it is a string with a number at the end  (e.g. "ALU0", "ALU4", "LSU2"). This is the
-    #   fu_type with the fu_id.
-    # - if it is a with a number, a dot and another number (e.g., "ALU0.0", "FPU2.34"). This is
-    #   the fu_type with the fu_id and the slot_id.
-    # Return the fu_type, fu_id and slot_id
-
-    # Define regex patterns
+    # Define regex patterns allowing an optional trailing L or S suffix
     fu_type_pattern = r"^[A-Za-z]+$"
-    fu_id_pattern = r"^([A-Za-z]+)(\d+)$"
-    fu_slot_pattern = r"^([A-Za-z]+)(\d+)\.(\d+)$"
-
-    fu_type, fu_id, slot_id = None, None, None
+    fu_id_pattern = r"^([A-Za-z]+)(\d+)([LS]?)$"
+    fu_slot_pattern = r"^([A-Za-z]+)(\d+)\.(\d+)([LS]?)$"
 
     # Match the string against the patterns
     if re.match(fu_type_pattern, fu_string):
-        fu_type = fu_string
+        return fu_string, fu_string, None
+        
     elif match := re.match(fu_id_pattern, fu_string):
-        fu_type, fu_id = match.groups()
-        fu_id = int(fu_id)
+        fu_type, fu_id, suffix = match.groups()
+        fu_track = f"{fu_type}{fu_id}"          # Visual Track: "LSU0"
+        queue_key = f"{fu_type}{fu_id}{suffix}" # Backend Queue: "LSU0L" or "LSU0S"
+        return fu_track, queue_key, None
+        
     elif match := re.match(fu_slot_pattern, fu_string):
-        fu_type, fu_id, slot_id = match.groups()
-        fu_id = int(fu_id)
-        slot_id = int(slot_id)
+        fu_type, fu_id, slot_id, suffix = match.groups()
+        fu_track = f"{fu_type}{fu_id}"          # Visual Track: "LSU0"
+        queue_key = f"{fu_type}{fu_id}{suffix}" # Backend Queue: "LSU0L" or "LSU0S"
+        return fu_track, queue_key, int(slot_id)
+        
     else:
         raise ValueError(f"Invalid FU string format to extract details: {fu_string}")
-
-    if slot_id is not None:
-        return f'{fu_type}{fu_id}', slot_id
-    else:
-        return fu_string, slot_id
 
 
 class PerfettoTrace():
@@ -185,33 +176,19 @@ class PerfettoInstructionTrace(PerfettoTrace):
             self.ipc = 1
 
     def start_insn(self, fu, name, timestamp, annotations={}):
-        """Record the start of an instruction execution.
+        # Unpack all three extracted details
+        fu_track, queue_key, slot_id = extract_fu_details(fu)
+        
+        # 1. Create the parent visual track using the clean base name (e.g., "LSU0")
+        if fu_track not in self.tracks:
+            self.add_track(fu_track, parent='Instructions')
 
-        Creates a slice begin event to mark the start of instruction execution
-        on the appropriate functional unit track.
+        # 2. Create the unique instruction slice track, naming it fu_track ("LSU0")
+        # Perfetto UI merges tracks with identical names under the same parent!
+        insn_uuid = self.add_track(fu_track, parent='Instructions', unique_name=False)
 
-        Args:
-            fu: The functional unit executing the instruction.
-            name: The name/mnemonic of the instruction.
-            timestamp: The timestamp when the instruction starts in nanoseconds.
-        """
-        # Create a new track for an FU when first encountered
-        fu_string, slot_id = extract_fu_details(fu)
-        if fu_string not in self.tracks:
-            self.add_track(fu_string, parent='Instructions')
-
-        # Create a new track for each instruction to allow non perfectly nested events.
-        # This new track has the parent set to the hierarchical track we want to use but a different
-        # uuid. The name must also match that Perfetto UI merges the tracks.
-        # The uuid of the "instruction track" must be unique in the whole trace.
-        # See https://perfetto.dev/docs/reference/synthetic-track-event#process-scoped-async-slices
-        # This link points to process-scoped async slices but the nesting work the same way for
-        # custom scoped slices.
-        insn_uuid = self.add_track(fu_string, parent='Instructions', unique_name=False)
-
-        # We must keep track of the uuid of the event we started to end it later. We assign it to a
-        # dict with a deque indexed by the hierarchical track uuid.
-        self.outstanding_insns[fu_string].appendleft(insn_uuid)
+        # 3. Use the queue_key ("LSU0L" or "LSU0S") to keep the FIFO channels separate
+        self.outstanding_insns[queue_key].appendleft(insn_uuid)
 
         # Create slice begin event
         annotations['slot_id'] = slot_id
@@ -221,16 +198,8 @@ class PerfettoInstructionTrace(PerfettoTrace):
         self.update_ipc(timestamp)
 
     def end_insn(self, fu, timestamp):
-        """Record the end of an instruction execution.
-
-        Creates a slice end event to mark the completion of instruction execution
-        on the appropriate functional unit track.
-
-        Args:
-            fu: The functional unit executing the instruction.
-            name: The name/mnemonic of the instruction.
-            timestamp: The timestamp when the instruction ends in nanoseconds.
-        """
-        fu_string, _ = extract_fu_details(fu)
-        insn_uuid = self.outstanding_insns[fu_string].pop()
+        # We only care about the backend queue_key to pop the correct instruction
+        _, queue_key, _ = extract_fu_details(fu)
+        
+        insn_uuid = self.outstanding_insns[queue_key].pop()
         self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)

@@ -95,7 +95,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output issue_lsu_trace_t  lsu_trace_o        [NofLsus-1:0],
   output issue_fpu_trace_t  fpu_trace_o        [NofFpus-1:0],
   output retire_fu_trace_t  alu_retire_trace_o [NofAlus-1:0],
-  output retire_fu_trace_t  lsu_retire_trace_o [NofLsus-1:0],
+  output retire_fu_trace_t  lsu_load_retire_trace_o [NofLsus-1:0],
+  output retire_fu_trace_t  lsu_store_retire_trace_o [NofLsus-1:0],
   output retire_fu_trace_t  fpu_retire_trace_o [NofFpus-1:0],
   // pragma translate_on
 
@@ -670,8 +671,17 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       lsu_trace_o[lsu] = lsu_trace_int;
       lsu_trace_o[lsu].producer = producer;
     end
-    assign lsu_retire_trace_o[lsu] = '{
+    // A load instruction will write to a register, retirement is on result writeback
+    // a store instruction will not write to a register, retirement is immediately when the instruction
+    // is issued.
+    // also trace non-executed instructions to have the exception info
+    assign lsu_load_retire_trace_o[lsu] = '{
       valid:    lsu_result_valid && lsu_result_ready,
+      producer: producer
+    };
+    assign lsu_store_retire_trace_o[lsu] = '{
+      valid:    lsu_issue_req_valid && lsu_issue_req_ready &&
+                lsu_issue_req.lsu_op inside {LsuOpStore, LsuOpFpStore},
       producer: producer
     };
     // pragma translate_on

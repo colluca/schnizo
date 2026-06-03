@@ -993,7 +993,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   issue_lsu_trace_t  lsu_trace       [NofLsus];
   issue_fpu_trace_t  fpu_trace       [NofFpus];
   retire_fu_trace_t  alu_retirements [NofAlus];
-  retire_fu_trace_t  lsu_retirements [NofLsus];
+  retire_fu_trace_t  lsu_load_retirements [NofLsus];
+  retire_fu_trace_t  lsu_store_retirements [NofLsus];
   retire_fu_trace_t  fpu_retirements [NofFpus];
   // pragma translate_on
 
@@ -1070,7 +1071,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .lsu_trace_o          (lsu_trace),
     .fpu_trace_o          (fpu_trace),
     .alu_retire_trace_o   (alu_retirements),
-    .lsu_retire_trace_o   (lsu_retirements),
+    .lsu_load_retire_trace_o (lsu_load_retirements),
+    .lsu_store_retire_trace_o(lsu_store_retirements),
     .fpu_retire_trace_o   (fpu_retirements),
     // pragma translate_on
     // ALU
@@ -1879,7 +1881,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   };
 
   assign acc_retirement = '{
-    valid:    acc_pvalid_i && acc_pready_o,
+    // We can have instructions that don't lead to a response. For those we use the issue handshake as a retirement signal.
+    valid:    acc_pvalid_i && acc_pready_o || (acc_qvalid_o && acc_qready_i && (acc_qreq_o.id == '0)), 
     producer: "ACC" // There is no address on the response.
   };
 
@@ -1920,7 +1923,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign csr_wb_trace = '{
     valid:       csr_result_valid && csr_result_ready,
     fu_result:   csr_result,
-    fu_phy_rd:       csr_result_tag.dest_reg,
+    fu_phy_rd:   csr_result_tag.dest_reg,
     fu_rd_is_fp: csr_result_tag.dest_reg_is_fp,
     is_branch:    1'b0,
     branch_taken: 1'b0
@@ -1929,7 +1932,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign acc_wb_trace  = '{
     valid:       acc_pvalid_i && acc_pready_o,
     fu_result:   acc_result,
-    fu_phy_rd:       acc_result_tag.dest_reg,
+    fu_phy_rd:   acc_result_tag.dest_reg,
     fu_rd_is_fp: acc_result_tag.dest_reg_is_fp,
     is_branch:    1'b0,
     branch_taken: 1'b0
@@ -1968,7 +1971,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .csr_trace          (csr_trace),
     .acc_trace          (acc_trace),
     .alu_retirements    (alu_retirements),
-    .lsu_retirements    (lsu_retirements),
+    .lsu_load_retirements  (lsu_load_retirements),
+    .lsu_store_retirements (lsu_store_retirements),
     .fpu_retirements    (fpu_retirements),
     .csr_retirement     (csr_retirement),
     .acc_retirement     (acc_retirement),

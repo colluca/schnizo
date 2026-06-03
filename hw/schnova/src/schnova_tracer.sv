@@ -38,7 +38,8 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  issue_csr_trace_t        csr_trace,
   input  issue_acc_trace_t        acc_trace,
   input  retire_fu_trace_t        alu_retirements [NofAlus],
-  input  retire_fu_trace_t        lsu_retirements [NofLsus],
+  input  retire_fu_trace_t        lsu_load_retirements [NofLsus],
+  input  retire_fu_trace_t        lsu_store_retirements [NofLsus],
   input  retire_fu_trace_t        fpu_retirements [NofFpus],
   input  retire_fu_trace_t        csr_retirement,
   input  retire_fu_trace_t        acc_retirement,
@@ -263,24 +264,27 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // Retirement events - Always active to complete any issue.
       for (int alu = 0; alu < NofAlus; alu++) begin
         write_trace_event(file_id, trace_header, "retirement",
-                          format_fu_retire_trace(alu_retirements[alu]),
+                          format_fu_retire_trace(alu_retirements[alu], 1'b0),
                           alu_retirements[alu].valid);
       end
       for (int lsu = 0; lsu < NofLsus; lsu++) begin
         write_trace_event(file_id, trace_header, "retirement",
-                          format_fu_retire_trace(lsu_retirements[lsu]),
-                          lsu_retirements[lsu].valid);
+                          format_fu_retire_trace(lsu_load_retirements[lsu], 1'b1),
+                          lsu_load_retirements[lsu].valid);
+        write_trace_event(file_id, trace_header, "retirement",
+                          format_fu_retire_trace(lsu_store_retirements[lsu], 1'b0),
+                          lsu_store_retirements[lsu].valid);
       end
       for (int fpu = 0; fpu < NofFpus; fpu++) begin
         write_trace_event(file_id, trace_header, "retirement",
-                          format_fu_retire_trace(fpu_retirements[fpu]),
+                          format_fu_retire_trace(fpu_retirements[fpu], 1'b0),
                           fpu_retirements[fpu].valid);
       end
       write_trace_event(file_id, trace_header, "retirement",
-                        format_fu_retire_trace(csr_retirement),
+                        format_fu_retire_trace(csr_retirement, 1'b0),
                         csr_retirement.valid);
       write_trace_event(file_id, trace_header, "retirement",
-                        format_fu_retire_trace(acc_retirement),
+                        format_fu_retire_trace(acc_retirement, 1'b0),
                         acc_retirement.valid);
 
 
