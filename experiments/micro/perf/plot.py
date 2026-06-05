@@ -16,12 +16,8 @@ METRIC_LABELS = {
     'ipc': 'IPC',
 }
 
-APP_LABELS = {
-    'sz_axpy': 'AXPY',
-    'sz_dot': 'DOT',
-    'exp': 'EXP',
-    'log': 'LOG',
-}
+def app_label(app):
+    return app.removeprefix('sz_').replace('xoshiro128p', 'xoshiro')
 
 
 def format_metric(val, metric):
@@ -76,7 +72,7 @@ def kernel_scaling_plot(df, app, show=True):
     ax[1].axhline(a / b, color='tab:red', linestyle='-', label='Fit: asymptote')
 
     # Format plot
-    fig.supxlabel(f'{APP_LABELS[app]} vector length (in multiples of 256 elements)')
+    fig.supxlabel(f'{app_label(app)} vector length (in multiples of 256 elements)')
     xticks = n_vals.tolist()
     for a in ax:
         a.set_xticks(xticks)
@@ -116,7 +112,7 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     # Create grouped bar chart
     fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax, zorder=3)
+    plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.8)
 
     # Get the bar containers for each mode
     bar_containers = ax.containers
@@ -157,8 +153,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     # Format plot
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS[metric])
-    labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
-    ax.set_xticklabels(labels, rotation=15, ha='right')
+    ax.set_xticklabels([app_label(app) for app in plot_df.index], rotation=45, ha='right')
+    ax.tick_params(axis='x', pad=0)
     ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0, loc='upper left')
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
@@ -182,6 +178,7 @@ def rsp_ports_tradeoff_plot(df, show=True):
     idx_max_size = df.groupby(['app', 'hw'])['size'].idxmax()
     plot_df = df.loc[idx_max_size].pivot(index='app', columns='hw', values='ipc')
 
+    plot_df = plot_df[plot_df.index.isin(experiments.APPLICATION_CLASS['GP'])]
     fc_ipc = plot_df['3x32_3x32_1x64']
     plot_df = plot_df[['3x32_3x32_1x64_1port', '3x32_3x32_1x64_2ports', '3x32_3x32_1x64_3ports']]
     plot_df = plot_df.rename(columns={
@@ -190,7 +187,7 @@ def rsp_ports_tradeoff_plot(df, show=True):
     })
 
     fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax, zorder=3)
+    plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.8)
 
     # Draw fc IPC as a horizontal line spanning all bars in each app group
     labeled = False
@@ -206,9 +203,8 @@ def rsp_ports_tradeoff_plot(df, show=True):
     ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS['ipc'])
-    labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
-    ax.set_xticklabels(labels, rotation=15, ha='right')
-    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
+    ax.set_xticklabels([app_label(app) for app in plot_df.index], rotation=30, ha='right')
+    ax.legend(ncol=1, handlelength=1.0, fontsize=5)
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
     ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))

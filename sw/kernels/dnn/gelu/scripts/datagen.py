@@ -1,111 +1,76 @@
 #!/usr/bin/env python3
-# Copyright 2023 ETH Zurich and University of Bologna.
+# Copyright 2026 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Tim Fischer <fischeti@iis.ee.ethz.ch>
-# Viviane Potocnik <vivianep@iis.ee.ethz.ch>
 # Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-import argparse
-import pathlib
-import json5
+import re
+import sys
 import torch
 
-from snitch.util.sim import data_utils
-from snitch.util.sim.data_utils import format_struct_definition, \
-    format_array_definition, format_array_declaration, format_ifdef_wrapper, \
-    emit_license
+import snitch.util.sim.data_utils as du
 
 torch.manual_seed(42)
 
-# AXI splits bursts crossing 4KB address boundaries. To minimize
-# the occurrence of these splits the data should be aligned to 4KB
 BURST_ALIGNMENT = 4096
 
-# Sigmoid based approximation of the GeLU activation function
-# adapted from i-BERT (https://arxiv.org/pdf/2101.01321.pdf)
-# L(x) = sgn(x) [a(clip(|x|, max = −b) + b)^2 + 1]
-# a = -0.2888, b = -1.769
 
+class GeluDataGen(du.DataGen):
 
-def sigmoid_gelu(x):
-    a = -0.2888
-    b = -1.769
-    return torch.sign(x) * (a * (torch.clamp(torch.abs(x), max=-b) + b)**2 + 1)
+    def golden_model(self, ifmap, approximate='sigmoid'):
+        if approximate == 'sigmoid':
+            # Hendrycks & Gimpel (2016), "Gaussian Error Linear Units (GELUs)", arXiv:1606.08415, eq. 4
+            return ifmap * torch.sigmoid(1.702 * ifmap)
+        elif approximate == 'tanh':
+            return torch.nn.functional.gelu(ifmap, approximate='tanh')
 
+    def infer_prec(self, funcptr):
+        bits = re.search(r'fp(\d+)', funcptr).group(1)
+        return f'FP{bits}'
 
-def golden_model(ifmap):
-    gelu = torch.nn.GELU(approximate='tanh')
-    # gelu = sigmoid_gelu
-    return gelu(ifmap)
+    def emit_header(self, **kwargs):
+        header = [super().emit_header()]
 
+        funcptr = kwargs['funcptr']
+        approximate = kwargs['approximate']
+        prec = self.infer_prec(funcptr)
 
-def emit_header(**kwargs):
+        size = kwargs['size']
+        n_tiles = kwargs['n_tiles']
 
-    size = kwargs['size']
-    prec = kwargs['prec']
+        torch_type = du.torch_type_from_precision_t(prec)
+        ctype = du.ctype_from_precision_t(prec)
 
-    torch_type = data_utils.torch_type_from_precision_t(prec)
-    ctype = data_utils.ctype_from_precision_t(prec)
+        ifmap = torch.randn(size, dtype=torch_type)
+        ofmap = self.golden_model(ifmap, approximate).detach()
 
-    ifmap = torch.randn(size, requires_grad=False, dtype=torch_type)
-    ofmap = golden_model(ifmap)
+        ifmap_uid = 'ifmap'
+        ofmap_uid = 'ofmap'
 
-    ifmap_uid = 'ifmap'
-    ofmap_uid = 'ofmap'
+        layer_cfg = {
+            'size':    size,
+            'n_tiles': n_tiles,
+            'ifmap':   ifmap_uid,
+            'ofmap':   ofmap_uid,
+            'dtype':   prec,
+            'funcptr': funcptr,
+        }
 
-    layer_cfg = {
-        'size':  size,
-        'ifmap': ifmap_uid,
-        'ofmap': ofmap_uid,
-        'dtype': prec
-    }
+        header += [du.format_array_declaration(f'extern {ctype}', ifmap_uid,
+                   ifmap.shape, alignment=BURST_ALIGNMENT)]
+        header += [du.format_array_declaration(ctype, ofmap_uid,
+                   ofmap.shape, alignment=BURST_ALIGNMENT)]
+        header += [du.format_struct_definition('extern const gelu_layer_t', 'layer', layer_cfg)]
+        header += [du.format_array_definition(ctype, ifmap_uid,
+                   du.flatten(ifmap), alignment=BURST_ALIGNMENT,
+                   section=kwargs.get('section'))]
+        result_def = du.format_array_definition(ctype, 'golden',
+                     du.flatten(ofmap), alignment=BURST_ALIGNMENT)
+        header += [du.format_ifdef_wrapper('BIST', result_def)]
 
-    data_str = [emit_license()]
-    # Array forward declarations
-    data_str += [format_array_declaration(f'extern {ctype}', ifmap_uid, ifmap.shape)]
-    data_str += [format_array_declaration(ctype, ofmap_uid, ofmap.shape)]
-    # Layer struct
-    data_str += [format_struct_definition('gelu_layer_t', 'layer', layer_cfg)]
-    # Array definitions
-    data_str += [format_array_definition(ctype, ifmap_uid, ifmap)]
-    # Golden results for BIST
-    result_def = format_array_definition(ctype, 'golden', ofmap)
-    data_str += [format_ifdef_wrapper('BIST', result_def)]
-    data_str = '\n\n'.join(data_str)
-
-    return data_str
-
-
-def main():
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-c", "--cfg",
-        type=pathlib.Path,
-        required=True,
-        help='Select param config file kernel'
-    )
-    parser.add_argument(
-        '--section',
-        type=str,
-        help='Section to store matrices in')
-    parser.add_argument(
-        'output',
-        type=pathlib.Path,
-        help='Path of the output header file')
-    args = parser.parse_args()
-
-    # Load param config file
-    with args.cfg.open() as f:
-        param = json5.loads(f.read())
-    param['section'] = args.section
-
-    # Emit header file
-    with open(args.output, 'w') as f:
-        f.write(emit_header(**param))
+        return '\n\n'.join(header)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(GeluDataGen().main())

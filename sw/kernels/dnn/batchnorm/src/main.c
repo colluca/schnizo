@@ -10,9 +10,7 @@
 #pragma clang diagnostic pop
 
 int main() {
-    batchnorm_layer(&layer);
-
-    snrt_global_barrier();
+    batchnorm_layer(layer);
 
     return 0;
 }

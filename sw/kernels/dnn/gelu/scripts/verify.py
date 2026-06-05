@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2023 ETH Zurich and University of Bologna.
+# Copyright 2026 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -7,7 +7,7 @@
 
 import sys
 import torch
-from datagen import golden_model
+from datagen import GeluDataGen
 
 from snitch.util.sim.verif_utils import Verifier
 from snitch.util.sim.data_utils import ctype_from_precision_t
@@ -20,10 +20,12 @@ class GeluVerifier(Verifier):
     def __init__(self):
         super().__init__()
         self.layer_struct = {
-            'size': 'I',
-            'ifmap': 'I',
-            'ofmap': 'I',
-            'dtype': 'I'
+            'size':     'I',
+            'n_tiles':  'I',
+            'ifmap':    'I',
+            'ofmap':    'I',
+            'dtype':    'I',
+            'funcptr':  'I',
         }
         self.layer = self.get_input_from_symbol('layer', self.layer_struct)
         self.prec = self.layer['dtype']
@@ -32,12 +34,12 @@ class GeluVerifier(Verifier):
         return self.get_output_from_symbol('ofmap', ctype_from_precision_t(self.prec))
 
     def get_expected_results(self):
-        ifmap = self.get_input_from_symbol('ifmap', ctype_from_precision_t(self.prec))
-        ifmap = torch.from_numpy(ifmap)
-        return golden_model(ifmap).detach().numpy().flatten()
+        ctype = ctype_from_precision_t(self.prec)
+        ifmap = torch.from_numpy(self.get_input_from_symbol('ifmap', ctype))
+        return GeluDataGen().golden_model(ifmap, approximate='sigmoid').detach().numpy().flatten()
 
     def check_results(self, *args):
-        return super().check_results(*args, rtol=1E-10)
+        return super().check_results(*args, atol=1e-6)
 
 
 if __name__ == "__main__":

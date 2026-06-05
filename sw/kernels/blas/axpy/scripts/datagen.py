@@ -65,7 +65,7 @@ class AxpyDataGen(du.DataGen):
                    alignment=self.BURST_ALIGNMENT, section=kwargs['section'])]
         header += [du.format_array_declaration('double', z_uid, x.shape,
                    alignment=self.BURST_ALIGNMENT, section=kwargs['section'])]
-        header += [du.format_struct_definition('axpy_args_t', 'args', cfg)]
+        header += [du.format_struct_definition('extern const axpy_args_t', 'args', cfg)]
         result_def = du.format_array_definition('double', 'g', g)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
         header = '\n\n'.join(header)

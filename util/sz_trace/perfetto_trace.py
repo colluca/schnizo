@@ -169,8 +169,10 @@ class PerfettoInstructionTrace(PerfettoTrace):
         self.add_track('Instructions')
         self.add_track('NONE', 'Instructions')
         self.add_event('NONE', TYPE_INSTANT, 0, "Start offset")
+        self.fpu_util = 0
         self.add_track('Metrics')
         self.add_counter_track('IPC', 'Metrics', 'insns/cycle')
+        self.add_counter_track('FPU Util', 'Metrics', 'issued/cycle')
 
     def update_ipc(self, timestamp):
         if self.ipc_time is None:
@@ -181,8 +183,13 @@ class PerfettoInstructionTrace(PerfettoTrace):
         else:
             # timestamp advanced: emit previous sample, start new bucket
             self.add_counter_event('IPC', self.ipc_time, self.ipc)
+            self.add_counter_event('FPU Util', self.ipc_time, self.fpu_util)
             self.ipc_time = timestamp
             self.ipc = 1
+            self.fpu_util = 0
+
+    def update_fpu_util(self, timestamp):
+        self.fpu_util = 1
 
     def start_insn(self, fu, name, timestamp, annotations={}):
         """Record the start of an instruction execution.
@@ -217,8 +224,10 @@ class PerfettoInstructionTrace(PerfettoTrace):
         annotations['slot_id'] = slot_id
         self.add_event(insn_uuid, TYPE_SLICE_BEGIN, timestamp, name, annotations)
 
-        # Update IPC
+        # Update IPC and FPU utilization
         self.update_ipc(timestamp)
+        if fu_string.startswith('FPU'):
+            self.update_fpu_util(timestamp)
 
     def end_insn(self, fu, timestamp):
         """Record the end of an instruction execution.
