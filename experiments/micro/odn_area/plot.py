@@ -52,7 +52,7 @@ def plot_req_xbar_slots(dir=None, show=False, hide_x_axis=False):
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of RSEs per RS')
+        ax.set_xlabel('Number of RS entries per RS')
         ax.set_xticklabels([int(v) for v in pivot.index // num_rs])
     ax.grid(True, axis='y')
     fig.tight_layout()

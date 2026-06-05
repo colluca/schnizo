@@ -128,7 +128,7 @@ def plot_constants(dir=None, show=False, hide_x_axis=False):
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of CMEs')
+        ax.set_xlabel('Number of CM entries per RS')
         ax.set_xticklabels(comb_df.index)
     ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
     ax.grid(True, axis='y')
