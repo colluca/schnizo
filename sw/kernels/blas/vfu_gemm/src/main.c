@@ -20,8 +20,38 @@
 
 #include "snrt.h"
 
+// LMUL used by the SIMD kernels (e32, m1 -> VLMAX = VLEN/32).
+#define LMUL "1"
+
 int main() {
+    // --- Time the GEMM computation (measured here in main, across all cores) ---
+    uint32_t cyc_start, cyc_end;
+    snrt_cluster_hw_barrier();  // align all cores on the timing boundary
+    asm volatile("fence");
+    asm volatile("csrr %0, mcycle" : "=r"(cyc_start));
+
     int retcode = gemm(&args);
+
+    asm volatile("fence");
+    asm volatile("csrr %0, mcycle" : "=r"(cyc_end));
+
+    snrt_cluster_hw_barrier();
+
+    if (snrt_cluster_core_idx() == 0) {
+        uint32_t cycles = cyc_end - cyc_start;
+
+        // Ideal vfmacc-bound cycles: one vfmacc (covering VLMAX columns) per
+        // cycle -> M * K * ceil(N / VLMAX). Read VLMAX from the HW for the
+        // current LMUL/VLEN via `vsetvli rd, x0` (rs1 = x0 => vl = VLMAX).
+        uint32_t vlmax;
+        asm volatile("vsetvli %0, zero, e32, m" LMUL ", ta, ma" : "=r"(vlmax));
+        uint32_t blocks = (args.n + vlmax - 1) / vlmax;
+        uint32_t ideal = args.m * args.k * blocks;
+
+        printf(
+            "GEMM compute: %u cycles  (ideal vfmacc-bound = %u, %u%% util)\n",
+            cycles, ideal, ideal * 100u / cycles);
+    }
 
     snrt_cluster_hw_barrier();
 

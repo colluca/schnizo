@@ -236,6 +236,178 @@ static inline void gemm_fp32_simd_2x(uint32_t setup_ssr,
 }
 
 // ---------------------------------------------------------------------------
+// gemm_fp32_simd_3x  - 3 output rows per M-loop iteration
+// ---------------------------------------------------------------------------
+static inline void gemm_fp32_simd_3x(uint32_t setup_ssr,
+                                     uint32_t partition_banks, uint32_t transa,
+                                     uint32_t transb, uint32_t M, uint32_t N,
+                                     uint32_t K, void *A_p, uint32_t lda,
+                                     void *B_p, uint32_t ldb, uint32_t beta,
+                                     void *C_p, uint32_t ldc) {
+    if (transa || transb || partition_banks) return;
+
+    float *A = (float *)A_p;
+    float *B = (float *)B_p;
+    float *C = (float *)C_p;
+
+    snrt_mcycle();
+
+    uint32_t inc_b = ldb * sizeof(float);
+    uint32_t inc_a = sizeof(float);
+    const uint32_t VL = 8;
+
+    asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(VL));
+
+    // --- Start compute-only cycle measurement (excludes DMA / driver) ---
+    uint32_t comp_start, comp_end;
+    asm volatile("csrr %0, mcycle" : "=r"(comp_start));
+
+    for (int j_tile = 0; j_tile < (int)N; j_tile += VL) {
+        int i = 0;
+        for (; i + 2 < (int)M; i += 3) {
+            float *ptr_b = B + j_tile;
+            float *ptr_a0 = A + i * lda;
+            float *ptr_a1 = A + (i + 1) * lda;
+            float *ptr_a2 = A + (i + 2) * lda;
+            float t0 = *ptr_a0, t1 = *ptr_a1, t2 = *ptr_a2;
+
+            if (beta) {
+                asm volatile("vle32.v v0,  (%0)" : : "r"(C + i * ldc + j_tile));
+                asm volatile("vle32.v v8,  (%0)"
+                             :
+                             : "r"(C + (i + 1) * ldc + j_tile));
+                asm volatile("vle32.v v16, (%0)"
+                             :
+                             : "r"(C + (i + 2) * ldc + j_tile));
+                uint32_t n_frep = K - 1;
+                asm volatile(
+                    "frep.o %[n_frep], 11, 0, 0              \n"
+                    "vle32.v  v24, (%[ptr_b])                \n"
+                    "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
+                    "vfmacc.vf v0,  %[ft0], v24              \n"
+                    "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                    "flw      %[ft0], 0(%[ptr_a0])           \n"
+                    "vfmacc.vf v8,  %[ft1], v24              \n"
+                    "add      %[ptr_a1], %[ptr_a1], %[inc_a] \n"
+                    "flw      %[ft1], 0(%[ptr_a1])           \n"
+                    "vfmacc.vf v16, %[ft2], v24              \n"
+                    "add      %[ptr_a2], %[ptr_a2], %[inc_a] \n"
+                    "flw      %[ft2], 0(%[ptr_a2])           \n"
+                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
+                      [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
+                      [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2)
+                    : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
+                      [ n_frep ] "r"(n_frep)
+                    : "v0", "v8", "v16", "v24", "memory");
+            } else {
+                asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
+                ptr_b += ldb;
+                asm volatile("vfmul.vf v0,  v24, %0" : : "f"(t0));
+                ptr_a0++;
+                t0 = *ptr_a0;
+                asm volatile("vfmul.vf v8,  v24, %0" : : "f"(t1));
+                ptr_a1++;
+                t1 = *ptr_a1;
+                asm volatile("vfmul.vf v16, v24, %0" : : "f"(t2));
+                ptr_a2++;
+                t2 = *ptr_a2;
+                uint32_t n_frep = K - 2;
+                asm volatile(
+                    "frep.o %[n_frep], 11, 0, 0              \n"
+                    "vle32.v  v24, (%[ptr_b])                \n"
+                    "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
+                    "vfmacc.vf v0,  %[ft0], v24              \n"
+                    "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                    "flw      %[ft0], 0(%[ptr_a0])           \n"
+                    "vfmacc.vf v8,  %[ft1], v24              \n"
+                    "add      %[ptr_a1], %[ptr_a1], %[inc_a] \n"
+                    "flw      %[ft1], 0(%[ptr_a1])           \n"
+                    "vfmacc.vf v16, %[ft2], v24              \n"
+                    "add      %[ptr_a2], %[ptr_a2], %[inc_a] \n"
+                    "flw      %[ft2], 0(%[ptr_a2])           \n"
+                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
+                      [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
+                      [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2)
+                    : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
+                      [ n_frep ] "r"(n_frep)
+                    : "v0", "v8", "v16", "v24", "memory");
+            }
+            asm volatile("vse32.v v0,  (%0)"
+                         :
+                         : "r"(C + i * ldc + j_tile)
+                         : "memory");
+            asm volatile("vse32.v v8,  (%0)"
+                         :
+                         : "r"(C + (i + 1) * ldc + j_tile)
+                         : "memory");
+            asm volatile("vse32.v v16, (%0)"
+                         :
+                         : "r"(C + (i + 2) * ldc + j_tile)
+                         : "memory");
+        }
+        // remainder rows via 1x
+        for (; i < (int)M; i++) {
+            float *ptr_b = B + j_tile;
+            float *ptr_a0 = A + i * lda;
+            float t0 = *ptr_a0;
+            if (beta) {
+                asm volatile("vle32.v v0, (%0)" : : "r"(C + i * ldc + j_tile));
+                uint32_t n_frep = K - 1;
+                asm volatile(
+                    "frep.o %[n_frep], 5, 0, 0               \n"
+                    "vle32.v  v24, (%[ptr_b])                \n"
+                    "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
+                    "vfmacc.vf v0,  %[ft0], v24              \n"
+                    "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                    "flw      %[ft0], 0(%[ptr_a0])           \n"
+                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
+                      [ ft0 ] "+f"(t0)
+                    : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
+                      [ n_frep ] "r"(n_frep)
+                    : "v0", "v24", "memory");
+            } else {
+                asm volatile("vle32.v v24, (%0)" : : "r"(ptr_b));
+                ptr_b += ldb;
+                asm volatile("vfmul.vf v0, v24, %0" : : "f"(t0));
+                ptr_a0++;
+                t0 = *ptr_a0;
+                uint32_t n_frep = K - 2;
+                asm volatile(
+                    "frep.o %[n_frep], 5, 0, 0               \n"
+                    "vle32.v  v24, (%[ptr_b])                \n"
+                    "add      %[ptr_b],  %[ptr_b],  %[inc_b] \n"
+                    "vfmacc.vf v0,  %[ft0], v24              \n"
+                    "add      %[ptr_a0], %[ptr_a0], %[inc_a] \n"
+                    "flw      %[ft0], 0(%[ptr_a0])           \n"
+                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
+                      [ ft0 ] "+f"(t0)
+                    : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
+                      [ n_frep ] "r"(n_frep)
+                    : "v0", "v24", "memory");
+            }
+            asm volatile("vse32.v v0, (%0)"
+                         :
+                         : "r"(C + i * ldc + j_tile)
+                         : "memory");
+        }
+    }
+
+    asm volatile("fence");
+    asm volatile("csrr %0, mcycle" : "=r"(comp_end));
+    snrt_mcycle();
+
+    // --- Compute-only performance (this kernel call: M rows x N cols x K) ---
+    // Excludes all DMA / barriers / driver overhead, which live outside this
+    // function. Ideal = M*K*ceil(N/VL) vfmacc-ops at 1 per cycle.
+    if (snrt_cluster_core_idx() == 0) {
+        uint32_t cyc = comp_end - comp_start;
+        uint32_t ideal = M * K * ((N + VL - 1) / VL);
+        printf("3x kernel compute-only: %u cycles  (ideal = %u, %u%% util)\n",
+               cyc, ideal, cyc ? ideal * 100u / cyc : 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // gemm_fp32_simd_4x  - 4 output rows per M-loop iteration
 // ---------------------------------------------------------------------------
 static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
@@ -257,6 +429,10 @@ static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
     const uint32_t VL = 8;
 
     asm volatile("vsetvli zero, %0, e32, m1, ta, ma" : : "r"(VL));
+
+    // --- Start compute-only cycle measurement (excludes DMA / driver) ---
+    uint32_t comp_start, comp_end;
+    asm volatile("csrr %0, mcycle" : "=r"(comp_start));
 
     for (int j_tile = 0; j_tile < (int)N; j_tile += VL) {
         int i = 0;
@@ -318,6 +494,11 @@ static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
                 asm volatile("vfmul.vf v28, v24, %0" : : "f"(t3));
                 ptr_a3++;
                 t3 = *ptr_a3;
+                // Second B pointer: double-buffer the B vector register (v24
+                // for rows 0-1, v26 for rows 2-3) to avoid the WAR hazard a
+                // single shared register would create. Matches the two-vle
+                // body in sw/tests/src/vfu_test_gemm_4x_frep.c.
+                float *ptr_b2 = ptr_b;
                 uint32_t n_frep = K - 2;
                 asm volatile(
                     "frep.o %[n_frep], 14, 0, 0              \n"
@@ -335,13 +516,14 @@ static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
                     "vfmacc.vf v28, %[ft3], v24              \n"
                     "add      %[ptr_a3], %[ptr_a3], %[inc_a] \n"
                     "flw      %[ft3], 0(%[ptr_a3])           \n"
-                    : [ ptr_b ] "+r"(ptr_b), [ ptr_a0 ] "+r"(ptr_a0),
-                      [ ptr_a1 ] "+r"(ptr_a1), [ ptr_a2 ] "+r"(ptr_a2),
-                      [ ptr_a3 ] "+r"(ptr_a3), [ ft0 ] "+f"(t0),
-                      [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2), [ ft3 ] "+f"(t3)
+                    : [ ptr_b ] "+r"(ptr_b), [ ptr_b2 ] "+r"(ptr_b2),
+                      [ ptr_a0 ] "+r"(ptr_a0), [ ptr_a1 ] "+r"(ptr_a1),
+                      [ ptr_a2 ] "+r"(ptr_a2), [ ptr_a3 ] "+r"(ptr_a3),
+                      [ ft0 ] "+f"(t0), [ ft1 ] "+f"(t1), [ ft2 ] "+f"(t2),
+                      [ ft3 ] "+f"(t3)
                     : [ inc_b ] "r"(inc_b), [ inc_a ] "r"(inc_a),
                       [ n_frep ] "r"(n_frep)
-                    : "v0", "v8", "v16", "v24", "v28", "memory");
+                    : "v0", "v8", "v16", "v24", "v26", "v28", "memory");
             }
             asm volatile("vse32.v v0,  (%0)"
                          :
@@ -408,7 +590,18 @@ static inline void gemm_fp32_simd_4x(uint32_t setup_ssr,
     }
 
     asm volatile("fence");
+    asm volatile("csrr %0, mcycle" : "=r"(comp_end));
     snrt_mcycle();
+
+    // --- Compute-only performance (this kernel call: M rows x N cols x K) ---
+    // Excludes all DMA / barriers / driver overhead, which live outside this
+    // function. Ideal = M*K*ceil(N/VL) vfmacc-ops at 1 per cycle.
+    if (snrt_cluster_core_idx() == 0) {
+        uint32_t cyc = comp_end - comp_start;
+        uint32_t ideal = M * K * ((N + VL - 1) / VL);
+        printf("4x kernel compute-only: %u cycles  (ideal = %u, %u%% util)\n",
+               cyc, ideal, cyc ? ideal * 100u / cyc : 0);
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@
         // Timing parameters
         timing: {
             lat_comp_fp32: 1,
-            lat_comp_fp64: 3,
+            lat_comp_fp64: 1,
             lat_comp_fp16: 1,
             lat_comp_fp16_alt: 1,
             lat_comp_fp8: 1,
@@ -117,22 +117,22 @@
         // Superscalar configuration
         num_alus: 3,
         num_alu_slots: 3,
-        num_alu_constants: 8,
+        num_alu_constants: 9,
         num_lsus: 3,
         num_lsu_slots: 3,
-        num_lsu_constants: 6,
+        num_lsu_constants: 9,
         num_fpus: 1,
         num_fpu_slots: 4,
-        num_fpu_constants: 6,
+        num_fpu_constants: 4,
         // Schnizo VFU/VLSU configuration
         num_vfus: 1,
         num_vlsus: 1,
         num_spatz_fpus: 4,
         num_spatz_ipus: 1,
         num_vfu_slots: 8,
-        num_vfu_constants: 6,
-        num_vlsu_slots: 6,
-        num_vlsu_constants: 2,
+        num_vfu_constants: 8,
+        num_vlsu_slots: 8,
+        num_vlsu_constants: 8,
     },
     dma_core_template: {
         isa: "rv32imafd",

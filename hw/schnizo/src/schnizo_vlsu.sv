@@ -45,6 +45,13 @@ module schnizo_vlsu
   output vrf_be_t    vrf_wbe_o,
   input  logic       vrf_wvalid_i,
 
+  // High when the downstream RS consumes a load result this cycle (= result_ready
+  // for this VLSU port). Gates the pipelined load->load hand-off so a finishing
+  // load is retired the same cycle the next one issues, keeping at most one
+  // un-consumed completion outstanding (the wrapper tracks completions with a
+  // single bit).
+  input  logic       load_done_ready_i,
+
   // VRF id (unused without controller, kept for interface compat)
   output spatz_id_t [2:0] vrf_id_o,
 
@@ -176,6 +183,50 @@ module schnizo_vlsu
   assign ua_store_req_done = (state_q == UNALIGNED_STORE) &&
                              spatz_mem_req_valid_o[0] && spatz_mem_req_ready_i[0];
 
+  ////////////////////////////////////////////////////////
+  //  Combinatorial response accumulation (same-cycle)  //
+  ////////////////////////////////////////////////////////
+
+  // Combine already-latched responses with those arriving this very cycle so
+  // the fast load can complete without an extra register stage.
+  // Declared ahead of proc_registered_state_d because the hand-off logic below
+  // feeds that block's next-state capture.
+  logic  [NrMemPorts-1:0] rsp_valid_now;
+  elen_t [NrMemPorts-1:0] rsp_data_now;
+  for (genvar p = 0; p < NrMemPorts; p++) begin : gen_rsp_now
+    assign rsp_valid_now[p] = rsp_valid_q[p] ||
+                              (state_q == LOAD_WAIT && spatz_mem_rsp_valid_i[p]);
+    assign rsp_data_now[p]  = rsp_valid_q[p] ? rsp_data_q[p] : spatz_mem_rsp_i[p].data;
+  end
+  logic all_rsp_done;
+  assign all_rsp_done = &rsp_valid_now;
+
+  ///////////////////////////////////////////////////////
+  //  Pipelined load -> load hand-off (zero added lat.) //
+  ///////////////////////////////////////////////////////
+
+  // Current fast aligned load finishes this cycle (= LOAD_WAIT -> IDLE condition).
+  logic load_finishing;
+  assign load_finishing = (state_q == LOAD_WAIT) && all_rsp_done && vrf_wvalid_i;
+
+  // The instruction the RS presents this cycle is another fast aligned load.
+  logic next_is_fast_load;
+  assign next_is_fast_load = spatz_req_valid_i && spatz_req_i.op_mem.is_load &&
+                             !is_unaligned_i;
+
+  // Hand-off OPPORTUNITY: drive the next load's TCDM requests in the same cycle
+  // the current load finishes, overlapping its issue cycle with the current
+  // load's response cycle. Gated on load_done_ready_i so the finishing load is
+  // consumed THIS cycle -> never more than one un-consumed completion. Request
+  // valid does NOT depend on TCDM ready (mirrors IDLE; no req_valid->req_ready loop).
+  logic load_handoff_issue;
+  assign load_handoff_issue = load_finishing && next_is_fast_load && load_done_ready_i;
+
+  // Hand-off ACCEPTED only when every TCDM port accepts simultaneously (same
+  // all-or-nothing rule the IDLE fast-load path uses for spatz_req_ready_o).
+  logic load_handoff;
+  assign load_handoff = load_handoff_issue && &spatz_mem_req_ready_i;
+
   ///////////////////////////////////////////
   //  Registered state next-value logic    //
   ///////////////////////////////////////////
@@ -241,6 +292,17 @@ module schnizo_vlsu
     if (ua_store_req_done) begin
       ua_byte_d = ua_byte_q + 6'(elem_bytes_q);
     end
+
+    // Pipelined load -> load hand-off: latch the next load and reset response
+    // tracking for it. Placed last so it overrides the LOAD_WAIT accumulation
+    // above (the finishing load is fully done - all_rsp_done held - so its
+    // response state can be safely discarded).
+    if (load_handoff) begin
+      req_d        = spatz_req_i;
+      rsp_valid_d  = '0;
+      ua_byte_d    = '0;
+      ua_rsp_vld_d = 1'b0;
+    end
   end
 
   `FF(req_q,        req_d,        '0, clk_i, rst_ni)
@@ -251,22 +313,6 @@ module schnizo_vlsu
   `FF(ua_byte_q,    ua_byte_d,    '0, clk_i, rst_ni)
   `FF(ua_rsp_q,     ua_rsp_d,     '0, clk_i, rst_ni)
   `FF(ua_rsp_vld_q, ua_rsp_vld_d, '0, clk_i, rst_ni)
-
-  ////////////////////////////////////////////////////////
-  //  Combinatorial response accumulation (same-cycle)  //
-  ////////////////////////////////////////////////////////
-
-  // Combine already-latched responses with those arriving this very cycle so
-  // the fast load can complete without an extra register stage.
-  logic  [NrMemPorts-1:0] rsp_valid_now;
-  elen_t [NrMemPorts-1:0] rsp_data_now;
-  for (genvar p = 0; p < NrMemPorts; p++) begin : gen_rsp_now
-    assign rsp_valid_now[p] = rsp_valid_q[p] ||
-                              (state_q == LOAD_WAIT && spatz_mem_rsp_valid_i[p]);
-    assign rsp_data_now[p]  = rsp_valid_q[p] ? rsp_data_q[p] : spatz_mem_rsp_i[p].data;
-  end
-  logic all_rsp_done;
-  assign all_rsp_done = &rsp_valid_now;
 
   // For STORE_ISSUE: combine previously-sent with newly-accepted this cycle
   logic [NrMemPorts-1:0] store_done_now;
@@ -310,7 +356,9 @@ module schnizo_vlsu
       end
 
       LOAD_WAIT:
-        if (all_rsp_done && vrf_wvalid_i) state_d = IDLE;
+        // On completion, stay in LOAD_WAIT if we hand off to the next load this
+        // cycle (req_q is re-captured above); otherwise drop back to IDLE.
+        if (all_rsp_done && vrf_wvalid_i) state_d = load_handoff ? LOAD_WAIT : IDLE;
 
       STORE_ISSUE:
         if (all_store_done) state_d = IDLE;
@@ -344,10 +392,12 @@ module schnizo_vlsu
   // For aligned loads: stall until all NrMemPorts TCDM ports accept simultaneously.
   // For unaligned loads: accept immediately (no TCDM ports fired in IDLE).
   // For stores (aligned or not): stall until VRF data is ready.
-  assign spatz_req_ready_o = (state_q == IDLE) &&
+  // Also accept the next load mid-flight via the pipelined hand-off (LOAD_WAIT).
+  assign spatz_req_ready_o = ((state_q == IDLE) &&
       (!spatz_req_valid_i ||
        (spatz_req_i.op_mem.is_load  && (is_unaligned_i || &spatz_mem_req_ready_i)) ||
-       (!spatz_req_i.op_mem.is_load && vrf_rvalid_i[0]));
+       (!spatz_req_i.op_mem.is_load && vrf_rvalid_i[0]))) ||
+      load_handoff;
 
   /////////////////////
   //  Memory requests //
@@ -363,9 +413,10 @@ module schnizo_vlsu
     spatz_mem_req_o[0]       = '0;
     spatz_mem_req_valid_o[0] = 1'b0;
 
-    // Fast aligned load
-    if (state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
-        spatz_req_i.op_mem.is_load) begin
+    // Fast aligned load (IDLE issue, or pipelined hand-off from LOAD_WAIT).
+    // Both drive spatz_req_i (the load being issued) as the address source.
+    if ((state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
+         spatz_req_i.op_mem.is_load) || load_handoff_issue) begin
       spatz_mem_req_o[0].addr  = spatz_req_i.rs1;
       spatz_mem_req_o[0].write = 1'b0;
       spatz_mem_req_o[0].amo   = reqrsp_pkg::AMONone;
@@ -424,9 +475,9 @@ module schnizo_vlsu
       spatz_mem_req_o[p]       = '0;
       spatz_mem_req_valid_o[p] = 1'b0;
 
-      // Fast aligned load
-      if (state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
-          spatz_req_i.op_mem.is_load) begin
+      // Fast aligned load (IDLE issue, or pipelined hand-off from LOAD_WAIT).
+      if ((state_q == IDLE && spatz_req_valid_i && !is_unaligned_i &&
+           spatz_req_i.op_mem.is_load) || load_handoff_issue) begin
         spatz_mem_req_o[p].addr  = spatz_req_i.rs1 + elen_t'(p * ELENB);
         spatz_mem_req_o[p].write = 1'b0;
         spatz_mem_req_o[p].amo   = reqrsp_pkg::AMONone;
