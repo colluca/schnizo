@@ -13,6 +13,7 @@
 // Instantiates all the FUs and connects each FU to an FU block (containing the RS).
 // Further instantiates the operand distribution network (ODN) and connects FU blocks to it.
 module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
+  parameter bit          Xfrep             = 1'b1,
   parameter bit          UseFreeList       = 1'b1,
   parameter bit          MulInAlu0         = 1'b1,
   parameter int unsigned NofAlus           = 1,
@@ -263,56 +264,65 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // ---------------------------
   // Pack operand interfaces
   // ---------------------------
+  if (Xfrep) begin : gen_op_req_rsps
+    // Pack the FUs' operand requests and responses into a linear array
+    // TODO(colluca): think if this code can be streamlined
+    always_comb begin : fu_op_reqs_rsps
+      automatic integer ope_if = 0;
 
-  // Pack the FUs' operand requests and responses into a linear array
-  // TODO(colluca): think if this code can be streamlined
-  always_comb begin : fu_op_reqs_rsps
-    automatic integer ope_if = 0;
+      op_reqs_o         = '0;
+      alu_op_rsps       = '0;
+      alu_op_rsps_valid = '0;
+      lsu_op_rsps       = '0;
+      lsu_op_rsps_valid = '0;
+      fpu_op_rsps       = '0;
+      fpu_op_rsps_valid = '0;
 
-    op_reqs_o         = '0;
-    alu_op_rsps       = '0;
-    alu_op_rsps_valid = '0;
-    lsu_op_rsps       = '0;
-    lsu_op_rsps_valid = '0;
-    fpu_op_rsps       = '0;
-    fpu_op_rsps_valid = '0;
-
-    for (int alu = 0; alu < NofAlus; alu++) begin
-      for (int op = 0; op < AluNofOperands; op++) begin
-        // operand requests
-        op_reqs_o[ope_if]            = alu_op_reqs[alu][op];
-        // operand responses
-        alu_op_rsps[alu][op]       = op_rsps_i[ope_if];
-        alu_op_rsps_valid[alu][op] = op_rsps_valid_i[ope_if];
-        ope_if = ope_if + 1;
+      for (int alu = 0; alu < NofAlus; alu++) begin
+        for (int op = 0; op < AluNofOperands; op++) begin
+          // operand requests
+          op_reqs_o[ope_if]            = alu_op_reqs[alu][op];
+          // operand responses
+          alu_op_rsps[alu][op]       = op_rsps_i[ope_if];
+          alu_op_rsps_valid[alu][op] = op_rsps_valid_i[ope_if];
+          ope_if = ope_if + 1;
+        end
+      end
+      for (int lsu = 0; lsu < NofLsus; lsu++) begin
+        for (int op = 0; op < LsuNofOperands; op++) begin
+          // operand requests
+          op_reqs_o[ope_if]            = lsu_op_reqs[lsu][op];
+          // operand responses
+          lsu_op_rsps[lsu][op]       = op_rsps_i[ope_if];
+          lsu_op_rsps_valid[lsu][op] = op_rsps_valid_i[ope_if];
+          ope_if = ope_if + 1;
+        end
+      end
+      for (int fpu = 0; fpu < NofFpus; fpu++) begin
+        for (int op = 0; op < FpuNofOperands; op++) begin
+          // operand requests
+          op_reqs_o[ope_if]            = fpu_op_reqs[fpu][op];
+          // operand responses
+          fpu_op_rsps[fpu][op]       = op_rsps_i[ope_if];
+          fpu_op_rsps_valid[fpu][op] = op_rsps_valid_i[ope_if];
+          ope_if = ope_if + 1;
+        end
       end
     end
-    for (int lsu = 0; lsu < NofLsus; lsu++) begin
-      for (int op = 0; op < LsuNofOperands; op++) begin
-        // operand requests
-        op_reqs_o[ope_if]            = lsu_op_reqs[lsu][op];
-        // operand responses
-        lsu_op_rsps[lsu][op]       = op_rsps_i[ope_if];
-        lsu_op_rsps_valid[lsu][op] = op_rsps_valid_i[ope_if];
-        ope_if = ope_if + 1;
-      end
-    end
-    for (int fpu = 0; fpu < NofFpus; fpu++) begin
-      for (int op = 0; op < FpuNofOperands; op++) begin
-        // operand requests
-        op_reqs_o[ope_if]            = fpu_op_reqs[fpu][op];
-        // operand responses
-        fpu_op_rsps[fpu][op]       = op_rsps_i[ope_if];
-        fpu_op_rsps_valid[fpu][op] = op_rsps_valid_i[ope_if];
-        ope_if = ope_if + 1;
-      end
-    end
+  end else begin : gen_no_op_reqs_rsps
+    assign op_reqs_o         = '0;
+    assign alu_op_rsps       = '0;
+    assign alu_op_rsps_valid = '0;
+    assign lsu_op_rsps       = '0;
+    assign lsu_op_rsps_valid = '0;
+    assign fpu_op_rsps       = '0;
+    assign fpu_op_rsps_valid = '0;
   end
 
   //////////
   // ALUs //
   //////////
-  
+
   logic [NofAlus-1:0] alu_rs_empty;
   logic [NofAlus-1:0] alu_rs_busy;
   alu_issue_req_t alu_si_issue_req;
@@ -323,14 +333,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign alu_si_issue_req        = alu_si_disp_req_i;
   assign alu_si_issue_req_valid  = alu_si_disp_req_valid_i;
   assign alu_si_disp_req_ready_o = alu_si_issue_req_ready;
-  
+
   for (genvar alu = 0; alu < NofAlus; alu++) begin : gen_alus
 
-    // Signals connecting the FU block and the actual FU
-    alu_issue_req_t alu_rs_issue_req;
-    logic           alu_rs_issue_req_valid;
-    logic           alu_rs_issue_req_ready;
-    
     alu_issue_req_t alu_issue_req;
     logic           alu_issue_req_valid;
     logic           alu_issue_req_ready;
@@ -341,86 +346,115 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic           alu_result_ready;
     logic           alu_busy;
 
-    producer_id_t producer_start_id;
-    assign producer_start_id = producer_id_t'{
-      slot_id: '0, // does not matter
-      rs_id:   rs_id_t'(AluRsIdOffset + alu)
-    };
-
     // pragma translate_off
     issue_alu_trace_t alu_trace_int;
     // pragma translate_on
 
-    schnova_res_stat #(
-      .UseFreeList  (UseFreeList),
-      .NofRss        (AluNofRss),
-      .NofOperands   (2),
-      .RsType        (ALU_RS),
-      .RegAddrWidth  (RegAddrWidth),
-      .MaxIterationsW(MaxIterationsW),
-      .XLEN          (XLEN),
-      .FLEN          (FLEN),
-      .disp_req_t    (alu_rs_disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (alu_issue_req_t),
-      .instr_tag_t   (instr_tag_t),
-      .producer_id_t (producer_id_t),
-      .slot_id_t     (slot_id_t),
-      .phy_id_t      (phy_id_t),
-      .operand_req_t (operand_req_t),
-      .operand_t     (operand_t),
-      .refcnt_req_t  (refcnt_req_t)
-    ) i_res_stat (
-      .clk_i,
-      .rst_i,
-      /// RS control signals
-      .producer_id_i          (producer_start_id),
-      .restart_i              (restart_i),
-      .en_superscalar_i       (en_superscalar_i),
-      .rs_full_o              (alu_rs_full_o[alu]),
-      .rs_empty_o             (alu_rs_empty[alu]),
-      /// Instruction stream
-      // From dispatcher
-      .disp_req_i             (alu_rs_disp_reqs_i[alu]),
-      .disp_req_valid_i       (alu_rs_disp_reqs_valid_i[alu]),
-      .disp_req_ready_o       (alu_rs_disp_reqs_ready_o[alu]),
-      .instr_exec_commit_i    (instr_exec_commit_i),
-      .disp_rsp_o             (alu_rs_disp_rsp_o[alu]),
-      // To FU
-      .issue_req_o            (alu_rs_issue_req),
-      .issue_req_valid_o      (alu_rs_issue_req_valid),
-      .issue_req_ready_i      (alu_rs_issue_req_ready),
-      .instr_exec_commit_o    (/* Not used */),
-      /// Operand distribution network
-      .op_reqs_o              (alu_op_reqs[alu]),
-      .op_rsps_i              (alu_op_rsps[alu]),
-      .op_rsps_valid_i        (alu_op_rsps_valid[alu]),
-      /// Refcount issue requests
-      .issue_clr_req_valid_o  (issue_alu_clr_req_valid_o[alu]),
-      .issue_clr_req_o        (issue_alu_clr_req_o[alu])
-    );
+    if (Xfrep) begin : gen_rs
+      // Signals connecting the FU block and the actual FU
+      alu_issue_req_t alu_rs_issue_req;
+      logic           alu_rs_issue_req_valid;
+      logic           alu_rs_issue_req_ready;
 
-    if (alu == 0) begin : gen_rs_si_issue_mux
-      // ALU0 can receive issue requests from either
-      // directly from the dispatcher (single issue)
-      // or from the reservation station
-      stream_mux #(
-        .DATA_T(alu_issue_req_t),
-        .N_INP (2)
-      ) i_alu_issue_mux (
-        .inp_data_i ({alu_rs_issue_req,       alu_si_issue_req}),
-        .inp_valid_i({alu_rs_issue_req_valid, alu_si_issue_req_valid}),
-        .inp_ready_o({alu_rs_issue_req_ready, alu_si_issue_req_ready}),
-        .inp_sel_i  (en_superscalar_i),
-        .oup_data_o (alu_issue_req),
-        .oup_valid_o(alu_issue_req_valid),
-        .oup_ready_i(alu_issue_req_ready)
+      producer_id_t producer_start_id;
+      assign producer_start_id = producer_id_t'{
+        slot_id: '0, // does not matter
+        rs_id:   rs_id_t'(AluRsIdOffset + alu)
+      };
+
+      schnova_res_stat #(
+        .UseFreeList  (UseFreeList),
+        .NofRss        (AluNofRss),
+        .NofOperands   (2),
+        .RsType        (ALU_RS),
+        .RegAddrWidth  (RegAddrWidth),
+        .MaxIterationsW(MaxIterationsW),
+        .XLEN          (XLEN),
+        .FLEN          (FLEN),
+        .disp_req_t    (alu_rs_disp_req_t),
+        .disp_rsp_t    (disp_rsp_t),
+        .issue_req_t   (alu_issue_req_t),
+        .instr_tag_t   (instr_tag_t),
+        .producer_id_t (producer_id_t),
+        .slot_id_t     (slot_id_t),
+        .phy_id_t      (phy_id_t),
+        .operand_req_t (operand_req_t),
+        .operand_t     (operand_t),
+        .refcnt_req_t  (refcnt_req_t)
+      ) i_res_stat (
+        .clk_i,
+        .rst_i,
+        /// RS control signals
+        .producer_id_i          (producer_start_id),
+        .restart_i              (restart_i),
+        .en_superscalar_i       (en_superscalar_i),
+        .rs_full_o              (alu_rs_full_o[alu]),
+        .rs_empty_o             (alu_rs_empty[alu]),
+        /// Instruction stream
+        // From dispatcher
+        .disp_req_i             (alu_rs_disp_reqs_i[alu]),
+        .disp_req_valid_i       (alu_rs_disp_reqs_valid_i[alu]),
+        .disp_req_ready_o       (alu_rs_disp_reqs_ready_o[alu]),
+        .instr_exec_commit_i    (instr_exec_commit_i),
+        .disp_rsp_o             (alu_rs_disp_rsp_o[alu]),
+        // To FU
+        .issue_req_o            (alu_rs_issue_req),
+        .issue_req_valid_o      (alu_rs_issue_req_valid),
+        .issue_req_ready_i      (alu_rs_issue_req_ready),
+        .instr_exec_commit_o    (/* Not used */),
+        /// Operand distribution network
+        .op_reqs_o              (alu_op_reqs[alu]),
+        .op_rsps_i              (alu_op_rsps[alu]),
+        .op_rsps_valid_i        (alu_op_rsps_valid[alu]),
+        /// Refcount issue requests
+        .issue_clr_req_valid_o  (issue_alu_clr_req_valid_o[alu]),
+        .issue_clr_req_o        (issue_alu_clr_req_o[alu])
       );
-    end else begin : gen_rs_issue_req
-      // Every other alu can only receive requests from the reservation station
-      assign alu_issue_req          = alu_rs_issue_req;
-      assign alu_issue_req_valid    = alu_rs_issue_req_valid;
-      assign alu_rs_issue_req_ready = alu_issue_req_ready;
+
+      if (alu == 0) begin : gen_issue_mux
+        // ALU0 can receive issue requests from either
+        // directly from the dispatcher (single issue)
+        // or from the reservation station
+        stream_mux #(
+          .DATA_T(alu_issue_req_t),
+          .N_INP (2)
+        ) i_alu_issue_mux (
+          .inp_data_i ({alu_rs_issue_req,       alu_si_issue_req}),
+          .inp_valid_i({alu_rs_issue_req_valid, alu_si_issue_req_valid}),
+          .inp_ready_o({alu_rs_issue_req_ready, alu_si_issue_req_ready}),
+          .inp_sel_i  (en_superscalar_i),
+          .oup_data_o (alu_issue_req),
+          .oup_valid_o(alu_issue_req_valid),
+          .oup_ready_i(alu_issue_req_ready)
+        );
+      end else begin : gen_no_issue_mux
+        // Every other alu can only receive requests from the reservation station
+        assign alu_issue_req          = alu_rs_issue_req;
+        assign alu_issue_req_valid    = alu_rs_issue_req_valid;
+        assign alu_rs_issue_req_ready = alu_issue_req_ready;
+      end
+
+      assign alu_rs_busy[alu] = (en_superscalar_i & alu_busy) | ~alu_rs_empty[alu];
+
+    end else begin : gen_no_rs
+      assign alu_rs_full_o[alu]            = 1'b0;
+      assign alu_rs_empty[alu]             = 1'b0;
+      assign alu_rs_disp_reqs_ready_o[alu] = 1'b0;
+      assign alu_rs_disp_rsp_o[alu]        = '0;
+      assign alu_op_reqs[alu]              = '0;
+      assign alu_rs_busy[alu]              = 1'b0;
+      assign issue_alu_clr_req_valid_o[alu] = 1'b0;
+      assign issue_alu_clr_req_o[alu]       = '0;
+
+      if (alu == 0) begin : gen_issue_req
+        assign alu_issue_req          = alu_si_issue_req;
+        assign alu_issue_req_valid    = alu_si_issue_req_valid;
+        assign alu_si_issue_req_ready = alu_issue_req_ready;
+      end else begin : gen_no_issue_req
+        // There should only be one ALU anyways since the others
+        assign alu_issue_req       = '0;
+        assign alu_issue_req_valid = 1'b0;
+      end
     end
 
     // Map the results fromn the FU to the result ports
@@ -455,8 +489,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .result_ready_i   (alu_result_ready),
       .busy_o           (alu_busy)
     );
-
-    assign alu_rs_busy[alu] = (en_superscalar_i & alu_busy) | ~alu_rs_empty[alu];
 
     // Populate the producer field of the trace
     // pragma translate_off
@@ -507,13 +539,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   for (genvar lsu = 0; lsu < NofLsus; lsu++) begin : gen_lsus
 
     // Signals connecting the FU block and the actual FU
-    lsu_issue_req_t  lsu_rs_issue_req;
-    logic            lsu_rs_issue_req_valid;
-    logic            lsu_rs_issue_req_ready;
     lsu_issue_req_t  lsu_issue_req;
     logic            lsu_issue_req_valid;
     logic            lsu_issue_req_ready;
-    logic            lsu_rs_exec_commit;
     logic            lsu_exec_commit;
     logic            lsu_addr_misaligned_raw;
     lsu_result_t     lsu_result;
@@ -522,90 +550,121 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic            lsu_result_ready;
     logic            lsu_busy;
 
-    producer_id_t producer_start_id;
-    assign producer_start_id = producer_id_t'{
-      slot_id: '0, // does not matter
-      rs_id:   rs_id_t'(LsuRsIdOffset + lsu)
-    };
-
     // pragma translate_off
     issue_lsu_trace_t lsu_trace_int;
     // pragma translate_on
 
-    schnova_res_stat #(
-      .UseFreeList   (UseFreeList),
-      .NofRss        (LsuNofRss),
-      .NofOperands   (2),
-      .RsType        (LSU_RS),
-      .RegAddrWidth  (RegAddrWidth),
-      .MaxIterationsW(MaxIterationsW),
-      .XLEN          (XLEN),
-      .FLEN          (FLEN),
-      .disp_req_t    (lsu_rs_disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (lsu_issue_req_t),
-      .instr_tag_t   (instr_tag_t),
-      .producer_id_t (producer_id_t),
-      .slot_id_t     (slot_id_t),
-      .phy_id_t      (phy_id_t),
-      .operand_req_t (operand_req_t),
-      .operand_t     (operand_t),
-      .refcnt_req_t  (refcnt_req_t)
-    ) i_res_stat (
-      .clk_i,
-      .rst_i,
-      /// RS control signals
-      .producer_id_i      (producer_start_id),
-      .restart_i          (restart_i),
-      .en_superscalar_i   (en_superscalar_i),
-      .rs_full_o          (lsu_rs_full_o[lsu]),
-      .rs_empty_o         (lsu_rs_empty[lsu]),
-      /// Instruction stream
-      // From dispatcher
-      .disp_req_i         (lsu_rs_disp_reqs_i[lsu]),
-      .disp_req_valid_i   (lsu_rs_disp_reqs_valid_i[lsu]),
-      .disp_req_ready_o   (lsu_rs_disp_reqs_ready_o[lsu]),
-      .instr_exec_commit_i(instr_exec_commit_i),
-      .disp_rsp_o         (lsu_rs_disp_rsp_o[lsu]),
-      // To FU
-      .issue_req_o        (lsu_rs_issue_req),
-      .issue_req_valid_o  (lsu_rs_issue_req_valid),
-      .issue_req_ready_i  (lsu_rs_issue_req_ready),
-      .instr_exec_commit_o(lsu_rs_exec_commit),
-      /// Operand distribution network
-      .op_reqs_o          (lsu_op_reqs[lsu]),
-      .op_rsps_i          (lsu_op_rsps[lsu]),
-      .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
-      /// Refcount issue requests
-      .issue_clr_req_valid_o(issue_lsu_clr_req_valid_o[lsu]),
-      .issue_clr_req_o      (issue_lsu_clr_req_o[lsu])
-    );
+    if (Xfrep) begin : gen_rs
+      lsu_issue_req_t  lsu_rs_issue_req;
+      logic            lsu_rs_issue_req_valid;
+      logic            lsu_rs_issue_req_ready;
+      logic            lsu_rs_exec_commit;
 
-    if (lsu == 0) begin
-      // LSU0 can receive issue requests from either
-      // directly from the dispatcher (single issue)
-      // or from the reservation station
-      stream_mux #(
-        .DATA_T(lsu_issue_req_t),
-        .N_INP (2)
-      ) i_lsu_issue_mux (
-        .inp_data_i ({lsu_rs_issue_req,       lsu_si_issue_req}),
-        .inp_valid_i({lsu_rs_issue_req_valid, lsu_si_issue_req_valid}),
-        .inp_ready_o({lsu_rs_issue_req_ready, lsu_si_issue_req_ready}),
-        .inp_sel_i  (en_superscalar_i),
-        .oup_data_o (lsu_issue_req),
-        .oup_valid_o(lsu_issue_req_valid),
-        .oup_ready_i(lsu_issue_req_ready)
+      producer_id_t producer_start_id;
+      assign producer_start_id = producer_id_t'{
+        slot_id: '0, // does not matter
+        rs_id:   rs_id_t'(LsuRsIdOffset + lsu)
+      };
+
+      schnova_res_stat #(
+        .UseFreeList   (UseFreeList),
+        .NofRss        (LsuNofRss),
+        .NofOperands   (2),
+        .RsType        (LSU_RS),
+        .RegAddrWidth  (RegAddrWidth),
+        .MaxIterationsW(MaxIterationsW),
+        .XLEN          (XLEN),
+        .FLEN          (FLEN),
+        .disp_req_t    (lsu_rs_disp_req_t),
+        .disp_rsp_t    (disp_rsp_t),
+        .issue_req_t   (lsu_issue_req_t),
+        .instr_tag_t   (instr_tag_t),
+        .producer_id_t (producer_id_t),
+        .slot_id_t     (slot_id_t),
+        .phy_id_t      (phy_id_t),
+        .operand_req_t (operand_req_t),
+        .operand_t     (operand_t),
+        .refcnt_req_t  (refcnt_req_t)
+      ) i_res_stat (
+        .clk_i,
+        .rst_i,
+        /// RS control signals
+        .producer_id_i      (producer_start_id),
+        .restart_i          (restart_i),
+        .en_superscalar_i   (en_superscalar_i),
+        .rs_full_o          (lsu_rs_full_o[lsu]),
+        .rs_empty_o         (lsu_rs_empty[lsu]),
+        /// Instruction stream
+        // From dispatcher
+        .disp_req_i         (lsu_rs_disp_reqs_i[lsu]),
+        .disp_req_valid_i   (lsu_rs_disp_reqs_valid_i[lsu]),
+        .disp_req_ready_o   (lsu_rs_disp_reqs_ready_o[lsu]),
+        .instr_exec_commit_i(instr_exec_commit_i),
+        .disp_rsp_o         (lsu_rs_disp_rsp_o[lsu]),
+        // To FU
+        .issue_req_o        (lsu_rs_issue_req),
+        .issue_req_valid_o  (lsu_rs_issue_req_valid),
+        .issue_req_ready_i  (lsu_rs_issue_req_ready),
+        .instr_exec_commit_o(lsu_rs_exec_commit),
+        /// Operand distribution network
+        .op_reqs_o          (lsu_op_reqs[lsu]),
+        .op_rsps_i          (lsu_op_rsps[lsu]),
+        .op_rsps_valid_i    (lsu_op_rsps_valid[lsu]),
+        /// Refcount issue requests
+        .issue_clr_req_valid_o(issue_lsu_clr_req_valid_o[lsu]),
+        .issue_clr_req_o      (issue_lsu_clr_req_o[lsu])
       );
 
-      assign lsu_exec_commit = en_superscalar_i ? lsu_rs_exec_commit : instr_exec_commit_i;
-    end else begin
-      // Every other lsu can only receive requests from the reservation station
-      assign lsu_issue_req          = lsu_rs_issue_req;
-      assign lsu_issue_req_valid    = lsu_rs_issue_req_valid;
-      assign lsu_rs_issue_req_ready = lsu_issue_req_ready;
+      if (lsu == 0) begin : gen_issue_mux
+        // LSU0 can receive issue requests from either
+        // directly from the dispatcher (single issue)
+        // or from the reservation station
+        stream_mux #(
+          .DATA_T(lsu_issue_req_t),
+          .N_INP (2)
+        ) i_lsu_issue_mux (
+          .inp_data_i ({lsu_rs_issue_req,       lsu_si_issue_req}),
+          .inp_valid_i({lsu_rs_issue_req_valid, lsu_si_issue_req_valid}),
+          .inp_ready_o({lsu_rs_issue_req_ready, lsu_si_issue_req_ready}),
+          .inp_sel_i  (en_superscalar_i),
+          .oup_data_o (lsu_issue_req),
+          .oup_valid_o(lsu_issue_req_valid),
+          .oup_ready_i(lsu_issue_req_ready)
+        );
 
-      assign lsu_exec_commit        = lsu_rs_exec_commit;
+        assign lsu_exec_commit = en_superscalar_i ? lsu_rs_exec_commit : instr_exec_commit_i;
+      end else begin : gen_no_issue_mux
+        // Every other lsu can only receive requests from the reservation station
+        assign lsu_issue_req          = lsu_rs_issue_req;
+        assign lsu_issue_req_valid    = lsu_rs_issue_req_valid;
+        assign lsu_rs_issue_req_ready = lsu_issue_req_ready;
+
+        assign lsu_exec_commit        = lsu_rs_exec_commit;
+      end
+
+      assign lsu_rs_busy[lsu] = (en_superscalar_i & lsu_busy) | ~lsu_rs_empty[lsu];
+
+    end else begin : gen_no_rs
+      assign lsu_rs_full_o[lsu]             = 1'b0;
+      assign lsu_rs_empty[lsu]              = 1'b0;
+      assign lsu_rs_busy[lsu]               = 1'b0;
+      assign lsu_rs_disp_reqs_ready_o[lsu]  = 1'b0;
+      assign lsu_rs_disp_rsp_o[lsu]         = '0;
+      assign lsu_op_reqs[lsu]               = '0;
+      assign issue_lsu_clr_req_valid_o[lsu] = 1'b0;
+      assign issue_lsu_clr_req_o[lsu]       = '0;
+
+      if (lsu == 0) begin : gen_issue_req
+        assign lsu_issue_req          = lsu_si_issue_req;
+        assign lsu_issue_req_valid    = lsu_si_issue_req_valid;
+        assign lsu_si_issue_req_ready = lsu_issue_req_ready;
+        assign lsu_exec_commit        = instr_exec_commit_i;
+      end else begin : gen_no_issue_req
+        // There should only be one ALU anyways since the others
+        assign lsu_issue_req       = '0;
+        assign lsu_issue_req_valid = 1'b0;
+        assign lsu_exec_commit     = 1'b0;
+      end
     end
 
     // Map the results fromn the FU to the writeback arbiter signals
@@ -657,8 +716,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .caq_rsp_valid_i  (caq_rsp_valid_i[lsu]),
       .caq_rsp_valid_o  (caq_rsp_valid_o[lsu])
     );
-
-    assign lsu_rs_busy[lsu] = (en_superscalar_i & lsu_busy) | ~lsu_rs_empty[lsu];
 
     // Suppress exceptions in superscalar mode for now because we anyway don't handle them one cycle later.
     assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw;
@@ -715,102 +772,130 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   for (genvar fpu = 0; fpu < NofFpus; fpu++) begin : gen_fpus
     // Signals connecting the FU block and the actual FU
-    fpu_issue_req_t fpu_rs_issue_req;
-    logic           fpu_rs_issue_req_valid;
-    logic           fpu_rs_issue_req_ready;
     fpu_issue_req_t fpu_issue_req;
     logic           fpu_issue_req_valid;
     logic           fpu_issue_req_ready;
-    logic           fpu_rs_exec_commit;
     logic           fpu_exec_commit;
     fpu_result_t    fpu_result;
     instr_tag_t     fpu_result_tag;
     logic           fpu_busy;
 
-    producer_id_t producer_start_id;
-    assign producer_start_id = producer_id_t'{
-      slot_id: '0, // does not matter
-      rs_id:   rs_id_t'(FpuRsIdOffset + fpu)
-    };
-
     // pragma translate_off
     issue_fpu_trace_t fpu_trace_int;
     // pragma translate_on
 
-    schnova_res_stat #(
-      .UseFreeList   (UseFreeList),
-      .NofRss        (FpuNofRss),
-      .NofOperands   (3),
-      .RsType        (FPU_RS),
-      .RegAddrWidth  (RegAddrWidth),
-      .MaxIterationsW(MaxIterationsW),
-      .XLEN          (XLEN),
-      .FLEN          (FLEN),
-      .disp_req_t    (fpu_rs_disp_req_t),
-      .disp_rsp_t    (disp_rsp_t),
-      .issue_req_t   (fpu_issue_req_t),
-      .instr_tag_t   (instr_tag_t),
-      .producer_id_t (producer_id_t),
-      .slot_id_t     (slot_id_t),
-      .phy_id_t      (phy_id_t),
-      .operand_req_t (operand_req_t),
-      .operand_t     (operand_t),
-      .refcnt_req_t  (refcnt_req_t)
-    ) i_res_stat (
-      .clk_i,
-      .rst_i,
-      /// RS control signals
-      .producer_id_i      (producer_start_id),
-      .restart_i          (restart_i),
-      .en_superscalar_i   (en_superscalar_i),
-      .rs_full_o          (fpu_rs_full_o[fpu]),
-      .rs_empty_o         (fpu_rs_empty[fpu]),
-      /// Instruction stream
-      // From dispatcher
-      .disp_req_i         (fpu_rs_disp_reqs_i[fpu]),
-      .disp_req_valid_i   (fpu_rs_disp_reqs_valid_i[fpu]),
-      .disp_req_ready_o   (fpu_rs_disp_reqs_ready_o[fpu]),
-      .instr_exec_commit_i(fpu_instr_exec_commit_i),
-      .disp_rsp_o         (fpu_rs_disp_rsp_o[fpu]),
-      // To FU
-      .issue_req_o           (fpu_rs_issue_req),
-      .issue_req_valid_o     (fpu_rs_issue_req_valid),
-      .issue_req_ready_i     (fpu_rs_issue_req_ready),
-      .instr_exec_commit_o(fpu_rs_exec_commit),
-      /// Operand distribution network
-      .op_reqs_o          (fpu_op_reqs[fpu]),
-      .op_rsps_i          (fpu_op_rsps[fpu]),
-      .op_rsps_valid_i    (fpu_op_rsps_valid[fpu]),
-      /// Refcount issue requests
-      .issue_clr_req_valid_o(issue_fpu_clr_req_valid_o[fpu]),
-      .issue_clr_req_o(issue_fpu_clr_req_o[fpu])
-    );
+    if (Xfrep) begin : gen_rs
 
-    if (fpu == 0) begin
-      // FPU0 can receive issue requests from either
-      // directly from the dispatcher (single issue)
-      // or from the reservation station
-      stream_mux #(
-        .DATA_T(fpu_issue_req_t),
-        .N_INP (2)
-      ) i_lsu_issue_mux (
-        .inp_data_i ({fpu_rs_issue_req,       fpu_si_issue_req}),
-        .inp_valid_i({fpu_rs_issue_req_valid, fpu_si_issue_req_valid}),
-        .inp_ready_o({fpu_rs_issue_req_ready, fpu_si_issue_req_ready}),
-        .inp_sel_i  (en_superscalar_i),
-        .oup_data_o (fpu_issue_req),
-        .oup_valid_o(fpu_issue_req_valid),
-        .oup_ready_i(fpu_issue_req_ready)
+      fpu_issue_req_t fpu_rs_issue_req;
+      logic           fpu_rs_issue_req_valid;
+      logic           fpu_rs_issue_req_ready;
+      logic           fpu_rs_exec_commit;
+
+      producer_id_t producer_start_id;
+      assign producer_start_id = producer_id_t'{
+        slot_id: '0, // does not matter
+        rs_id:   rs_id_t'(FpuRsIdOffset + fpu)
+      };
+
+      schnova_res_stat #(
+        .UseFreeList   (UseFreeList),
+        .NofRss        (FpuNofRss),
+        .NofOperands   (3),
+        .RsType        (FPU_RS),
+        .RegAddrWidth  (RegAddrWidth),
+        .MaxIterationsW(MaxIterationsW),
+        .XLEN          (XLEN),
+        .FLEN          (FLEN),
+        .disp_req_t    (fpu_rs_disp_req_t),
+        .disp_rsp_t    (disp_rsp_t),
+        .issue_req_t   (fpu_issue_req_t),
+        .instr_tag_t   (instr_tag_t),
+        .producer_id_t (producer_id_t),
+        .slot_id_t     (slot_id_t),
+        .phy_id_t      (phy_id_t),
+        .operand_req_t (operand_req_t),
+        .operand_t     (operand_t),
+        .refcnt_req_t  (refcnt_req_t)
+      ) i_res_stat (
+        .clk_i,
+        .rst_i,
+        /// RS control signals
+        .producer_id_i      (producer_start_id),
+        .restart_i          (restart_i),
+        .en_superscalar_i   (en_superscalar_i),
+        .rs_full_o          (fpu_rs_full_o[fpu]),
+        .rs_empty_o         (fpu_rs_empty[fpu]),
+        /// Instruction stream
+        // From dispatcher
+        .disp_req_i         (fpu_rs_disp_reqs_i[fpu]),
+        .disp_req_valid_i   (fpu_rs_disp_reqs_valid_i[fpu]),
+        .disp_req_ready_o   (fpu_rs_disp_reqs_ready_o[fpu]),
+        .instr_exec_commit_i(fpu_instr_exec_commit_i),
+        .disp_rsp_o         (fpu_rs_disp_rsp_o[fpu]),
+        // To FU
+        .issue_req_o           (fpu_rs_issue_req),
+        .issue_req_valid_o     (fpu_rs_issue_req_valid),
+        .issue_req_ready_i     (fpu_rs_issue_req_ready),
+        .instr_exec_commit_o(fpu_rs_exec_commit),
+        /// Operand distribution network
+        .op_reqs_o          (fpu_op_reqs[fpu]),
+        .op_rsps_i          (fpu_op_rsps[fpu]),
+        .op_rsps_valid_i    (fpu_op_rsps_valid[fpu]),
+        /// Refcount issue requests
+        .issue_clr_req_valid_o(issue_fpu_clr_req_valid_o[fpu]),
+        .issue_clr_req_o(issue_fpu_clr_req_o[fpu])
       );
 
-      assign fpu_exec_commit = en_superscalar_i ? fpu_rs_exec_commit : instr_exec_commit_i;
-    end else begin
-      // Every other fpu can only receive requests from the reservation station
-      assign fpu_issue_req          = fpu_rs_issue_req;
-      assign fpu_issue_req_valid    = fpu_rs_issue_req_valid;
-      assign fpu_rs_issue_req_ready = fpu_issue_req_ready;
+      if (fpu == 0) begin : gen_issue_mux
+        // FPU0 can receive issue requests from either
+        // directly from the dispatcher (single issue)
+        // or from the reservation station
+        stream_mux #(
+          .DATA_T(fpu_issue_req_t),
+          .N_INP (2)
+        ) i_lsu_issue_mux (
+          .inp_data_i ({fpu_rs_issue_req,       fpu_si_issue_req}),
+          .inp_valid_i({fpu_rs_issue_req_valid, fpu_si_issue_req_valid}),
+          .inp_ready_o({fpu_rs_issue_req_ready, fpu_si_issue_req_ready}),
+          .inp_sel_i  (en_superscalar_i),
+          .oup_data_o (fpu_issue_req),
+          .oup_valid_o(fpu_issue_req_valid),
+          .oup_ready_i(fpu_issue_req_ready)
+        );
 
-      assign fpu_exec_commit        = fpu_rs_exec_commit;
+        assign fpu_exec_commit = en_superscalar_i ? fpu_rs_exec_commit : instr_exec_commit_i;
+      end else begin : gen_no_issue_mux
+        // Every other fpu can only receive requests from the reservation station
+        assign fpu_issue_req          = fpu_rs_issue_req;
+        assign fpu_issue_req_valid    = fpu_rs_issue_req_valid;
+        assign fpu_rs_issue_req_ready = fpu_issue_req_ready;
+
+        assign fpu_exec_commit        = fpu_rs_exec_commit;
+      end
+
+      assign fpu_rs_busy[fpu] = (en_superscalar_i & fpu_busy) | ~fpu_rs_empty[fpu];
+
+    end else begin : gen_rs
+      assign fpu_rs_full_o[fpu]             = 1'b0;
+      assign fpu_rs_empty[fpu]              = 1'b0;
+      assign fpu_rs_busy[fpu]               = 1'b0;
+      assign fpu_rs_disp_reqs_ready_o[fpu]  = 1'b0;
+      assign fpu_rs_disp_rsp_o[fpu]         = '0;
+      assign fpu_op_reqs[fpu]               = '0;
+      assign issue_fpu_clr_req_valid_o[fpu] = 1'b0;
+      assign issue_fpu_clr_req_o[fpu]       = '0;
+
+      if (fpu == 0) begin : gen_issue_req
+        assign fpu_issue_req          = fpu_si_issue_req;
+        assign fpu_issue_req_valid    = fpu_si_issue_req_valid;
+        assign fpu_si_issue_req_ready = fpu_issue_req_ready;
+        assign fpu_exec_commit        = instr_exec_commit_i;
+      end else begin : gen_no_issue_req
+        // There should only be one ALU anyways since the others
+        assign fpu_issue_req       = '0;
+        assign fpu_issue_req_valid = 1'b0;
+        assign fpu_exec_commit     = 1'b0;
+      end
     end
 
     // Map the results from the FU to the writeback arbiter signals
@@ -853,8 +938,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .busy_o           (fpu_busy)
     );
 
-    assign fpu_rs_busy[fpu] = (en_superscalar_i & fpu_busy) | ~fpu_rs_empty[fpu];
-
     // Populate the producer and instr_iter fields of the trace
     // pragma translate_off
     string producer;
@@ -895,8 +978,13 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Status //
   ////////////
 
-  // The complete core finishes if all RS finish.
-  assign all_rs_finish_o = &{~alu_rs_busy, ~lsu_rs_busy, ~fpu_rs_busy};
+  if (Xfrep) begin : gen_rs_finish
+    // The complete core finishes if all RS finish.
+    assign all_rs_finish_o = &{~alu_rs_busy, ~lsu_rs_busy, ~fpu_rs_busy};
+  end else begin: gen_no_rs_finish
+    // There are no rs, so they are always finished
+    assign all_rs_finish_o = 1'b1;
+  end
 
   ////////////////////
   // Tracer helpers //

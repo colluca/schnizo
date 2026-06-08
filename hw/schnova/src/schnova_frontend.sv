@@ -146,7 +146,7 @@ module schnova_frontend # (
                                       4'd4);
     // Since there is only one instruction, the PC of the jump instruction is the current PC
     assign jump_pc_o = pc_q;
-  end else begin
+  end else begin : gen_superscalar_cons_pc
     assign consecutive_pc = pc_q +
         ((blk_ctrl_info_i.is_branch && alu_compare_res_i) ?
         // In case of a branch, we just add the immediate

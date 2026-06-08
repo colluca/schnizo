@@ -222,6 +222,8 @@ sources:
       - hw/schnova/src/schnova_scoreboard.sv
       - hw/schnova/src/schnova_rmt.sv
       - hw/schnova/src/schnova_rename.sv
+      - hw/schnova/src/schnova_si_dispatcher.sv
+      - hw/schnova/src/schnova_rs_dispatcher.sv
       - hw/schnova/src/schnova_dispatcher.sv
       - hw/schnova/src/schnova_disp_buffer.sv
       - hw/schnova/src/schnova_free_list.sv

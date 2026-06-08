@@ -387,7 +387,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic            is_op_a_cnst;
     phy_id_t         phy_reg_op_b;
     logic            is_op_b_cnst;
-  } alu_rs_disp_req_t; 
+  } alu_rs_disp_req_t;
 
   typedef struct packed {
     lsu_op_e          lsu_op;
@@ -665,6 +665,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // to only pass e.g. XLEN here, and internally derive instr_dec_t in the decoder using a macro.
   schnova_decoder #(
     .XLEN              (XLEN),
+    .Xfrep             (Xfrep),
     .PipeWidth         (PipeWidth),
     .Xdma              (Xdma),
     .RVF               (RVF),
@@ -736,6 +737,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   schnova_controller #(
     .PipeWidth          (PipeWidth),
     .XLEN               (XLEN),
+    .Xfrep              (Xfrep),
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
     .RegAddrSize    (RegAddrSize),
@@ -811,29 +813,39 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Rename //
   ////////////
 
-  schnova_rename #(
-    .PipeWidth(PipeWidth),
-    .RmtNrIntReadPorts(RmtNrIntReadPorts),
-    .RmtNrFpReadPorts(RmtNrFpReadPorts),
-    .RmtNrWritePorts(RmtNrWritePorts),
-    .RegAddrSize(RegAddrSize),
-    .NofPhysGpr(NofPhysGpr),
-    .NofPhysFpr(NofPhysFpr),
-    .instr_dec_t(instr_dec_t),
-    .phy_id_t(phy_id_t),
-    .reg_map_t(reg_map_t)
-  ) i_rename (
-    .clk_i,
-    .rst_i,
-    .en_superscalar_i(en_superscalar),
-    .dispatched_i(dispatched),
-    .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
-    .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
-    .instr_dec_i(instr_decoded),
-    .reg_map_o(reg_map),
-    .allocated_gpr_regs_i(allocated_gpr_regs),
-    .allocated_fpr_regs_i(allocated_fpr_regs)
-  );
+  if (Xfrep) begin : gen_rename
+    schnova_rename #(
+      .PipeWidth(PipeWidth),
+      .RmtNrIntReadPorts(RmtNrIntReadPorts),
+      .RmtNrFpReadPorts(RmtNrFpReadPorts),
+      .RmtNrWritePorts(RmtNrWritePorts),
+      .RegAddrSize(RegAddrSize),
+      .NofPhysGpr(NofPhysGpr),
+      .NofPhysFpr(NofPhysFpr),
+      .instr_dec_t(instr_dec_t),
+      .phy_id_t(phy_id_t),
+      .reg_map_t(reg_map_t)
+    ) i_rename (
+      .clk_i,
+      .rst_i,
+      .en_superscalar_i(en_superscalar),
+      .dispatched_i(dispatched),
+      .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
+      .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
+      .instr_dec_i(instr_decoded),
+      .reg_map_o(reg_map),
+      .allocated_gpr_regs_i(allocated_gpr_regs),
+      .allocated_fpr_regs_i(allocated_fpr_regs)
+    );
+  end else begin : gen_no_rename
+    assign reg_map[0] = '{
+      phy_reg_rs1:      instr_decoded[0].rs1,
+      phy_reg_rs2:      instr_decoded[0].rs2,
+      phy_reg_rs3:      instr_decoded[0].imm[RegAddrSize-1:0],
+      phy_reg_rd_new :  '0,
+      phy_reg_rd_old :  instr_decoded[0].rd
+    };
+  end
 
   //////////////
   // Dispatch //
@@ -870,6 +882,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req;
 
   schnova_dispatcher #(
+    .Xfrep      (Xfrep),
     .UseFreeList(UseFreeList),
     .PipeWidth(PipeWidth),
     .XLEN     (XLEN),
@@ -914,7 +927,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .dispatch_ready_o    (dispatch_instr_ready),
     // From decoder
     .instr_valid_i       (instr_valid_masked),
-    .instr_valid_count_i (instr_valid_count),
     .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
     .instr_rename_gpr_count_i(instr_rename_gpr_count),
     .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
@@ -999,6 +1011,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // pragma translate_on
 
   schnova_fu_stage #(
+    .Xfrep      (Xfrep),
     .UseFreeList(UseFreeList),
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
@@ -1233,7 +1246,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // See module for details and specialities!
   schnova_writeback #(
-    .UseFreeList(UseFreeList),
+    .Xfrep          (Xfrep),
+    .UseFreeList    (UseFreeList),
     .PipeWidth      (PipeWidth),
     .RobTagWidth    (RobTagWidth),
     .XLEN           (XLEN),
@@ -1338,6 +1352,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign core_events_o.retired_i     = instr_retired_single_cycle_q;
   assign core_events_o.retired_load  = instr_retired_load_q;
   assign core_events_o.retired_acc   = instr_retired_acc_q;
+  assign core_events_o.retired_x     = '0;
 
   assign core_events_o.issue_fpu         = issue_fpu_q;
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
@@ -1350,188 +1365,194 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // 1) Either it is done via a classic approach with a rob and free list
   // 2) Or it is done via a reference counting based approach
+  if (Xfrep) begin : gen_phys_reg_manage
+    if (UseFreeList) begin : gen_freelist_reg_manage
+      ///////////////////////////
+      //      Free List        //
+      ///////////////////////////
 
-  if (UseFreeList) begin : gen_freelist_reg_manage
-    ///////////////////////////
-    //      Free List        //
-    ///////////////////////////
+      // We pop physical registers from the free list
+      // once we have sucessfully dispatched instructions
+      // and are in the scalar execution mode.
+      // Physical register allocation signals
+      localparam int unsigned NumArchRegs = 2**RegAddrSize;
 
-    // We pop physical registers from the free list
-    // once we have sucessfully dispatched instructions
-    // and are in the scalar execution mode.
-    // Physical register allocation signals
-    localparam int unsigned NumArchRegs = 2**RegAddrSize;
+      logic freelist_push;
+      logic pop_freelist;
+      logic freelist_gpr_ready;
+      logic freelist_fpr_ready;
 
-    logic freelist_push;
-    logic pop_freelist;
-    logic freelist_gpr_ready;
-    logic freelist_fpr_ready;
+      logic [$clog2(PipeWidth):0] freelist_gpr_push_count;
+      phy_id_t [PipeWidth-1:0] retired_gpr_regs;
+      logic [$clog2(PipeWidth):0] freelist_fpr_push_count;
+      phy_id_t [PipeWidth-1:0] retired_fpr_regs;
 
-    logic [$clog2(PipeWidth):0] freelist_gpr_push_count;
-    phy_id_t [PipeWidth-1:0] retired_gpr_regs;
-    logic [$clog2(PipeWidth):0] freelist_fpr_push_count;
-    phy_id_t [PipeWidth-1:0] retired_fpr_regs;
+      assign pop_freelist = dispatched & en_superscalar;
 
-    assign pop_freelist = dispatched & en_superscalar;
+      schnova_free_list #(
+        .PipeWidth(PipeWidth),
+        .NumPhysRegs(NofPhysGpr),
+        .NumArchRegs(NumArchRegs),
+        .phy_id_t(phy_id_t)
+      ) i_gpr_free_list (
+        .clk_i,
+        .rst_i,
+        .pop_i(pop_freelist),
+        .freelist_ready_o(freelist_gpr_ready),
+        .pop_count_i(instr_rename_gpr_count),
+        .allocated_regs_o(allocated_gpr_regs),
+        .push_i(freelist_push),
+        .push_count_i(freelist_gpr_push_count),
+        .retired_regs_i(retired_gpr_regs)
+      );
 
-    schnova_free_list #(
-      .PipeWidth(PipeWidth),
-      .NumPhysRegs(NofPhysGpr),
-      .NumArchRegs(NumArchRegs),
-      .phy_id_t(phy_id_t)
-    ) i_gpr_free_list (
-      .clk_i,
-      .rst_i,
-      .pop_i(pop_freelist),
-      .freelist_ready_o(freelist_gpr_ready),
-      .pop_count_i(instr_rename_gpr_count),
-      .allocated_regs_o(allocated_gpr_regs),
-      .push_i(freelist_push),
-      .push_count_i(freelist_gpr_push_count),
-      .retired_regs_i(retired_gpr_regs)
-    );
+      schnova_free_list #(
+        .PipeWidth(PipeWidth),
+        .NumPhysRegs(NofPhysFpr),
+        .NumArchRegs(NumArchRegs),
+        .phy_id_t(phy_id_t)
+      ) i_fpr_free_list (
+        .clk_i,
+        .rst_i,
+        .pop_i(pop_freelist),
+        .freelist_ready_o(freelist_fpr_ready),
+        .pop_count_i(instr_rename_fpr_count),
+        .allocated_regs_o(allocated_fpr_regs),
+        .push_i(freelist_push),
+        .push_count_i(freelist_fpr_push_count),
+        .retired_regs_i(retired_fpr_regs)
+      );
 
-    schnova_free_list #(
-      .PipeWidth(PipeWidth),
-      .NumPhysRegs(NofPhysFpr),
-      .NumArchRegs(NumArchRegs),
-      .phy_id_t(phy_id_t)
-    ) i_fpr_free_list (
-      .clk_i,
-      .rst_i,
-      .pop_i(pop_freelist),
-      .freelist_ready_o(freelist_fpr_ready),
-      .pop_count_i(instr_rename_fpr_count),
-      .allocated_regs_o(allocated_fpr_regs),
-      .push_i(freelist_push),
-      .push_count_i(freelist_fpr_push_count),
-      .retired_regs_i(retired_fpr_regs)
-    );
+      assign phy_reg_alloc_ready = freelist_fpr_ready & freelist_gpr_ready;
 
-    assign phy_reg_alloc_ready = freelist_fpr_ready & freelist_gpr_ready;
+      ////////////////////
+      // Reorder Buffer //
+      ////////////////////
 
-    ////////////////////
-    // Reorder Buffer //
-    ////////////////////
+      // The incoming dispatch request will only be valid
+      // if we have enough ROB entries otherwise the controller
+      // would stall the dispatch by forcing the valid to zero.
 
-    // The incoming dispatch request will only be valid
-    // if we have enough ROB entries otherwise the controller
-    // would stall the dispatch by forcing the valid to zero.
+      logic                                rob_push;
+      logic [$clog2(PipeWidth):0]          rob_push_count;
 
-    logic                                rob_push;
-    logic [$clog2(PipeWidth):0]          rob_push_count;
+      // We only allocate new entries in the ROB in superscalar mode
+      // The allocation happens once the first instruction is successfully dispatched.
+      // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched  
+      logic    [$clog2(PipeWidth):0] alloc_idx;
+      phy_id_t [PipeWidth-1:0]       phy_reg_rd_old;
+      logic    [PipeWidth-1:0]       phy_reg_rd_old_is_fp;
+      always_comb begin : pack_old_phy_reg
+        // Per default we don't assign a mapping
+        phy_reg_rd_old = '0;
+        phy_reg_rd_old_is_fp = '0;
 
-    // We only allocate new entries in the ROB in superscalar mode
-    // The allocation happens once the first instruction is successfully dispatched.
-    // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched  
-    logic    [$clog2(PipeWidth):0] alloc_idx;
-    phy_id_t [PipeWidth-1:0]       phy_reg_rd_old;
-    logic    [PipeWidth-1:0]       phy_reg_rd_old_is_fp;
-    always_comb begin : pack_old_phy_reg
-      // Per default we don't assign a mapping
-      phy_reg_rd_old = '0;
-      phy_reg_rd_old_is_fp = '0;
-
-      alloc_idx = '0;
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        if (instr_rename_gpr_valid[i]) begin
-          phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
-          alloc_idx = alloc_idx + 1;
-        end else if (instr_rename_fpr_valid[i]) begin
-          phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
-          phy_reg_rd_old_is_fp[alloc_idx] = 1'b1;
+        alloc_idx = '0;
+        for (int unsigned i = 0; i < PipeWidth; i++) begin
+          if (instr_rename_gpr_valid[i]) begin
+            phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
             alloc_idx = alloc_idx + 1;
+          end else if (instr_rename_fpr_valid[i]) begin
+            phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
+            phy_reg_rd_old_is_fp[alloc_idx] = 1'b1;
+              alloc_idx = alloc_idx + 1;
+          end
         end
       end
-    end
 
 
-    assign rob_push = first_instr_dispatched & en_superscalar;
-    assign rob_push_count = instr_rename_gpr_count + instr_rename_fpr_count;
+      assign rob_push = first_instr_dispatched & en_superscalar;
+      assign rob_push_count = instr_rename_gpr_count + instr_rename_fpr_count;
 
-    schnova_reorder_buffer #(
-      .PipeWidth(PipeWidth),
-      .NofEntries(NofRobEntries),
-      .NrRobWritePorts(NrRobWritePorts),
-      .phy_id_t(phy_id_t)
-    ) i_rob (
-      .clk_i,
-      .rst_i,
-      // Dispatch interface
-      .rob_push_i(rob_push),
-      .rob_push_count_i(rob_push_count),
-      .rob_phy_reg_rd_old_i(phy_reg_rd_old),
-      .rob_phy_reg_rd_old_is_fp_i(phy_reg_rd_old_is_fp),
-      .rob_idx_o(rob_idx),
-      .rob_ready_o(rob_ready),
-      // Writeback Interface
-      .wb_valid_i(wb_valid),
-      .wb_rob_idx_i(wb_rob_idx),
-      // Freelist interface
-      .freelist_push_o(freelist_push),
-      .gpr_push_count_o(freelist_gpr_push_count),
-      .gpr_retired_regs_o(retired_gpr_regs),
-      .fpr_push_count_o(freelist_fpr_push_count),
-      .fpr_retired_regs_o(retired_fpr_regs)
-    );
-  end else begin : gen_refcount_reg_manage
+      schnova_reorder_buffer #(
+        .PipeWidth(PipeWidth),
+        .NofEntries(NofRobEntries),
+        .NrRobWritePorts(NrRobWritePorts),
+        .phy_id_t(phy_id_t)
+      ) i_rob (
+        .clk_i,
+        .rst_i,
+        // Dispatch interface
+        .rob_push_i(rob_push),
+        .rob_push_count_i(rob_push_count),
+        .rob_phy_reg_rd_old_i(phy_reg_rd_old),
+        .rob_phy_reg_rd_old_is_fp_i(phy_reg_rd_old_is_fp),
+        .rob_idx_o(rob_idx),
+        .rob_ready_o(rob_ready),
+        // Writeback Interface
+        .wb_valid_i(wb_valid),
+        .wb_rob_idx_i(wb_rob_idx),
+        // Freelist interface
+        .freelist_push_o(freelist_push),
+        .gpr_push_count_o(freelist_gpr_push_count),
+        .gpr_retired_regs_o(retired_gpr_regs),
+        .fpr_push_count_o(freelist_fpr_push_count),
+        .fpr_retired_regs_o(retired_fpr_regs)
+      );
+    end else begin : gen_refcount_reg_manage
 
-    logic instr_exec_commit_superscalar;
-    phy_id_t [PipeWidth-1:0] phy_reg_rd;
-    phy_id_t [PipeWidth-1:0] phy_reg_rd_old;
-    logic    [PipeWidth-1:0] is_rd_fp;
+      logic instr_exec_commit_superscalar;
+      phy_id_t [PipeWidth-1:0] phy_reg_rd;
+      phy_id_t [PipeWidth-1:0] phy_reg_rd_old;
+      logic    [PipeWidth-1:0] is_rd_fp;
 
-    always_comb begin : pack_reg_rd_old
-      for (int unsigned i = 0; i < PipeWidth; i++) begin
-        phy_reg_rd[i]     = en_superscalar ? reg_map[i].phy_reg_rd_new : reg_map[i].phy_reg_rd_old;
-        phy_reg_rd_old[i] = reg_map[i].phy_reg_rd_old;
-        is_rd_fp[i]       = instr_decoded[i].rd_is_fp;
+      always_comb begin : pack_reg_rd_old
+        for (int unsigned i = 0; i < PipeWidth; i++) begin
+          phy_reg_rd[i]     = en_superscalar ? reg_map[i].phy_reg_rd_new : reg_map[i].phy_reg_rd_old;
+          phy_reg_rd_old[i] = reg_map[i].phy_reg_rd_old;
+          is_rd_fp[i]       = instr_decoded[i].rd_is_fp;
+        end
       end
+
+      // There is no reorder buffer so we set is as always ready
+      assign rob_ready = 1'b1;
+      assign rob_idx = '0; // Not used
+
+      assign instr_exec_commit_superscalar = en_superscalar ? instr_exec_commit: 1'b0;
+
+      schnova_refcount #(
+        .PipeWidth(PipeWidth),
+        .NofPhysGpr(NofPhysGpr),
+        .NofPhysFpr(NofPhysFpr),
+        .NofAlus(NofAlus),
+        .AluNofRss(AluNofRss),
+        .NofLsus(NofLsus),
+        .LsuNofRss(LsuNofRss),
+        .NofFpus(NofFpus),
+        .FpuNofRss(FpuNofRss),
+        .phy_id_t(phy_id_t),
+        .refcnt_req_t(refcnt_req_t)
+      ) i_refcount (
+        .clk_i,
+        .rst_i,
+        // Dispatcher Interface (Set new reference for RAT)
+        .instr_exec_commit_superscalar_i(instr_exec_commit_superscalar),
+        .instr_valid_i(instr_valid_masked),
+        .dispatched_i(dispatched),
+        .refcnt_disp_req_i(refcnt_disp_req),
+        .phy_reg_rd_i    (phy_reg_rd),
+        .phy_reg_rd_old_i(phy_reg_rd_old),
+        .is_rd_fp_i      (is_rd_fp),
+        // Issue Inteface (Clear / Overwrite entries)
+        .issue_alu_clr_req_valid_i(issue_alu_clr_req_valid),
+        .issue_alu_clr_req_i(issue_alu_clr_req),
+        .issue_lsu_clr_req_valid_i(issue_lsu_clr_req_valid),
+        .issue_lsu_clr_req_i(issue_lsu_clr_req),
+        .issue_fpu_clr_req_valid_i(issue_fpu_clr_req_valid),
+        .issue_fpu_clr_req_i(issue_fpu_clr_req),
+        // Allocation interface
+        .rename_gpr_count_i(instr_rename_gpr_count),
+        .rename_fpr_count_i(instr_rename_fpr_count),
+        .allocated_gpr_regs_o(allocated_gpr_regs),
+        .allocated_fpr_regs_o(allocated_fpr_regs),
+        .phy_reg_alloc_ready_o(phy_reg_alloc_ready)
+      );
     end
 
-    // There is no reorder buffer so we set is as always ready
-    assign rob_ready = 1'b1;
-    assign rob_idx = '0; // Not used
-
-    assign instr_exec_commit_superscalar = en_superscalar ? instr_exec_commit: 1'b0;
-
-    schnova_refcount #(
-      .PipeWidth(PipeWidth),
-      .NofPhysGpr(NofPhysGpr),
-      .NofPhysFpr(NofPhysFpr),
-      .NofAlus(NofAlus),
-      .AluNofRss(AluNofRss),
-      .NofLsus(NofLsus),
-      .LsuNofRss(LsuNofRss),
-      .NofFpus(NofFpus),
-      .FpuNofRss(FpuNofRss),
-      .phy_id_t(phy_id_t),
-      .refcnt_req_t(refcnt_req_t)
-    ) i_refcount (
-      .clk_i,
-      .rst_i,
-      // Dispatcher Interface (Set new reference for RAT)
-      .instr_exec_commit_superscalar_i(instr_exec_commit_superscalar),
-      .instr_valid_i(instr_valid_masked),
-      .dispatched_i(dispatched),
-      .refcnt_disp_req_i(refcnt_disp_req),
-      .phy_reg_rd_i    (phy_reg_rd),
-      .phy_reg_rd_old_i(phy_reg_rd_old),
-      .is_rd_fp_i      (is_rd_fp),
-      // Issue Inteface (Clear / Overwrite entries)
-      .issue_alu_clr_req_valid_i(issue_alu_clr_req_valid),
-      .issue_alu_clr_req_i(issue_alu_clr_req),
-      .issue_lsu_clr_req_valid_i(issue_lsu_clr_req_valid),
-      .issue_lsu_clr_req_i(issue_lsu_clr_req),
-      .issue_fpu_clr_req_valid_i(issue_fpu_clr_req_valid),
-      .issue_fpu_clr_req_i(issue_fpu_clr_req),
-      // Allocation interface
-      .rename_gpr_count_i(instr_rename_gpr_count),
-      .rename_fpr_count_i(instr_rename_fpr_count),
-      .allocated_gpr_regs_o(allocated_gpr_regs),
-      .allocated_fpr_regs_o(allocated_fpr_regs),
-      .phy_reg_alloc_ready_o(phy_reg_alloc_ready)
-    );
+  end else begin : gen_no_phys_reg_manage
+    assign rob_ready           = 1'b0;
+    assign rob_idx             = '0; // Not used
+    assign phy_reg_alloc_ready = 1'b0;
   end
 
   ////////////////
@@ -1560,6 +1581,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   schnova_scoreboard #(
+    .Xfrep    (Xfrep),
     .PipeWidth(PipeWidth),
     .NrReadPorts(NofOperandIfs),
     .NrIntWritePorts(NrIntWritePorts),
@@ -1599,6 +1621,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /////////////////////////////
 
   schnova_phys_regfile #(
+    .Xfrep         (Xfrep),
     .DataWidth     (XLEN),
     .OpLen         (OpLen),
     .NofAlus       (NofAlus),
@@ -1627,6 +1650,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   if (NofFpus > 0) begin : gen_fp_rf
     schnova_phys_regfile #(
+      .Xfrep         (Xfrep),
       .DataWidth     (FLEN),
       .OpLen         (OpLen),
       .NofAlus       (NofAlus),
@@ -1654,22 +1678,30 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     );
   end else begin : gen_no_fp_rf
     assign fpr_rdata = '0;
+    assign op_rsps_fpr_data = '0;
   end
 
-
-  always_comb begin : sb_operand_req_snooping
-    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      sb_raddr[op] =  op_reqs[op].phy_reg;
-      sb_read_fp[op] = op_reqs[op].is_fp;
-      op_rsps_valid[op] = ~sb_rdata[op];
+  if (Xfrep) begin : gen_op_handling
+    always_comb begin : sb_operand_req_snooping
+      for (int unsigned op = 0; op < NofOperandIfs; op++) begin
+        sb_raddr[op] =  op_reqs[op].phy_reg;
+        sb_read_fp[op] = op_reqs[op].is_fp;
+        op_rsps_valid[op] = ~sb_rdata[op];
+      end
     end
-  end
 
-  always_comb begin : op_rsps_mux
-    for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-      // Depending on whether the request targets the GPR or the FPR we select the response data
-      op_rsps_data[op] = op_reqs[op].is_fp ? op_rsps_fpr_data[op] : op_rsps_gpr_data[op];
+    always_comb begin : op_rsps_mux
+      for (int unsigned op = 0; op < NofOperandIfs; op++) begin
+        // Depending on whether the request targets the GPR or the FPR we select the response data
+        op_rsps_data[op] = op_reqs[op].is_fp ? op_rsps_fpr_data[op] : op_rsps_gpr_data[op];
+      end
     end
+
+  end else begin : gen_no_op_handling
+    assign sb_raddr      = '0;
+    assign sb_read_fp    = '0;
+    assign op_rsps_valid = '0;
+    assign op_rsps_data  = '0;
   end
 
   ////////////
@@ -1706,18 +1738,30 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
 
-  assign core_trace = '{
-    priv_level:     priv_lvl,
-    loop_state:     loop_state,
-    // Whether the fetching was stalled
-    stall:          stall,
-    // Whether the dispatcher was stalled
-    stall_dispatch: !(|i_dispatcher.instr_dispatched),
-    exception:      exception
-  };
+  if (Xfrep) begin : gen_superscalar_core_trace
+    assign core_trace = '{
+      priv_level:     priv_lvl,
+      loop_state:     loop_state,
+      // Whether the fetching was stalled
+      stall:          stall,
+      // Whether the dispatcher was stalled
+      stall_dispatch: !(|i_dispatcher.gen_rs_dispatcher.i_rs_dispatcher.instr_dispatched),
+      exception:      exception
+    };
+  end else begin: gen_scalar_core_trace
+    assign core_trace = '{
+      priv_level:     priv_lvl,
+      loop_state:     loop_state,
+      // Whether the fetching was stalled
+      stall:          stall,
+      // Whether the dispatcher was stalled
+      stall_dispatch: !i_dispatcher.dispatched,
+      exception:      exception
+    };
+  end
 
   assign si_dispatch_trace =  '{
-      valid:        (instr_exec_commit && instr_valid_masked[0] && i_dispatcher.si_fu_ready) || exception,
+      valid:        (instr_exec_commit && instr_valid_masked[0] && i_dispatcher.i_si_dispatcher.fu_ready) || exception,
       pc_q:         i_frontend.pc_q,
       pc_d:         i_frontend.pc_d,
       instr_data:   instr_fetch_data[0],
@@ -1733,30 +1777,34 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       rs2_is_fp:    instr_decoded[0].rs2_is_fp,
       rd_is_fp:     instr_decoded[0].rd_is_fp,
       fu_type:      schnova_pkg::fu_to_string(instr_decoded[0].fu),
-      disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.si_tag.producer_id)
+      disp_resp:    i_fu_stage.producer_to_string(i_dispatcher.i_si_dispatcher.tag.producer_id)
     };
 
   for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_rs_dispatch_traces
     // verilog_lint: waive-start line-length
-    assign rs_dispatch_trace[idx] = '{
-      valid:        (instr_exec_commit && instr_valid_masked[idx] && !i_dispatcher.instr_has_hazard[idx]) || exception,
-      pc_q:         i_frontend.pc_q + (idx * 4),
-      pc_d:         i_frontend.pc_d,
-      instr_data:   instr_fetch_data[idx],
-      rs1:          instr_decoded[idx].rs1,
-      phy_rs1:      reg_map[idx].phy_reg_rs1,
-      rs2:          instr_decoded[idx].rs2,
-      phy_rs2:      reg_map[idx].phy_reg_rs2,
-      rs3:          instr_decoded[idx].imm, // fused FPU instructions use imm as operand
-      phy_rs3:      reg_map[idx].phy_reg_rs3,
-      rd:           instr_decoded[idx].rd,
-      phy_rd:       en_superscalar ? reg_map[idx].phy_reg_rd_new : reg_map[idx].phy_reg_rd_old,
-      rs1_is_fp:    instr_decoded[idx].rs1_is_fp,
-      rs2_is_fp:    instr_decoded[idx].rs2_is_fp,
-      rd_is_fp:     instr_decoded[idx].rd_is_fp,
-      fu_type:      schnova_pkg::fu_to_string(instr_decoded[idx].fu),
-      disp_resp:    "" // Not used in superscalar dispatch
-    };
+    if (Xfrep) begin : gen_rs_dispatch_trace
+      assign rs_dispatch_trace[idx] = '{
+        valid:        (instr_exec_commit && instr_valid_masked[idx] && !i_dispatcher.gen_rs_dispatcher.i_rs_dispatcher.instr_has_hazard[idx]) || exception,
+        pc_q:         i_frontend.pc_q + (idx * 4),
+        pc_d:         i_frontend.pc_d,
+        instr_data:   instr_fetch_data[idx],
+        rs1:          instr_decoded[idx].rs1,
+        phy_rs1:      reg_map[idx].phy_reg_rs1,
+        rs2:          instr_decoded[idx].rs2,
+        phy_rs2:      reg_map[idx].phy_reg_rs2,
+        rs3:          instr_decoded[idx].imm, // fused FPU instructions use imm as operand
+        phy_rs3:      reg_map[idx].phy_reg_rs3,
+        rd:           instr_decoded[idx].rd,
+        phy_rd:       en_superscalar ? reg_map[idx].phy_reg_rd_new : reg_map[idx].phy_reg_rd_old,
+        rs1_is_fp:    instr_decoded[idx].rs1_is_fp,
+        rs2_is_fp:    instr_decoded[idx].rs2_is_fp,
+        rd_is_fp:     instr_decoded[idx].rd_is_fp,
+        fu_type:      schnova_pkg::fu_to_string(instr_decoded[idx].fu),
+        disp_resp:    "" // Not used in superscalar dispatch
+      };
+    end else begin : gen_no_rs_dispatch_trace
+      assign rs_dispatch_trace[idx] = '{default: '0};
+    end
   end
 
 
@@ -1773,13 +1821,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
-          valid:          i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_idx_i == rss),
+          valid:          i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_raw.tag.producer_id),
-          alu_opa:        i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_raw.operand_a[XLEN-1:0],
-          alu_opb:        i_fu_stage.gen_alus[alu].i_res_stat.gen_alu_rs.i_slots.issue_req_raw.operand_b[XLEN-1:0]
+                            i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.tag.producer_id),
+          alu_opa:        i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.operand_a[XLEN-1:0],
+          alu_opb:        i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_raw.operand_b[XLEN-1:0]
         };
       end else begin : gen_alu_traces_rss_no_trace_resreq
         assign rss_alu_traces[alu][rss]    = '{default: '0};
@@ -1800,11 +1848,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
-          valid:          i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_req_valid_o &&
-                          i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_req_ready_i &&
-                          (i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_idx_i == rss),
+          valid:          i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.gen_lsu_rs.i_slots.issue_req_valid_o &&
+                          i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.gen_lsu_rs.i_slots.issue_req_ready_i &&
+                          (i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.gen_lsu_rs.i_slots.issue_idx_i == rss),
           producer:       i_fu_stage.producer_to_string(
-                            i_fu_stage.gen_lsus[lsu].i_res_stat.gen_lsu_rs.i_slots.issue_req_raw.tag.producer_id),
+                            i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.gen_lsu_rs.i_slots.issue_req_raw.tag.producer_id),
           // Directly access the LSU because theses signals are decoded in the LSU. This requires
           // that there is no cut between the RSS and the LSU.
           lsu_store_data: i_fu_stage.gen_lsus[lsu].i_lsu.store_data,
@@ -1834,16 +1882,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // verilog_lint: waive-start line-length
       if (Xfrep) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
-          valid:      i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_valid_o &&
-                      i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_ready_i &&
-                      (i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_idx_i == rss),
+          valid:      i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_valid_o &&
+                      i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_ready_i &&
+                      (i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_idx_i == rss),
           producer:    i_fu_stage.producer_to_string(
-                        i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.tag.producer_id),
-          fpu_opa:     i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.operand_a,
-          fpu_opb:     i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.operand_b,
-          fpu_opc:     i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.imm,
-          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fpu_fmt_src,
-          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fpu_fmt_dst,
+                        i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.tag.producer_id),
+          fpu_opa:     i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.operand_a,
+          fpu_opb:     i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.operand_b,
+          fpu_opc:     i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.imm,
+          fpu_src_fmt: i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fpu_fmt_src,
+          fpu_dst_fmt: i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_raw.fpu_fmt_dst,
           // Directly access the FPU because theses signals are decoded in the FPU. This requires
           // that there is no cut between the RSS and the FPU.
           fpu_int_fmt:    i_fu_stage.gen_fpus[fpu].i_fpu.int_fmt
@@ -1984,5 +2032,24 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   );
 
   // pragma translate_on
+
+  // Assertions
+  `ASSERT_INIT(NofAluMismatch, Xfrep || (NofAlus == 1),
+    "Too many ALUs, if Xfrep is not enabled only 1 ALU will be used anyways");
+
+  `ASSERT_INIT(NofLsuMismatch, Xfrep || (NofLsus == 1),
+    "Too many LSUs, if Xfrep is not enabled only 1 LSU will be used anyways");
+
+  `ASSERT_INIT(NofFpuMismatch, Xfrep || (NofFpus == 1),
+    "Too many FPUs, if Xfrep is not enabled only 1 FPU will be used anyways");
+
+  `ASSERT_INIT(PipelineWidthMismatch, Xfrep || (PipeWidth == 1),
+    "If Xfrep is not enabled, the pipeline width should be 1");
+
+  `ASSERT_INIT(NofGprMismatch, Xfrep || (NofPhysGpr == 32),
+    "If Xfrep is not enabled, the core only supports 32 gp logical registers");
+
+  `ASSERT_INIT(NofFprMismatch, Xfrep || (NofPhysFpr == 32),
+    "If Xfrep is not enabled, the core only supports 32 fp logical registers");
 
 endmodule

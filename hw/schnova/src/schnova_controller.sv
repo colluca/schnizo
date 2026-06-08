@@ -11,6 +11,7 @@
 // dispatch when necessary, handling exceptions, HW barriers, control flow instructions.
 module schnova_controller import schnova_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
+  parameter bit          Xfrep           = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
@@ -112,103 +113,122 @@ module schnova_controller import schnova_pkg::*; #(
 
   logic        frep_sw_error;
   logic        loop_stall;
-  logic [PipeWidth-1:0] valid_mask;
 
-  // Convert the decoded loop iterations to the actual number of iterations.
-  // In Snitch we specify one less in the encoding.
-  logic [MaxIterationsWidth-1:0] loop_iterations;
-  assign loop_iterations = frep_iterations_i + 1;
 
-  // Convert the loop body size to the actual number of iterations.
-  // In Snitch we specify one less in the encoding.
-  logic [FrepBodySizeWidth-1:0] loop_bodysize;
-  assign loop_bodysize = instr_decoded_i[0].frep_bodysize + 1;
+  if (Xfrep) begin : gen_loop_ctrl
+    // Valid bit mask of from the loop controller
+    logic [PipeWidth-1:0] valid_mask;
+    // Convert the decoded loop iterations to the actual number of iterations.
+    // In Snitch we specify one less in the encoding.
+    logic [MaxIterationsWidth-1:0] loop_iterations;
+    assign loop_iterations = frep_iterations_i + 1;
 
-  schnova_loop_controller #(
-    .PipeWidth         (PipeWidth),
-    .AddrWidth         (32),
-    .MaxBodysizeWidth  (FrepBodySizeWidth),
-    .MaxIterationsWidth(MaxIterationsWidth),
-    .block_ctrl_info_t (block_ctrl_info_t),
-    .instr_dec_t       (instr_dec_t)
-  ) i_loop_ctrl (
-    .clk_i,
-    .rst_i,
-    .instr_valid_i    (instr_valid_i),
-    .instr_decoded_i  (instr_decoded_i),
-    .valid_mask_o     (valid_mask),
-    .instr_addr_i     (pc_i),
-    .blk_ctrl_info_i  (blk_ctrl_info_masked),
-    .dispatched_i     (dispatched_o),
-    // The next instruction after an FREP can only be the immediately next instruction.
-    // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
-    // on the loop_jump signal. TODO: check address overflow..
-    .next_instr_addr_i(pc_i + 'd4),
-    .stall_i          (stall_o),
-    .exception_i      (exception_o),
-    // Only in scalar execution mode is it legal to observe an frep instruction
-    // hence we can take the first instruction
-    .loop_start_req_i      (instr_decoded_i[0].is_frep & instr_valid_i[0]),
-    .loop_start_commit_i   (instr_decoded_i[0].is_frep & frep_exec_commit),
-    .loop_bodysize_i       (loop_bodysize),
-    .loop_iterations_i     (loop_iterations),
-    .frep_mode_i           (instr_decoded_i[0].frep_mode),
-    .loop_jump_o           (loop_jump_o),
-    .loop_jump_addr_o      (loop_jump_addr_o),
-    .sw_err_o              (frep_sw_error),
-    .loop_state_o          (loop_state_o),
-    .en_superscalar_o      (en_superscalar_o),
-    .rs_idle_i             (rs_idle_i),
-    .loop_stall_o          (loop_stall)
-  );
+    // Convert the loop body size to the actual number of iterations.
+    // In Snitch we specify one less in the encoding.
+    logic [FrepBodySizeWidth-1:0] loop_bodysize;
+    assign loop_bodysize = instr_decoded_i[0].frep_bodysize + 1;
 
-  // After the loop controller we maks the valid bits
-  // It could be that some instruction have to be invalidated since they are out of the loop body
-  assign instr_valid = instr_valid_i & valid_mask;
+    schnova_loop_controller #(
+      .PipeWidth         (PipeWidth),
+      .AddrWidth         (32),
+      .MaxBodysizeWidth  (FrepBodySizeWidth),
+      .MaxIterationsWidth(MaxIterationsWidth),
+      .block_ctrl_info_t (block_ctrl_info_t),
+      .instr_dec_t       (instr_dec_t)
+    ) i_loop_ctrl (
+      .clk_i,
+      .rst_i,
+      .instr_valid_i    (instr_valid_i),
+      .instr_decoded_i  (instr_decoded_i),
+      .valid_mask_o     (valid_mask),
+      .instr_addr_i     (pc_i),
+      .blk_ctrl_info_i  (blk_ctrl_info_masked),
+      .dispatched_i     (dispatched_o),
+      // The next instruction after an FREP can only be the immediately next instruction.
+      // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
+      // on the loop_jump signal. TODO: check address overflow..
+      .next_instr_addr_i(pc_i + 'd4),
+      .stall_i          (stall_o),
+      .exception_i      (exception_o),
+      // Only in scalar execution mode is it legal to observe an frep instruction
+      // hence we can take the first instruction
+      .loop_start_req_i      (instr_decoded_i[0].is_frep & instr_valid_i[0]),
+      .loop_start_commit_i   (instr_decoded_i[0].is_frep & frep_exec_commit),
+      .loop_bodysize_i       (loop_bodysize),
+      .loop_iterations_i     (loop_iterations),
+      .frep_mode_i           (instr_decoded_i[0].frep_mode),
+      .loop_jump_o           (loop_jump_o),
+      .loop_jump_addr_o      (loop_jump_addr_o),
+      .sw_err_o              (frep_sw_error),
+      .loop_state_o          (loop_state_o),
+      .en_superscalar_o      (en_superscalar_o),
+      .rs_idle_i             (rs_idle_i),
+      .loop_stall_o          (loop_stall)
+    );
 
-  assign instr_valid_o = instr_valid;
+    // After the loop controller we maks the valid bits
+    // It could be that some instruction have to be invalidated since they are out of the loop body
+    assign instr_valid = instr_valid_i & valid_mask;
 
-    // Counting the number of valid instructions
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_valid_count (
-    .data_i(instr_valid_o),
-    .popcount_o(instr_valid_count_o)
-  );
+    assign instr_valid_o = instr_valid;
 
-  always_comb begin
-    for (int unsigned i = 0; i < PipeWidth; i++) begin
-      // We have to rename the instruction if it is valid
-      // and the destination register is not the integer register x0
-      instr_rename_gpr_valid_o[i] = instr_valid_o[i]          &
-                                    (instr_decoded_i[i].rd != '0) &
-                                    ~instr_decoded_i[i].rd_is_fp;
-      instr_rename_fpr_valid_o[i] = instr_valid_o[i] &
-                                    instr_decoded_i[i].rd_is_fp;
+      // Counting the number of valid instructions
+    popcount #(
+      .INPUT_WIDTH(PipeWidth)
+    ) i_valid_count (
+      .data_i(instr_valid_o),
+      .popcount_o(instr_valid_count_o)
+    );
+
+    always_comb begin
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
+        // We have to rename the instruction if it is valid
+        // and the destination register is not the integer register x0
+        instr_rename_gpr_valid_o[i] = instr_valid_o[i]          &
+                                      (instr_decoded_i[i].rd != '0) &
+                                      ~instr_decoded_i[i].rd_is_fp;
+        instr_rename_fpr_valid_o[i] = instr_valid_o[i] &
+                                      instr_decoded_i[i].rd_is_fp;
+      end
     end
+
+    // Counting the numger of instructions that have to be renamed
+    popcount #(
+      .INPUT_WIDTH(PipeWidth)
+    ) i_gpr_rename_count (
+      .data_i(instr_rename_gpr_valid_o),
+      .popcount_o(instr_rename_gpr_count_o)
+    );
+
+    popcount #(
+      .INPUT_WIDTH(PipeWidth)
+    ) i_fpr_rename_count (
+      .data_i(instr_rename_fpr_valid_o),
+      .popcount_o(instr_rename_fpr_count_o)
+    );
+
+    // We have to mask the blk control info if the loop controller invalidated it
+    assign blk_ctrl_info_masked = instr_valid[blk_ctrl_info_i.instr_idx] ? blk_ctrl_info_i
+                                                                  : '0;
+
+    assign blk_ctrl_info_masked_o = blk_ctrl_info_masked;
+  end else begin: gen_no_loop_ctrl
+    assign loop_jump_o              = 1'b0;
+    assign loop_jump_addr_o         = '0;
+    assign frep_sw_error            = '0;
+    assign loop_state_o             = LoopRegular;
+    assign en_superscalar_o         = 1'b0;
+    assign loop_stall               = 1'b0;
+    assign instr_valid              = instr_valid_i;
+    assign instr_valid_o            = instr_valid;
+    assign instr_valid_count_o      = '0; // Not needed in a scalar core
+    assign instr_rename_gpr_valid_o = '0; // Not needed in a scalar core
+    assign instr_rename_fpr_valid_o = '0; // Not needed in a scalar core
+    assign instr_rename_gpr_count_o = '0; // Not needed in a scalar core
+    assign instr_rename_fpr_count_o = '0; // Not needed in a scalar core
+    assign blk_ctrl_info_masked     = blk_ctrl_info_i;
+    assign blk_ctrl_info_masked_o   = blk_ctrl_info_masked;
   end
-
-  // Counting the numger of instructions that have to be renamed
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_gpr_rename_count (
-    .data_i(instr_rename_gpr_valid_o),
-    .popcount_o(instr_rename_gpr_count_o)
-  );
-
-  popcount #(
-    .INPUT_WIDTH(PipeWidth)
-  ) i_fpr_rename_count (
-    .data_i(instr_rename_fpr_valid_o),
-    .popcount_o(instr_rename_fpr_count_o)
-  );
-
-  // We have to mask the blk control info if the loop controller invalidated it
-  assign blk_ctrl_info_masked = instr_valid[blk_ctrl_info_i.instr_idx] ? blk_ctrl_info_i
-                                                                : '0;
-
-  assign blk_ctrl_info_masked_o = blk_ctrl_info_masked;
-
   ////////////////
   // Exceptions //
   ////////////////
@@ -359,33 +379,43 @@ module schnova_controller import schnova_pkg::*; #(
     IDLE,
     WAIT_CTRL
   } ctrl_state_t;
-
   ctrl_state_t ctrl_state_q, ctrl_state_d;
 
-  `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
+  if (Xfrep) begin : gen_ctrl_stall
 
-  always_comb begin : ctrl_next_state_logic
-    ctrl_state_d = ctrl_state_q;
-    unique case (ctrl_state_q)
-      IDLE: begin
-        // If we have a ctrl instruction which is not retired this same cycle
-        // we have to wait for it to retire and stall the pipeline.
-        if (blk_ctrl_info_masked.is_ctrl && dispatched_o && !ctrl_instr_retired_i) begin
-          ctrl_state_d = WAIT_CTRL;
+
+    `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
+
+    always_comb begin : ctrl_next_state_logic
+      ctrl_state_d = ctrl_state_q;
+      unique case (ctrl_state_q)
+        IDLE: begin
+          // If we have a ctrl instruction which is not retired this same cycle
+          // we have to wait for it to retire and stall the pipeline.
+          if (blk_ctrl_info_masked.is_ctrl && dispatched_o && !ctrl_instr_retired_i) begin
+            ctrl_state_d = WAIT_CTRL;
+          end
         end
-      end
-      WAIT_CTRL: begin
-        // As soon as we retire the control instruction we go back to idle
-        if(ctrl_instr_retired_i) begin
-          ctrl_state_d = IDLE;
+        WAIT_CTRL: begin
+          // As soon as we retire the control instruction we go back to idle
+          if(ctrl_instr_retired_i) begin
+            ctrl_state_d = IDLE;
+          end
         end
-      end
-    endcase
+      endcase
+    end
+
+    // We have to stall the dispatch, if we are in the WAIT_CTRL state
+    // and no ctrl instruction is retired in this cycle.
+    assign ctrl_stall = (ctrl_state_q == WAIT_CTRL);
+
+  end else begin: gen_no_ctrl_stall
+    // In a scalar core, the branch instructions have 1 cycle latency
+    // we don't have to stall to know where to jump to
+    assign ctrl_stall = 1'b0;
+    assign ctrl_state_d = IDLE;
+    assign ctrl_state_q = IDLE;
   end
-
-  // We have to stall the dispatch, if we are in the WAIT_CTRL state
-  // and no ctrl instruction is retired in this cycle.
-  assign ctrl_stall = (ctrl_state_q == WAIT_CTRL);
 
   // We have to stall in superscalar mode if the freelist does not have enough
   // physical registers to rename all instructions

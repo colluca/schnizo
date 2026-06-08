@@ -10,6 +10,7 @@
 // There are two separate scoreboards for each register file.
 // sbi for the integer and sbf for the floating point register, respectively.
 module schnova_scoreboard #(
+  parameter bit          Xfrep        = 1'b1,
   parameter int unsigned PipeWidth    = 1,
   parameter int unsigned NrReadPorts  = 2,
   parameter int unsigned NrIntWritePorts = 1,
@@ -94,15 +95,19 @@ module schnova_scoreboard #(
   ///////////////////////////
   // Scoreboard read ports //
   ///////////////////////////
-  // We must truncate the global PhysAddrWidth to the specific regfile width
-  always_comb begin
-    for (int unsigned i = 0; i < NrReadPorts; i++) begin
-      if (read_fp_i[i]) begin
-        rdata_o[i] = sbf_q[raddr_i[i][FprAddrWidth-1:0]];
-      end else begin
-        rdata_o[i] = sbi_q[raddr_i[i][GprAddrWidth-1:0]];
+  if (Xfrep) begin : gen_sb_read_ports
+    // We must truncate the global PhysAddrWidth to the specific regfile width
+    always_comb begin
+      for (int unsigned i = 0; i < NrReadPorts; i++) begin
+        if (read_fp_i[i]) begin
+          rdata_o[i] = sbf_q[raddr_i[i][FprAddrWidth-1:0]];
+        end else begin
+          rdata_o[i] = sbi_q[raddr_i[i][GprAddrWidth-1:0]];
+        end
       end
     end
+  end else begin: gen_no_read_ports
+    assign rdata_o = '0;
   end
 
   //////////////////////

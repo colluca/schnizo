@@ -230,6 +230,7 @@ module schnova_cc #(
     .XF8                   (XF8),
     .XF8ALT                (XF8ALT),
     .XFVEC                 (XFVEC),
+    .Xfrep                 (Xfrep),
     .FLEN                  (FLEN),
     .ICacheFetchDataWidth  (ICacheFetchDataWidth),
     .dreq_t                (dreq_t),

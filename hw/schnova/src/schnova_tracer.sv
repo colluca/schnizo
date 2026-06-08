@@ -333,25 +333,32 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     end
   end
 
-  // verilog_lint: waive-start line-length
-  for (genvar alu = 0; alu < NofAlus; alu++) begin: gen_cur_alu_rss_alloc
-    assign cur_nof_allocated_rss[alu] = i_fu_stage.gen_alus[alu].i_res_stat.num_allocated_rss_q;
-  end
-  for (genvar lsu = 0; lsu < NofLsus; lsu++) begin: gen_cur_lsu_rss_alloc
-    assign cur_nof_allocated_rss[NofAlus+lsu] = i_fu_stage.gen_lsus[lsu].i_res_stat.num_allocated_rss_q;
-  end
-  for (genvar fpu = 0; fpu < NofFpus; fpu++) begin: gen_cur_fpu_rss_alloc
-    assign cur_nof_allocated_rss[NofAlus+NofLsus+fpu] = i_fu_stage.gen_fpus[fpu].i_res_stat.num_allocated_rss_q;
-  end
-  // verilog_lint: waive-stop line-length
-  if (UseFreeList) begin
-    assign cur_nof_allocated_rob_entries = gen_freelist_reg_manage.i_rob.allocated_entries;
-    assign cur_nof_allocated_gpr = NofPhysGpr - gen_freelist_reg_manage.i_gpr_free_list.free_count;
-    assign cur_nof_allocated_fpr = NofPhysFpr - gen_freelist_reg_manage.i_fpr_free_list.free_count;
+  if (Xfrep) begin
+    // verilog_lint: waive-start line-length
+    for (genvar alu = 0; alu < NofAlus; alu++) begin: gen_cur_alu_rss_alloc
+      assign cur_nof_allocated_rss[alu] = i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.num_allocated_rss_q;
+    end
+    for (genvar lsu = 0; lsu < NofLsus; lsu++) begin: gen_cur_lsu_rss_alloc
+      assign cur_nof_allocated_rss[NofAlus+lsu] = i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.num_allocated_rss_q;
+    end
+    for (genvar fpu = 0; fpu < NofFpus; fpu++) begin: gen_cur_fpu_rss_alloc
+      assign cur_nof_allocated_rss[NofAlus+NofLsus+fpu] = i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.num_allocated_rss_q;
+    end
+    // verilog_lint: waive-stop line-length
+    if (UseFreeList) begin
+      assign cur_nof_allocated_rob_entries = gen_freelist_reg_manage.i_rob.allocated_entries;
+      assign cur_nof_allocated_gpr = NofPhysGpr - gen_phys_reg_manage.gen_freelist_reg_manage.i_gpr_free_list.free_count;
+      assign cur_nof_allocated_fpr = NofPhysFpr - gen_phys_reg_manage.gen_freelist_reg_manage.i_fpr_free_list.free_count;
+    end else begin
+      assign cur_nof_allocated_rob_entries = '0; // There is no ROB in this design
+      assign cur_nof_allocated_gpr = NofPhysGpr - gen_phys_reg_manage.gen_refcount_reg_manage.i_refcount.gpr_free_count;
+      assign cur_nof_allocated_fpr = NofPhysFpr - gen_phys_reg_manage.gen_refcount_reg_manage.i_refcount.fpr_free_count;
+    end
   end else begin
-    assign cur_nof_allocated_rob_entries = '0; // There is no ROB in this design
-    assign cur_nof_allocated_gpr = NofPhysGpr - gen_refcount_reg_manage.i_refcount.gpr_free_count;
-    assign cur_nof_allocated_fpr = NofPhysFpr - gen_refcount_reg_manage.i_refcount.fpr_free_count;
+    assign cur_nof_allocated_rss = '{default: '0};
+    assign cur_nof_allocated_rob_entries = '0;
+    assign cur_nof_allocated_gpr = 32;
+    assign cur_nof_allocated_fpr = 32;
   end
 
   final begin

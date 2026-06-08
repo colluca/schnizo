@@ -6,6 +6,7 @@
 // Description: Variable Register File
 // verilog_lint: waive module-filename
 module schnova_phys_regfile #(
+  parameter bit          Xfrep        = 1'b1,
   parameter int unsigned DataWidth    = 32,
   parameter int unsigned OpLen        = 32,
   parameter int unsigned NofAlus      = 1,
@@ -36,22 +37,24 @@ module schnova_phys_regfile #(
   // operand response port
   output logic [NofOperandIfs-1:0][OpLen-1:0]     op_rsps_data_o
 );
-  // We have to have a read port for every read port and every operand interface
-  localparam int unsigned NrRegfileReadPorts = NrReadPorts + NrOperandReadPorts;
 
-  logic [NrRegfileReadPorts-1:0][AddrWidth-1:0] rf_raddr;
-  logic [NrRegfileReadPorts-1:0][DataWidth-1:0] rf_rdata;
+  if (Xfrep) begin : gen_phys_regfile
+    // We have to have a read port for every read port and every operand interface
+    localparam int unsigned NrRegfileReadPorts = NrReadPorts + NrOperandReadPorts;
 
-  // The operand requests are placed in the following order
-  // 1) ALU operand requests
-  // 2) LSU operand requests
-  // 3) FPU operand requests
-  // For more details see the file schnova_fu_stage.sv
+    logic [NrRegfileReadPorts-1:0][AddrWidth-1:0] rf_raddr;
+    logic [NrRegfileReadPorts-1:0][DataWidth-1:0] rf_rdata;
 
-  // ----------------
-  // Pack read ports
-  // ----------------
-  always_comb begin : read_port_packing
+    // The operand requests are placed in the following order
+    // 1) ALU operand requests
+    // 2) LSU operand requests
+    // 3) FPU operand requests
+    // For more details see the file schnova_fu_stage.sv
+
+    // ----------------
+    // Pack read ports
+    // ----------------
+    always_comb begin : read_port_packing
       automatic integer unsigned port_idx = 0;
       automatic integer unsigned base_op = 0;
 
@@ -72,7 +75,6 @@ module schnova_phys_regfile #(
           rf_raddr[port_idx]       = op_reqs_i[base_op + (alu*2) + 0].phy_reg[AddrWidth-1:0];
           op_rsps_data_o[base_op + (alu*2)] = rf_rdata[port_idx];
           port_idx++;
-
           rf_raddr[port_idx]       = op_reqs_i[base_op + (alu*2) + 1].phy_reg[AddrWidth-1:0];
           op_rsps_data_o[base_op + (alu*2) + 1] = rf_rdata[port_idx];
           port_idx++;
@@ -80,7 +82,7 @@ module schnova_phys_regfile #(
       end
 
       // LSU Section (Starts after all ALUs; each LSU has 2 operands)
-      base_op = NofAlus * 2; 
+      base_op = NofAlus * 2;
       for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
         // Operand 0 (Address Generation) is ALWAYS GPR
         if (IsGpr) begin
@@ -126,24 +128,46 @@ module schnova_phys_regfile #(
           port_idx++;
         end
       end
-  end
+    end
 
-  // Register file that contains the values
-  schnova_regfile #(
-    .DataWidth   (DataWidth),
-    .NrReadPorts (NrRegfileReadPorts),
-    .NrWritePorts(NrWritePorts),
-    .ZeroRegZero (IsGpr),
-    .AddrWidth   (AddrWidth),
-    .NumRegs(NumRegs)
-  ) i_regfile (
-    .clk_i,
-    .rst_ni (rst_ni),
-    .raddr_i(rf_raddr),
-    .rdata_o(rf_rdata),
-    .waddr_i(waddr_i),
-    .wdata_i(wdata_i),
-    .we_i   (we_i)
-  );
+    // Register file that contains the values
+    schnova_regfile #(
+      .DataWidth   (DataWidth),
+      .NrReadPorts (NrRegfileReadPorts),
+      .NrWritePorts(NrWritePorts),
+      .ZeroRegZero (IsGpr),
+      .AddrWidth   (AddrWidth),
+      .NumRegs(NumRegs)
+    ) i_regfile (
+      .clk_i,
+      .rst_ni (rst_ni),
+      .raddr_i(rf_raddr),
+      .rdata_o(rf_rdata),
+      .waddr_i(waddr_i),
+      .wdata_i(wdata_i),
+      .we_i   (we_i)
+    );
+
+  end else begin: gen_regfile
+    assign op_rsps_data_o = '0;
+    // We directly use the regfile as is
+    // there are no read ports for operands fetched to the reservation stations
+    schnova_regfile #(
+      .DataWidth   (DataWidth),
+      .NrReadPorts (NrReadPorts),
+      .NrWritePorts(NrWritePorts),
+      .ZeroRegZero (IsGpr),
+      .AddrWidth   (AddrWidth),
+      .NumRegs(NumRegs)
+    ) i_regfile (
+      .clk_i,
+      .rst_ni (rst_ni),
+      .raddr_i(raddr_i),
+      .rdata_o(rdata_o),
+      .waddr_i(waddr_i),
+      .wdata_i(wdata_i),
+      .we_i   (we_i)
+    );
+  end
 
 endmodule
