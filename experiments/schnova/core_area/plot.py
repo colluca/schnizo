@@ -80,103 +80,158 @@ def area_efficiency_plot(clk=False):
                 "CLK": 2.02,
                 "area": 1307
             },
-            "Schnova-GP-1": {
-                "IPC": 1.0,
-                "CLK": 1.0,
-                "area": 353
-            },
-            "Schnova-GP-2": {
-                "IPC": 1.71,
-                "CLK": 1.09,
-                "area": 437
-            },
-            "Schnova-GP-4": {
-                "IPC": 2.17,
-                "CLK": 1.3,
-                "area": 559
-            },
-            "Schnova-GP-8": {
-                "IPC": 2.38,
-                "CLK": 1.34,
-                "area": 808
-            },
-            "Schnova-GP-1-opt1": {
-                "IPC": 1.0,
-                "CLK": 1.05,
-                "area": 325
-            },
-            "Schnova-GP-2-opt1": {
-                "IPC": 1.71,
-                "CLK": 1.07,
-                "area": 379
-            },
-            "Schnova-GP-4-opt1": {
-                "IPC": 2.17,
-                "CLK": 1.17,
-                "area": 479
-            },
-            "Schnova-GP-8-opt1": {
-                "IPC": 2.38,
-                "CLK": 1.34,
-                "area": 668
-            },"Schnova-GP-1-opt-c": {
+            #"Schnova-GP-1": {
+            #    "IPC": 1.0,
+            #    "CLK": 1.0,
+            #    "area": 353
+            #},
+            #"Schnova-GP-2": {
+            #    "IPC": 1.71,
+            #    "CLK": 1.09,
+            #    "area": 437
+            #},
+            #"Schnova-GP-4": {
+            #    "IPC": 2.17,
+            #    "CLK": 1.3,
+            #    "area": 559
+            #},
+            #"Schnova-GP-8": {
+            #    "IPC": 2.38,
+            #    "CLK": 1.34,
+            #    "area": 808
+            #},
+            #"Schnova-GP-1-opt1": {
+            #    "IPC": 1.0,
+            #    "CLK": 1.05,
+            #    "area": 325
+            #},
+            #"Schnova-GP-2-opt1": {
+            #    "IPC": 1.71,
+            #    "CLK": 1.07,
+            #    "area": 379
+            #},
+            #"Schnova-GP-4-opt1": {
+            #    "IPC": 2.17,
+            #    "CLK": 1.17,
+            #    "area": 479
+            #},
+            #"Schnova-GP-8-opt1": {
+            #    "IPC": 2.38,
+            #    "CLK": 1.34,
+            #    "area": 668
+            #},"Schnova-GP-1-opt-c": {
+            #    "IPC": 0.99,
+            #    "CLK": 1.00,
+            #    "area": 172
+            #},
+            #"Schnova-GP-2-opt-c": {
+            #    "IPC": 1.62,
+            #    "CLK": 1.03,
+            #    "area": 252
+            #},
+            #"Schnova-GP-4-opt-c": {
+            #    "IPC": 3.44,
+            #    "CLK": 1.06,
+            #    "area": 328
+            #},
+            #"Schnova-GP-8-opt-c": {
+            #    "IPC": 6.75,
+            #    "CLK": 1.30,
+            #    "area": 493
+            #},"Schnova-GP-1-opt-p": {
+            #    "IPC": 0.99,
+            #    "CLK": 1.00,
+            #    "area": 176
+            #},
+            #"Schnova-GP-2-opt-p": {
+            #    "IPC": 1.62,
+            #    "CLK": 1.05,
+            #    "area": 236
+            #},
+            #"Schnova-GP-4-opt-p": {
+            #    "IPC": 3.44,
+            #    "CLK": 1.17,
+            #    "area": 304
+            #},
+            #"Schnova-GP-8-opt-p": {
+            #    "IPC": 6.75,
+            #    "CLK": 1.35,
+            #    "area": 456
+            #}, "Schnova-GP-1-refcnt": {
+            #    "IPC": 0.99,
+            #    "CLK": 1.00,
+            #    "area": 168
+            #},
+            #"Schnova-GP-2-refcnt": {
+            #    "IPC": 1.62,
+            #    "CLK": 1.05,
+            #    "area": 209
+            #},
+            #"Schnova-GP-4-refcnt": {
+            #    "IPC": 3.44,
+            #    "CLK": 1.15,
+            #    "area": 315
+            #},
+            #"Schnova-GP-8-refcnt": {
+            #    "IPC": 6.75,
+            #    "CLK": 1.25,
+            #    "area": 469
+            #}, 
+            "Schnova-SV1-split": {
                 "IPC": 0.99,
                 "CLK": 1.00,
-                "area": 172
+                "area": 164
             },
-            "Schnova-GP-2-opt-c": {
+            "Schnova-SV2-split": {
                 "IPC": 1.62,
                 "CLK": 1.03,
-                "area": 252
+                "area": 232
             },
-            "Schnova-GP-4-opt-c": {
+            "Schnova-SV4-split": {
                 "IPC": 3.44,
-                "CLK": 1.06,
-                "area": 328
+                "CLK": 1.04,
+                "area": 305
             },
-            "Schnova-GP-8-opt-c": {
+            "Schnova-SV8-split": {
                 "IPC": 6.75,
-                "CLK": 1.30,
-                "area": 493
-            },"Schnova-GP-1-opt-p": {
+                "CLK": 1.23,
+                "area": 443
+            },
+            "Schnova-SV1-prog": {
                 "IPC": 0.99,
                 "CLK": 1.00,
-                "area": 176
+                "area": 166
             },
-            "Schnova-GP-2-opt-p": {
-                "IPC": 1.62,
-                "CLK": 1.05,
-                "area": 236
-            },
-            "Schnova-GP-4-opt-p": {
+            "Schnova-SV4-prog": {
                 "IPC": 3.44,
-                "CLK": 1.17,
-                "area": 304
+                "CLK": 1.04,
+                "area": 310
             },
-            "Schnova-GP-8-opt-p": {
+            "Schnova-SV8-prog": {
                 "IPC": 6.75,
-                "CLK": 1.35,
-                "area": 456
-            }, "Schnova-GP-1-refcnt": {
-                "IPC": 0.99,
-                "CLK": 1.00,
-                "area": 168
+                "CLK": 1.14,
+                "area": 486
             },
-            "Schnova-GP-2-refcnt": {
-                "IPC": 1.62,
-                "CLK": 1.05,
-                "area": 209
-            },
-            "Schnova-GP-4-refcnt": {
-                "IPC": 3.44,
+            "Schnova-SV2-p-rob": {
+                "IPC": 1.74,
                 "CLK": 1.15,
-                "area": 315
+                "area": 388
             },
-            "Schnova-GP-8-refcnt": {
-                "IPC": 6.75,
-                "CLK": 1.25,
-                "area": 469
-            }, 
+            "Schnova-SV2-p-rc": {
+                "IPC": 1.74,
+                "CLK": 1.07,
+                "area": 313
+            },
+            "Schnova-SV2-p-rob-bal": {
+                "IPC": 1.74,
+                "CLK": 1.00,
+                "area": 224
+            },
+            "Schnova-SV2-p-rc-bal": {
+                "IPC": 1.74,
+                "CLK": 1.01,
+                "area": 234
+            },
         }
     else:
         designs = {
@@ -195,103 +250,158 @@ def area_efficiency_plot(clk=False):
                 "CLK": 1.0,
                 "area": 1307
             },
-            "Schnova-GP-1": {
-                "IPC": 1.0,
-                "CLK": 1.0,
-                "area": 353
-            },
-            "Schnova-GP-2": {
-                "IPC": 1.71,
-                "CLK": 1.0,
-                "area": 437
-            },
-            "Schnova-GP-4": {
-                "IPC": 2.17,
-                "CLK": 1.0,
-                "area": 559
-            },
-            "Schnova-GP-8": {
-                "IPC": 2.38,
-                "CLK": 1.0,
-                "area": 808
-            },
-            "Schnova-GP-1-opt1": {
-                "IPC": 1.0,
-                "CLK": 1.0,
-                "area": 325
-            },
-            "Schnova-GP-2-opt1": {
-                "IPC": 1.71,
-                "CLK": 1.0,
-                "area": 379
-            },
-            "Schnova-GP-4-opt1": {
-                "IPC": 2.17,
-                "CLK": 1.0,
-                "area": 479
-            },
-            "Schnova-GP-8-opt1": {
-                "IPC": 2.38,
-                "CLK": 1.0,
-                "area": 668
-            },"Schnova-GP-1-opt-c": {
+            #"Schnova-GP-1": {
+            #    "IPC": 1.0,
+            #    "CLK": 1.0,
+            #    "area": 353
+            #},
+            #"Schnova-GP-2": {
+            #    "IPC": 1.71,
+            #    "CLK": 1.0,
+            #    "area": 437
+            #},
+            #"Schnova-GP-4": {
+            #    "IPC": 2.17,
+            #    "CLK": 1.0,
+            #    "area": 559
+            #},
+            #"Schnova-GP-8": {
+            #    "IPC": 2.38,
+            #    "CLK": 1.0,
+            #    "area": 808
+            #},
+            #"Schnova-GP-1-opt1": {
+            #    "IPC": 1.0,
+            #    "CLK": 1.0,
+            #    "area": 325
+            #},
+            #"Schnova-GP-2-opt1": {
+            #    "IPC": 1.71,
+            #    "CLK": 1.0,
+            #    "area": 379
+            #},
+            #"Schnova-GP-4-opt1": {
+            #    "IPC": 2.17,
+            #    "CLK": 1.0,
+            #    "area": 479
+            #},
+            #"Schnova-GP-8-opt1": {
+            #    "IPC": 2.38,
+            #    "CLK": 1.0,
+            #    "area": 668
+            #},"Schnova-GP-1-opt-c": {
+            #    "IPC": 0.99,
+            #    "CLK": 1.00,
+            #    "area": 172
+            #},
+            #"Schnova-GP-2-opt-c": {
+            #    "IPC": 1.62,
+            #    "CLK": 1.00,
+            #    "area": 252
+            #},
+            #"Schnova-GP-4-opt-c": {
+            #    "IPC": 3.44,
+            #    "CLK": 1.00,
+            #    "area": 328
+            #},
+            #"Schnova-GP-8-opt-c": {
+            #    "IPC": 6.75,
+            #    "CLK": 1.00,
+            #    "area": 493
+            #},
+            #"Schnova-GP-1-opt-p": {
+            #    "IPC": 0.98,
+            #    "CLK": 1.00,
+            #    "area": 176
+            #},
+            #"Schnova-GP-2-opt-p": {
+            #    "IPC": 1.60,
+            #    "CLK": 1.00,
+            #    "area": 236
+            #},
+            #"Schnova-GP-4-opt-p": {
+            #    "IPC": 3.44,
+            #    "CLK": 1.00,
+            #    "area": 304
+            #},
+            #"Schnova-GP-8-opt-p": {
+            #    "IPC": 6.75,
+            #    "CLK": 1.00,
+            #    "area": 456
+            #}, "Schnova-GP-1-refcnt": {
+            #    "IPC": 0.99,
+            #    "CLK": 1.00,
+            #    "area": 168
+            #},
+            #"Schnova-GP-2-refcnt": {
+            #    "IPC": 1.62,
+            #    "CLK": 1.00,
+            #    "area": 209
+            #},
+            #"Schnova-GP-4-refcnt": {
+            #    "IPC": 3.44,
+            #    "CLK": 1.00,
+            #    "area": 315
+            #},
+            #"Schnova-GP-8-refcnt": {
+            #    "IPC": 6.75,
+            #    "CLK": 1.00,
+            #    "area": 469
+            #},
+            "Schnova-SV1-split": {
                 "IPC": 0.99,
                 "CLK": 1.00,
-                "area": 172
+                "area": 164
             },
-            "Schnova-GP-2-opt-c": {
+            "Schnova-SV2-split": {
                 "IPC": 1.62,
                 "CLK": 1.00,
-                "area": 252
+                "area": 232
             },
-            "Schnova-GP-4-opt-c": {
+            "Schnova-SV4-split": {
                 "IPC": 3.44,
                 "CLK": 1.00,
-                "area": 328
+                "area": 305
             },
-            "Schnova-GP-8-opt-c": {
+            "Schnova-SV8-split": {
                 "IPC": 6.75,
                 "CLK": 1.00,
-                "area": 493
+                "area": 443
             },
-            "Schnova-GP-1-opt-p": {
-                "IPC": 0.98,
-                "CLK": 1.00,
-                "area": 176
-            },
-            "Schnova-GP-2-opt-p": {
-                "IPC": 1.60,
-                "CLK": 1.00,
-                "area": 236
-            },
-            "Schnova-GP-4-opt-p": {
-                "IPC": 3.44,
-                "CLK": 1.00,
-                "area": 304
-            },
-            "Schnova-GP-8-opt-p": {
-                "IPC": 6.75,
-                "CLK": 1.00,
-                "area": 456
-            }, "Schnova-GP-1-refcnt": {
+            "Schnova-SV1-prog": {
                 "IPC": 0.99,
                 "CLK": 1.00,
-                "area": 168
+                "area": 166
             },
-            "Schnova-GP-2-refcnt": {
-                "IPC": 1.62,
-                "CLK": 1.00,
-                "area": 209
-            },
-            "Schnova-GP-4-refcnt": {
+            "Schnova-SV4-prog": {
                 "IPC": 3.44,
                 "CLK": 1.00,
-                "area": 315
+                "area": 310
             },
-            "Schnova-GP-8-refcnt": {
+            "Schnova-SV8-prog": {
                 "IPC": 6.75,
                 "CLK": 1.00,
-                "area": 469
+                "area": 486
+            },
+            "Schnova-SV2-p-rob": {
+                "IPC": 1.74,
+                "CLK": 1.00,
+                "area": 388
+            },
+            "Schnova-SV2-p-rc": {
+                "IPC": 1.74,
+                "CLK": 1.00,
+                "area": 313
+            },
+            "Schnova-SV2-p-rob-bal": {
+                "IPC": 1.74,
+                "CLK": 1.00,
+                "area": 224
+            },
+            "Schnova-SV2-p-rc-bal": {
+                "IPC": 1.74,
+                "CLK": 1.00,
+                "area": 234
             },
         }
 
@@ -311,26 +421,37 @@ def area_efficiency_plot(clk=False):
         "Schnizo-Scalar-GP": ("tab:orange", "o"),
         "Schnizo-GP-S":      ("tab:orange", "^"),
         "Schnizo-GP-L":      ("tab:orange", "s"),
-        "Schnova-GP-1":      ("tab:blue", "o"),
-        "Schnova-GP-2":      ("tab:blue", "^"),
-        "Schnova-GP-4":      ("tab:blue", "s"),
-        "Schnova-GP-8":      ("tab:blue", "D"),
-        "Schnova-GP-1-opt1": ("tab:green", "o"),
-        "Schnova-GP-2-opt1": ("tab:green", "^"),
-        "Schnova-GP-4-opt1": ("tab:green", "s"),
-        "Schnova-GP-8-opt1": ("tab:green", "D"),
-        "Schnova-GP-1-opt-c": ("tab:red", "o"),
-        "Schnova-GP-2-opt-c": ("tab:red", "^"),
-        "Schnova-GP-4-opt-c": ("tab:red", "s"),
-        "Schnova-GP-8-opt-c": ("tab:red", "D"),
-        "Schnova-GP-1-opt-p": ("tab:purple", "o"),
-        "Schnova-GP-2-opt-p": ("tab:purple", "^"),
-        "Schnova-GP-4-opt-p": ("tab:purple", "s"),
-        "Schnova-GP-8-opt-p": ("tab:purple", "D"),
-        "Schnova-GP-1-refcnt": ("tab:pink", "o"),
-        "Schnova-GP-2-refcnt": ("tab:pink", "^"),
-        "Schnova-GP-4-refcnt": ("tab:pink", "s"),
-        "Schnova-GP-8-refcnt": ("tab:pink", "D"),
+        #"Schnova-GP-1":      ("tab:blue", "o"),
+        #"Schnova-GP-2":      ("tab:blue", "^"),
+        #"Schnova-GP-4":      ("tab:blue", "s"),
+        #"Schnova-GP-8":      ("tab:blue", "D"),
+        #"Schnova-GP-1-opt1": ("tab:green", "o"),
+        #"Schnova-GP-2-opt1": ("tab:green", "^"),
+        #"Schnova-GP-4-opt1": ("tab:green", "s"),
+        #"Schnova-GP-8-opt1": ("tab:green", "D"),
+        #"Schnova-GP-1-opt-c": ("tab:red", "o"),
+        #"Schnova-GP-2-opt-c": ("tab:red", "^"),
+        #"Schnova-GP-4-opt-c": ("tab:red", "s"),
+        #"Schnova-GP-8-opt-c": ("tab:red", "D"),
+        #"Schnova-GP-1-opt-p": ("tab:purple", "o"),
+        #"Schnova-GP-2-opt-p": ("tab:purple", "^"),
+        #"Schnova-GP-4-opt-p": ("tab:purple", "s"),
+        #"Schnova-GP-8-opt-p": ("tab:purple", "D"),
+        #"Schnova-GP-1-refcnt": ("tab:pink", "o"),
+        #"Schnova-GP-2-refcnt": ("tab:pink", "^"),
+        #"Schnova-GP-4-refcnt": ("tab:pink", "s"),
+        #"Schnova-GP-8-refcnt": ("tab:pink", "D"),
+        "Schnova-SV1-split":      ("tab:blue", "o"),
+        "Schnova-SV2-split":      ("tab:blue", "^"),
+        "Schnova-SV4-split":      ("tab:blue", "s"),
+        "Schnova-SV8-split":      ("tab:blue", "D"),
+        "Schnova-SV1-prog":      ("tab:red", "o"),
+        "Schnova-SV4-prog":      ("tab:red", "s"),
+        "Schnova-SV8-prog":      ("tab:red", "D"),
+        "Schnova-SV2-p-rob":      ("tab:purple", "o"),
+        "Schnova-SV2-p-rc":      ("tab:purple", "^"),
+        "Schnova-SV2-p-rob-bal":      ("tab:purple", "s"),
+        "Schnova-SV2-p-rc-bal":      ("tab:purple", "D"),
     }
 
     efficiency_levels = [1, 2, 5, 10, 20, 50]
@@ -665,7 +786,7 @@ def plot2():
 
 
 def plot3():
-    plot_core_breakdown(name='gp_sv1')
+    plot_core_breakdown(name='gp_sv1_s')
 
 
 def plot4():

@@ -19,25 +19,41 @@ def gen_experiments(designs=None):
     # Generate list of experiments
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
-        #{'design': 'schnova_synth',
-        #            'name': 'gp_sv1',
-        #            'hdl_params': {
-        #                'NofAlus': 1,
-        #                'NofLsus': 1,
-        #                'NofFpus': 1,
-        #                'NofAluBufEntries': 3,
-        #                'NofLsuBufEntries': 2,
-        #                'NofFpuBufEntries': 3,
-        #                'AluNofRss': 1,
-        #                'LsuNofRss': 1,
-        #                'FpuNofRss': 1,
-        #                'ICacheFetchDataWidth': 32,
-        #                'NofPhysGpr': 40,
-	    #                'NofPhysFpr': 40,
-        #                'NofRobEntries': 16,
-        #                'UseFreeList': 1,
-        #                }
-        #},
+        {
+            'design': 'schnizo_synth',
+            'name': 'schnizo_s',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 1,
+                'NofLsus': 1,
+                'NofFpus': 1,
+                'AluNofRss': 1,
+                'LsuNofRss': 1,
+                'FpuNofRss': 1,
+                'AluNofConstants': 1,
+                'LsuNofConstants': 1,
+                'FpuNofConstants': 1,
+            }
+        },
+        {'design': 'schnova_synth',
+                    'name': 'gp_sv1_s',
+                    'hdl_params': {
+                        'NofAlus': 1,
+                        'NofLsus': 1,
+                        'NofFpus': 1,
+                        'NofAluBufEntries': 1,
+                        'NofLsuBufEntries': 1,
+                        'NofFpuBufEntries': 1,
+                        'AluNofRss': 1,
+                        'LsuNofRss': 1,
+                        'FpuNofRss': 1,
+                        'ICacheFetchDataWidth': 32,
+                        'NofPhysGpr': 33,
+	                    'NofPhysFpr': 33,
+                        'NofRobEntries': 1,
+                        'UseFreeList': 0,
+                        }
+        },
         {'design': 'schnova_synth',
                        'name': 'gp_sv2_rob',
                        'hdl_params': {

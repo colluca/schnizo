@@ -5,8 +5,10 @@
 /pls
 /power.yaml
 /hw
+/vcd
 /results.csv
 /power.csv
 /area
 results_*
 /cfg_*
+/synth

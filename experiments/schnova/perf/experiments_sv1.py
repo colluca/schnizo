@@ -144,7 +144,7 @@ def gen_experiments(ci=False):
         'sv_1_1x32_1x32_1x32_128_128_64',
     ]
 
-    cfgs = ['sv_1_1x1_1x1_1x1_2_2_3_40_40_8']
+    cfgs = ['sv_1_1x1_1x1_1x1_3_2_3_34_34_0']
 
     modes = ['scalar', 'superscalar']
     # sizes = [256, 512, 1024, 2048, 4096]

@@ -66,27 +66,17 @@ class ExperimentManager(eu.ExperimentManager):
         return cdefines
 
 
-def gen_experiments(ci=False):
+def gen_experiments():
     # Define experiment axes
     cfgs = [
-        '3x32_3x32_1x64',
-        #'sv_1_3x32_3x32_1x32_32_128_128_256',
-        #'sv_2_3x32_3x32_1x32_32_128_128_256',
-        #'sv_4_3x32_3x32_1x32_32_128_128_256',
-        #'sv_8_3x32_3x32_1x32_32_128_128_256',
+        'sv_1_pow',
     ]
 
     modes = [#'scalar', 
              'superscalar']
-    # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]
-    app_filter = ['exp']
+    app_filter = ['sz_axpy']
     core = None
-
-    # Drop failing tests at 256 when running in CI
-    # Also drop tests at 512 and 4096, just for CI runtime
-    if ci:
-        sizes = sizes[2:-1]
 
     # Generate experiment list
     experiments = []
@@ -113,7 +103,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnova_balanced',
+                                'funcptr': 'dot_schnizo',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -126,7 +116,7 @@ def gen_experiments(ci=False):
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'axpy_baseline' if mode == 'scalar' else 'axpy_schnova',
+                                'funcptr': 'axpy_schnova_unroll',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -177,7 +167,7 @@ def gen_experiments(ci=False):
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_schnova',
+                                    'func_ptr': 'calculate_psum_schnizo',
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                         sim_bin, "${elf}"],
@@ -203,9 +193,8 @@ def results(dir=None):
 
 def main():
     parser = ExperimentManager.parser()
-    parser.add_argument('--ci', action='store_true', help='Reduce number of experiments for CI')
     args = parser.parse_args()
-    experiments = gen_experiments(ci=args.ci)
+    experiments = gen_experiments()
     manager = ExperimentManager(experiments=experiments, args=args, parse_args=False)
 
     manager.run()

@@ -12,7 +12,7 @@
         atomic_id_width: 5,
         tcdm: {
             size: 128,
-            banks: 128,
+            banks: 32,
         },
         cluster_periph_size: 60, // kB
         zero_mem_size: 64, // kB
@@ -38,9 +38,9 @@
         use_schnova_core: true,
         use_freelist: false,
         // Number of physical general purpose registers
-        num_phy_gpr: 128,
+        num_phy_gpr: 36,
         // Number of physical floating point registers
-        num_phy_fpr: 128,
+        num_phy_fpr: 36,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -81,17 +81,10 @@
                     size: 16, // total instruction cache size in kByte
                     ways: 2, // number of ways
                     cacheline: 512, // word size in bits
-                    l0_cacheline_count: 16, // Number of cache lines in L0 ICache
-                    fetch_data_width: 64, // number of bits that get fetched per request (has to be a multiple of 32)
+                    l0_cacheline_count: 8, // Number of cache lines in L0 ICache
+                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
                     { $ref: "#/compute_core_template" },
                     { $ref: "#/dma_core_template" },
                 ]
@@ -125,16 +118,16 @@
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         // Superscalar configuration
-        num_alus: 2,
+        num_alus: 1,
         num_alu_slots: 1,
-        num_alu_buf_slots: 14,
-        num_lsus: 2,
+        num_alu_buf_slots: 3,
+        num_lsus: 1,
         num_lsu_slots: 1,
-        num_lsu_buf_slots: 14,
+        num_lsu_buf_slots: 2,
         num_fpus: 1,
         num_fpu_slots: 1,
-        num_fpu_buf_slots: 24,
-        num_rob_entries: 256,
+        num_fpu_buf_slots: 3,
+        num_rob_entries: 1,
     },
     dma_core_template: {
         isa: "rv32imafd",
@@ -147,13 +140,13 @@
         xf8alt: false,
         xfdotp: false,
         xfvec: false,
-        num_alu_buf_slots: 32,
-        num_lsu_buf_slots: 32,
-        num_fpu_buf_slots: 32,
+        num_alu_buf_slots: 1,
+        num_lsu_buf_slots: 1,
+        num_fpu_buf_slots: 1,
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
-        num_rob_entries: 256,
+        num_rob_entries: 1,
     }
 }
