@@ -1,0 +1,91 @@
+# Copyright 2026 ETH Zurich and University of Bologna.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+# Spatz rv64uv ISA test suite for Schnizo.
+# Tests matching hw/spatz/sw/riscvTests/CMakeLists.txt minus:
+#   - vsetvli              (not needed)
+#   - vredsum/and/or/xor/min/minu/max/maxu  (covered by schnizo_extra_tests.yaml)
+#   - vfredmin/max/osum/usum               (covered by schnizo_extra_tests.yaml)
+#   - vmv                                  (covered by schnizo_extra_tests.yaml)
+#   - vslide1up/vslideup/vslide1down/vslidedown (covered by schnizo_extra_tests.yaml)
+#   - vloxei/vsuxei        (indexed scatter/gather not implemented)
+# Run with: make spatz-isa-tests
+
+runs:
+  # Integer arithmetic
+  - elf: ../sw/spatz-isa-tests/build/vadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vrsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vand.elf
+  - elf: ../sw/spatz-isa-tests/build/vor.elf
+  - elf: ../sw/spatz-isa-tests/build/vxor.elf
+  - elf: ../sw/spatz-isa-tests/build/vsll.elf
+  - elf: ../sw/spatz-isa-tests/build/vsrl.elf
+  - elf: ../sw/spatz-isa-tests/build/vsra.elf
+  - elf: ../sw/spatz-isa-tests/build/vmin.elf
+  - elf: ../sw/spatz-isa-tests/build/vminu.elf
+  - elf: ../sw/spatz-isa-tests/build/vmax.elf
+  - elf: ../sw/spatz-isa-tests/build/vmaxu.elf
+  # Integer multiply / divide
+  - elf: ../sw/spatz-isa-tests/build/vmul.elf
+  - elf: ../sw/spatz-isa-tests/build/vmulh.elf
+  - elf: ../sw/spatz-isa-tests/build/vmulhu.elf
+  - elf: ../sw/spatz-isa-tests/build/vmulhsu.elf
+  - elf: ../sw/spatz-isa-tests/build/vdiv.elf
+  - elf: ../sw/spatz-isa-tests/build/vdivu.elf
+  - elf: ../sw/spatz-isa-tests/build/vrem.elf
+  - elf: ../sw/spatz-isa-tests/build/vremu.elf
+  # Integer multiply-add
+  - elf: ../sw/spatz-isa-tests/build/vmacc.elf
+  - elf: ../sw/spatz-isa-tests/build/vmadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vnmsac.elf
+  - elf: ../sw/spatz-isa-tests/build/vnmsub.elf
+  # Widening integer arithmetic
+  - elf: ../sw/spatz-isa-tests/build/vwadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vwaddu.elf
+  - elf: ../sw/spatz-isa-tests/build/vwsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vwsubu.elf
+  # Widening integer multiply
+  - elf: ../sw/spatz-isa-tests/build/vwmul.elf
+  - elf: ../sw/spatz-isa-tests/build/vwmulu.elf
+  - elf: ../sw/spatz-isa-tests/build/vwmulsu.elf
+  # Widening integer multiply-add
+  - elf: ../sw/spatz-isa-tests/build/vwmacc.elf
+  - elf: ../sw/spatz-isa-tests/build/vwmaccu.elf
+  - elf: ../sw/spatz-isa-tests/build/vwmaccsu.elf
+  - elf: ../sw/spatz-isa-tests/build/vwmaccus.elf
+  # FP arithmetic
+  - elf: ../sw/spatz-isa-tests/build/vfadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vfsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vfrsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vfmul.elf
+  - elf: ../sw/spatz-isa-tests/build/vfmin.elf
+  - elf: ../sw/spatz-isa-tests/build/vfmax.elf
+  # FP fused multiply-add
+  - elf: ../sw/spatz-isa-tests/build/vfmacc.elf
+  - elf: ../sw/spatz-isa-tests/build/vfnmacc.elf
+  - elf: ../sw/spatz-isa-tests/build/vfmsac.elf
+  - elf: ../sw/spatz-isa-tests/build/vfnmsac.elf
+  - elf: ../sw/spatz-isa-tests/build/vfmadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vfnmadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vfmsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vfnmsub.elf
+  # FP widening
+  - elf: ../sw/spatz-isa-tests/build/vfwadd.elf
+  - elf: ../sw/spatz-isa-tests/build/vfwsub.elf
+  - elf: ../sw/spatz-isa-tests/build/vfwmul.elf
+  - elf: ../sw/spatz-isa-tests/build/vfwmacc.elf
+  - elf: ../sw/spatz-isa-tests/build/vfwmsac.elf
+  - elf: ../sw/spatz-isa-tests/build/vfwnmsac.elf
+  # FP sign injection
+  - elf: ../sw/spatz-isa-tests/build/vfsgnj.elf
+  - elf: ../sw/spatz-isa-tests/build/vfsgnjn.elf
+  - elf: ../sw/spatz-isa-tests/build/vfsgnjx.elf
+  # FP convert
+  - elf: ../sw/spatz-isa-tests/build/vfcvt.elf
+  # FP move
+  - elf: ../sw/spatz-isa-tests/build/vfmv.elf
+  # Schnizo-specific SIMD tests: reductions, slides, vmv, vfncvt
+  # (upstream spatz tests for these don't work with single-word SIMD constraints)
+  - elf: ../sw/spatz-isa-tests/build/schnizo_extra.elf

@@ -7,7 +7,6 @@
 // Contains type definitions and formatting functions for the Schnizo core tracer.
 package schnizo_tracer_pkg;
   import schnizo_pkg::*;
-
   // pragma translate_off
 
   //////////////////////
@@ -79,6 +78,23 @@ package schnizo_tracer_pkg;
 
   typedef struct {
     logic   valid; // high if handshake happens
+    longint instr_iter;
+    string  producer;
+    longint vfu_opa;
+    longint vfu_opb;
+  } issue_vfu_trace_t;
+
+  typedef struct {
+    logic   valid; // high if handshake happens
+    longint instr_iter;
+    string  producer;
+    longint vlsu_is_store;
+    longint vlsu_opa;
+    longint vlsu_opb;
+  } issue_vlsu_trace_t;
+
+  typedef struct {
+    logic   valid; // high if handshake happens
     string  producer;
     longint csr_addr;
     longint csr_read_data;
@@ -125,6 +141,7 @@ package schnizo_tracer_pkg;
     longint rd_is_fp;
     longint result;
   } rescap_trace_t;
+
 
   ///////////////
   // Functions //
@@ -283,6 +300,35 @@ package schnizo_tracer_pkg;
       // close the extra key value list
       $fwrite(file_id,  $sformatf("%s}\n", trace_event));
     end
+  endfunction
+
+  // VFU Traces
+
+  function automatic string format_vfu_trace(issue_vfu_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "instr_iter", trace.instr_iter);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "vfu_opa", trace.vfu_opa);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "vfu_opb", trace.vfu_opb);
+    return extras;
+  endfunction
+
+  // VLSU Traces
+
+  function automatic string format_vlsu_trace(issue_vlsu_trace_t trace);
+    string extras = "";
+    if (!trace.valid) begin
+      return "";
+    end
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "instr_iter", trace.instr_iter);
+    extras = $sformatf("%s'%s':\"%s\", ", extras, "producer", trace.producer);
+    extras = $sformatf("%s'%s':0x%0x, ", extras, "vlsu_is_store", trace.vlsu_is_store);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "vlsu_opa", trace.vlsu_opa);
+    extras = $sformatf("%s'%s':0x%08x, ", extras, "vlsu_opb", trace.vlsu_opb);
+    return extras;
   endfunction
 
   // pragma translate_on

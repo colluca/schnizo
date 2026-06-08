@@ -51,8 +51,9 @@ module schnizo_rss_result_capture import schnizo_pkg::*; #(
   always_comb begin
     // Compose tag
     rf_wb_tag = '0;
-    rf_wb_tag.dest_reg       = slot_i.dest_id;
-    rf_wb_tag.dest_reg_is_fp = slot_i.dest_is_fp;
+    rf_wb_tag.dest_reg        = slot_i.dest_id;
+    rf_wb_tag.dest_reg_is_fp  = slot_i.dest_is_fp;
+    rf_wb_tag.dest_reg_is_vec = slot_i.dest_is_vec;
     // TODO(colluca): find proper solution for this
     // HACK:
     // We directly pass through the branch and jump details to support jumps in LCP1

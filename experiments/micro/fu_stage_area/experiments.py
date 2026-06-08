@@ -11,23 +11,12 @@ FINAL_SYNTH_STAGE = '9'
 
 class ExperimentManager(eu.ExperimentManager):
 
-    def derive_axes(self, experiment):
-        return eu.derive_axes_from_keys(experiment, keys=['num_slots'])
+    def derive_axes(self, _experiment):
+        return {}
 
 
 def gen_experiments():
-    # Define axes
-    num_slots_axis = [1, 4, 32]
-
-    # Generate list of experiments
-    experiments = []
-    for num_slots in num_slots_axis:
-        experiments.append({
-            'design': 'schnizo_fu_stage_synth',
-            'num_slots': num_slots,
-            'hdl_params': {'NofRss': num_slots}
-        })
-    return experiments
+    return [{'design': 'schnizo_fu_stage_synth'}]
 
 
 def get_results():

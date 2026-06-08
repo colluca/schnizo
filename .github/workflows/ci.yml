@@ -185,6 +185,7 @@ jobs:
       - name: Build Software
         run: |
           make CFG_OVERRIDE=cfg/github-ci.json sw -j
+          make CFG_OVERRIDE=cfg/github-ci.json spatz-isa-tests-build -j
       - name: Run Tests
         working-directory: test
         run: |

@@ -108,7 +108,7 @@ def flt_lit(num: int, fmt: int, width: int = 6, vlen: int = 1) -> str:
 
 
 @lru_cache
-def disasm_inst(hex_inst, mc_exec='llvm-mc', mc_flags='-disassemble -mcpu=snitch'):
+def disasm_inst(hex_inst, mc_exec='llvm-mc', mc_flags='-disassemble -mcpu=snitch --mattr=+v'):
     """Disassemble a single RISC-V instruction using llvm-mc."""
     # Reverse the endianness of the hex instruction
     inst_fmt = ' '.join(f'0x{byte:02x}' for byte in bytes.fromhex(hex_inst)[::-1])
@@ -190,6 +190,23 @@ def format_csr_extras(extras):
     return f"{csr_name} = {int_lit(extras['csr_write_data'])}"
 
 
+def format_vfu_extras(extras):
+    if 'vfu_opa' not in extras:
+        return ''
+    opa = int_lit(extras['vfu_opa'], as_hex=True)
+    opb = int_lit(extras['vfu_opb'], as_hex=True)
+    return f"vfu_opa = {opa}, vfu_opb = {opb}"
+
+
+def format_vlsu_extras(extras):
+    if 'vlsu_opa' not in extras:
+        return ''
+    direction = "store" if extras.get('vlsu_is_store') else "load"
+    opa = int_lit(extras['vlsu_opa'], as_hex=True)
+    opb = int_lit(extras['vlsu_opb'], as_hex=True)
+    return f"{direction}, vlsu_opa = {opa}, vlsu_opb = {opb}"
+
+
 def format_extras(extras):
     # Build extras string, made as a collection of "comments"
     comments = []
@@ -204,6 +221,14 @@ def format_extras(extras):
         comments.append(format_alu_extras(extras))
     elif fu_type == arch.FU_FPU:
         comments.append(format_fpu_extras(extras))
+    elif fu_type == arch.FU_VFU:
+        s = format_vfu_extras(extras)
+        if s:
+            comments.append(s)
+    elif fu_type == arch.FU_VLSU:
+        s = format_vlsu_extras(extras)
+        if s:
+            comments.append(s)
     elif fu_type not in arch.FU_TYPES:
         raise ValueError(f'Invalid FU type {fu_type}')
 

@@ -35,8 +35,8 @@
         },
         // Timing parameters
         timing: {
-            lat_comp_fp32: 2,
-            lat_comp_fp64: 3,
+            lat_comp_fp32: 1,
+            lat_comp_fp64: 1,
             lat_comp_fp16: 1,
             lat_comp_fp16_alt: 1,
             lat_comp_fp8: 1,
@@ -72,17 +72,17 @@
                 icache: {
                     size: 16, // total instruction cache size in kByte
                     ways: 2, // number of ways
-                    cacheline: 512 // word size in bits
+                    cacheline: 256 // word size in bits
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
+                    // { $ref: "#/compute_core_template" },
                     { $ref: "#/dma_core_template" },
                 ]
             }
@@ -103,7 +103,7 @@
     ],
     // Templates.
     compute_core_template: {
-        isa: "rv32imafd",
+        isa: "rv32imafdv",
         xfrep: true, // enables the superscalar feature
         xdma: false,
         xf16: false,
@@ -116,14 +116,23 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 2,
-        num_alu_constants: 8,
+        num_alu_slots: 3,
+        num_alu_constants: 9,
         num_lsus: 3,
         num_lsu_slots: 3,
-        num_lsu_constants: 8,
+        num_lsu_constants: 9,
         num_fpus: 1,
         num_fpu_slots: 4,
-        num_fpu_constants: 8,
+        num_fpu_constants: 4,
+        // Schnizo VFU/VLSU configuration
+        num_vfus: 1,
+        num_vlsus: 1,
+        num_spatz_fpus: 4,
+        num_spatz_ipus: 1,
+        num_vfu_slots: 8,
+        num_vfu_constants: 8,
+        num_vlsu_slots: 8,
+        num_vlsu_constants: 8,
     },
     dma_core_template: {
         isa: "rv32imafd",
@@ -140,5 +149,14 @@
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
+        // DMA core has no VFU/VLSU
+        num_vfus: 0,
+        num_vlsus: 0,
+        num_spatz_fpus: 0,
+        num_spatz_ipus: 0,
+        num_vfu_slots: 0,
+        num_vfu_constants: 0,
+        num_vlsu_slots: 0,
+        num_vlsu_constants: 0,
     }
 }

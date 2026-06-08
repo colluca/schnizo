@@ -32,6 +32,9 @@ module schnizo_cc #(
   parameter type         dreq_t             = logic,
   /// Data port response type.
   parameter type         drsp_t             = logic,
+  // TCDM Types for VLSU
+  parameter type         tcdm_req_chan_t  =  logic,
+  parameter type         tcdm_rsp_chan_t  =  logic,
   /// TCDM Address Width
   parameter int unsigned TCDMAddrWidth      = 0,
   /// Data port request type.
@@ -52,6 +55,8 @@ module schnizo_cc #(
   parameter fpnew_pkg::fpu_implementation_t FPUImplementation = '0,
   /// Boot address of core.
   parameter logic [31:0] BootAddr           = 32'h0000_1000,
+  // Enable V extension for Spatz
+  parameter bit          RVV                = 1,
   /// Enable F and D Extension
   parameter bit          RVF                = 1,
   parameter bit          RVD                = 1,
@@ -78,9 +83,22 @@ module schnizo_cc #(
   parameter int unsigned NumAluRspPorts     = 1,
   parameter int unsigned NumLsuRspPorts     = 1,
   parameter int unsigned NumFpuRspPorts     = 1,
+  // Schnizo VFU/VLSU RSS config
+  parameter int unsigned VfuNofRss          = 6,
+  parameter int unsigned VlsuNofRss         = 6,
+  parameter int unsigned VfuNofConstants    = 4,
+  parameter int unsigned VlsuNofConstants   = 4,
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
+  // VFU specific parameters
+  parameter int unsigned NumSpatzFPUs           = 4,
+  parameter int unsigned NumSpatzIPUs           = 1,
+  parameter int unsigned NofVFU                 = 2,
+  parameter int unsigned NofVLSU                = 2,
+  /// Derived parameter *Do not override*
+  parameter int unsigned NumSpatzFUs            = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int unsigned NumMemPortsPerSpatz    = NumSpatzFUs,
   /// Add isochronous clock-domain crossings e.g., make it possible to operate
   /// the core in a slower clock domain.
   parameter bit          IsoCrossing        = 0,
@@ -106,7 +124,8 @@ module schnizo_cc #(
   /// Optional fixed TCDM alias.
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
-  localparam int unsigned TCDMPorts = NumLsus,
+  /// Derived parameter *Do not override*
+  parameter int unsigned TCDMPorts = RVV ? NofVLSU*NumMemPortsPerSpatz + NumLsus : NumLsus,
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
@@ -162,7 +181,7 @@ module schnizo_cc #(
   // same performance with only one LSU. The difference is that Snitch can "buffer" more memory
   // requests in the LSU queue (more outstanding transactions).
   // TODO: create parameter for number of FUs.
-  localparam int unsigned NofLsus               = TCDMPorts;
+  localparam int unsigned NofLsus               = NumLsus;
   // Request buffering & cuts
   // For a first implementation we use a buffer depth of 4.
   // This is as similar to the Snitch as possible.
@@ -210,6 +229,15 @@ module schnizo_cc #(
   dreq_t [NofLsus-1:0] schnizo_dreq;
   drsp_t [NofLsus-1:0] schnizo_drsp;
 
+  // VFU TCDM Interface
+  tcdm_req_t [NofVLSU*NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_req;
+  tcdm_rsp_t [NofVLSU*NumMemPortsPerSpatz - 1 : 0] spatz_tcdm_rsp;
+
+  if (RVV) begin
+    assign tcdm_req_o[TCDMPorts-1 : NumLsus] = spatz_tcdm_req;
+    assign spatz_tcdm_rsp = tcdm_rsp_i[TCDMPorts-1 : NumLsus];
+  end
+
   /////////////
   // Schnizo //
   /////////////
@@ -230,6 +258,12 @@ module schnizo_cc #(
     .FLEN                  (FLEN),
     .dreq_t                (dreq_t),
     .drsp_t                (drsp_t),
+    // Spatz TCDM Interface
+    .tcdm_req_chan_t      (tcdm_req_chan_t),
+    .tcdm_rsp_chan_t      (tcdm_rsp_chan_t),
+    .tcdm_req_t           (tcdm_req_t),
+    .tcdm_rsp_t           (tcdm_rsp_t),
+
     .acc_req_t             (acc_req_t),
     .acc_resp_t            (acc_resp_t),
     // FU configuration
@@ -253,7 +287,16 @@ module schnizo_cc #(
     .DebugSupport          (DebugSupport),
     .FPUImplementation     (FPUImplementation),
     .RegisterFPUIn         (RegisterFPUIn),
-    .RegisterFPUOut        (RegisterFPUOut)
+    .RegisterFPUOut        (RegisterFPUOut),
+    .RVV                   (RVV),
+    .NumSpatzFPUs          (NumSpatzFPUs),
+    .NumSpatzIPUs          (NumSpatzIPUs),
+    .NofVFU                (NofVFU),
+    .NofVLSU               (NofVLSU),
+    .VfuNofRss             (VfuNofRss),
+    .VlsuNofRss            (VlsuNofRss),
+    .VfuNofConstants       (VfuNofConstants),
+    .VlsuNofConstants      (VlsuNofConstants)
   ) i_schnizo (
     .clk_i           (clk_d2_i), // if necessary operate on half the frequency
     .rst_i           (~rst_ni),
@@ -276,7 +319,10 @@ module schnizo_cc #(
     .data_rsp_i      (schnizo_drsp),
     .core_events_o   (schnizo_events),
     .barrier_o       (barrier_o),
-    .barrier_i       (barrier_i)
+    .barrier_i       (barrier_i),
+    // TCDM Ports for SPATZ
+    .tcdm_req_o      (spatz_tcdm_req),
+    .tcdm_rsp_i      (spatz_tcdm_rsp)
   );
 
   /////////////////////////////////
@@ -557,8 +603,8 @@ module schnizo_cc #(
 
   `ASSERT_INIT(
     TcdmAndLsuInterfacesMatch,
-    NofLsus==TCDMPorts,
-    "The number of LSU does not match the number of TCDM ports."
+    NofLsus==(RVV ? NofVLSU*NumMemPortsPerSpatz + NumLsus : NumLsus),
+    "The number of LSU + VLSU does not match the number of TCDM ports."
   );
 
   `ASSERT_INIT(BootAddrAligned, BootAddr[1:0] == 2'b00)

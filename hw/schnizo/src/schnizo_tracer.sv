@@ -9,14 +9,21 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned NofAlus            = 3,
   parameter int unsigned NofLsus            = 1,
   parameter int unsigned NofFpus            = 1,
+  parameter int unsigned NofVfus            = 1,
+  parameter int unsigned NofVlsus           = 1,
   parameter int unsigned AluNofRss          = 3,
   parameter int unsigned LsuNofRss          = 2,
   parameter int unsigned FpuNofRss          = 4,
+  parameter int unsigned VfuNofRss          = 6,
+  parameter int unsigned VlsuNofRss         = 6,
   parameter int unsigned AluNofResRspPorts  = 1,
   parameter int unsigned LsuNofResRspPorts  = 1,
   parameter int unsigned FpuNofResRspPorts  = 1,
+  parameter int unsigned VfuNofResRspPorts  = 1,
+  parameter int unsigned VlsuNofResRspPorts = 1,
   parameter int unsigned NofOperandIfs      = 1,
-  parameter bit          Xfrep              = 1
+  parameter bit          Xfrep              = 1,
+  parameter bit          RVV               = 0
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -27,27 +34,38 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   input  issue_alu_trace_t        alu_trace [NofAlus],
   input  issue_lsu_trace_t        lsu_trace [NofLsus],
   input  issue_fpu_trace_t        fpu_trace [NofFpus],
-  input  issue_alu_trace_t        rss_alu_traces [NofAlus][AluNofRss],
-  input  issue_lsu_trace_t        rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
-  input  issue_fpu_trace_t        rss_fpu_traces [NofFpus][FpuNofRss],
+  input  issue_vfu_trace_t        vfu_trace [NofVfus],
+  input  issue_vlsu_trace_t       vlsu_trace [NofVlsus],
+  input  issue_alu_trace_t        rss_alu_traces  [NofAlus][AluNofRss],
+  input  issue_lsu_trace_t        rss_lsu_traces  [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
+  input  issue_fpu_trace_t        rss_fpu_traces  [NofFpus][FpuNofRss],
+  input  issue_vfu_trace_t        rss_vfu_traces  [NofVfus][cf_math_pkg::max(VfuNofRss,1)],
+  input  issue_vlsu_trace_t       rss_vlsu_traces [NofVlsus][cf_math_pkg::max(VlsuNofRss,1)],
   input  issue_csr_trace_t        csr_trace,
   input  issue_acc_trace_t        acc_trace,
-  input  retire_fu_trace_t        alu_retirements [NofAlus],
-  input  retire_fu_trace_t        lsu_retirements [NofLsus],
-  input  retire_fu_trace_t        fpu_retirements [NofFpus],
+  input  retire_fu_trace_t        alu_retirements  [NofAlus],
+  input  retire_fu_trace_t        lsu_retirements  [NofLsus],
+  input  retire_fu_trace_t        fpu_retirements  [NofFpus],
+  input  retire_fu_trace_t        vfu_retirements  [NofVfus],
+  input  retire_fu_trace_t        vlsu_retirements [NofVlsus],
   input  retire_fu_trace_t        csr_retirement,
   input  retire_fu_trace_t        acc_retirement,
   input  wb_fu_trace_t            alu_wb_trace,
   input  wb_fu_trace_t            lsu_wb_trace,
   input  wb_fu_trace_t            fpu_wb_trace,
+  input  wb_fu_trace_t            vfu_wb_trace,
   input  wb_fu_trace_t            csr_wb_trace,
   input  wb_fu_trace_t            acc_wb_trace,
-  input  resreq_trace_t           alu_resreq_traces [NofAlus][AluNofResRspPorts][NofOperandIfs],
-  input  resreq_trace_t           lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs],
-  input  resreq_trace_t           fpu_resreq_traces [NofFpus][FpuNofResRspPorts][NofOperandIfs],
-  input  rescap_trace_t           alu_rescap_traces [NofAlus][AluNofRss],
-  input  rescap_trace_t           lsu_rescap_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
-  input  rescap_trace_t           fpu_rescap_traces [NofFpus][FpuNofRss]
+  input  resreq_trace_t           alu_resreq_traces   [NofAlus][AluNofRss][NofOperandIfs],
+  input  resreq_trace_t           lsu_resreq_traces   [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs],
+  input  resreq_trace_t           fpu_resreq_traces   [NofFpus][FpuNofRss][NofOperandIfs],
+  input  resreq_trace_t           vfu_resreq_traces   [NofVfus][cf_math_pkg::max(VfuNofRss,1)][NofOperandIfs],
+  input  resreq_trace_t           vlsu_resreq_traces  [NofVlsus][cf_math_pkg::max(VlsuNofResRspPorts,1)][NofOperandIfs],
+  input  rescap_trace_t           alu_rescap_traces   [NofAlus][AluNofRss],
+  input  rescap_trace_t           lsu_rescap_traces   [NofLsus][cf_math_pkg::max(LsuNofRss,1)],
+  input  rescap_trace_t           fpu_rescap_traces   [NofFpus][FpuNofRss],
+  input  rescap_trace_t           vfu_rescap_traces   [NofVfus][cf_math_pkg::max(VfuNofRss,1)],
+  input  rescap_trace_t           vlsu_rescap_traces  [NofVlsus][cf_math_pkg::max(VlsuNofRss,1)]
 );
 
   // The tracer first extracts all signals of interest and groups them by functional unit.
@@ -82,12 +100,11 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     schnizo_dispatch_trace_t dispatch_trace;
   } lcp_dispatch_detail_t;
 
-  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
+  localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus + (RVV ? (NofVlsus + NofVfus) : 0);
 
   lcp_dispatch_detail_t lcp_dispatch_queue[NofFus][$];
 
-  // verilog_lint: waive-start always-ff-non-blocking
-  always_ff @(posedge clk_i) begin
+  always @(posedge clk_i) begin
     string trace_header;
     string dispatch_event;
     lcp_dispatch_detail_t lcp_details;
@@ -138,6 +155,26 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           end
         end
       end
+      if (RVV) begin
+        for (int vfu = 0; vfu < NofVfus; vfu++) begin
+          for (int rss = 0; rss < VfuNofRss; rss++) begin
+            for (int con = 0; con < NofOperandIfs; con++) begin
+              write_trace_event(file_id, trace_header, "resreq",
+                                format_resreq_trace(vfu_resreq_traces[vfu][rss][con]),
+                                vfu_resreq_traces[vfu][rss][con].valid);
+            end
+          end
+        end
+        for (int vlsu = 0; vlsu < NofVlsus; vlsu++) begin
+          for (int port = 0; port < VlsuNofResRspPorts; port++) begin
+            for (int con = 0; con < NofOperandIfs; con++) begin
+              write_trace_event(file_id, trace_header, "resreq",
+                                format_resreq_trace(vlsu_resreq_traces[vlsu][port][con]),
+                                vlsu_resreq_traces[vlsu][port][con].valid);
+            end
+          end
+        end
+      end
 
       // Trace events are active depending on CPU states.
       if (core_trace.state inside {LoopRegular, LoopHwLoop}) begin
@@ -158,6 +195,15 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
         end
         dispatch_event = $sformatf("%s%s", dispatch_event, format_csr_trace(csr_trace));
         dispatch_event = $sformatf("%s%s", dispatch_event, format_acc_trace(acc_trace));
+
+        if (RVV) begin
+          for (int vfu = 0; vfu < NofVfus; vfu++) begin
+            dispatch_event = $sformatf("%s%s", dispatch_event, format_vfu_trace(vfu_trace[vfu]));
+          end
+          for (int vlsu = 0; vlsu < NofVlsus; vlsu++) begin
+            dispatch_event = $sformatf("%s%s", dispatch_event, format_vlsu_trace(vlsu_trace[vlsu]));
+          end
+        end
 
         write_trace_event(file_id, trace_header, "dispatch", dispatch_event, dispatch_trace.valid);
       end else if (core_trace.state inside {LoopLcp1, LoopLcp2}) begin
@@ -208,6 +254,33 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
           end
         end
 
+        if (RVV) begin
+          for (int vlsu = 0; vlsu < NofVlsus; vlsu++) begin
+            for (int rss = 0; rss < VlsuNofRss; rss++) begin
+              if (rss_vlsu_traces[vlsu][rss].valid) begin
+                details = lcp_dispatch_queue[NofAlus + NofLsus + NofFpus + vlsu].pop_front();
+                dispatch_event = format_dispatch_extras(details.dispatch_trace);
+                dispatch_event = $sformatf("%s%s", dispatch_event,
+                                          format_vlsu_trace(rss_vlsu_traces[vlsu][rss]));
+                write_trace_event(file_id, details.header, "dispatch",
+                                  dispatch_event, details.dispatch_trace.valid);
+              end
+            end
+          end
+          for (int vfu = 0; vfu < NofVfus; vfu++) begin
+            for (int rss = 0; rss < VfuNofRss; rss++) begin
+              if (rss_vfu_traces[vfu][rss].valid) begin
+                details = lcp_dispatch_queue[NofAlus + NofLsus + NofFpus + NofVlsus + vfu].pop_front();
+                dispatch_event = format_dispatch_extras(details.dispatch_trace);
+                dispatch_event = $sformatf("%s%s", dispatch_event,
+                                          format_vfu_trace(rss_vfu_traces[vfu][rss]));
+                write_trace_event(file_id, details.header, "dispatch",
+                                  dispatch_event, details.dispatch_trace.valid);
+              end
+            end
+          end
+        end
+
         // CSR and ACC instructions are not supported in FREP but can still execute (fallback in
         // hw loop mode). These are not cut and thus dispatch immediately.
         dispatch_event = format_dispatch_extras(dispatch_trace);
@@ -240,6 +313,24 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                              rss_fpu_traces[fpu][rss].valid);
           end
         end
+
+        if (RVV) begin
+          for (int vlsu = 0; vlsu < NofVlsus; vlsu++) begin
+            for (int rss = 0; rss < VlsuNofRss; rss++) begin
+              write_trace_event(file_id, trace_header, "dispatch",
+                                format_vlsu_trace(rss_vlsu_traces[vlsu][rss]),
+                                rss_vlsu_traces[vlsu][rss].valid);
+            end
+          end
+          for (int vfu = 0; vfu < NofVfus; vfu++) begin
+            for (int rss = 0; rss < VfuNofRss; rss++) begin
+              write_trace_event(file_id, trace_header, "dispatch",
+                                format_vfu_trace(rss_vfu_traces[vfu][rss]),
+                                rss_vfu_traces[vfu][rss].valid);
+            end
+          end
+        end
+
         // No CSR and ACC events possible
       end else begin
         $warning("Current CPU state (%s) not supported by tracer!",
@@ -256,6 +347,11 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
       write_trace_event(file_id, trace_header, "writeback",
                         format_wb_fu_trace(fpu_wb_trace, "FPU"),
                         fpu_wb_trace.valid);
+      if (RVV) begin
+        write_trace_event(file_id, trace_header, "writeback",
+                          format_wb_fu_trace(vfu_wb_trace, "VFU"),
+                          vfu_wb_trace.valid);
+      end
       write_trace_event(file_id, trace_header, "writeback",
                         format_wb_fu_trace(csr_wb_trace, "CSR"),
                         csr_wb_trace.valid);
@@ -295,6 +391,30 @@ module schnizo_tracer import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
                             fpu_rescap_traces[fpu][rss].valid);
         end
       end
+
+      if (RVV) begin
+        for (int vfu = 0; vfu < NofVfus; vfu++) begin
+          write_trace_event(file_id, trace_header, "retirement",
+                            format_fu_retire_trace(vfu_retirements[vfu]),
+                            vfu_retirements[vfu].valid);
+          for (int rss = 0; rss < VfuNofRss; rss++) begin
+            write_trace_event(file_id, trace_header, "rescap",
+                              format_rescap_trace(vfu_rescap_traces[vfu][rss]),
+                              vfu_rescap_traces[vfu][rss].valid);
+          end
+        end
+        for (int vlsu = 0; vlsu < NofVlsus; vlsu++) begin
+          write_trace_event(file_id, trace_header, "retirement",
+                            format_fu_retire_trace(vlsu_retirements[vlsu]),
+                            vlsu_retirements[vlsu].valid);
+          for (int rss = 0; rss < VlsuNofRss; rss++) begin
+            write_trace_event(file_id, trace_header, "rescap",
+                              format_rescap_trace(vlsu_rescap_traces[vlsu][rss]),
+                              vlsu_rescap_traces[vlsu][rss].valid);
+          end
+        end
+      end
+
       write_trace_event(file_id, trace_header, "retirement",
                         format_fu_retire_trace(csr_retirement),
                         csr_retirement.valid);

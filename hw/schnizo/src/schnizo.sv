@@ -24,7 +24,7 @@
 //   have committed before the core gets stopped.
 //
 // Use automatic retiming options in the synthesis tool to optimize the fpnew design.
-module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
+module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; #(
   /// Boot address of core.
   parameter logic [31:0] BootAddr  = 32'h0000_1000,
   /// Physical Address width of the core.
@@ -49,6 +49,14 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter type         dreq_t = logic,
   /// Data port response type.
   parameter type         drsp_t = logic,
+  /// TCDM request channel type.
+  parameter type         tcdm_req_chan_t  = logic,
+  /// TCDM response channel type.
+  parameter type         tcdm_rsp_chan_t  = logic,
+
+  parameter type         tcdm_req_t         = logic,
+  /// Data port response type.
+  parameter type         tcdm_rsp_t         = logic,
   /// Accelerator interface types
   parameter type         acc_req_t  = logic,
   parameter type         acc_resp_t = logic,
@@ -59,9 +67,13 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter int unsigned AluNofRss       = 3,
   parameter int unsigned LsuNofRss       = 2,
   parameter int unsigned FpuNofRss       = 4,
+  parameter int unsigned VlsuNofRss      = 6,
+  parameter int unsigned VfuNofRss       = 6,
   parameter int unsigned AluNofConstants = 4,
   parameter int unsigned LsuNofConstants = 4,
   parameter int unsigned FpuNofConstants = 4,
+  parameter int unsigned VlsuNofConstants = 4,
+  parameter int unsigned VfuNofConstants  = 4,
   parameter bit          MulInAlu0       = 1'b1,
   /// Response XBAR configuration
   // TODO(colluca): either use int or integer, but consistently
@@ -87,8 +99,24 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   parameter bit RegisterFPUIn  = 0,
   /// Register the signals directly after the FPnew instance
   parameter bit RegisterFPUOut = 0,
+
+  // VFU Parameters
+
+  parameter bit          RVV          = 1,
+  parameter int unsigned NumSpatzFPUs = 4,
+  parameter int unsigned NumSpatzIPUs = 1,
+  parameter int unsigned NofVFU       = 1,
+  parameter int unsigned NofVLSU      = 1,
+
+
+  /// Derived parameter *Do not override*
+  parameter int unsigned NumSpatzFUs         = (NumSpatzFPUs > NumSpatzIPUs) ? NumSpatzFPUs : NumSpatzIPUs,
+  parameter int unsigned NumMemPortsPerSpatz = NumSpatzFUs,
+  parameter int unsigned TCDMPorts           = RVV ? NofVLSU*NumMemPortsPerSpatz + NofLsus : NofLsus,
+
   localparam type addr_t = logic [AddrWidth-1:0],
-  localparam type data_t = logic [DataWidth-1:0]
+  localparam type data_t = logic [DataWidth-1:0],
+  localparam int unsigned VfuNumFuPorts = NofVFU + NofVLSU
 ) (
   input  logic          clk_i,
   input  logic          rst_i,
@@ -124,7 +152,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   output snitch_pkg::core_events_t core_events_o,
   /// Cluster HW barrier
   output logic barrier_o,
-  input  logic barrier_i
+  input  logic barrier_i,
+
+  // VFU TCDM Ports
+  output tcdm_req_t    [NofVLSU*NumMemPortsPerSpatz-1:0] tcdm_req_o,
+  input  tcdm_rsp_t    [NofVLSU*NumMemPortsPerSpatz-1:0] tcdm_rsp_i
 );
 
   ///////////////////////
@@ -172,12 +204,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // rd and rs_is_fp must be set to all zero to encoded that there is
     // no write back for this instruction.
     logic [RegAddrSize-1:0]       rd;
-    logic                         rd_is_fp; // set if rd is a FP register
+    logic                         rd_is_fp;  // set if rd is a FP register
+    logic                         rd_is_vec; // set if rd is a vector register (VRF)
+    logic                         use_rd_as_src; // set if rd is also a source (e.g. vfmacc.vf)
     logic [RegAddrSize-1:0]       rs1;
-    logic                         rs1_is_fp; // set if rs1 is a FP register
+    logic                         rs1_is_fp;  // set if rs1 is a FP register
+    logic                         rs1_is_vec; // set if rs1 is a vector register (VRF)
     logic                         use_rs1;
     logic [RegAddrSize-1:0]       rs2;
-    logic                         rs2_is_fp; // set if rs2 is a FP register
+    logic                         rs2_is_fp;  // set if rs2 is a FP register
+    logic                         rs2_is_vec; // set if rs2 is a vector register (VRF)
     logic                         use_rs2;
     // Imm field: for unfinished floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
     // this field holds the address of the third operand (rs3) from the floating-point regfile
@@ -229,6 +265,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     fpnew_pkg::fp_format_e fpu_fmt_src;
     fpnew_pkg::fp_format_e fpu_fmt_dst;
     fpnew_pkg::roundmode_e fpu_rnd_mode;
+    logic [XLEN-1:0]       raw_instr; //Needed for vfu
   } fu_data_t;
 
   // ---------------------------
@@ -237,6 +274,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofOperands = 3; // the 3rd operand is the address offset
   localparam integer unsigned FpuNofOperands = 3;
+  localparam integer unsigned VlsuNofOperands = 2;
+  localparam integer unsigned VfuNofOperands  = 3; // 3rd operand tracks vd-as-source for accumulate instructions
 
   // ---------------------------
   // Operand distribution network definitions
@@ -254,7 +293,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperands +
                                               NofLsus * LsuNofOperands +
-                                              NofFpus * FpuNofOperands;
+                                              NofFpus * FpuNofOperands +
+                                              (RVV ? NofVLSU * VlsuNofOperands + NofVFU * VfuNofOperands : 0);
 
   // We differentiate between result requests and result responses.
   // Each reservation station has a result request crossbar output which is shared among the slots.
@@ -264,10 +304,15 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   localparam integer unsigned AluNofResReqIfs = 1;
   localparam integer unsigned LsuNofResReqIfs = 1;
   localparam integer unsigned FpuNofResReqIfs = 1;
+  localparam integer unsigned VfuNofResReqIfs = RVV ? 1 : 0; // per VFU FU-block port
 
   localparam integer unsigned NofResReqIfs = NofAlus * AluNofResReqIfs +
                                              NofLsus * LsuNofResReqIfs +
-                                             NofFpus * FpuNofResReqIfs;
+                                             NofFpus * FpuNofResReqIfs +
+                                             VfuNumFuPorts * VfuNofResReqIfs;
+
+  localparam integer unsigned VlsuNofResRspPorts = RVV ? 1 : 0;
+  localparam integer unsigned VfuNofResRspPorts  = RVV ? 1 : 0;
 
   // The operands of multiple RSS share their operand ID per RS.
   localparam integer unsigned NofOperandIfsW = cf_math_pkg::idx_width(NofOperandIfs);
@@ -275,13 +320,27 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   typedef logic [NofOperandIfsW-1:0] operand_id_t;
 
-  // Each RS has an unique number. The slots have unique numbers within the RS.
-  // TODO(colluca): use cf_math_pkg::max
-  localparam integer unsigned MaxNofRss = (AluNofRss > LsuNofRss) ?
-                                          // AluNofRss > LsuNofRss
-                                          ((AluNofRss > FpuNofRss) ? AluNofRss : FpuNofRss)
-                                          : // AluNofRss < LsuNofRss
-                                          ((LsuNofRss > FpuNofRss) ? LsuNofRss : FpuNofRss);
+  localparam int unsigned MaxVfuNofRss = cf_math_pkg::max(VlsuNofRss, VfuNofRss);
+
+  localparam int unsigned MaxNofRss =
+    RVV
+    ? cf_math_pkg::max(
+          AluNofRss,
+          cf_math_pkg::max(
+              LsuNofRss,
+              cf_math_pkg::max(
+                  FpuNofRss,
+                  MaxVfuNofRss
+              )
+          )
+      )
+    : cf_math_pkg::max(
+          AluNofRss,
+          cf_math_pkg::max(
+              LsuNofRss,
+              FpuNofRss
+          )
+      );
 
   localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
 
@@ -416,6 +475,12 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   `FFAR(issue_fpu_q,                  issue_fpu,                  '0, clk_i, rst_i)
   `FFAR(issue_core_to_fpu_q,          issue_core_to_fpu,          '0, clk_i, rst_i)
 
+  if (RVV) begin
+    logic instr_retired_spatz,       instr_retired_spatz_q;
+    `FFAR(instr_retired_spatz_q,        instr_retired_spatz,        '0, clk_i, rst_i)
+    assign core_events_o.retired_spatz  = instr_retired_spatz_q;
+  end
+
   ///////////////////////
   // Instruction fetch //
   ///////////////////////
@@ -443,6 +508,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .Xfrep  (Xfrep),
     .RVF    (RVF),
     .RVD    (RVD),
+    .RVV    (RVV),
     .XF16   (XF16),
     .XF16ALT(XF16ALT),
     .XF8    (XF8),
@@ -471,13 +537,14 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .instr_dec_t   (instr_dec_t),
     .fu_data_t     (fu_data_t)
   ) i_read_operands (
-    .pc_i       (pc),
-    .instr_dec_i(instr_decoded),
-    .gpr_raddr_o(gpr_raddr),
-    .gpr_rdata_i(gpr_rdata),
-    .fpr_raddr_o(fpr_raddr),
-    .fpr_rdata_i(fpr_rdata),
-    .fu_data_o  (fu_data)
+    .pc_i              (pc),
+    .instr_dec_i       (instr_decoded),
+    .instr_fetch_data_i(instr_fetch_data_i), // Needed for spatz
+    .gpr_raddr_o       (gpr_raddr),
+    .gpr_rdata_i       (gpr_rdata),
+    .fpr_raddr_o       (fpr_raddr),
+    .fpr_rdata_i       (fpr_rdata),
+    .fu_data_o         (fu_data)
   );
 
   ////////////////
@@ -491,6 +558,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   logic [FrepMaxItersWidth-1:0] loop_iteration;
   logic [FrepMaxItersWidth-1:0] lep_iterations;
   logic                         all_rs_finish;
+
+  logic            vfu_result_valid;
+  logic            vfu_result_ready;
+  instr_tag_t      vfu_result_tag;
+  logic [FLEN-1:0] vfu_result;
 
   schnizo_controller #(
     .Xfrep          (Xfrep),
@@ -559,7 +631,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .gpr_we_i               (gpr_we),
     .gpr_waddr_i            (gpr_waddr),
     .fpr_we_i               (fpr_we),
-    .fpr_waddr_i            (fpr_waddr)
+    .fpr_waddr_i            (fpr_waddr),
+    // VRF Write back snooping for Scoreboard
+    .vfu_we_i               (vfu_result_valid && vfu_result_ready &&
+                              vfu_result_tag.dest_reg_is_vec),
+    .vfu_waddr_i            (vfu_result_tag.dest_reg)
 );
 
   //////////////
@@ -583,6 +659,31 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   disp_rsp_t [NofFpus-1:0] fpu_disp_rsp;
   logic      [NofFpus-1:0] fpu_rs_full;
 
+  // VFU fu_stage dispatch signals - sized for VfuNumFuPorts ports
+  // Ports [0..NofVLSU-1] feed the VLSU FU-blocks; [NofVLSU..VfuNumFuPorts-1] feed VFU FU-blocks.
+  logic      [VfuNumFuPorts-1:0] vfu_disp_req_valid;
+  logic      [VfuNumFuPorts-1:0] vfu_disp_req_ready;
+  disp_rsp_t [VfuNumFuPorts-1:0] vfu_disp_rsp;
+  logic      [VfuNumFuPorts-1:0] vfu_rs_full;
+  // Per-type arrays from dispatcher (NofVLSU / NofVFU wide)
+  logic      [NofVLSU-1:0] vlsu_disp_req_valid;
+  logic      [NofVLSU-1:0] vlsu_disp_req_ready;
+  disp_rsp_t [NofVLSU-1:0] vlsu_disp_rsp;
+  logic      [NofVLSU-1:0] vlsu_rs_full;
+  logic      [NofVFU-1:0]  vfu_arith_disp_req_valid;
+  logic      [NofVFU-1:0]  vfu_arith_disp_req_ready;
+  disp_rsp_t [NofVFU-1:0]  vfu_arith_disp_rsp;
+  logic      [NofVFU-1:0]  vfu_arith_rs_full;
+  // Wire VLSU ports to fu_stage ports [0..NofVLSU-1] and VFU to [NofVLSU..VfuNumFuPorts-1]
+  assign vfu_disp_req_valid[NofVLSU-1:0]          = vlsu_disp_req_valid;
+  assign vfu_disp_req_valid[VfuNumFuPorts-1:NofVLSU] = vfu_arith_disp_req_valid;
+  assign vlsu_disp_req_ready                       = vfu_disp_req_ready[NofVLSU-1:0];
+  assign vfu_arith_disp_req_ready                  = vfu_disp_req_ready[VfuNumFuPorts-1:NofVLSU];
+  assign vlsu_disp_rsp                             = vfu_disp_rsp[NofVLSU-1:0];
+  assign vfu_arith_disp_rsp                        = vfu_disp_rsp[VfuNumFuPorts-1:NofVLSU];
+  assign vlsu_rs_full                              = vfu_rs_full[NofVLSU-1:0];
+  assign vfu_arith_rs_full                         = vfu_rs_full[VfuNumFuPorts-1:NofVLSU];
+
   schnizo_dispatcher #(
     .RegAddrSize(RegAddrSize),
     .NofAlus    (NofAlus),
@@ -593,7 +694,9 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .disp_req_t (disp_req_t),
     .disp_rsp_t (disp_rsp_t),
     .fu_data_t  (fu_data_t),
-    .acc_req_t  (acc_req_t)
+    .acc_req_t  (acc_req_t),
+    .NofVLSU    (NofVLSU),
+    .NofVFU     (NofVFU)
   ) i_dispatcher (
     .clk_i,
     .rst_i,
@@ -623,6 +726,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_disp_req_ready_i(fpu_disp_req_ready),
     .fpu_disp_rsp_i      (fpu_disp_rsp),
     .fpu_rs_full_i       (fpu_rs_full),
+    // VLSU (vector loads/stores) - NofVLSU ports
+    .vlsu_disp_req_valid_o(vlsu_disp_req_valid),
+    .vlsu_disp_req_ready_i(vlsu_disp_req_ready),
+    .vlsu_disp_rsp_i      (vlsu_disp_rsp),
+    .vlsu_rs_full_i       (vlsu_rs_full),
+    // VFU arithmetic - NofVFU ports
+    .vfu_disp_req_valid_o (vfu_arith_disp_req_valid),
+    .vfu_disp_req_ready_i (vfu_arith_disp_req_ready),
+    .vfu_disp_rsp_i       (vfu_arith_disp_rsp),
+    .vfu_rs_full_i        (vfu_arith_rs_full),
     // Shared accelerator interface
     .acc_req_o           (acc_qreq_o),
     .acc_disp_req_valid_o(acc_qvalid_o),
@@ -658,12 +771,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
 
   // Trace signals
   // pragma translate_off
-  issue_alu_trace_t  alu_trace       [NofAlus];
-  issue_lsu_trace_t  lsu_trace       [NofLsus];
-  issue_fpu_trace_t  fpu_trace       [NofFpus];
-  retire_fu_trace_t  alu_retirements [NofAlus];
-  retire_fu_trace_t  lsu_retirements [NofLsus];
-  retire_fu_trace_t  fpu_retirements [NofFpus];
+  issue_alu_trace_t  alu_trace        [NofAlus];
+  issue_lsu_trace_t  lsu_trace        [NofLsus];
+  issue_fpu_trace_t  fpu_trace        [NofFpus];
+  issue_vfu_trace_t  vfu_trace        [NofVFU];
+  issue_vlsu_trace_t vlsu_trace       [NofVLSU];
+  retire_fu_trace_t  alu_retirements  [NofAlus];
+  retire_fu_trace_t  lsu_retirements  [NofLsus];
+  retire_fu_trace_t  fpu_retirements  [NofFpus];
+  retire_fu_trace_t  vfu_retirements  [NofVFU];
+  retire_fu_trace_t  vlsu_retirements [NofVLSU];
   // pragma translate_on
 
   schnizo_fu_stage #(
@@ -687,6 +804,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .FpuNofOperands     (FpuNofOperands),
     .FpuNofResReqIfs    (FpuNofResReqIfs),
     .FpuNofResRspPorts  (FpuNofResRspPorts),
+    .VlsuNofRss         (VlsuNofRss),
+    .VlsuNofConstants   (VlsuNofConstants),
+    .VlsuNofOperands    (VlsuNofOperands),
+    .VlsuNofResRspPorts (VlsuNofResRspPorts),
+    .VfuNofRss          (VfuNofRss),
+    .VfuNofConstants    (VfuNofConstants),
+    .VfuNofOperands     (VfuNofOperands),
+    .VfuNofResRspPorts  (VfuNofResRspPorts),
+    .NofVFU             (NofVFU),
+    .NofVLSU            (NofVLSU),
     .NofOperandIfs      (NofOperandIfs),
     .NofResReqIfs       (NofResReqIfs),
     .XLEN               (XLEN),
@@ -703,6 +830,7 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .FPUImplementation  (FPUImplementation),
     .RVF                (RVF),
     .RVD                (RVD),
+    .RVV                (RVV),
     .XF16               (XF16),
     .XF16ALT            (XF16ALT),
     .XF8                (XF8),
@@ -716,12 +844,18 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .operand_id_t       (operand_id_t),
     .disp_req_t         (disp_req_t),
     .disp_rsp_t         (disp_rsp_t),
+    .tcdm_req_chan_t    (tcdm_req_chan_t),
+    .tcdm_rsp_chan_t    (tcdm_rsp_chan_t),
+    .tcdm_req_t         (tcdm_req_t),
+    .tcdm_rsp_t         (tcdm_rsp_t),
     .fu_data_t          (fu_data_t),
     .instr_tag_t        (instr_tag_t),
     .alu_result_t       (alu_result_t),
     .alu_res_val_t      (alu_res_val_t),
     .dreq_t             (dreq_t),
-    .drsp_t             (drsp_t)
+    .drsp_t             (drsp_t),
+    .NumSpatzFPUs       (NumSpatzFPUs),
+    .NumSpatzIPUs       (NumSpatzIPUs)
   ) i_fu_stage (
     .clk_i,
     .rst_i,
@@ -741,9 +875,13 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .alu_trace_o          (alu_trace),
     .lsu_trace_o          (lsu_trace),
     .fpu_trace_o          (fpu_trace),
+    .vfu_trace_o          (vfu_trace),
+    .vlsu_trace_o         (vlsu_trace),
     .alu_retire_trace_o   (alu_retirements),
     .lsu_retire_trace_o   (lsu_retirements),
     .fpu_retire_trace_o   (fpu_retirements),
+    .vfu_retire_trace_o   (vfu_retirements),
+    .vlsu_retire_trace_o  (vlsu_retirements),
     // pragma translate_on
     // ALU
     .alu_disp_reqs_valid_i(alu_disp_req_valid),
@@ -772,6 +910,14 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_rs_full_o        (fpu_rs_full),
     .fpu_status_o         (fpu_status),
     .fpu_status_valid_o   (fpu_status_valid),
+
+    // VFU
+    .vfu_disp_reqs_valid_i(vfu_disp_req_valid),
+    .vfu_disp_reqs_ready_o(vfu_disp_req_ready),
+    .vfu_disp_rsp_o       (vfu_disp_rsp),
+    .vfu_loop_finish_o    (),
+    .vfu_rs_full_o        (vfu_rs_full),
+
     // ALU WB
     .alu_wb_result_o      (alu_result),
     .alu_wb_result_tag_o  (alu_result_tag),
@@ -787,7 +933,16 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_wb_result_o      (fpu_result),
     .fpu_wb_result_tag_o  (fpu_result_tag),
     .fpu_wb_result_valid_o(fpu_result_valid),
-    .fpu_wb_result_ready_i(fpu_result_ready)
+    .fpu_wb_result_ready_i(fpu_result_ready),
+    // VFU WB
+    .vfu_wb_result_o      (vfu_result),
+    .vfu_wb_result_tag_o  (vfu_result_tag),
+    .vfu_wb_result_valid_o(vfu_result_valid),
+    .vfu_wb_result_ready_i(vfu_result_ready),
+
+    // VFU TCDM interface
+    .vfu_tcdm_req_o       (tcdm_req_o),
+    .vfu_tcdm_rsp_i       (tcdm_rsp_i)
   );
 
   // CSR FU & register file
@@ -907,6 +1062,11 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     .fpu_result_tag_i  (fpu_result_tag),
     .fpu_result_valid_i(fpu_result_valid),
     .fpu_result_ready_o(fpu_result_ready),
+    // VFU WB interface
+    .spatz_result_i      (vfu_result),
+    .spatz_result_tag_i  (vfu_result_tag),
+    .spatz_result_valid_i(vfu_result_valid),
+    .spatz_result_ready_o(vfu_result_ready),
     // Accelerator interface
     .acc_result_i      (acc_result),
     .acc_result_tag_i  (acc_result_tag),
@@ -922,7 +1082,8 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     // Core events signals
     .retired_single_cycle_o(instr_retired_single_cycle),
     .retired_load_o        (instr_retired_load),
-    .retired_acc_o         (instr_retired_acc)
+    .retired_acc_o         (instr_retired_acc),
+    .retired_spatz_o       (instr_retired_spatz)
   );
 
   /////////////////
@@ -1014,33 +1175,42 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   int unsigned             dispatch_rs_id;
 
   // Traces for regular execution
-  issue_csr_trace_t csr_trace;
-  issue_acc_trace_t acc_trace;
+  issue_csr_trace_t  csr_trace;
+  issue_acc_trace_t  acc_trace;
 
   // Traces for RSS issues
-  issue_alu_trace_t rss_alu_traces [NofAlus][AluNofRss];
+  issue_alu_trace_t  rss_alu_traces  [NofAlus][AluNofRss];
   // TODO(colluca): probably we should remove the traces altogether in if LSU has no Xfrep (i.e. NofRss==0)
-  issue_lsu_trace_t rss_lsu_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
-  issue_fpu_trace_t rss_fpu_traces [NofFpus][FpuNofRss];
+  issue_lsu_trace_t  rss_lsu_traces  [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
+  issue_fpu_trace_t  rss_fpu_traces  [NofFpus][FpuNofRss];
+  issue_vfu_trace_t  rss_vfu_traces  [NofVFU][cf_math_pkg::max(VfuNofRss,1)];
+  issue_vlsu_trace_t rss_vlsu_traces [NofVLSU][cf_math_pkg::max(VlsuNofRss,1)];
 
   // Traces for retirements
   retire_fu_trace_t csr_retirement;
   retire_fu_trace_t acc_retirement;
+
   // Traces for writeback (regular and RSS)
   wb_fu_trace_t alu_wb_trace;
   wb_fu_trace_t lsu_wb_trace;
   wb_fu_trace_t fpu_wb_trace;
+  wb_fu_trace_t vfu_wb_trace;
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
+
   // Traces for result requests (each response port has one signal per request crossbar output)
-  resreq_trace_t alu_resreq_traces [NofAlus][AluNofResRspPorts][NofOperandIfs];
-  resreq_trace_t lsu_resreq_traces [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
-  resreq_trace_t fpu_resreq_traces [NofFpus][FpuNofResRspPorts][NofOperandIfs];
+  resreq_trace_t alu_resreq_traces  [NofAlus][AluNofRss][NofOperandIfs];
+  resreq_trace_t lsu_resreq_traces  [NofLsus][cf_math_pkg::max(LsuNofResRspPorts,1)][NofOperandIfs];
+  resreq_trace_t fpu_resreq_traces  [NofFpus][FpuNofRss][NofOperandIfs];
+  resreq_trace_t vfu_resreq_traces  [NofVFU][cf_math_pkg::max(VfuNofRss,1)][NofOperandIfs];
+  resreq_trace_t vlsu_resreq_traces [NofVLSU][cf_math_pkg::max(VlsuNofResRspPorts,1)][NofOperandIfs];
 
   // Traces for result captures (each RSS has one signal)
-  rescap_trace_t alu_rescap_traces [NofAlus][AluNofRss];
-  rescap_trace_t lsu_rescap_traces [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
-  rescap_trace_t fpu_rescap_traces [NofFpus][FpuNofRss];
+  rescap_trace_t alu_rescap_traces  [NofAlus][AluNofRss];
+  rescap_trace_t lsu_rescap_traces  [NofLsus][cf_math_pkg::max(LsuNofRss,1)];
+  rescap_trace_t fpu_rescap_traces  [NofFpus][FpuNofRss];
+  rescap_trace_t vfu_rescap_traces  [NofVFU][cf_math_pkg::max(VfuNofRss,1)];
+  rescap_trace_t vlsu_rescap_traces [NofVLSU][cf_math_pkg::max(VlsuNofRss,1)];
 
   assign core_trace = '{
     priv_level: priv_lvl,
@@ -1264,6 +1434,123 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     end
   end
 
+  // VFU arith RSS traces
+  if (RVV) begin : gen_rvv_traces
+    for (genvar vfu = 0; vfu < NofVFU; vfu++) begin : gen_vfu_traces
+      for (genvar rss = 0; rss < VfuNofRss; rss++) begin : gen_vfu_traces_rss
+        // verilog_lint: waive-start line-length
+        if (Xfrep) begin : gen_vfu_traces_rss_trace
+          assign rss_vfu_traces[vfu][rss] = '{
+            valid:      i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+                        i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+                        (i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
+            instr_iter: i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
+            producer:   i_fu_stage.producer_to_string(
+                          i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+            vfu_opa:    i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
+            vfu_opb:    i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b
+          };
+          assign vfu_rescap_traces[vfu][rss] = '{
+            valid:       i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
+                         i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
+                         !i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
+                         (i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
+            producer:    i_fu_stage.producer_to_string(
+                           i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+            result_iter: i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
+            rd:          i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
+            rd_is_fp:    i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
+            result:      i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
+          };
+        end else begin : gen_vfu_traces_rss_no_trace
+          assign rss_vfu_traces[vfu][rss]    = '{default: '0};
+          assign vfu_rescap_traces[vfu][rss] = '{default: '0};
+        end
+        // verilog_lint: waive-stop line-length
+      end
+      // Resreq traces: one per response port
+      for (genvar port = 0; port < VfuNofResRspPorts; port++) begin : gen_vfu_traces_rsp_ports
+        // verilog_lint: waive-start line-length
+        for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_vfu_traces_rsp_port_resreq
+          if (Xfrep) begin : gen_vfu_traces_rsp_port_resreq_frep
+            assign vfu_resreq_traces[vfu][port][con] = '{
+              valid:          i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+                              i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+                              i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
+              producer:       i_fu_stage.producer_to_string(
+                                i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+                                  i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
+              consumer:       i_fu_stage.consumer_to_string(con),
+              requested_iter: i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.available_results_o[
+                                i_fu_stage.gen_rvv_block.gen_vfu_arith_blocks[vfu].i_vfu_arith_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
+            };
+          end else begin : gen_vfu_traces_rsp_port_no_resreq
+            assign vfu_resreq_traces[vfu][port][con] = '{default: '0};
+          end
+        end
+        // verilog_lint: waive-stop line-length
+      end
+    end
+
+    // VLSU RSS traces
+    for (genvar vlsu = 0; vlsu < NofVLSU; vlsu++) begin : gen_vlsu_traces
+      for (genvar rss = 0; rss < VlsuNofRss; rss++) begin : gen_vlsu_traces_rss
+        // verilog_lint: waive-start line-length
+        if (Xfrep) begin : gen_vlsu_traces_rss_trace
+          assign rss_vlsu_traces[vlsu][rss] = '{
+            valid:         i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_valid_o &&
+                           i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_ready_i &&
+                           (i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_idx_i == rss),
+            instr_iter:    i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_issue_rdata.instruction_iter,
+            producer:      i_fu_stage.producer_to_string(
+                             i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+            vlsu_is_store: longint'(!i_fu_stage.gen_rvv_block.i_schnizo_vfu.vlsu_spatz_req[vlsu].op_mem.is_load),
+            vlsu_opa:      i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_a,
+            vlsu_opb:      i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.issue_req_raw.fu_data.operand_b
+          };
+          assign vlsu_rescap_traces[vlsu][rss] = '{
+            valid:       i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_valid_i &&
+                         i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_ready_o &&
+                         !i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.no_dest &&
+                         (i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.result_rss_sel == rss),
+            producer:    i_fu_stage.producer_to_string(
+                           i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[rss]),
+            result_iter: i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.iteration,
+            rd:          i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_id,
+            rd_is_fp:    i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.dest_is_fp,
+            result:      i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.slot_wb_capture.result.value
+          };
+        end else begin : gen_vlsu_traces_rss_no_trace
+          assign rss_vlsu_traces[vlsu][rss]    = '{default: '0};
+          assign vlsu_rescap_traces[vlsu][rss] = '{default: '0};
+        end
+        // verilog_lint: waive-stop line-length
+      end
+      // Resreq traces: one per response port
+      for (genvar port = 0; port < VlsuNofResRspPorts; port++) begin : gen_vlsu_traces_rsp_ports
+        // verilog_lint: waive-start line-length
+        for (genvar con = 0; con < NofOperandIfs; con++) begin : gen_vlsu_traces_rsp_port_resreq
+          if (Xfrep) begin : gen_vlsu_traces_rsp_port_resreq_frep
+            assign vlsu_resreq_traces[vlsu][port][con] = '{
+              valid:          i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.res_reqs_valid_i[port] &&
+                              i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.res_reqs_ready_o[port] &&
+                              i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.res_reqs_i[port].dest_mask[con],
+              producer:       i_fu_stage.producer_to_string(
+                                i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.i_res_stat_slots.rss_ids[
+                                  i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id]),
+              consumer:       i_fu_stage.consumer_to_string(con),
+              requested_iter: i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.available_results_o[
+                                i_fu_stage.gen_rvv_block.gen_vlsu_blocks[vlsu].i_vlsu_block.gen_superscalar.i_res_stat.res_reqs_i[port].slot_id].iteration
+            };
+          end else begin : gen_vlsu_traces_rsp_port_no_resreq
+            assign vlsu_resreq_traces[vlsu][port][con] = '{default: '0};
+          end
+        end
+        // verilog_lint: waive-stop line-length
+      end
+    end
+  end
+
   assign csr_trace = '{
     valid:          csr_disp_req_valid && csr_disp_req_ready,
     producer:       "CSR",
@@ -1330,49 +1617,74 @@ module schnizo import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
     fu_rd_is_fp: acc_result_tag.dest_reg_is_fp
   };
 
+  assign vfu_wb_trace = '{
+    valid:       vfu_result_valid && vfu_result_ready,
+    fu_result:   vfu_result,
+    fu_rd:       vfu_result_tag.dest_reg,
+    fu_rd_is_fp: vfu_result_tag.dest_reg_is_fp
+  };
+
   schnizo_tracer #(
     .NofAlus              (NofAlus),
     .NofLsus              (NofLsus),
     .NofFpus              (NofFpus),
+    .NofVfus              (NofVFU),
+    .NofVlsus             (NofVLSU),
     .AluNofRss            (AluNofRss),
     .LsuNofRss            (LsuNofRss),
     .FpuNofRss            (FpuNofRss),
+    .VfuNofRss            (VfuNofRss),
+    .VlsuNofRss           (VlsuNofRss),
     .AluNofResRspPorts    (AluNofResRspPorts),
     .LsuNofResRspPorts    (LsuNofResRspPorts),
     .FpuNofResRspPorts    (FpuNofResRspPorts),
+    .VfuNofResRspPorts    (VfuNofResRspPorts),
+    .VlsuNofResRspPorts   (VlsuNofResRspPorts),
     .NofOperandIfs        (NofOperandIfs),
-    .Xfrep                (Xfrep)
+    .Xfrep                (Xfrep),
+    .RVV                  (RVV)
   ) i_tracer (
-    .clk_i              (clk_i),
-    .rst_i              (rst_i),
-    .hart_id_i          (hart_id_i),
-    .dispatch_rs_id     (dispatch_rs_id),
-    .core_trace         (core_trace),
-    .dispatch_trace     (dispatch_trace),
-    .alu_trace          (alu_trace),
-    .lsu_trace          (lsu_trace),
-    .fpu_trace          (fpu_trace),
-    .rss_alu_traces     (rss_alu_traces),
-    .rss_lsu_traces     (rss_lsu_traces),
-    .rss_fpu_traces     (rss_fpu_traces),
-    .csr_trace          (csr_trace),
-    .acc_trace          (acc_trace),
-    .alu_retirements    (alu_retirements),
-    .lsu_retirements    (lsu_retirements),
-    .fpu_retirements    (fpu_retirements),
-    .csr_retirement     (csr_retirement),
-    .acc_retirement     (acc_retirement),
-    .alu_wb_trace       (alu_wb_trace),
-    .lsu_wb_trace       (lsu_wb_trace),
-    .fpu_wb_trace       (fpu_wb_trace),
-    .csr_wb_trace       (csr_wb_trace),
-    .acc_wb_trace       (acc_wb_trace),
-    .alu_resreq_traces  (alu_resreq_traces),
-    .lsu_resreq_traces  (lsu_resreq_traces),
-    .fpu_resreq_traces  (fpu_resreq_traces),
-    .alu_rescap_traces  (alu_rescap_traces),
-    .lsu_rescap_traces  (lsu_rescap_traces),
-    .fpu_rescap_traces  (fpu_rescap_traces)
+    .clk_i               (clk_i),
+    .rst_i               (rst_i),
+    .hart_id_i           (hart_id_i),
+    .dispatch_rs_id      (dispatch_rs_id),
+    .core_trace          (core_trace),
+    .dispatch_trace      (dispatch_trace),
+    .alu_trace           (alu_trace),
+    .lsu_trace           (lsu_trace),
+    .fpu_trace           (fpu_trace),
+    .vfu_trace           (vfu_trace),
+    .vlsu_trace          (vlsu_trace),
+    .rss_alu_traces      (rss_alu_traces),
+    .rss_lsu_traces      (rss_lsu_traces),
+    .rss_fpu_traces      (rss_fpu_traces),
+    .rss_vfu_traces      (rss_vfu_traces),
+    .rss_vlsu_traces     (rss_vlsu_traces),
+    .csr_trace           (csr_trace),
+    .acc_trace           (acc_trace),
+    .alu_retirements     (alu_retirements),
+    .lsu_retirements     (lsu_retirements),
+    .fpu_retirements     (fpu_retirements),
+    .vfu_retirements     (vfu_retirements),
+    .vlsu_retirements    (vlsu_retirements),
+    .csr_retirement      (csr_retirement),
+    .acc_retirement      (acc_retirement),
+    .alu_wb_trace        (alu_wb_trace),
+    .lsu_wb_trace        (lsu_wb_trace),
+    .fpu_wb_trace        (fpu_wb_trace),
+    .vfu_wb_trace        (vfu_wb_trace),
+    .csr_wb_trace        (csr_wb_trace),
+    .acc_wb_trace        (acc_wb_trace),
+    .alu_resreq_traces   (alu_resreq_traces),
+    .lsu_resreq_traces   (lsu_resreq_traces),
+    .fpu_resreq_traces   (fpu_resreq_traces),
+    .vfu_resreq_traces   (vfu_resreq_traces),
+    .vlsu_resreq_traces  (vlsu_resreq_traces),
+    .alu_rescap_traces   (alu_rescap_traces),
+    .lsu_rescap_traces   (lsu_rescap_traces),
+    .fpu_rescap_traces   (fpu_rescap_traces),
+    .vfu_rescap_traces   (vfu_rescap_traces),
+    .vlsu_rescap_traces  (vlsu_rescap_traces)
   );
 
   // pragma translate_on

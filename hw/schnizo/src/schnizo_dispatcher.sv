@@ -11,7 +11,8 @@
 // dispatch requests to the different functional units. It selects the FU type based on the
 // decoded instruction. If more than one FU of the same type is available, it further selects the
 // specific FU of that type to dispatch the instruction to.
-// It itself instantiates the RMT and updates it based on the dispatch information.
+// It itself instantiates the RMT and updates it based on the dispatch and write back information.
+
 module schnizo_dispatcher import schnizo_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          EnableFrep  = 1,
@@ -20,6 +21,8 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   parameter int unsigned NofAlus     = 1,
   parameter int unsigned NofLsus     = 1,
   parameter int unsigned NofFpus     = 1,
+  parameter int unsigned NofVLSU     = 1,
+  parameter int unsigned NofVFU      = 1,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
   parameter type         disp_req_t  = logic,
@@ -77,13 +80,31 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // Memory consistency mode during FREP loop
   input frep_mem_cons_mode_e frep_mem_cons_mode_i,
   // Asserted if the currently selected FU for the instruction does not have an empty RSS.
-  output logic        rs_full_o
+  output logic        rs_full_o,
+
+  // Vector load/store units (VLSU)
+  output logic      [NofVLSU-1:0] vlsu_disp_req_valid_o,
+  input  logic      [NofVLSU-1:0] vlsu_disp_req_ready_i,
+  input  disp_rsp_t [NofVLSU-1:0] vlsu_disp_rsp_i,
+  input  logic      [NofVLSU-1:0] vlsu_rs_full_i,
+  // Vector arithmetic units (VFU)
+  output logic      [NofVFU-1:0] vfu_disp_req_valid_o,
+  input  logic      [NofVFU-1:0] vfu_disp_req_ready_i,
+  input  disp_rsp_t [NofVFU-1:0] vfu_disp_rsp_i,
+  input  logic      [NofVFU-1:0] vfu_rs_full_i
 );
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
+  localparam int unsigned NofVlsuW = cf_math_pkg::idx_width(NofVLSU);
+  localparam int unsigned NofVfuW  = cf_math_pkg::idx_width(NofVFU);
 
-  // Two RMT for the integer (rmti) and floating point (rmtf) register files.
+  // Two RMTs: integer (rmti) and floating-point (rmtf). There is intentionally no
+  // vector RMT: in frep, vector RAW/WAR/WAW is handled entirely by the VRF
+  // reference-counting (read-stall + write-block in spatz_vrf). Tracking vector
+  // producers here would make the RS additionally wait for the producer's result
+  // before issuing the consumer, serialising the loop body and defeating the
+  // pipelined VLSU hand-off.
   rmt_entry_t [2**RegAddrSize-1:0] rmti_d, rmti_q, rmtf_d, rmtf_q;
 
   ////////////////////////
@@ -99,8 +120,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   };
 
   rmt_entry_t current_dest_entry;
-  assign current_dest_entry = instr_dec_i.rd_is_fp ? rmtf_q[instr_dec_i.rd] :
-                                                     rmti_q[instr_dec_i.rd];
+  assign current_dest_entry = instr_dec_i.rd_is_vec ? no_mapping :
+                              instr_dec_i.rd_is_fp  ? rmtf_q[instr_dec_i.rd] :
+                                                      rmti_q[instr_dec_i.rd];
 
   always_comb begin : dispatch_generation
     disp_req_o = '0;
@@ -108,18 +130,28 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
 
     // Producer fields are only used if FREP is enabled
     if (EnableFrep) begin
-      // Operand A
-      disp_req_o.producer_op_a = instr_dec_i.rs1_is_fp ? rmtf_q[instr_dec_i.rs1] :
-                                                         rmti_q[instr_dec_i.rs1];
+      // Operand A. Vector operands carry no producer (no_mapping) - the VRF
+      // reference-counting orders them - so only scalar (GPR/FPR) producers are tracked.
+      disp_req_o.producer_op_a = instr_dec_i.rs1_is_vec ? no_mapping :
+                                 instr_dec_i.rs1_is_fp  ? rmtf_q[instr_dec_i.rs1] :
+                                                          rmti_q[instr_dec_i.rs1];
 
       // Operand B
-      disp_req_o.producer_op_b = instr_dec_i.rs2_is_fp ? rmtf_q[instr_dec_i.rs2] :
-                                                         rmti_q[instr_dec_i.rs2];
+      disp_req_o.producer_op_b = instr_dec_i.rs2_is_vec ? no_mapping :
+                                 instr_dec_i.rs2_is_fp  ? rmtf_q[instr_dec_i.rs2] :
+                                                          rmti_q[instr_dec_i.rs2];
 
-      // Operand C
-      disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
-                                 rmtf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
-                                 no_mapping;
+      // Operand C: FPU fused rs3, or accumulate instruction with vd as source.
+      if (instr_dec_i.use_rd_as_src) begin
+        disp_req_o.producer_op_c = instr_dec_i.rd_is_vec ? no_mapping :
+                                   instr_dec_i.rd_is_fp  ? rmtf_q[instr_dec_i.rd] :
+                                                           rmti_q[instr_dec_i.rd];
+        disp_req_o.fu_data.use_imm = 1'b1;
+      end else begin
+        disp_req_o.producer_op_c = instr_dec_i.use_imm_as_rs3 ?
+                                   rmtf_q[instr_dec_i.imm[RegAddrSize-1:0]] :
+                                   no_mapping;
+      end
 
       // current destination producer
       // TODO(colluca): the comment correctly calls it "current destination producer".
@@ -133,10 +165,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     end
 
     // generate the tag
-    disp_req_o.tag.dest_reg       = instr_dec_i.rd;
-    disp_req_o.tag.dest_reg_is_fp = instr_dec_i.rd_is_fp;
-    disp_req_o.tag.is_branch      = instr_dec_i.is_branch;
-    disp_req_o.tag.is_jump        = instr_dec_i.is_jal | instr_dec_i.is_jalr;
+    disp_req_o.tag.dest_reg        = instr_dec_i.rd;
+    disp_req_o.tag.dest_reg_is_fp  = instr_dec_i.rd_is_fp;
+    disp_req_o.tag.dest_reg_is_vec = instr_dec_i.rd_is_vec;
+    disp_req_o.tag.is_branch       = instr_dec_i.is_branch;
+    disp_req_o.tag.is_jump         = instr_dec_i.is_jal | instr_dec_i.is_jalr;
   end
 
   //////////////////
@@ -160,6 +193,10 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   logic [NofLsusW-1:0] lsu_idx_raw;
   logic [NofFpusW-1:0] fpu_idx;
   logic [NofFpusW-1:0] fpu_idx_raw;
+  logic [NofVlsuW-1:0] vlsu_idx;
+  logic [NofVlsuW-1:0] vlsu_idx_raw;
+  logic [NofVfuW-1:0]  vfu_idx;
+  logic [NofVfuW-1:0]  vfu_idx_raw;
 
   // Demux the dispatch request to the selected FU.
   // This FU selection must occur always independently of the validity of the instruction and it
@@ -170,7 +207,9 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     lsu_disp_req_valid_o = '0;
     csr_disp_req_valid_o = 1'b0;
     fpu_disp_req_valid_o = '0;
-    acc_disp_req_valid_o = 1'b0;
+    acc_disp_req_valid_o  = 1'b0;
+    vlsu_disp_req_valid_o = 1'b0;
+    vfu_disp_req_valid_o  = 1'b0;
 
     acc_req_o         = '0;
     acc_req_o.id      = instr_dec_i.rd; // TODO: currently only GPR address supported
@@ -210,6 +249,8 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         acc_req_o.data_argb    = instr_fu_data_i.operand_b;
         acc_req_o.data_argc    = '0; // unused for DMA
       end
+      schnizo_pkg::VLSU: vlsu_disp_req_valid_o[vlsu_idx] = dispatch_valid_i;
+      schnizo_pkg::VFU:  vfu_disp_req_valid_o[vfu_idx]   = dispatch_valid_i;
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing.
       end
@@ -267,6 +308,16 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         // no dispatch response
         fu_ready = acc_disp_req_ready_i;
       end
+      schnizo_pkg::VLSU: begin
+        fu_response = vlsu_disp_rsp_i[vlsu_idx];
+        fu_ready    = vlsu_disp_req_ready_i[vlsu_idx];
+        fu_rs_full  = vlsu_rs_full_i[vlsu_idx];
+      end
+      schnizo_pkg::VFU: begin
+        fu_response = vfu_disp_rsp_i[vfu_idx];
+        fu_ready    = vfu_disp_req_ready_i[vfu_idx];
+        fu_rs_full  = vfu_rs_full_i[vfu_idx];
+      end
       schnizo_pkg::NONE: begin
         // No FU selected, do nothing. Signal ready to controller.
         // But we must stall if there is an ongoing FREP loop.
@@ -301,46 +352,62 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     logic alu_idx_inc;
     logic lsu_idx_inc;
     logic fpu_idx_inc;
+    logic vlsu_idx_inc;
+    logic vfu_idx_inc;
     logic alu_idx_reset;
     logic lsu_idx_reset;
     logic fpu_idx_reset;
+    logic vlsu_idx_reset;
+    logic vfu_idx_reset;
 
     // Only select the counters during FREP. Without this the first instruction after LEP would be
     // executed on the "next" FU instead of the zero-th.
-    assign alu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? alu_idx_raw : '0;
-    assign lsu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? lsu_idx_raw : '0;
-    assign fpu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? fpu_idx_raw : '0;
+    assign alu_idx  = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? alu_idx_raw  : '0;
+    assign lsu_idx  = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? lsu_idx_raw  : '0;
+    assign fpu_idx  = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? fpu_idx_raw  : '0;
+    assign vlsu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? vlsu_idx_raw : '0;
+    assign vfu_idx  = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? vfu_idx_raw  : '0;
 
     // Reset at wrap around at dispatch or when switching to LCP2 or when restarting LxP
-    assign alu_idx_reset = ((alu_idx_raw == ((NofAlus[NofAlusW-1:0])-1)) && alu_idx_inc)
-                          || goto_lcp2_i || restart_i;
-    assign lsu_idx_reset = ((lsu_idx_raw == ((NofLsus[NofLsusW-1:0])-1)) && lsu_idx_inc)
-                          || goto_lcp2_i || restart_i;
-    assign fpu_idx_reset = ((fpu_idx_raw == ((NofFpus[NofFpusW-1:0])-1)) && fpu_idx_inc)
-                          || goto_lcp2_i || restart_i;
+    assign alu_idx_reset  = ((alu_idx_raw  == ((NofAlus[NofAlusW-1:0])-1)) && alu_idx_inc)
+                           || goto_lcp2_i || restart_i;
+    assign lsu_idx_reset  = ((lsu_idx_raw  == ((NofLsus[NofLsusW-1:0])-1)) && lsu_idx_inc)
+                           || goto_lcp2_i || restart_i;
+    assign fpu_idx_reset  = ((fpu_idx_raw  == ((NofFpus[NofFpusW-1:0])-1)) && fpu_idx_inc)
+                           || goto_lcp2_i || restart_i;
+    assign vlsu_idx_reset = ((vlsu_idx_raw == ((NofVLSU[NofVlsuW-1:0])-1)) && vlsu_idx_inc)
+                           || goto_lcp2_i || restart_i;
+    assign vfu_idx_reset  = ((vfu_idx_raw  == ((NofVFU[NofVfuW-1:0])-1))   && vfu_idx_inc)
+                           || goto_lcp2_i || restart_i;
 
     always_comb begin : dispatch_fu_selection
-      alu_idx_inc = 1'b0;
-      lsu_idx_inc = 1'b0;
-      fpu_idx_inc = 1'b0;
+      alu_idx_inc  = 1'b0;
+      lsu_idx_inc  = 1'b0;
+      fpu_idx_inc  = 1'b0;
+      vlsu_idx_inc = 1'b0;
+      vfu_idx_inc  = 1'b0;
 
       unique case (loop_state_i)
         LoopRegular,
         LoopHwLoop: begin
-          alu_idx_inc = 1'b0;
-          lsu_idx_inc = 1'b0;
-          fpu_idx_inc = 1'b0;
+          alu_idx_inc  = 1'b0;
+          lsu_idx_inc  = 1'b0;
+          fpu_idx_inc  = 1'b0;
+          vlsu_idx_inc = 1'b0;
+          vfu_idx_inc  = 1'b0;
         end
         LoopLcp1,
         LoopLcp2: begin
           // Increment the counter if we dispatched into the FU during LCP
-          alu_idx_inc = |(alu_disp_req_valid_o & alu_disp_req_ready_i);
-          lsu_idx_inc = |(lsu_disp_req_valid_o & lsu_disp_req_ready_i);
+          alu_idx_inc  = |(alu_disp_req_valid_o  & alu_disp_req_ready_i);
+          lsu_idx_inc  = |(lsu_disp_req_valid_o  & lsu_disp_req_ready_i);
           // Do not increment index if we want serialized memory accesses
           if (frep_mem_cons_mode_i inside {FrepMemSerialized}) begin
             lsu_idx_inc = 1'b0;
           end
-          fpu_idx_inc = |(fpu_disp_req_valid_o & fpu_disp_req_ready_i);
+          fpu_idx_inc  = |(fpu_disp_req_valid_o  & fpu_disp_req_ready_i);
+          vlsu_idx_inc = |(vlsu_disp_req_valid_o & vlsu_disp_req_ready_i);
+          vfu_idx_inc  = |(vfu_disp_req_valid_o  & vfu_disp_req_ready_i);
         end
         LoopLep: ; // do nothing
         default: ; // do nothing
@@ -391,14 +458,49 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       .q_o       (fpu_idx_raw),
       .overflow_o()
     );
+
+    counter #(
+      .WIDTH          (NofVlsuW),
+      .STICKY_OVERFLOW(0)
+    ) i_vlsu_idx_counter (
+      .clk_i,
+      .rst_ni    (~rst_i),
+      .clear_i   (vlsu_idx_reset),
+      .en_i      (vlsu_idx_inc),
+      .load_i    ('0),
+      .down_i    ('0),
+      .d_i       ('0),
+      .q_o       (vlsu_idx_raw),
+      .overflow_o()
+    );
+
+    counter #(
+      .WIDTH          (NofVfuW),
+      .STICKY_OVERFLOW(0)
+    ) i_vfu_idx_counter (
+      .clk_i,
+      .rst_ni    (~rst_i),
+      .clear_i   (vfu_idx_reset),
+      .en_i      (vfu_idx_inc),
+      .load_i    ('0),
+      .down_i    ('0),
+      .d_i       ('0),
+      .q_o       (vfu_idx_raw),
+      .overflow_o()
+    );
+
   end else begin : gen_fix_fu_sel
     // Always take the first FU
-    assign alu_idx     = '0;
-    assign lsu_idx     = '0;
-    assign fpu_idx     = '0;
-    assign alu_idx_raw = '0;
-    assign lsu_idx_raw = '0;
-    assign fpu_idx_raw = '0;
+    assign alu_idx      = '0;
+    assign lsu_idx      = '0;
+    assign fpu_idx      = '0;
+    assign vlsu_idx     = '0;
+    assign vfu_idx      = '0;
+    assign alu_idx_raw  = '0;
+    assign lsu_idx_raw  = '0;
+    assign fpu_idx_raw  = '0;
+    assign vlsu_idx_raw = '0;
+    assign vfu_idx_raw  = '0;
   end
 
   //////////////////////////////////
@@ -437,11 +539,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           rmtf_d = '0;
         end
         LoopLcp1: begin
-          // Always create or update the mapping at dispatch
+          // Always create or update the mapping at dispatch (scalar regs only;
+          // vector deps are handled by the VRF reference-counting).
           if (dispatched) begin
             if (instr_dec_i.rd_is_fp) begin
               rmtf_d[instr_dec_i.rd] = new_entry;
-            end else begin
+            end else if (!instr_dec_i.rd_is_vec) begin
               rmti_d[instr_dec_i.rd] = new_entry;
             end
           end
@@ -454,7 +557,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           if (dispatched && !current_dest_entry.valid) begin
             if (instr_dec_i.rd_is_fp) begin
               rmtf_d[instr_dec_i.rd] = new_entry;
-            end else begin
+            end else if (!instr_dec_i.rd_is_vec) begin
               rmti_d[instr_dec_i.rd] = new_entry;
             end
           end

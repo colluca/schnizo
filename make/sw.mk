@@ -105,6 +105,8 @@ SN_APPS += $(SN_ROOT)/sw/kernels/blas/sz_axpy
 SN_APPS += $(SN_ROOT)/sw/kernels/blas/sz_gemm
 SN_APPS += $(SN_ROOT)/sw/kernels/blas/sz_dot
 SN_APPS += $(SN_ROOT)/sw/kernels/misc/sz_exp
+SN_APPS += $(SN_ROOT)/sw/kernels/blas/vfu_gemm
+SN_APPS += $(SN_ROOT)/sw/kernels/blas/vfu_axpy
 # TODO(colluca): not compiling yet, as of Pascal's work
 # SN_APPS += $(SN_ROOT)/sw/kernels/misc/sz_log
 endif
