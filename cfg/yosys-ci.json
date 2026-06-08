@@ -96,7 +96,7 @@
     ],
     // Templates.
     compute_core_template: {
-        isa: "rv32imafd",
+        isa: "rv32imafdv",
         xfrep: true, // enables the superscalar feature
         xdma: false,
         xf16: false,
@@ -118,10 +118,10 @@
         num_vlsus: 1,
         num_spatz_fpus: 4,
         num_spatz_ipus: 1,
-        num_vfu_slots: 6,
-        num_vfu_constants: 4,
-        num_vlsu_slots: 6,
-        num_vlsu_constants: 4,
+        num_vfu_slots: 3,
+        num_vfu_constants: 3,
+        num_vlsu_slots: 1,
+        num_vlsu_constants: 1,
     },
     dma_core_template: {
         isa: "rv32imafd",

@@ -500,6 +500,9 @@ module schnizo_vfu import schnizo_pkg::*, schnizo_tracer_pkg::*, spatz_pkg::*; i
       .vrf_we_o                (vrf_we   [WD]                      ),
       .vrf_wbe_o               (vrf_wbe  [WD]                      ),
       .vrf_wvalid_i            (vrf_wvalid[WD]                     ),
+      // Pipelined load->load hand-off gate: high when the RS consumes a load
+      // result this cycle (same condition as the FIFO pop / result bypass).
+      .load_done_ready_i       (result_ready_i[j] && (vlsu_result_valid_q || vlsu_rsp_is_load)),
       // VRF read ports [vs2=RD_BASE, vd=RD_BASE+1]
       .vrf_id_o                (/* unused without controller */    ),
       .vrf_raddr_o             (vrf_raddr [RD_BASE+1:RD_BASE]      ),

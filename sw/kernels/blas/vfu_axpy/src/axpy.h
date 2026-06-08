@@ -38,17 +38,18 @@ static inline void axpy_simd_frep(uint32_t n, double a, double *x, double *y,
 
     snrt_mcycle();
     asm volatile(
-        "frep.o  %[nv],   7, 0, 0        \n"
-        "vle64.v  v0,    (%[px])         \n"
-        "vle64.v  v8,    (%[py])         \n"
-        "add      %[px], %[px], %[inc]   \n"
-        "add      %[py], %[py], %[inc]   \n"
-        "vfmacc.vf v8,   %[a],  v0       \n"
-        "vse64.v  v8,    (%[pz])         \n"
-        "add      %[pz], %[pz], %[inc]   \n"
+        "frep.o   %[nv], 8, 0, 0        \n"
+        "vle64.v  v0,    (%[px])        \n"
+        "vle64.v  v8,    (%[py])        \n"
+        "add      %[px], %[px], %[inc]  \n"
+        "add      %[py], %[py], %[inc]  \n"
+        "vfmul.vf v16,   v0,    %[a]    \n"  // v16 = a * x
+        "vfadd.vv v24,   v16,   v8      \n"  // v24 = a*x + y
+        "vse64.v  v24,   (%[pz])        \n"
+        "add      %[pz], %[pz], %[inc]  \n"
         : [ px ] "+r"(px), [ py ] "+r"(py), [ pz ] "+r"(pz)
         : [ nv ] "r"(n_vec - 1), [ a ] "f"(a), [ inc ] "i"(SCHNIZO_VEC_BYTES)
-        : "v0", "v8", "memory");
+        : "v0", "v8", "v16", "v24", "memory");
     snrt_mcycle();
     asm volatile("fence");
 }

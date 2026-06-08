@@ -16,10 +16,10 @@
     partition_banks: 0,
     transa: false,
     transb: false,
-    m: 32,
+    m: 6,
     n: 16,
-    k: 16,
+    k: 1024,
     alpha: 1,
     beta: 0,
-    gemm_fp: "gemm_fp32_simd_6x"
+    gemm_fp: "gemm_fp32_simd_3x"
 }
