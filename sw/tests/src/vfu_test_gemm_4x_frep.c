@@ -14,7 +14,7 @@
 // M_DIM must be a multiple of M_UNROLL (the inner kernel handles M_UNROLL rows).
 #define M_DIM (M_UNROLL)
 #define N_DIM (VL)
-#define K_DIM 10
+#define K_DIM 16
 
 int main() {
 #ifdef SNRT_SUPPORTS_FREP

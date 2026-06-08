@@ -185,12 +185,15 @@ jobs:
       - name: Build Software
         run: |
           make CFG_OVERRIDE=cfg/github-ci.json sw -j
+          make CFG_OVERRIDE=cfg/github-ci.json spatz-isa-tests-build -j
       - name: Run Tests
         working-directory: test
         run: |
           ../util/experiments/run.py schnizo-orig.yaml --simulator verilator -j
           ../util/experiments/run.py schnizo.yaml --simulator verilator -j
           ../util/experiments/run.py riscv_tests_isa.yaml --simulator verilator -j
+          ../util/experiments/run.py spatz_isa_tests.yaml --simulator verilator -j
+          ../util/experiments/run.py vfu_tests.yaml --simulator verilator -j
 
   #############
   # Synthesis #
