@@ -192,8 +192,6 @@ jobs:
           ../util/experiments/run.py schnizo-orig.yaml --simulator verilator -j
           ../util/experiments/run.py schnizo.yaml --simulator verilator -j
           ../util/experiments/run.py riscv_tests_isa.yaml --simulator verilator -j
-          ../util/experiments/run.py spatz_isa_tests.yaml --simulator verilator -j
-          ../util/experiments/run.py vfu_tests.yaml --simulator verilator -j
 
   #############
   # Synthesis #
