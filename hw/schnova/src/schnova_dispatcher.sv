@@ -18,7 +18,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   parameter bit UseFreeList = 1,
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned XLEN        = 1,
-  parameter bit          Xfrep       = 1,
+  parameter bit          XFREPO      = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
   parameter int unsigned NofAlus     = 1,
@@ -187,7 +187,7 @@ module schnova_dispatcher import schnova_pkg::*; #(
   ////////////////////////////
   logic rs_dispatched;
 
-  if (Xfrep) begin : gen_rs_dispatcher
+  if (XFREPO) begin : gen_rs_dispatcher
     schnova_rs_dispatcher #(
       /// If a freelist based physical register reclamation strategy is used
       /// or a refernce counting based strategy.

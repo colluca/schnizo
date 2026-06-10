@@ -13,7 +13,7 @@
 // Instantiates all the FUs and connects each FU to an FU block (containing the RS).
 // Further instantiates the operand distribution network (ODN) and connects FU blocks to it.
 module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
-  parameter bit          Xfrep             = 1'b1,
+  parameter bit          XFREPO            = 1'b1,
   parameter bit          UseFreeList       = 1'b1,
   parameter bit          MulInAlu0         = 1'b1,
   parameter int unsigned NofAlus           = 1,
@@ -264,7 +264,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // ---------------------------
   // Pack operand interfaces
   // ---------------------------
-  if (Xfrep) begin : gen_op_req_rsps
+  if (XFREPO) begin : gen_op_req_rsps
     // Pack the FUs' operand requests and responses into a linear array
     // TODO(colluca): think if this code can be streamlined
     always_comb begin : fu_op_reqs_rsps
@@ -350,7 +350,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     issue_alu_trace_t alu_trace_int;
     // pragma translate_on
 
-    if (Xfrep) begin : gen_rs
+    if (XFREPO) begin : gen_rs
       // Signals connecting the FU block and the actual FU
       alu_issue_req_t alu_rs_issue_req;
       logic           alu_rs_issue_req_valid;
@@ -554,7 +554,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     issue_lsu_trace_t lsu_trace_int;
     // pragma translate_on
 
-    if (Xfrep) begin : gen_rs
+    if (XFREPO) begin : gen_rs
       lsu_issue_req_t  lsu_rs_issue_req;
       logic            lsu_rs_issue_req_valid;
       logic            lsu_rs_issue_req_ready;
@@ -784,7 +784,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     issue_fpu_trace_t fpu_trace_int;
     // pragma translate_on
 
-    if (Xfrep) begin : gen_rs
+    if (XFREPO) begin : gen_rs
 
       fpu_issue_req_t fpu_rs_issue_req;
       logic           fpu_rs_issue_req_valid;
@@ -978,7 +978,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Status //
   ////////////
 
-  if (Xfrep) begin : gen_rs_finish
+  if (XFREPO) begin : gen_rs_finish
     // The complete core finishes if all RS finish.
     assign all_rs_finish_o = &{~alu_rs_busy, ~lsu_rs_busy, ~fpu_rs_busy};
   end else begin: gen_no_rs_finish

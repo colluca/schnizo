@@ -161,6 +161,8 @@ module ${cfg['cluster']['name']}_wrapper (
     .XFDOTP (${core_cfg_flat('xfdotp')}),
     .Xdma (${core_cfg_flat('xdma')}),
     .Xfrep (${core_cfg_flat('xfrep')}),
+    .XFREPI (${core_cfg_flat('xfrepi')}),
+    .XFREPO (${core_cfg_flat('xfrepi')}),
     .UseFreeList (${int(cfg['cluster']['use_freelist'])}),  
     .UseSchnovaCore (${int(cfg['cluster']['use_schnova_core'])}),
     .Xcopift (${core_cfg_flat('xcopift')}),

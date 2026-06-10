@@ -18,7 +18,7 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter bit          EnableAllocTrace = 1,
   parameter int unsigned NofPhysGpr = 64,
   parameter int unsigned NofPhysFpr = 64,
-  parameter bit          Xfrep      = 1
+  parameter bit          XFREPO     = 1
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -333,7 +333,7 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     end
   end
 
-  if (Xfrep) begin
+  if (XFREPO) begin
     // verilog_lint: waive-start line-length
     for (genvar alu = 0; alu < NofAlus; alu++) begin: gen_cur_alu_rss_alloc
       assign cur_nof_allocated_rss[alu] = i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.num_allocated_rss_q;

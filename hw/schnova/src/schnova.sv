@@ -33,8 +33,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned DataWidth = 64,
   /// Enable Snitch DMA as accelerator.
   parameter bit          Xdma      = 0,
-  /// Enable the Superscalar FREP mode
-  parameter bit          Xfrep     = 1,
+  /// Hardware loop feature for the schnova core
+  parameter bit          XFREPI             = 0,
+  /// Superscalar out of order extension for the schnova core
+  parameter bit          XFREPO             = 0,
   /// Enable FP in general
   parameter bit          FP_EN     = 0,
   /// Enable F Extension.
@@ -665,7 +667,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // to only pass e.g. XLEN here, and internally derive instr_dec_t in the decoder using a macro.
   schnova_decoder #(
     .XLEN              (XLEN),
-    .Xfrep             (Xfrep),
+    .XFREPI            (XFREPI),
+    .XFREPO            (XFREPO),
     .PipeWidth         (PipeWidth),
     .Xdma              (Xdma),
     .RVF               (RVF),
@@ -737,7 +740,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   schnova_controller #(
     .PipeWidth          (PipeWidth),
     .XLEN               (XLEN),
-    .Xfrep              (Xfrep),
+    .XFREPI             (XFREPI),
+    .XFREPO             (XFREPO), 
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
     .RegAddrSize    (RegAddrSize),
@@ -813,7 +817,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Rename //
   ////////////
 
-  if (Xfrep) begin : gen_rename
+  if (XFREPO) begin : gen_rename
     schnova_rename #(
       .PipeWidth(PipeWidth),
       .RmtNrIntReadPorts(RmtNrIntReadPorts),
@@ -882,7 +886,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req;
 
   schnova_dispatcher #(
-    .Xfrep      (Xfrep),
+    .XFREPO      (XFREPO),
     .UseFreeList(UseFreeList),
     .PipeWidth(PipeWidth),
     .XLEN     (XLEN),
@@ -1011,7 +1015,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // pragma translate_on
 
   schnova_fu_stage #(
-    .Xfrep      (Xfrep),
+    .XFREPO      (XFREPO),
     .UseFreeList(UseFreeList),
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
@@ -1246,7 +1250,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // See module for details and specialities!
   schnova_writeback #(
-    .Xfrep          (Xfrep),
+    .XFREPO          (XFREPO),
     .UseFreeList    (UseFreeList),
     .PipeWidth      (PipeWidth),
     .RobTagWidth    (RobTagWidth),
@@ -1365,7 +1369,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   // 1) Either it is done via a classic approach with a rob and free list
   // 2) Or it is done via a reference counting based approach
-  if (Xfrep) begin : gen_phys_reg_manage
+  if (XFREPO) begin : gen_phys_reg_manage
     if (UseFreeList) begin : gen_freelist_reg_manage
       ///////////////////////////
       //      Free List        //
@@ -1581,7 +1585,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   schnova_scoreboard #(
-    .Xfrep    (Xfrep),
+    .XFREPO    (XFREPO),
     .PipeWidth(PipeWidth),
     .NrReadPorts(NofOperandIfs),
     .NrIntWritePorts(NrIntWritePorts),
@@ -1621,7 +1625,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /////////////////////////////
 
   schnova_phys_regfile #(
-    .Xfrep         (Xfrep),
+    .XFREPO         (XFREPO),
     .DataWidth     (XLEN),
     .OpLen         (OpLen),
     .NofAlus       (NofAlus),
@@ -1650,7 +1654,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   if (NofFpus > 0) begin : gen_fp_rf
     schnova_phys_regfile #(
-      .Xfrep         (Xfrep),
+      .XFREPO         (XFREPO),
       .DataWidth     (FLEN),
       .OpLen         (OpLen),
       .NofAlus       (NofAlus),
@@ -1681,7 +1685,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign op_rsps_fpr_data = '0;
   end
 
-  if (Xfrep) begin : gen_op_handling
+  if (XFREPO) begin : gen_op_handling
     always_comb begin : sb_operand_req_snooping
       for (int unsigned op = 0; op < NofOperandIfs; op++) begin
         sb_raddr[op] =  op_reqs[op].phy_reg;
@@ -1738,7 +1742,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   wb_fu_trace_t csr_wb_trace;
   wb_fu_trace_t acc_wb_trace;
 
-  if (Xfrep) begin : gen_superscalar_core_trace
+  if (XFREPO) begin : gen_superscalar_core_trace
     assign core_trace = '{
       priv_level:     priv_lvl,
       loop_state:     loop_state,
@@ -1782,7 +1786,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   for (genvar idx = 0; idx < PipeWidth; idx++) begin : gen_rs_dispatch_traces
     // verilog_lint: waive-start line-length
-    if (Xfrep) begin : gen_rs_dispatch_trace
+    if (XFREPO) begin : gen_rs_dispatch_trace
       assign rs_dispatch_trace[idx] = '{
         valid:        (instr_exec_commit && instr_valid_masked[idx] && !i_dispatcher.gen_rs_dispatcher.i_rs_dispatcher.instr_has_hazard[idx]) || exception,
         pc_q:         i_frontend.pc_q + (idx * 4),
@@ -1819,7 +1823,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_alu_traces_rss_trace
+      if (XFREPO) begin : gen_alu_traces_rss_trace
         assign rss_alu_traces[alu][rss] = '{
           valid:          i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_valid_o &&
                           i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.gen_alu_rs.i_slots.issue_req_ready_i &&
@@ -1846,7 +1850,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_lsu_traces_rss_trace
+      if (XFREPO) begin : gen_lsu_traces_rss_trace
         assign rss_lsu_traces[lsu][rss] = '{
           valid:          i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.gen_lsu_rs.i_slots.issue_req_valid_o &&
                           i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.gen_lsu_rs.i_slots.issue_req_ready_i &&
@@ -1880,7 +1884,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
       // verilog_lint: waive-start line-length
-      if (Xfrep) begin : gen_fpu_traces_rss_trace
+      if (XFREPO) begin : gen_fpu_traces_rss_trace
         assign rss_fpu_traces[fpu][rss] = '{
           valid:      i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_valid_o &&
                       i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.gen_fpu_rs.i_slots.issue_req_ready_i &&
@@ -1999,7 +2003,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .EnableAllocTrace(1'b1),
     .NofPhysGpr     (NofPhysGpr),
     .NofPhysFpr     (NofPhysFpr),
-    .Xfrep          (Xfrep)
+    .XFREPO          (XFREPO)
   ) i_tracer (
     .clk_i              (clk_i),
     .rst_i              (rst_i),
@@ -2034,22 +2038,22 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // pragma translate_on
 
   // Assertions
-  `ASSERT_INIT(NofAluMismatch, Xfrep || (NofAlus == 1),
-    "Too many ALUs, if Xfrep is not enabled only 1 ALU will be used anyways");
+  `ASSERT_INIT(NofAluMismatch, XFREPO || (NofAlus == 1),
+    "Too many ALUs, if XFREPO is not enabled only 1 ALU will be used anyways");
 
-  `ASSERT_INIT(NofLsuMismatch, Xfrep || (NofLsus == 1),
-    "Too many LSUs, if Xfrep is not enabled only 1 LSU will be used anyways");
+  `ASSERT_INIT(NofLsuMismatch, XFREPO || (NofLsus == 1),
+    "Too many LSUs, if XFREPO is not enabled only 1 LSU will be used anyways");
 
-  `ASSERT_INIT(NofFpuMismatch, Xfrep || (NofFpus == 1),
-    "Too many FPUs, if Xfrep is not enabled only 1 FPU will be used anyways");
+  `ASSERT_INIT(NofFpuMismatch, XFREPO || (NofFpus == 1),
+    "Too many FPUs, if XFREPO is not enabled only 1 FPU will be used anyways");
 
-  `ASSERT_INIT(PipelineWidthMismatch, Xfrep || (PipeWidth == 1),
-    "If Xfrep is not enabled, the pipeline width should be 1");
+  `ASSERT_INIT(PipelineWidthMismatch, XFREPO || (PipeWidth == 1),
+    "If XFREPO is not enabled, the pipeline width should be 1");
 
-  `ASSERT_INIT(NofGprMismatch, Xfrep || (NofPhysGpr == 32),
-    "If Xfrep is not enabled, the core only supports 32 gp logical registers");
+  `ASSERT_INIT(NofGprMismatch, XFREPO || (NofPhysGpr == 32),
+    "If XFREPO is not enabled, the core only supports 32 gp logical registers");
 
-  `ASSERT_INIT(NofFprMismatch, Xfrep || (NofPhysFpr == 32),
+  `ASSERT_INIT(NofFprMismatch, XFREPO || (NofPhysFpr == 32),
     "If Xfrep is not enabled, the core only supports 32 fp logical registers");
 
 endmodule

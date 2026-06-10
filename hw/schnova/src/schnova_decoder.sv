@@ -7,7 +7,10 @@
 // The PipeWidth-wide decoder of Schnova, based on the decoder of Schnizo
 module schnova_decoder import schnova_pkg::*; #(
   parameter int unsigned XLEN        = 32,
-  parameter bit unsigned Xfrep       = 1,
+  /// Hardware loop feature for the schnova core
+  parameter bit          XFREPI             = 0,
+  /// Superscalar out of order extension for the schnova core
+  parameter bit          XFREPO             = 0,
   parameter int unsigned PipeWidth   = 1,
   parameter bit          Xdma        = 0,
   /// Enable F Extension (single).
@@ -49,7 +52,8 @@ module schnova_decoder import schnova_pkg::*; #(
     schnova_instr_decoder #(
       .XLEN   (XLEN),
       .Xdma   (Xdma),
-      .Xfrep  (Xfrep), // For now we always abuse Xfrep to switch in and out of superscalar mode
+      .XFREPI (XFREPI),
+      .XFREPO (XFREPO),
       .RVF    (RVF),
       .RVD    (RVD),
       .XF16   (XF16),

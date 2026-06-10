@@ -26,7 +26,7 @@
 // As of now, all accelerator responses target the integer register file.
 // This should not be a problem, as the Snitch FPR is only in the FP_SS present.
 module schnova_writeback import schnova_pkg::*; #(
-  parameter bit Xfrep                    = 1'b1,
+  parameter bit XFREPO                   = 1'b1,
   parameter bit UseFreeList              = 1,
   parameter int unsigned PipeWidth       = 1,
   parameter int unsigned RobTagWidth     = 1,
@@ -265,8 +265,8 @@ module schnova_writeback import schnova_pkg::*; #(
           gpr_waddr_o[port] = gpr_data[src].addr;
           gpr_wdata_o[port] = gpr_data[src].data;
           // Only update the ROB in superscalar mode
-          wb_gpr_valid[port]   = (UseFreeList || !Xfrep) ? en_superscalar_i : 1'b0;
-          wb_gpr_rob_idx[port] = (UseFreeList || !Xfrep) ? gpr_data[src].rob_tag : '0;
+          wb_gpr_valid[port]   = (UseFreeList || !XFREPO) ? en_superscalar_i : 1'b0;
+          wb_gpr_rob_idx[port] = (UseFreeList || !XFREPO) ? gpr_data[src].rob_tag : '0;
         end
       end
     end
@@ -352,14 +352,14 @@ module schnova_writeback import schnova_pkg::*; #(
           fpr_waddr_o[port] = fpr_data[src].addr;
           fpr_wdata_o[port] = fpr_data[src].data;
           // Only update the ROB in superscalar mode
-          wb_fpr_valid[port]   = (UseFreeList || !Xfrep) ? en_superscalar_i : 1'b0;
-          wb_fpr_rob_idx[port] = (UseFreeList || !Xfrep) ? fpr_data[src].rob_tag : '0;
+          wb_fpr_valid[port]   = (UseFreeList || !XFREPO) ? en_superscalar_i : 1'b0;
+          wb_fpr_rob_idx[port] = (UseFreeList || !XFREPO) ? fpr_data[src].rob_tag : '0;
         end
       end
     end
   end
 
-  if (Xfrep) begin : gen_ctr_instr_retirement
+  if (XFREPO) begin : gen_ctr_instr_retirement
   // Only ALU0 can retire control instructions
   always_comb begin
     // Per default no control instruction is being retired
@@ -374,7 +374,7 @@ module schnova_writeback import schnova_pkg::*; #(
     assign ctrl_instr_retired_o = 1'b0; // Not used
   end
 
-  if (UseFreeList || Xfrep) begin : gen_rob_idx
+  if (UseFreeList || XFREPO) begin : gen_rob_idx
     assign wb_valid_o = {wb_fpr_valid, wb_gpr_valid};
     assign wb_rob_idx_o = {wb_fpr_rob_idx, wb_gpr_rob_idx};
   end else begin : gen_no_rob_ix

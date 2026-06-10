@@ -6,7 +6,7 @@
 // Description: Variable Register File
 // verilog_lint: waive module-filename
 module schnova_phys_regfile #(
-  parameter bit          Xfrep        = 1'b1,
+  parameter bit          XFREPO       = 1'b1,
   parameter int unsigned DataWidth    = 32,
   parameter int unsigned OpLen        = 32,
   parameter int unsigned NofAlus      = 1,
@@ -38,7 +38,7 @@ module schnova_phys_regfile #(
   output logic [NofOperandIfs-1:0][OpLen-1:0]     op_rsps_data_o
 );
 
-  if (Xfrep) begin : gen_phys_regfile
+  if (XFREPO) begin : gen_phys_regfile
     // We have to have a read port for every read port and every operand interface
     localparam int unsigned NrRegfileReadPorts = NrReadPorts + NrOperandReadPorts;
 

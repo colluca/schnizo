@@ -61,8 +61,10 @@ module schnova_cc #(
   parameter bit          XFDOTP             = 0,
   /// Enable Snitch DMA
   parameter bit          Xdma               = 0,
-  /// Has `frep` support. For Schnizo this is the superscalar feature.
-  parameter bit          Xfrep              = 0,
+  /// Hardware loop feature for the schnova core
+  parameter bit          XFREPI             = 0,
+  /// Superscalar out of order extension for the schnova core
+  parameter bit          XFREPO             = 0,
   /// Xfrep config
   parameter int unsigned NumAlus            = 3,
   parameter int unsigned NumLsus            = 3,
@@ -230,7 +232,8 @@ module schnova_cc #(
     .XF8                   (XF8),
     .XF8ALT                (XF8ALT),
     .XFVEC                 (XFVEC),
-    .Xfrep                 (Xfrep),
+    .XFREPI                (XFREPI),
+    .XFREPO                (XFREPO),
     .FLEN                  (FLEN),
     .ICacheFetchDataWidth  (ICacheFetchDataWidth),
     .dreq_t                (dreq_t),

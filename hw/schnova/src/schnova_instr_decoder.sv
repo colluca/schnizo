@@ -6,7 +6,10 @@
 module schnova_instr_decoder import schnova_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter bit          Xdma        = 0,
-  parameter bit          Xfrep       = 1,
+  /// Hardware loop feature for the schnova core
+  parameter bit          XFREPI             = 0,
+  /// Superscalar out of order extension for the schnova core
+  parameter bit          XFREPO             = 0,
   /// Enable F Extension (single).
   parameter bit          RVF         = 1,
   /// Enable D Extension (double).
@@ -885,17 +888,28 @@ module schnova_instr_decoder import schnova_pkg::*; #(
       // Frep extension instructions
       // --------------------------------
       OpcodeCustom0: begin
-        if (Xfrep) begin
+        if (XFREPI || XFREPO) begin
           instr_dec_o.is_frep = 1'b1;
-          // TODO(colluca): why does this comment not violate the 100 character line-length limit?
-          // The parsed max_instr is actually -1 of the instructions we loop. This is to match the Snitch behaviour.
-          // When executing the loop we actually execute max_instr+1 instructions.
           instr_dec_o.frep_bodysize = instr.freptype.max_instr;
           instr_dec_o.frep_mode     = schnova_pkg::frep_mode_e'(instr.freptype.frep_mode);
+          
           // The iterations are from a register specified by the max_iters field
           instr_dec_o.rs1_is_fp = 1'b0;
           instr_dec_o.rs1       = instr.freptype.max_iters_reg;
           instr_dec_o.use_rs1   = 1'b1;
+
+          // Check if an illegal instruction is being used
+          unique case (instr_dec_o.frep_mode)
+            schnova_pkg::FrepModeHwLoop: begin 
+              // Nothing to be done, is always supported
+            end
+            schnova_pkg::FrepModeSuperscalar: begin
+              if (!XFREPO) illegal_instr = 1'b1;
+            end
+            default: begin
+              illegal_instr = 1'b1; // Catch unmapped frep modes
+            end
+          endcase
         end else begin
           illegal_instr = 1'b1;
         end

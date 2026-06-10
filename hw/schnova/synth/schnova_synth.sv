@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: SHL-0.51
 
 module schnova_synth #(
-	parameter bit          Xfrep								= 1'b1,
+	parameter bit          XFREPI				= 1'b1,
+	parameter bit          XFREPO				= 1'b1,
 	parameter int unsigned NofAlus              = 3,
 	parameter int unsigned NofLsus              = 3,
 	parameter int unsigned NofFpus              = 1,
@@ -13,8 +14,8 @@ module schnova_synth #(
 	parameter int unsigned AluNofRss            = 4,
 	parameter int unsigned LsuNofRss            = 4,
 	parameter int unsigned FpuNofRss            = 4,
-  parameter int unsigned ICacheFetchDataWidth = 32,
-  parameter int unsigned NofPhysGpr           = 6,
+  	parameter int unsigned ICacheFetchDataWidth = 32,
+  	parameter int unsigned NofPhysGpr           = 6,
 	parameter int unsigned NofPhysFpr           = 6,
 	parameter int unsigned NofRobEntries        = 32,
 	parameter bit          UseFreeList          = 1,
@@ -62,7 +63,8 @@ module schnova_synth #(
 		.BootAddr(schnova_synth_pkg::BootAddr),
 		.AddrWidth(schnova_synth_pkg::AddrWidth),
 		.DataWidth(schnova_synth_pkg::DataWidth),
-		.Xfrep(Xfrep),
+		.XFREPI(XFREPI),
+		.XFREPO(XFREPO),
 		.Xdma(0),
 		.RVF(1),
 		.RVD(1),

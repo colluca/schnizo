@@ -125,6 +125,10 @@ module snitch_cluster
   parameter bit [NrCores-1:0] Xdma          = '0,
   /// Per-core enabling of the custom `Xfrep` ISA extensions.
   parameter bit [NrCores-1:0] Xfrep         = '0,
+  /// Per-core enabling of the custom `Xfrepi` ISA extensions.
+  parameter bit [NrCores-1:0] XFREPI        = '0,
+  /// Per-core enabling of the custom `Xfrepo` ISA extensions.
+  parameter bit [NrCores-1:0] XFREPO        = '0,
   /// Per-core enabling of the custom `Xcopift` ISA extensions.
   parameter bit [NrCores-1:0] Xcopift       = '0,
   /// Per-core enabling of the custom 'Xpulppostmod' ISA extensions.
@@ -1198,9 +1202,10 @@ module snitch_cluster
         .XF8ALT (XF8ALT[i]),
         .XFVEC (XFVEC[i]),
         .XFDOTP (XFDOTP[i]),
+        .XFREPI (XFREPI[i]),
+        .XFREPO (XFREPO[i]),
         .Xdma (Xdma[i]),
         .IsoCrossing (IsoCrossing),
-        .Xfrep (Xfrep[i]),
         .NumAlus(NumAlus[i]),
         .NumLsus(NumLsus[i]),
         .NumFpus(NumFpus[i]),

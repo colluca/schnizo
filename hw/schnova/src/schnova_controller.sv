@@ -11,7 +11,8 @@
 // dispatch when necessary, handling exceptions, HW barriers, control flow instructions.
 module schnova_controller import schnova_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
-  parameter bit          Xfrep           = 1,
+  parameter bit          XFREPI          = 1,
+  parameter bit          XFREPO          = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned NrIntWritePorts = 1,
   parameter int unsigned NrFpWritePorts  = 1,
@@ -115,7 +116,7 @@ module schnova_controller import schnova_pkg::*; #(
   logic        loop_stall;
 
 
-  if (Xfrep) begin : gen_loop_ctrl
+  if (XFREPI || XFREPO) begin : gen_loop_ctrl
     // Valid bit mask of from the loop controller
     logic [PipeWidth-1:0] valid_mask;
     // Convert the decoded loop iterations to the actual number of iterations.
@@ -381,9 +382,7 @@ module schnova_controller import schnova_pkg::*; #(
   } ctrl_state_t;
   ctrl_state_t ctrl_state_q, ctrl_state_d;
 
-  if (Xfrep) begin : gen_ctrl_stall
-
-
+  if (XFREPO) begin : gen_ctrl_stall
     `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
 
     always_comb begin : ctrl_next_state_logic
