@@ -3,11 +3,8 @@
 // SPDX-License-Identifier: SHL-0.51
 
 {
-    input_dim: {
-        channels: 32,
-        height: 8,
-        width: 8
-    },
-    tile_ci: 32,
-    prec: "FP64"
+    CI: 1,
+    IH: 16,
+    IW: 16,
+    funcptr: "batchnorm_fp32_schnizo"
 }
