@@ -182,6 +182,7 @@ class ExperimentManager:
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
                 hw_cfg = self.derive_hw_cfg(experiment)
+                env = self.derive_env(experiment)
                 if 'sw' in self.callbacks:
                     func = self.callbacks['sw']
                 else:
@@ -192,7 +193,7 @@ class ExperimentManager:
                       colored(build_dir, 'cyan', attrs=['bold']))
                 process = func(
                     target=target, build_dir=build_dir, defines=defines,
-                    data_cfg=data_cfg, hw_cfg=hw_cfg, dry_run=dry_run,
+                    data_cfg=data_cfg, hw_cfg=hw_cfg, env=env, dry_run=dry_run,
                     # TODO(colluca): can't run in parallel if we're overriding the data_cfg since
                     # we would have a race condition on cfg/lru.json. This would be fixed by using
                     # SN_CFG instead of CFG_OVERRIDE, but this doesn't work atm (see above).
