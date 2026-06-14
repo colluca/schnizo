@@ -187,6 +187,7 @@ def gen_experiments(ci=False):
                             'mode': mode,
                             'data_cfg': {'size': size},
                             'cmd': cmd,
+                            'roi': Path("roi/dnn.json.tpl"),
                         })
                     for op in DNN_ELTWISE_OPS:
                         verify = MK_DIR / "sw/kernels/dnn/eltwise/scripts/verify.py"
@@ -197,6 +198,7 @@ def gen_experiments(ci=False):
                             'mode': mode,
                             'data_cfg': {'size': size, 'op': op},
                             'cmd': [str(verify), sim_bin, "${elf}"],
+                            'roi': Path("roi/dnn.json.tpl"),
                         })
 
     # Filter by apps
