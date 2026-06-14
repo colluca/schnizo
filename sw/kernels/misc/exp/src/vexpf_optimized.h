@@ -9,7 +9,7 @@
 
 #include "vexpf_optimized_asm.h"
 
-static inline void vexpf_optimized(double *a, double *b) {
+static inline void vexpf_optimized(double *a, double *b, uint32_t len, uint32_t batch_size) {
 #ifdef SNRT_SUPPORTS_FREP
 
     // Derived parameters
