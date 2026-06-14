@@ -9,6 +9,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
+import json
 import json5
 import mako
 import pandas as pd
@@ -466,4 +467,31 @@ def derive_data_cfg_from_template(experiment, template_path=Path("cfg.json.tpl")
         f.write(cfg)
 
     # Return the path to the rendered configuration file
+    return cfg_path
+
+
+def derive_data_cfg_from_overrides(experiment, default_cfg_path,
+                                   overrides, root_cfg_dir=Path('data').absolute()):
+    """Derive a per-experiment data config by loading a default and applying overrides.
+
+    Loads the default params from default_cfg_path (json5), applies the
+    caller-supplied overrides dict, and writes the result as JSON to
+    root_cfg_dir / experiment['name'] / params.json.
+
+    Args:
+        experiment: Experiment dictionary.
+        default_cfg_path: Path to the default params file (json5 format).
+        overrides: Dict of fields to set/override in the loaded params.
+        root_cfg_dir: Root data configuration directory.
+
+    Returns:
+        Path to the written configuration file.
+    """
+    with open(default_cfg_path) as f:
+        params = json5.loads(f.read())
+    params.update(overrides)
+    cfg_path = root_cfg_dir / experiment['name'] / 'params.json'
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cfg_path, 'w') as f:
+        json.dump(params, f, indent=4)
     return cfg_path
