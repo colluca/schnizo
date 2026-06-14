@@ -74,7 +74,7 @@ class SyrkDataGen(du.DataGen):
 
         header += [du.format_array_definition('double', A_uid, A)]
         header += [du.format_array_definition('double', C_uid, C_in)]
-        header += [du.format_struct_definition('syrk_args_t', 'args', cfg)]
+        header += [du.format_struct_definition('extern const syrk_args_t', 'args', cfg)]
         header = '\n\n'.join(header)
 
         return header
