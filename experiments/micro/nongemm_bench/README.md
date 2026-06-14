@@ -1,4 +1,11 @@
+Debug tests:
 ```bash
 ./experiments.py --actions hw sw run roi -j
-python -m experiments.micro.nongemm_bench.plot
+./plot.py
+```
+
+Full registry experiments:
+```bash
+./experiments.py --actions hw sw run roi --mode registry -j
+./plot.py
 ```
