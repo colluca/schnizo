@@ -21,4 +21,5 @@ static inline double multiply_opt(double multiplicand, double multiplier) {
 #include "dot/src/dot.h"
 #include "gemm/src/gemm.h"
 #include "gemv/src/gemv.h"
+#include "scal/src/scal.h"
 #include "syrk/src/syrk.h"
