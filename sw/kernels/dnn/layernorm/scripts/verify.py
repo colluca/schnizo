@@ -7,7 +7,8 @@
 # Viviane Potocnik <vivianep@iis.ee.ethz.ch>
 
 import sys
-from datagen import golden_model
+import torch
+from datagen import LayernormDataGen
 
 from snitch.util.sim.verif_utils import Verifier
 from snitch.util.sim.data_utils import ctype_from_precision_t
@@ -24,7 +25,7 @@ class LayernormVerifier(Verifier):
             'seq_len': 'I',
             'embeddings': 'I',
             'n_tiles': 'I',
-            'baseline': 'I',
+            'funcptr': 'I',
             'eps': 'f',
             'ifmap_ptr': 'I',
             'ofmap_ptr': 'I',
@@ -43,7 +44,7 @@ class LayernormVerifier(Verifier):
     def get_expected_results(self):
         ifmap = self.get_input_from_symbol('ifmap', ctype_from_precision_t(self.prec))
         ifmap = ifmap.reshape(self.batch_size, self.seq_len, self.embeddings)
-        return golden_model(ifmap, self.eps).flatten()
+        return LayernormDataGen().golden_model(torch.tensor(ifmap), self.eps).flatten()
 
     def check_results(self, *args):
         return super().check_results(*args, atol=0.001)
