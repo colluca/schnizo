@@ -355,84 +355,89 @@ static inline void layernorm_fp32_schnizo(void *ifmap_, void *ofmap_,
             float inv_std = 1.0f / sqrtf((v0 + v1 + v2 + v3) / (float)embeddings + eps);
 
             // Pass 3: normalize — 8-wide software-pipelined (peel + FREP + epilogue)
+            // frep.o needs >= 4 iterations; fall back to frep.i for small embeddings.
+#define _P3_PEEL \
+                "flw    fa0,  0(%[xp])               \n" \
+                "flw    fa1,  4(%[xp])               \n" \
+                "flw    fa2,  8(%[xp])               \n" \
+                "flw    fa3, 12(%[xp])               \n" \
+                "flw    fa4, 16(%[xp])               \n" \
+                "flw    fa5, 20(%[xp])               \n" \
+                "flw    fa6, 24(%[xp])               \n" \
+                "flw    fa7, 28(%[xp])               \n" \
+                "fsub.s fa0, fa0, %[mean]            \n" \
+                "fsub.s fa1, fa1, %[mean]            \n" \
+                "fsub.s fa2, fa2, %[mean]            \n" \
+                "fsub.s fa3, fa3, %[mean]            \n" \
+                "fsub.s fa4, fa4, %[mean]            \n" \
+                "fsub.s fa5, fa5, %[mean]            \n" \
+                "fsub.s fa6, fa6, %[mean]            \n" \
+                "fsub.s fa7, fa7, %[mean]            \n" \
+                "fmul.s fa0, fa0, %[inv_std]         \n" \
+                "fmul.s fa1, fa1, %[inv_std]         \n" \
+                "fmul.s fa2, fa2, %[inv_std]         \n" \
+                "fmul.s fa3, fa3, %[inv_std]         \n" \
+                "fmul.s fa4, fa4, %[inv_std]         \n" \
+                "fmul.s fa5, fa5, %[inv_std]         \n" \
+                "fmul.s fa6, fa6, %[inv_std]         \n" \
+                "fmul.s fa7, fa7, %[inv_std]         \n"
+#define _P3_BODY_EPILOGUE \
+                "addi   %[xp], %[xp], 32             \n" \
+                "fsw    fa0,  0(%[yp])               \n" \
+                "fsw    fa1,  4(%[yp])               \n" \
+                "fsw    fa2,  8(%[yp])               \n" \
+                "fsw    fa3, 12(%[yp])               \n" \
+                "flw    fa0,  0(%[xp])               \n" \
+                "flw    fa1,  4(%[xp])               \n" \
+                "flw    fa2,  8(%[xp])               \n" \
+                "flw    fa3, 12(%[xp])               \n" \
+                "fsub.s fa0, fa0, %[mean]            \n" \
+                "fsub.s fa1, fa1, %[mean]            \n" \
+                "fsub.s fa2, fa2, %[mean]            \n" \
+                "fsub.s fa3, fa3, %[mean]            \n" \
+                "fmul.s fa0, fa0, %[inv_std]         \n" \
+                "fmul.s fa1, fa1, %[inv_std]         \n" \
+                "fmul.s fa2, fa2, %[inv_std]         \n" \
+                "fmul.s fa3, fa3, %[inv_std]         \n" \
+                "fsw    fa4, 16(%[yp])               \n" \
+                "fsw    fa5, 20(%[yp])               \n" \
+                "fsw    fa6, 24(%[yp])               \n" \
+                "fsw    fa7, 28(%[yp])               \n" \
+                "addi   %[yp], %[yp], 32             \n" \
+                "flw    fa4, 16(%[xp])               \n" \
+                "flw    fa5, 20(%[xp])               \n" \
+                "flw    fa6, 24(%[xp])               \n" \
+                "flw    fa7, 28(%[xp])               \n" \
+                "fsub.s fa4, fa4, %[mean]            \n" \
+                "fsub.s fa5, fa5, %[mean]            \n" \
+                "fsub.s fa6, fa6, %[mean]            \n" \
+                "fsub.s fa7, fa7, %[mean]            \n" \
+                "fmul.s fa4, fa4, %[inv_std]         \n" \
+                "fmul.s fa5, fa5, %[inv_std]         \n" \
+                "fmul.s fa6, fa6, %[inv_std]         \n" \
+                "fmul.s fa7, fa7, %[inv_std]         \n" \
+                "fsw    fa0,  0(%[yp])               \n" \
+                "fsw    fa1,  4(%[yp])               \n" \
+                "fsw    fa2,  8(%[yp])               \n" \
+                "fsw    fa3, 12(%[yp])               \n" \
+                "fsw    fa4, 16(%[yp])               \n" \
+                "fsw    fa5, 20(%[yp])               \n" \
+                "fsw    fa6, 24(%[yp])               \n" \
+                "fsw    fa7, 28(%[yp])               \n"
+#define _P3_OPERANDS \
+                : [xp] "+r"(xp), [yp] "+r"(yp) \
+                : [n]  "r"(n_frep_pass3 - 1), [mean] "f"(mean), [inv_std] "f"(inv_std) \
+                : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
             xp = x;
             float *yp = y;
-            asm volatile(
-                // Peel iteration i=0: load 8, subtract mean, multiply inv_std (no stores)
-                "flw    fa0,  0(%[xp])               \n"
-                "flw    fa1,  4(%[xp])               \n"
-                "flw    fa2,  8(%[xp])               \n"
-                "flw    fa3, 12(%[xp])               \n"
-                "flw    fa4, 16(%[xp])               \n"
-                "flw    fa5, 20(%[xp])               \n"
-                "flw    fa6, 24(%[xp])               \n"
-                "flw    fa7, 28(%[xp])               \n"
-                "fsub.s fa0, fa0, %[mean]            \n"
-                "fsub.s fa1, fa1, %[mean]            \n"
-                "fsub.s fa2, fa2, %[mean]            \n"
-                "fsub.s fa3, fa3, %[mean]            \n"
-                "fsub.s fa4, fa4, %[mean]            \n"
-                "fsub.s fa5, fa5, %[mean]            \n"
-                "fsub.s fa6, fa6, %[mean]            \n"
-                "fsub.s fa7, fa7, %[mean]            \n"
-                "fmul.s fa0, fa0, %[inv_std]         \n"
-                "fmul.s fa1, fa1, %[inv_std]         \n"
-                "fmul.s fa2, fa2, %[inv_std]         \n"
-                "fmul.s fa3, fa3, %[inv_std]         \n"
-                "fmul.s fa4, fa4, %[inv_std]         \n"
-                "fmul.s fa5, fa5, %[inv_std]         \n"
-                "fmul.s fa6, fa6, %[inv_std]         \n"
-                "fmul.s fa7, fa7, %[inv_std]         \n"
-                FREP  " %[n], 34, 0, 0               \n"
-                // Finish iteration i: store first half, load+compute next first half
-                "addi   %[xp], %[xp], 32             \n"
-                "fsw    fa0,  0(%[yp])               \n"
-                "fsw    fa1,  4(%[yp])               \n"
-                "fsw    fa2,  8(%[yp])               \n"
-                "fsw    fa3, 12(%[yp])               \n"
-                "flw    fa0,  0(%[xp])               \n"
-                "flw    fa1,  4(%[xp])               \n"
-                "flw    fa2,  8(%[xp])               \n"
-                "flw    fa3, 12(%[xp])               \n"
-                "fsub.s fa0, fa0, %[mean]            \n"
-                "fsub.s fa1, fa1, %[mean]            \n"
-                "fsub.s fa2, fa2, %[mean]            \n"
-                "fsub.s fa3, fa3, %[mean]            \n"
-                "fmul.s fa0, fa0, %[inv_std]         \n"
-                "fmul.s fa1, fa1, %[inv_std]         \n"
-                "fmul.s fa2, fa2, %[inv_std]         \n"
-                "fmul.s fa3, fa3, %[inv_std]         \n"
-                // Finish iteration i: store second half, load+compute next second half
-                "fsw    fa4, 16(%[yp])               \n"
-                "fsw    fa5, 20(%[yp])               \n"
-                "fsw    fa6, 24(%[yp])               \n"
-                "fsw    fa7, 28(%[yp])               \n"
-                "addi   %[yp], %[yp], 32             \n"
-                "flw    fa4, 16(%[xp])               \n"
-                "flw    fa5, 20(%[xp])               \n"
-                "flw    fa6, 24(%[xp])               \n"
-                "flw    fa7, 28(%[xp])               \n"
-                "fsub.s fa4, fa4, %[mean]            \n"
-                "fsub.s fa5, fa5, %[mean]            \n"
-                "fsub.s fa6, fa6, %[mean]            \n"
-                "fsub.s fa7, fa7, %[mean]            \n"
-                "fmul.s fa4, fa4, %[inv_std]         \n"
-                "fmul.s fa5, fa5, %[inv_std]         \n"
-                "fmul.s fa6, fa6, %[inv_std]         \n"
-                "fmul.s fa7, fa7, %[inv_std]         \n"
-                // Epilogue: store final fa0-fa7
-                "fsw    fa0,  0(%[yp])               \n"
-                "fsw    fa1,  4(%[yp])               \n"
-                "fsw    fa2,  8(%[yp])               \n"
-                "fsw    fa3, 12(%[yp])               \n"
-                "fsw    fa4, 16(%[yp])               \n"
-                "fsw    fa5, 20(%[yp])               \n"
-                "fsw    fa6, 24(%[yp])               \n"
-                "fsw    fa7, 28(%[yp])               \n"
-                : [xp] "+r"(xp), [yp] "+r"(yp)
-                : [n]  "r"(n_frep_pass3 - 1), [mean] "f"(mean), [inv_std] "f"(inv_std)
-                : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-            );
+            if (n_frep_pass3 < 4) {
+                asm volatile(_P3_PEEL "frep.i %[n], 34, 0, 0 \n" _P3_BODY_EPILOGUE _P3_OPERANDS);
+            } else {
+                asm volatile(_P3_PEEL FREP   " %[n], 34, 0, 0 \n" _P3_BODY_EPILOGUE _P3_OPERANDS);
+            }
+#undef _P3_PEEL
+#undef _P3_BODY_EPILOGUE
+#undef _P3_OPERANDS
         }
     }
 }
