@@ -14,6 +14,13 @@ ${c[prop]}${', ' if not loop.last else ''}\
   % endfor
 </%def>\
 
+<%def name="core_cfg_int(prop)">\
+  % for c in cfg['cluster']['cores']:
+${int(c[prop])}${', ' if not loop.last else ''}\
+  % endfor
+</%def>\
+
+
 <%def name="core_cfg_flat(prop)">\
 ${cfg['cluster']['nr_cores']}'b\
   % for c in cfg['cluster']['cores'][::-1]:
@@ -90,7 +97,7 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
-  localparam int unsigned UseFreeList   [${cfg['cluster']['nr_cores']}] = '{${core_cfg_flat('use_freelist')}};
+  localparam int unsigned UseFreeList   [${cfg['cluster']['nr_cores']}] = '{${core_cfg_int('use_freelist')}};
   localparam int unsigned NofPhysGpr    [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_phy_gpr')}};
   localparam int unsigned NofPhysFpr    [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_phy_fpr')}};
   localparam int unsigned NumRobEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_rob_entries')}};
