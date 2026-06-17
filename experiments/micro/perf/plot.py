@@ -186,7 +186,7 @@ def rsp_ports_tradeoff_plot(df, show=True):
     })
 
     fig, ax = plt.subplots()
-    plot_df.plot(kind='bar', ax=ax, zorder=3)
+    plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.8)
 
     # Draw fc IPC as a horizontal line spanning all bars in each app group
     labeled = False
@@ -202,8 +202,8 @@ def rsp_ports_tradeoff_plot(df, show=True):
     ax.axhline(y=1, color='black', linewidth=0.5, zorder=2.5)
     ax.set_xlabel('')
     ax.set_ylabel(METRIC_LABELS['ipc'])
-    ax.set_xticklabels([app_label(app) for app in plot_df.index], rotation=15, ha='right')
-    ax.legend(ncol=len(ax.get_legend_handles_labels()[0]), handlelength=1.0)
+    ax.set_xticklabels([app_label(app) for app in plot_df.index], rotation=30, ha='right')
+    ax.legend(ncol=1, handlelength=1.0, fontsize=5)
     ax.set_axisbelow(True)
     ax.grid(True, axis='y', color='gainsboro', linewidth=0.5, alpha=0.7)
     ax.set_yticks(sorted(set(ax.get_yticks()) | {1}))
