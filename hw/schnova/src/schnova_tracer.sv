@@ -109,8 +109,8 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     string fpu_dispatch_event[NofFpus];
     dispatch_detail_t details[PipeWidth];
     dispatch_detail_t alu_disp_req_details[NofAlus];
-    dispatch_detail_t lsu_disp_req_details[NofAlus];
-    dispatch_detail_t fpu_disp_req_details[NofAlus];
+    dispatch_detail_t lsu_disp_req_details[NofLsus];
+    dispatch_detail_t fpu_disp_req_details[NofFpus];
     dispatch_detail_t alu_dep_details[NofAlus];
     dispatch_detail_t lsu_dep_details[NofLsus];
     dispatch_detail_t fpu_dep_details[NofFpus];

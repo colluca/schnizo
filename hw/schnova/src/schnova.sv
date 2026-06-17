@@ -1818,7 +1818,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign alu_disp_req_trace[alu] = '{
       valid: alu_rs_disp_req_valid[alu] && alu_rs_disp_req_ready[alu],
       rs_id: alu,
-      disp_resp:  i_fu_stage.producer_to_string(alu_rs_disp_reqs[alu].tag.producer_id)
+      disp_resp:  i_fu_stage.producer_to_string(alu_rs_disp_rsp[alu].producer)
     };
 
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
@@ -1845,7 +1845,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign lsu_disp_req_trace[lsu] = '{
       valid: lsu_rs_disp_req_valid[lsu] && lsu_rs_disp_req_ready[lsu],
       rs_id: NofAlus + lsu,
-      disp_resp:  i_fu_stage.producer_to_string(lsu_rs_disp_reqs[lsu].tag.producer_id)
+      disp_resp:  i_fu_stage.producer_to_string(lsu_rs_disp_rsp[lsu].producer)
     };
 
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
@@ -1879,7 +1879,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign fpu_disp_req_trace[fpu] = '{
       valid: fpu_rs_disp_req_valid[fpu] && fpu_rs_disp_req_ready[fpu],
       rs_id: NofAlus + NofLsus + fpu,
-      disp_resp:  i_fu_stage.producer_to_string(fpu_rs_disp_reqs[fpu].tag.producer_id)
+      disp_resp:  i_fu_stage.producer_to_string(fpu_rs_disp_rsp[fpu].producer)
     };
 
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss
