@@ -563,6 +563,18 @@
                                             "description": "Enables the superscalar loop execution feature for Schnizo.",
                                             "default": false
                                         },
+                                        "xfrepi": {
+                                            "type": "boolean",
+                                            "title": "Enable Xfrepi extension",
+                                            "description": "Enables the hardware loop feature for Schnova.",
+                                            "default": false
+                                        },
+                                        "xfrepo": {
+                                            "type": "boolean",
+                                            "title": "Enable Xfrepo Extension",
+                                            "description": "Enables superscalar out of order execution in Schnova.",
+                                            "default": false
+                                        },
                                         "num_alus": {
                                             "type": "number",
                                             "title": "Number of ALUs",

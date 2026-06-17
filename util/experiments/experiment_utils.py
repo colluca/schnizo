@@ -354,7 +354,7 @@ class ExperimentManager:
                             'RUNDIR': self.synth_dir / experiment['hw'],
                             'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
                         }
-                        return common.make(action, vars=vars, sync=sync)
+                        return common.make('post-layout-netlist', vars=vars, sync=sync)
                     if action in self.callbacks:
                         func = self.callbacks[action]
                     process = func()

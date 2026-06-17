@@ -117,10 +117,10 @@ static inline void dot_schnizo(uint32_t n, double *x, double *y,
         "fld     fa6, 24(%[xa])              \n"
         "fld     fa7, 24(%[ya])              \n"  // moving adds before fmadd won't reduce
         "fmadd.d %[sum1], fa0, fa1, %[sum1]  \n"  // LCP overhead as the 1st fmadd can start
+        "addi    %[xa], %[xa], %[inc]        \n"
         "fmadd.d %[sum2], fa2, fa3, %[sum2]  \n"  // immediately.
         "fmadd.d %[sum3], fa4, fa5, %[sum3]  \n"
         "fmadd.d %[sum4], fa6, fa7, %[sum4]  \n"
-        "addi    %[xa], %[xa], %[inc]        \n"
         "addi    %[ya], %[ya], %[inc]        \n"
         // clang-format on
         : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),

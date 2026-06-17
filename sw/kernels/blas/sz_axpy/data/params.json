@@ -5,6 +5,6 @@
 {
     "n_tiles": 1,
     "double_buffer": false,
-    "n": 4096,
+    "n": 1024,
     "funcptr": "axpy_schnova"
 }

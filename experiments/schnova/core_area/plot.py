@@ -59,351 +59,55 @@ def results(dir=None):
 
     return df
 
-def area_efficiency_plot(clk=False):
-    import numpy as np
-    import matplotlib.pyplot as plt
+def gp_area_efficiency_plot():
+    designs = {
+        "Schnova-ZOL": {
+            "IPC": 0.95,
+            "CLK": 1.00,
+            "area": 106
+        },
+        "GP-PW1": {
+            "IPC": 1.00,
+            "CLK": 1.00,
+            "area": 169
+        },
+        "GP-PW2": {
+            "IPC": 1.74,
+            "CLK": 1.00,
+            "area": 300
+        },
+        "GP-PW4": {
+            "IPC": 2.33,
+            "CLK": 1.00,
+            "area": 436
+        },
+        "GP-PW8": {
+            "IPC": 2.52,
+            "CLK": 1.00,
+            "area": 556
+        },
+        "GP-PW1-Bal": {
+            "IPC": 1.00,
+            "CLK": 1.00,
+            "area": 162
+        },
+        "GP-PW2-Bal": {
+            "IPC": 1.74,
+            "CLK": 1.00,
+            "area": 234
+        },
+        "GP-PW4-Bal": {
+            "IPC": 2.33,
+            "CLK": 1.00,
+            "area": 354
+        },
+        "GP-PW8-Bal": {
+            "IPC": 2.53,
+            "CLK": 1.00,
+            "area": 485
+        },
+    }
 
-    if clk:
-        designs = {
-            "Schnizo-Scalar-GP": {
-                "IPC": 0.87,
-                "CLK": 1.0,
-                "area": 106
-            },
-            "Schnizo-GP-S": {
-                "IPC": 1.38,
-                "CLK": 2.65,
-                "area": 988
-            },
-            "Schnizo-GP-L": {
-                "IPC": 2.39,
-                "CLK": 2.02,
-                "area": 1307
-            },
-            #"Schnova-GP-1": {
-            #    "IPC": 1.0,
-            #    "CLK": 1.0,
-            #    "area": 353
-            #},
-            #"Schnova-GP-2": {
-            #    "IPC": 1.71,
-            #    "CLK": 1.09,
-            #    "area": 437
-            #},
-            #"Schnova-GP-4": {
-            #    "IPC": 2.17,
-            #    "CLK": 1.3,
-            #    "area": 559
-            #},
-            #"Schnova-GP-8": {
-            #    "IPC": 2.38,
-            #    "CLK": 1.34,
-            #    "area": 808
-            #},
-            #"Schnova-GP-1-opt1": {
-            #    "IPC": 1.0,
-            #    "CLK": 1.05,
-            #    "area": 325
-            #},
-            #"Schnova-GP-2-opt1": {
-            #    "IPC": 1.71,
-            #    "CLK": 1.07,
-            #    "area": 379
-            #},
-            #"Schnova-GP-4-opt1": {
-            #    "IPC": 2.17,
-            #    "CLK": 1.17,
-            #    "area": 479
-            #},
-            #"Schnova-GP-8-opt1": {
-            #    "IPC": 2.38,
-            #    "CLK": 1.34,
-            #    "area": 668
-            #},"Schnova-GP-1-opt-c": {
-            #    "IPC": 0.99,
-            #    "CLK": 1.00,
-            #    "area": 172
-            #},
-            #"Schnova-GP-2-opt-c": {
-            #    "IPC": 1.62,
-            #    "CLK": 1.03,
-            #    "area": 252
-            #},
-            #"Schnova-GP-4-opt-c": {
-            #    "IPC": 3.44,
-            #    "CLK": 1.06,
-            #    "area": 328
-            #},
-            #"Schnova-GP-8-opt-c": {
-            #    "IPC": 6.75,
-            #    "CLK": 1.30,
-            #    "area": 493
-            #},"Schnova-GP-1-opt-p": {
-            #    "IPC": 0.99,
-            #    "CLK": 1.00,
-            #    "area": 176
-            #},
-            #"Schnova-GP-2-opt-p": {
-            #    "IPC": 1.62,
-            #    "CLK": 1.05,
-            #    "area": 236
-            #},
-            #"Schnova-GP-4-opt-p": {
-            #    "IPC": 3.44,
-            #    "CLK": 1.17,
-            #    "area": 304
-            #},
-            #"Schnova-GP-8-opt-p": {
-            #    "IPC": 6.75,
-            #    "CLK": 1.35,
-            #    "area": 456
-            #}, "Schnova-GP-1-refcnt": {
-            #    "IPC": 0.99,
-            #    "CLK": 1.00,
-            #    "area": 168
-            #},
-            #"Schnova-GP-2-refcnt": {
-            #    "IPC": 1.62,
-            #    "CLK": 1.05,
-            #    "area": 209
-            #},
-            #"Schnova-GP-4-refcnt": {
-            #    "IPC": 3.44,
-            #    "CLK": 1.15,
-            #    "area": 315
-            #},
-            #"Schnova-GP-8-refcnt": {
-            #    "IPC": 6.75,
-            #    "CLK": 1.25,
-            #    "area": 469
-            #}, 
-            "Schnova-SV1-split": {
-                "IPC": 0.99,
-                "CLK": 1.00,
-                "area": 164
-            },
-            "Schnova-SV2-split": {
-                "IPC": 1.62,
-                "CLK": 1.03,
-                "area": 232
-            },
-            "Schnova-SV4-split": {
-                "IPC": 3.44,
-                "CLK": 1.04,
-                "area": 305
-            },
-            "Schnova-SV8-split": {
-                "IPC": 6.75,
-                "CLK": 1.23,
-                "area": 443
-            },
-            "Schnova-SV1-prog": {
-                "IPC": 0.99,
-                "CLK": 1.00,
-                "area": 166
-            },
-            "Schnova-SV4-prog": {
-                "IPC": 3.44,
-                "CLK": 1.04,
-                "area": 310
-            },
-            "Schnova-SV8-prog": {
-                "IPC": 6.75,
-                "CLK": 1.14,
-                "area": 486
-            },
-            "Schnova-SV2-p-rob": {
-                "IPC": 1.74,
-                "CLK": 1.15,
-                "area": 388
-            },
-            "Schnova-SV2-p-rc": {
-                "IPC": 1.74,
-                "CLK": 1.07,
-                "area": 313
-            },
-            "Schnova-SV2-p-rob-bal": {
-                "IPC": 1.74,
-                "CLK": 1.00,
-                "area": 224
-            },
-            "Schnova-SV2-p-rc-bal": {
-                "IPC": 1.74,
-                "CLK": 1.01,
-                "area": 234
-            },
-        }
-    else:
-        designs = {
-            "Schnizo-Scalar-GP": {
-                "IPC": 0.87,
-                "CLK": 1.0,
-                "area": 106
-            },
-            "Schnizo-GP-S": {
-                "IPC": 1.38,
-                "CLK": 1.0,
-                "area": 988
-            },
-            "Schnizo-GP-L": {
-                "IPC": 2.39,
-                "CLK": 1.0,
-                "area": 1307
-            },
-            #"Schnova-GP-1": {
-            #    "IPC": 1.0,
-            #    "CLK": 1.0,
-            #    "area": 353
-            #},
-            #"Schnova-GP-2": {
-            #    "IPC": 1.71,
-            #    "CLK": 1.0,
-            #    "area": 437
-            #},
-            #"Schnova-GP-4": {
-            #    "IPC": 2.17,
-            #    "CLK": 1.0,
-            #    "area": 559
-            #},
-            #"Schnova-GP-8": {
-            #    "IPC": 2.38,
-            #    "CLK": 1.0,
-            #    "area": 808
-            #},
-            #"Schnova-GP-1-opt1": {
-            #    "IPC": 1.0,
-            #    "CLK": 1.0,
-            #    "area": 325
-            #},
-            #"Schnova-GP-2-opt1": {
-            #    "IPC": 1.71,
-            #    "CLK": 1.0,
-            #    "area": 379
-            #},
-            #"Schnova-GP-4-opt1": {
-            #    "IPC": 2.17,
-            #    "CLK": 1.0,
-            #    "area": 479
-            #},
-            #"Schnova-GP-8-opt1": {
-            #    "IPC": 2.38,
-            #    "CLK": 1.0,
-            #    "area": 668
-            #},"Schnova-GP-1-opt-c": {
-            #    "IPC": 0.99,
-            #    "CLK": 1.00,
-            #    "area": 172
-            #},
-            #"Schnova-GP-2-opt-c": {
-            #    "IPC": 1.62,
-            #    "CLK": 1.00,
-            #    "area": 252
-            #},
-            #"Schnova-GP-4-opt-c": {
-            #    "IPC": 3.44,
-            #    "CLK": 1.00,
-            #    "area": 328
-            #},
-            #"Schnova-GP-8-opt-c": {
-            #    "IPC": 6.75,
-            #    "CLK": 1.00,
-            #    "area": 493
-            #},
-            #"Schnova-GP-1-opt-p": {
-            #    "IPC": 0.98,
-            #    "CLK": 1.00,
-            #    "area": 176
-            #},
-            #"Schnova-GP-2-opt-p": {
-            #    "IPC": 1.60,
-            #    "CLK": 1.00,
-            #    "area": 236
-            #},
-            #"Schnova-GP-4-opt-p": {
-            #    "IPC": 3.44,
-            #    "CLK": 1.00,
-            #    "area": 304
-            #},
-            #"Schnova-GP-8-opt-p": {
-            #    "IPC": 6.75,
-            #    "CLK": 1.00,
-            #    "area": 456
-            #}, "Schnova-GP-1-refcnt": {
-            #    "IPC": 0.99,
-            #    "CLK": 1.00,
-            #    "area": 168
-            #},
-            #"Schnova-GP-2-refcnt": {
-            #    "IPC": 1.62,
-            #    "CLK": 1.00,
-            #    "area": 209
-            #},
-            #"Schnova-GP-4-refcnt": {
-            #    "IPC": 3.44,
-            #    "CLK": 1.00,
-            #    "area": 315
-            #},
-            #"Schnova-GP-8-refcnt": {
-            #    "IPC": 6.75,
-            #    "CLK": 1.00,
-            #    "area": 469
-            #},
-            "Schnova-SV1-split": {
-                "IPC": 0.99,
-                "CLK": 1.00,
-                "area": 164
-            },
-            "Schnova-SV2-split": {
-                "IPC": 1.62,
-                "CLK": 1.00,
-                "area": 232
-            },
-            "Schnova-SV4-split": {
-                "IPC": 3.44,
-                "CLK": 1.00,
-                "area": 305
-            },
-            "Schnova-SV8-split": {
-                "IPC": 6.75,
-                "CLK": 1.00,
-                "area": 443
-            },
-            "Schnova-SV1-prog": {
-                "IPC": 0.99,
-                "CLK": 1.00,
-                "area": 166
-            },
-            "Schnova-SV4-prog": {
-                "IPC": 3.44,
-                "CLK": 1.00,
-                "area": 310
-            },
-            "Schnova-SV8-prog": {
-                "IPC": 6.75,
-                "CLK": 1.00,
-                "area": 486
-            },
-            "Schnova-SV2-p-rob": {
-                "IPC": 1.74,
-                "CLK": 1.00,
-                "area": 388
-            },
-            "Schnova-SV2-p-rc": {
-                "IPC": 1.74,
-                "CLK": 1.00,
-                "area": 313
-            },
-            "Schnova-SV2-p-rob-bal": {
-                "IPC": 1.74,
-                "CLK": 1.00,
-                "area": 224
-            },
-            "Schnova-SV2-p-rc-bal": {
-                "IPC": 1.74,
-                "CLK": 1.00,
-                "area": 234
-            },
-        }
 
     # ----------------------------------------
     # Performance calculation
@@ -412,131 +116,147 @@ def area_efficiency_plot(clk=False):
 
     for d in designs.values():
         d["performance_gips"] = d["IPC"] / d["CLK"]
+        d["area_efficiency"]  = 1000 * d["performance_gips"] / d["area"]
 
     # ----------------------------------------
     # Same color per family, different markers
     # ----------------------------------------
 
     marker_map = {
-        "Schnizo-Scalar-GP": ("tab:orange", "o"),
-        "Schnizo-GP-S":      ("tab:orange", "^"),
-        "Schnizo-GP-L":      ("tab:orange", "s"),
-        #"Schnova-GP-1":      ("tab:blue", "o"),
-        #"Schnova-GP-2":      ("tab:blue", "^"),
-        #"Schnova-GP-4":      ("tab:blue", "s"),
-        #"Schnova-GP-8":      ("tab:blue", "D"),
-        #"Schnova-GP-1-opt1": ("tab:green", "o"),
-        #"Schnova-GP-2-opt1": ("tab:green", "^"),
-        #"Schnova-GP-4-opt1": ("tab:green", "s"),
-        #"Schnova-GP-8-opt1": ("tab:green", "D"),
-        #"Schnova-GP-1-opt-c": ("tab:red", "o"),
-        #"Schnova-GP-2-opt-c": ("tab:red", "^"),
-        #"Schnova-GP-4-opt-c": ("tab:red", "s"),
-        #"Schnova-GP-8-opt-c": ("tab:red", "D"),
-        #"Schnova-GP-1-opt-p": ("tab:purple", "o"),
-        #"Schnova-GP-2-opt-p": ("tab:purple", "^"),
-        #"Schnova-GP-4-opt-p": ("tab:purple", "s"),
-        #"Schnova-GP-8-opt-p": ("tab:purple", "D"),
-        #"Schnova-GP-1-refcnt": ("tab:pink", "o"),
-        #"Schnova-GP-2-refcnt": ("tab:pink", "^"),
-        #"Schnova-GP-4-refcnt": ("tab:pink", "s"),
-        #"Schnova-GP-8-refcnt": ("tab:pink", "D"),
-        "Schnova-SV1-split":      ("tab:blue", "o"),
-        "Schnova-SV2-split":      ("tab:blue", "^"),
-        "Schnova-SV4-split":      ("tab:blue", "s"),
-        "Schnova-SV8-split":      ("tab:blue", "D"),
-        "Schnova-SV1-prog":      ("tab:red", "o"),
-        "Schnova-SV4-prog":      ("tab:red", "s"),
-        "Schnova-SV8-prog":      ("tab:red", "D"),
-        "Schnova-SV2-p-rob":      ("tab:purple", "o"),
-        "Schnova-SV2-p-rc":      ("tab:purple", "^"),
-        "Schnova-SV2-p-rob-bal":      ("tab:purple", "s"),
-        "Schnova-SV2-p-rc-bal":      ("tab:purple", "D"),
+        "Schnova-ZOL" :     ("tab:orange", "o"),
+        "GP-PW1":           ("tab:blue",   "o"),
+        "GP-PW1-Bal":       ("tab:blue",   "*"),
+        "GP-PW2":           ("tab:green",   "o"),
+        "GP-PW2-Bal":       ("tab:green",   "*"),
+        "GP-PW4":           ("tab:purple",   "o"),
+        "GP-PW4-Bal":       ("tab:purple",   "*"),
+        "GP-PW8":           ("tab:red",   "o"),
+        "GP-PW8-Bal":       ("tab:red",   "*"),
     }
-
-    efficiency_levels = [1, 2, 5, 10, 20, 50]
-
-    max_area = max(d["area"] for d in designs.values())
 
     plt.figure(figsize=(10, 4.2))
 
-    # ----------------------------------------
-    # Contour lines like your example
-    # labels near the top / side of the line
-    # ----------------------------------------
-
-    x = np.linspace(1, 3000, 500)
-
-    for eff in efficiency_levels:
-        y = (eff * x) / 1000.0
-
-        plt.plot(
-            x,
-            y,
-            linestyle="--",
-            linewidth=1.2,
-            color="gray",
-            alpha=0.9
-        )
-
-
-        if eff == 1:
-            y_text = 2.9
-        else:
-            y_text = 4.6
-
-        x_text = y_text * 1000.0 / eff -60
-        
-        plt.text(
-            x_text,
-            y_text + 0.05,
-            f"{eff}",
-            fontsize=10,
-            color="gray"
-        )
-
-    # ----------------------------------------
-    # Scatter points with full legend entries
-    # ----------------------------------------
-
     for name, d in designs.items():
-        area = d["area"]
         perf = d["performance_gips"]
+        eff = d["area_efficiency"]
+
         color, marker = marker_map[name]
 
         plt.scatter(
-            area,
             perf,
+            eff,
             s=130,
             color=color,
             marker=marker,
             label=name
         )
 
-    # ----------------------------------------
-    # Styling similar to reference image
-    # ----------------------------------------
+    plt.xlabel("Performance [GIPS]", fontsize=12)
+    plt.ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
 
-    plt.xlabel("Area [kGE]", fontsize=12)
-    plt.ylabel("Performance [GIPS]", fontsize=12)
-
-    plt.xlim(0, 3000)
-    plt.ylim(0, 7)
+    plt.xlim(left=0, right=3)
+    plt.ylim(bottom=0,top=10)
 
     plt.grid(True, alpha=0.35)
 
     plt.legend(
         loc="upper right",
+        ncol=3,
+        frameon=True
+    )
+
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig(
+        "plot.png",
+        bbox_inches="tight",
+        pad_inches=0.1,
+        dpi=300
+    )
+
+def spec_area_efficiency_plot():
+    designs = {
+        "Schnova-ZOL": {
+            "IPC": 0.95,
+            "CLK": 1.00,
+            "area": 106
+        },
+        "PW2-EXP": {
+            "IPC": 2.00,
+            "CLK": 1.00,
+            "area": 217
+        },
+        "PW4-AXPY": {
+            "IPC": 3.44,
+            "CLK": 1.00,
+            "area": 310
+        },
+        "PW8-AXPY": {
+            "IPC": 6.75,
+            "CLK": 1.00,
+            "area": 489
+        },
+    }
+
+
+    # ----------------------------------------
+    # Performance calculation
+    # GIPS = IPC / CLK(ns)
+    # ----------------------------------------
+
+    for d in designs.values():
+        d["performance_gips"] = d["IPC"] / d["CLK"]
+        d["area_efficiency"]  = 1000 * d["performance_gips"] / d["area"]
+
+    # ----------------------------------------
+    # Same color per family, different markers
+    # ----------------------------------------
+
+    marker_map = {
+        "Schnova-ZOL" :     ("tab:orange", "o"),
+        "PW2-EXP":          ("tab:green",  "o"),
+        "PW4-AXPY":         ("tab:purple", "o"),
+        "PW8-AXPY":         ("tab:red",    "o"),
+    }
+
+    plt.figure(figsize=(10, 4.2))
+
+    for name, d in designs.items():
+        perf = d["performance_gips"]
+        eff = d["area_efficiency"]
+
+        color, marker = marker_map[name]
+
+        plt.scatter(
+            perf,
+            eff,
+            s=130,
+            color=color,
+            marker=marker,
+            label=name
+        )
+
+    plt.xlabel("Performance [GIPS]", fontsize=12)
+    plt.ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
+
+    plt.xlim(left=0, right=7)
+    plt.ylim(bottom=0,top=16)
+
+    plt.grid(True, alpha=0.35)
+
+    plt.legend(
+        loc="lower right",
         ncol=2,
         frameon=True
     )
 
     plt.tight_layout()
+    #plt.show()
     plt.savefig(
-    "plot.png",
-    bbox_inches="tight",
-    pad_inches=0.1,
-    dpi=300
+        "plot.png",
+        bbox_inches="tight",
+        pad_inches=0.1,
+        dpi=300
     )
 
 def extract_hierarchy(tree):
@@ -778,11 +498,11 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
     
 
 def plot1():
-    area_efficiency_plot()
+    gp_area_efficiency_plot()
 
 
 def plot2():
-    area_efficiency_plot(clk=True)
+    spec_area_efficiency_plot()
 
 
 def plot3():

@@ -28,12 +28,15 @@ static inline void axpy_fma(uint32_t n, double a, double *x, double *y,
     int frac = n / snrt_cluster_compute_core_num();
     int offset = core_idx;
 
+    snrt_mcycle();
+
     for (int i = offset; i < n; i += snrt_cluster_compute_core_num()) {
         asm volatile("fmadd.d %[z], %[a], %[x], %[y] \n"
                      : [ z ] "=f"(z[i])
                      : [ a ] "f"(a), [ x ] "f"(x[i]), [ y ] "f"(y[i]));
     }
     snrt_fpu_fence();
+    snrt_mcycle();
 }
 
 static inline void axpy_opt(uint32_t n, double a, double *x, double *y,

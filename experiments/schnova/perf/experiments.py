@@ -69,29 +69,27 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments():
     # Define experiment axes
     cfgs = [
-        'sv_1_pow',
+        'schnova_zol',
+        #'1x1_1x1_1x1',
     ]
 
-    modes = [#'scalar', 
-             'superscalar']
+    modes = ['scalar', 
+             #'superscalar'
+             ]
     sizes = [4096]
-    app_filter = ['sz_axpy']
+    app_filter = None
     core = None
 
     # Generate experiment list
     experiments = []
     for cfg in cfgs:
         # Check if this config targets the schnova core
-        is_schnova_core = cfg.startswith('sv')
+        is_schnova_core = cfg.startswith('sv') or cfg.startswith('schnova')
+        has_zol = cfg.endswith('zol')
         core = 'schnova' if is_schnova_core else None
         app_class = _HW_APP_CLASS.get(cfg)
         compatible = set(APPLICATION_CLASS[app_class] if app_class else APPLICATION_CLASS['GP'])
         for mode in modes:
-            # Scalar experiments do not depend on the response xbar configuration
-            # And it does not make sense to test scalar code with a scalar pipeline in schnova
-            if mode == 'scalar':
-                if cfg != '3x32_3x32_1x64':
-                    continue
             for size in sizes:
                 sim_bin = str(Path.cwd() / 'hw' / cfg / 'bin/snitch_cluster.vsim')
                 if compatible & set(APPLICATION_CLASS['LA']):
@@ -103,7 +101,7 @@ def gen_experiments():
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'dot_schnizo',
+                                'funcptr': 'dot_baseline' if not has_zol else 'dot_schnizo',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_dot/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -116,7 +114,10 @@ def gen_experiments():
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 'axpy_schnova_unroll',
+                                'funcptr': 
+                                'axpy_fma' if not has_zol else
+                                'axpy_baseline' if mode == 'scalar' 
+                                else 'axpy_schnova_unroll',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -133,7 +134,7 @@ def gen_experiments():
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
-                                'func_ptr': 'vexpf_schnizo'
+                                'func_ptr': 'vexpf_baseline' if not has_zol else 'vexpf_schnizo'
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/exp/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -147,7 +148,7 @@ def gen_experiments():
                             'data_cfg': {
                                 'len': size,
                                 'batch_size': size,
-                                'func_ptr': 'vlogf_schnizo'
+                                'func_ptr': 'vlogf_baseline' if not has_zol else 'vlogf_schnizo'
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/misc/log/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -167,7 +168,7 @@ def gen_experiments():
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_schnizo',
+                                    'func_ptr': 'calculate_psum_baseline' if not has_zol else 'calculate_psum_schnizo',
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                         sim_bin, "${elf}"],
@@ -186,6 +187,10 @@ def gen_experiments():
 def results(dir=None):
     df = ExperimentManager(gen_experiments(), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
+    df['total_power'] = df.apply(lambda row: row['power_results'].total_power, axis=1)
+    df['clock_power'] = df.apply(lambda row: row['power_results'].clock_power, axis=1)
+    print(df['total_power'])
+    print(df['clock_power'])
     df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
     return df

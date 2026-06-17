@@ -193,6 +193,42 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     return plot_df
 
+def print_all_geomeans(df, metric='fpu_util'):
+    """
+    Dynamically groups by ALL hardware configurations and modes present in the 
+    dataframe, calculates the geometric mean across applications, and prints them.
+    """
+    print(f"--- Geometric Mean for {metric.upper()} (All Present Configs) ---")
+    
+    # 1. Filter out rows where the metric or size might be missing
+    clean_df = df.dropna(subset=[metric, 'size']).copy()
+    
+    # 2. Get the max size per application for every unique (hw, mode) combination
+    #    This mirrors your logic of looking at the largest problem size run.
+    idx_max_size = clean_df.groupby(['app', 'hw', 'mode'])['size'].idxmax()
+    reduced_df = clean_df.loc[idx_max_size]
+    
+    # 3. Group by the configurations themselves to calculate the geomean across apps
+    config_groups = reduced_df.groupby(['hw', 'mode'])
+    
+    for (hw, mode), group in config_groups:
+        # Extract the series of metrics across all applications for this config
+        values = group[metric]
+        
+        if not values.empty:
+            gm_value = gmean(values)
+            
+            # Label string combining both the hardware name and its mode
+            config_label = f"HW: {hw} ({mode})"
+            
+            # Format output based on the metric type
+            if metric == 'ipc':
+                print(f"{config_label:50}: {gm_value:.2f}")
+            elif metric == 'fpu_util':
+                print(f"{config_label:50}: {gm_value:.2%}")
+            else:
+                print(f"{config_label:50}: {gm_value:.4f}")
+
 def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
     """
     Plot geomean of `metric` for configurations with fixed pipeline width
@@ -539,20 +575,24 @@ def plot9(width=1):
     if width == 1:
         print_geomean_ipc("Schnova SV1", model.SCHNOVA_S, True, None, width)
     elif width == 2:
-        print_geomean_ipc("Schnova SV2", model.SCHNOVA_S,True, None, width)
+        print_geomean_ipc("Schnova SV2", model.SCHNOVA_M,True, None, width)
     elif width == 4:
-        print_geomean_ipc("Schnova SV1", model.SCHNOVA_M, False, 'sz_axpy', width)
+        print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
     elif width == 8:
-        print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, 'sz_axpy', width)
+        print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
 
 def plot10(show=True, dir=None):
     df = instr_mix_experiments.results(dir=dir)
     return balanced_comparison_plot(df, 'ipc', show=show)
 
+def plot11(dir=None):
+    df = experiments.results(dir=dir)
+    print_all_geomeans(df, 'ipc')
+
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot8, plot9, plot10]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot8, plot9, plot10, plot11]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
