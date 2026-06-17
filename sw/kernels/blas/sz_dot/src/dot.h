@@ -11,6 +11,11 @@
 #define FREP "frep.o"
 #endif
 
+#define BANK_ALIGNMENT 8
+#define TCDM_ALIGNMENT (32 * BANK_ALIGNMENT)
+#define ALIGN_UP(addr, size) (((addr) + (size)-1) & ~((size)-1))
+#define ALIGN_UP_TCDM(addr) ALIGN_UP(addr, TCDM_ALIGNMENT)
+
 inline void dot_naive(uint32_t n, double *x, double *y, double *output) {
     double sum = 0;
     for (int i = 0; i < n; i++) {
@@ -106,8 +111,8 @@ static inline void dot_schnizo(uint32_t n, double *x, double *y,
     double *y_addr = &y[0];
 
     asm volatile(
-        // clang-format off
-        FREP   " %[n_frep], 14, 0, 0         \n"
+        FREP
+        " %[n_frep], 14, 0            \n"
         "fld     fa0,  0(%[xa])              \n"
         "fld     fa1,  0(%[ya])              \n"
         "fld     fa2,  8(%[xa])              \n"
@@ -122,11 +127,102 @@ static inline void dot_schnizo(uint32_t n, double *x, double *y,
         "fmadd.d %[sum4], fa6, fa7, %[sum4]  \n"
         "addi    %[xa], %[xa], %[inc]        \n"
         "addi    %[ya], %[ya], %[inc]        \n"
-        // clang-format on
         : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),
           [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
         : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
         : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
+
+    // Reduce the 4 streams
+    sum1 += sum2;
+    sum3 += sum4;
+    sum1 += sum3;
+
+    *output = sum1;
+}
+
+static inline void dot_post_increment_schnizo(uint32_t n, double *x, double *y,
+                                              double *output) {
+    double sum1 = 0;
+    double sum2 = 0;
+    double sum3 = 0;
+    double sum4 = 0;
+
+    int unroll = 4;
+
+    int inc = sizeof(double);
+    int n_iter_m1 = (n / unroll) - 1;
+    double *x_addr = &x[0];
+    double *y_addr = &y[0];
+
+    asm volatile(
+        FREP
+        " %[n_frep], 12, 0            \n"
+        "p.lw     x0, %[inc](%[xa]!)         \n"
+        "p.lw     x1, %[inc](%[ya]!)         \n"
+        "p.lw     x2, %[inc](%[xa]!)         \n"
+        "p.lw     x3, %[inc](%[ya]!)         \n"
+        "p.lw     x4, %[inc](%[xa]!)         \n"
+        "p.lw     x5, %[inc](%[ya]!)         \n"
+        "p.lw     x6, %[inc](%[xa]!)         \n"
+        "p.lw     x7, %[inc](%[ya]!)         \n"
+        "fmadd.d %[sum1], ft0, ft1, %[sum1]  \n"  // LCP overhead as the 1st fmadd can start
+        "fmadd.d %[sum2], ft2, ft3, %[sum2]  \n"  // immediately.
+        "fmadd.d %[sum3], ft4, ft5, %[sum3]  \n"
+        "fmadd.d %[sum4], ft6, ft7, %[sum4]  \n"
+        : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),
+          [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
+        : [ n_frep ] "r"(n_iter_m1), [ inc ] "r"(inc)
+        : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7");
+
+    // Reduce the 4 streams
+    sum1 += sum2;
+    sum3 += sum4;
+    sum1 += sum3;
+
+    *output = sum1;
+}
+
+static inline void dot_AluLsuOpt_schnizo(uint32_t n, double *x, double *y,
+                                         double *output) {
+    double sum1 = 0;
+    double sum2 = 0;
+    double sum3 = 0;
+    double sum4 = 0;
+
+    int unroll = 4;
+
+    int inc = sizeof(double) * unroll;
+    int n_iter_m1 = (n / unroll) - 1;
+    double *x_addr = &x[0];
+    double *y_addr = &y[0];
+
+    asm volatile(FREP
+                 " %[n_frep], 16, 0            \n"
+                 "fld     fa0,  0(%[xa])              \n"
+                 "fld     fa1,  0(%[ya])              \n"
+                 "addi    x0, x0, 0                   \n"
+
+                 "fld     fa2,  8(%[xa])              \n"
+                 "fld     fa3,  8(%[ya])              \n"
+                 "addi    x0, x0, 0                   \n"
+
+                 "fld     fa4, 16(%[xa])              \n"
+                 "fld     fa5, 16(%[ya])              \n"
+                 "addi    %[xa], %[xa], %[inc]        \n"
+
+                 "fld     fa6, -8(%[xa])              \n"
+                 "fld     fa7, 24(%[ya])              \n"
+                 "addi    %[ya], %[ya], %[inc]        \n"
+
+                 "fmadd.d %[sum1], fa0, fa1, %[sum1]  \n"
+                 "fmadd.d %[sum2], fa2, fa3, %[sum2]  \n"
+                 "fmadd.d %[sum3], fa4, fa5, %[sum3]  \n"
+                 "fmadd.d %[sum4], fa6, fa7, %[sum4]  \n"
+                 : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2),
+                   [ sum3 ] "+f"(sum3), [ sum4 ] "+f"(sum4),
+                   [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
+                 : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
 
     // Reduce the 4 streams
     sum1 += sum2;
@@ -142,10 +238,12 @@ static inline void dot(uint32_t n, double *x, double *y, double *result,
 
     uint32_t start_cycle, end_cycle;
 
-    // Allocate space in TCDM
-    local_x = (double *)snrt_l1_next();
-    local_y = local_x + n;
-    partial_sums = local_y + n;
+    // Allocate space in TCDM with bank alignment and offset
+    local_x = (double *)ALIGN_UP_TCDM((uint64_t)snrt_l1_next());
+    local_y = (double *)(ALIGN_UP_TCDM((uint64_t)local_x + n * sizeof(double)) +
+                         8 * BANK_ALIGNMENT);
+    partial_sums =
+        (double *)ALIGN_UP_TCDM((uint64_t)local_y + n * sizeof(double));
 
     // Copy data in TCDM
     if (snrt_is_dm_core()) {
@@ -174,7 +272,7 @@ static inline void dot(uint32_t n, double *x, double *y, double *result,
     snrt_cluster_hw_barrier();
     snrt_mcycle();
 
-    // Reduce partial sums on core 0
+// Reduce partial sums on core 0
 #ifndef _DOTP_EXCLUDE_FINAL_SYNC_
     if (snrt_cluster_core_idx() == 0) {
         for (uint32_t i = 1; i < snrt_cluster_compute_core_num(); i++) {

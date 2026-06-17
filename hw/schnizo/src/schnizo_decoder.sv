@@ -5,6 +5,7 @@
 // The decoder for the Schnizo Core. Based on CVA6.
 module schnizo_decoder import schnizo_pkg::*; #(
   parameter int unsigned XLEN        = 32,
+  parameter bit          PostIncrement = 0,
   parameter bit          Xdma        = 0,
   parameter bit          Xfrep       = 1,
   /// Enable F Extension (single).
@@ -99,11 +100,20 @@ module schnizo_decoder import schnizo_pkg::*; #(
   typedef struct packed {
     logic [31:20] max_instr;
     logic [19:15] max_iters_reg;
-    logic [14:12] stagger_max; // only for snitch
+    logic [14:12] funct3; // only for snitch
     logic [11:8]  stagger_mask; // only for snitch
     logic         frep_mode;
     logic [6:0]   opcode;
   } freptype_t;  // FREP
+
+  typedef struct packed {
+    logic [31:25] funct7;
+    logic [24:20] rs2;  // src
+    logic [19:15] rs1;  // base
+    logic [14:12] funct3;
+    logic [11:7]  rs3;  // offset
+    logic [6:0]   opcode;
+  } rpitype_t;  // register post-increment
 
   typedef union packed {
     logic [31:0] instr;
@@ -115,6 +125,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
     utype_t      utype;
     atype_t      atype;
     freptype_t   freptype;
+    rpitype_t    rpitype;
   } instruction_t;
 
   // --------------------
@@ -165,7 +176,8 @@ module schnizo_decoder import schnizo_pkg::*; #(
     UIMM,
     JIMM,
     RS3,
-    MUX_RD_RS3
+    MUX_RD_RS3,
+    RS2_TO_RS3
   } imm_select_e;
   imm_select_e imm_select;
 
@@ -203,6 +215,9 @@ module schnizo_decoder import schnizo_pkg::*; #(
     // we target register x0. x0 is read only and thus we have encoded that we have no write.
     instr_dec_o.rd        = '0;
     instr_dec_o.rd_is_fp  = 0;
+    instr_dec_o.rd2       = '0;
+    instr_dec_o.rd2_is_fp = '0;
+    instr_dec_o.use_rd2   = '0;
     instr_dec_o.rs1       = '0;
     instr_dec_o.rs1_is_fp = 0;
     instr_dec_o.use_rs1   = 1'b0;
@@ -788,21 +803,21 @@ module schnizo_decoder import schnizo_pkg::*; #(
             //        If rd = x0 do not read the CSR / do not cause any read side effects.
             imm_select = IIMM;
             if (instr.itype.rd == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpWrite;
-            else instr_dec_o.csr_op = schnizo_pkg::CsrOpSwap;
+            else begin instr_dec_o.csr_op = schnizo_pkg::CsrOpSwap; end
           end
           3'b010: begin
             // CSRRS: atomically Read and set Bits in the CSR based on rs1. Write to rd.
             //        If rs1 = x0, then do not write to CSR, just read.
             imm_select = IIMM;
             if (instr.itype.rs1 == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpRead;
-            else instr_dec_o.csr_op = schnizo_pkg::CsrOpSet;
+            else begin instr_dec_o.csr_op = schnizo_pkg::CsrOpSet; end
           end
           3'b011: begin
             // CSRRC: atomically Read and clear Bits in the CSR based on rs1. Write to rd.
             //        If rs1 = x0, then do not write to CSR, just read.
             imm_select = IIMM;
             if (instr.itype.rs1 == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpRead;
-            else instr_dec_o.csr_op = schnizo_pkg::CsrOpClear;
+            else begin instr_dec_o.csr_op = schnizo_pkg::CsrOpClear; end
           end
           3'b101: begin
             // CSRRWI: atomically read the CSR, write the immediate to the CSR,
@@ -812,7 +827,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             instr_dec_o.use_rs1addr_as_op_a = 1'b1;
             instr_dec_o.use_rs1 = 1'b1;
             if (instr.itype.rd == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpWrite;
-            else instr_dec_o.csr_op = schnizo_pkg::CsrOpSwap;
+            else begin instr_dec_o.csr_op = schnizo_pkg::CsrOpSwap; end
           end
           3'b110: begin
             // CSRRSI: atomically read the CSR, set bits based on immediate (rs1 address),
@@ -822,7 +837,7 @@ module schnizo_decoder import schnizo_pkg::*; #(
             instr_dec_o.use_rs1addr_as_op_a = 1'b1;
             instr_dec_o.use_rs1 = 1'b1;
             if (instr.itype.rs1 == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpRead;
-            else instr_dec_o.csr_op = schnizo_pkg::CsrOpSet;
+            else begin instr_dec_o.csr_op = schnizo_pkg::CsrOpSet; end
           end
           3'b111: begin
             // CSRRCI: autmically read the CSR, clear bits based on immediate (rs1 address),
@@ -832,72 +847,141 @@ module schnizo_decoder import schnizo_pkg::*; #(
             instr_dec_o.use_rs1addr_as_op_a = 1'b1;
             instr_dec_o.use_rs1 = 1'b1;
             if (instr.itype.rs1 == '0) instr_dec_o.csr_op = schnizo_pkg::CsrOpRead;
-            else instr_dec_o.csr_op = schnizo_pkg::CsrOpClear;
+            else begin instr_dec_o.csr_op = schnizo_pkg::CsrOpClear; end
           end
           default: illegal_instr = 1'b1;
         endcase
       end
-      // --------------------------------
-      // DMA & SSR instructions
-      // --------------------------------
       OpcodeCustom1: begin
-        if (Xdma) begin
-          unique case (instr.rtype.funct3)
-            3'b000: begin // DMA instructions
-              instr_dec_o.fu  = schnizo_pkg::DMA;
-              instr_dec_o.rd  = instr.rtype.rd;
-              instr_dec_o.rs1 = instr.rtype.rs1;
-              instr_dec_o.use_rs1 = 1'b1;
-              instr_dec_o.rs2 = instr.rtype.rs2;
-              instr_dec_o.use_rs2 = 1'b1;
-              // Check fixed bits
-              unique case (instr.rtype.funct7)
-                7'b0000000,       // DMSRC
-                7'b0000001,       // DMDST
-                7'b0000110: begin // DMSTR
-                  if (instr.rtype.rd != '0) illegal_instr = 1'b1;
-                end
-                7'b0000111: begin // DMREP
-                  if (instr.rtype.rd != '0) illegal_instr = 1'b1;
-                  if (instr.rtype.rs2 != '0) illegal_instr = 1'b1;
-                end
-                7'b0000010,   // DMCPYI
-                7'b0000011: ; // DMCPY - no additional check required
-                7'b0000100,       // DMSTATI
-                7'b0000101: begin // DMSTAT
-                  if (instr.rtype.rs1 != '0) illegal_instr = 1'b1;
-                end
-                default: illegal_instr = 1'b1;
-              endcase
-            end
-            3'b001,
-            3'b010: begin // SSR instructions
-              // The Schnizo does not feature SSRs
-              illegal_instr = 1'b1;
-            end
-            default: illegal_instr = 1'b1;
-          endcase
+        if (instr.rtype.funct3 == 3'b011) begin
+          // --------------------------------
+          // DMA & SSR instructions
+          // --------------------------------
+          if (Xdma) begin
+            unique case (instr.rtype.funct3)
+              3'b011: begin // DMA instructions
+                instr_dec_o.fu  = schnizo_pkg::DMA;
+                instr_dec_o.rd  = instr.rtype.rd;
+                instr_dec_o.rs1 = instr.rtype.rs1;
+                instr_dec_o.use_rs1 = 1'b1;
+                instr_dec_o.rs2 = instr.rtype.rs2;
+                instr_dec_o.use_rs2 = 1'b1;
+                // Check fixed bits
+                unique case (instr.rtype.funct7)
+                  7'b0000000,       // DMSRC
+                  7'b0000001,       // DMDST
+                  7'b0000110: begin // DMSTR
+                    if (instr.rtype.rd != '0) illegal_instr = 1'b1;
+                  end
+                  7'b0000111: begin // DMREP
+                    if (instr.rtype.rd != '0) illegal_instr = 1'b1;
+                    if (instr.rtype.rs2 != '0) illegal_instr = 1'b1;
+                  end
+                  7'b0000010,   // DMCPYI
+                  7'b0000011: ; // DMCPY - no additional check required
+                  7'b0000100,       // DMSTATI
+                  7'b0000101: begin // DMSTAT
+                    if (instr.rtype.rs1 != '0) illegal_instr = 1'b1;
+                  end
+                  default: illegal_instr = 1'b1;
+                endcase
+              end
+              3'b001,
+              3'b010: begin // SSR instructions
+                // The Schnizo does not feature SSRs
+                illegal_instr = 1'b1;
+              end
+              default: illegal_instr = 1'b1;
+            endcase
+          end else begin
+            illegal_instr = 1'b1;
+          end
+
         end else begin
-          illegal_instr = 1'b1;
+          // ---------------------------------
+          // Post-Increment Store Instructions
+          // ---------------------------------
+          if (PostIncrement) begin
+            unique case (instr.rpitype.funct3)
+              3'b110: begin // This is p.sw, but we use it as p.fsd
+                // store data=rs2 at add address=rs1
+                // Do rs1 = rs1 + rs3
+                instr_dec_o.fu = schnizo_pkg::ALU_LSU_STORE;
+                instr_dec_o.alu_op = schnizo_pkg::AluOpAdd;
+                instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpStore;
+                instr_dec_o.lsu_size = lsu_size_e'(2'b11);  // double
+
+                // Inputs & Outputs
+                // We re-shuffle these accordingly inside the ALU_LSU FU
+                instr_dec_o.rs1 = instr.rpitype.rs1; // Base
+                instr_dec_o.use_rs1 = 1'b1;
+                instr_dec_o.rs2 = instr.rpitype.rs3; // Offset. We move rs3 to rs2, since rs2 is float and needs to be loaded through immediate
+                instr_dec_o.use_rs2 = 1'b1;
+                imm_select = RS2_TO_RS3;              // Source
+                instr_dec_o.rd  = instr.rpitype.rs1; // Base again
+              end
+              default: illegal_instr = 1'b1;
+            endcase
+          end else begin
+            illegal_instr = 1'b1;
+          end
         end
       end
-      // --------------------------------
-      // Frep extension instructions
-      // --------------------------------
       OpcodeCustom0: begin
-        if (Xfrep) begin
-          instr_dec_o.is_frep = 1'b1;
-          // TODO(colluca): why does this comment not violate the 100 character line-length limit?
-          // The parsed max_instr is actually -1 of the instructions we loop. This is to match the Snitch behaviour.
-          // When executing the loop we actually execute max_instr+1 instructions.
-          instr_dec_o.frep_bodysize = instr.freptype.max_instr;
-          instr_dec_o.frep_mode     = schnizo_pkg::frep_mode_e'(instr.freptype.frep_mode);
-          // The iterations are from a register specified by the max_iters field
-          instr_dec_o.rs1_is_fp = 1'b0;
-          instr_dec_o.rs1       = instr.freptype.max_iters_reg;
-          instr_dec_o.use_rs1   = 1'b1;
+        if (instr.rtype.funct3 == 3'b011) begin
+          // --------------------------------
+          // Frep extension instructions
+          // --------------------------------
+          if (Xfrep) begin
+            instr_dec_o.is_frep = 1'b1;
+            // TODO(colluca): why does this comment not violate the 100 character line-length limit?
+            // The parsed max_instr is actually -1 of the instructions we loop. This is to match the Snitch behaviour.
+            // When executing the loop we actually execute max_instr+1 instructions.
+            instr_dec_o.frep_bodysize = instr.freptype.max_instr;
+            instr_dec_o.frep_mode     = schnizo_pkg::frep_mode_e'(instr.freptype.frep_mode);
+            // The iterations are from a register specified by the max_iters field
+            instr_dec_o.rs1_is_fp = 1'b0;
+            instr_dec_o.rs1       = instr.freptype.max_iters_reg;
+            instr_dec_o.use_rs1   = 1'b1;
+          end else begin
+            illegal_instr = 1'b1;
+          end
+
         end else begin
-          illegal_instr = 1'b1;
+          // ---------------------------------
+          // Post-Increment Load Instructions
+          // ---------------------------------
+          if (PostIncrement) begin
+            unique case (instr.rpitype.funct3) // lio
+              3'b111: begin // This is p.lw, but we use it as p.fld
+                unique case (instr.rpitype.funct7)
+                  7'b001_0000: begin
+                    // store data=rs2 at add address=rs1
+                    // Do rs1 = rs1 + rs3
+                    instr_dec_o.fu = schnizo_pkg::ALU_LSU_LOAD;
+                    instr_dec_o.alu_op = schnizo_pkg::AluOpAdd;
+                    instr_dec_o.lsu_op = schnizo_pkg::LsuOpFpLoad;
+                    instr_dec_o.lsu_size = lsu_size_e'(2'b11);  // double
+
+                    // Inputs & Outputs
+                    // We re-shuffle these accordingly inside the ALU_LSU FU
+                    instr_dec_o.rs1 = instr.rpitype.rs1; // Base
+                    instr_dec_o.use_rs1 = 1'b1;
+                    instr_dec_o.rs2 = instr.rpitype.rs2; // Offset. We move rs3 to rs2, since rs2 is float and needs to be loaded through immediate
+                    instr_dec_o.use_rs2 = 1'b1;
+                    instr_dec_o.rd  = instr.rpitype.rs1; // base
+                    instr_dec_o.rd_is_fp = 1'b0;
+                    instr_dec_o.rd2  = instr.rpitype.rs3; // Dest
+                    instr_dec_o.rd2_is_fp = 1'b1;
+                    instr_dec_o.use_rd2 = 1'b1;
+                  end
+                endcase
+              end
+              default: illegal_instr = 1'b1;
+            endcase
+          end else begin
+            illegal_instr = 1'b1;
+          end
         end
       end
       // --------------------------------
@@ -1023,6 +1107,12 @@ module schnizo_decoder import schnizo_pkg::*; #(
       MUX_RD_RS3: begin
         // imm holds address of operand rs3 which is in rd field
         instr_dec_o.imm = {{XLEN - 5{1'b0}}, instr.rtype.rd};
+        instr_dec_o.use_imm_as_rs3 = 1'b1;
+      end
+      RS2_TO_RS3: begin
+        // imm holds address of operand rs3 which is in rs2 field
+        instr_dec_o.imm = {{XLEN - 5{1'b0}}, instr.rpitype.rs2};
+        instr_dec_o.use_imm_as_rs3 = 1'b1;
       end
       default: begin
         instr_dec_o.imm = {XLEN{1'b0}};

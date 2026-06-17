@@ -394,6 +394,7 @@ module schnizo_lsu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   assign data_req_o.q.addr = lsu_qaddr_i;
   assign data_req_o.q.amo  = lsu_qamo_i;
   assign data_req_o.q.size = lsu_qsize_i;
+  assign data_req_o.q.user = '0;
 
   // Generate byte enable mask.
   always_comb begin

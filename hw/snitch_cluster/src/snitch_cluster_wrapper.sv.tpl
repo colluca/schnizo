@@ -10,7 +10,7 @@ ${"{}'h{}".format(length or "", hex(x)[2:])}\
 
 <%def name="core_cfg(prop)">\
   % for c in cfg['cluster']['cores']:
-${c[prop]}${', ' if not loop.last else ''}\
+${int(c[prop])}${', ' if not loop.last else ''}\
   % endfor
 </%def>\
 
@@ -77,20 +77,27 @@ module ${cfg['cluster']['name']}_wrapper (
 
   localparam int unsigned NumAlus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alus')}};
   localparam int unsigned NumLsus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsus')}};
+  localparam int unsigned NumAluLsus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_lsus')}};
   localparam int unsigned NumFpus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpus')}};
   localparam int unsigned NumAluRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_slots')}};
   localparam int unsigned NumLsuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_slots')}};
+  localparam int unsigned NumAluLsuRsis [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_lsu_issue_slots')}};
+  localparam int unsigned NumAluLsuRsrs [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_lsu_result_slots')}};
   localparam int unsigned NumFpuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_slots')}};
   localparam int unsigned NumAluConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_constants')}};
   localparam int unsigned NumLsuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_constants')}};
+  localparam int unsigned NumAluLsuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_lsu_constants')}};
   localparam int unsigned NumFpuConstants [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_constants')}};
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
+  localparam int unsigned NumAluLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
   localparam int unsigned NumIntOutstandingLoads [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_loads')}};
   localparam int unsigned NumIntOutstandingMem [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_mem')}};
   localparam int unsigned NumSequencerInstr [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_instructions')}};
   localparam int unsigned NumSequencerLoops [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_loops')}};
+  localparam int unsigned En2ndAluLsuResPort [${cfg['cluster']['nr_cores']}] = '{${core_cfg('enable_2nd_alu_lsu_result_port')}};
+  localparam logic UseAluLsus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('use_alu_lsu')}};
 
   // Snitch cluster under test.
   snitch_cluster #(
@@ -153,6 +160,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .XF8ALT (${core_cfg_flat('xf8alt')}),
     .XFVEC (${core_cfg_flat('xfvec')}),
     .XFDOTP (${core_cfg_flat('xfdotp')}),
+    .PostIncrement (${core_cfg_flat('post_increment')}),
     .Xdma (${core_cfg_flat('xdma')}),
     .Xfrep (${core_cfg_flat('xfrep')}),
     .Xcopift (${core_cfg_flat('xcopift')}),
@@ -171,16 +179,23 @@ module ${cfg['cluster']['name']}_wrapper (
     .SnitchPMACfg (${cfg['cluster']['name']}_pkg::SnitchPMACfg),
     .NumAlus (NumAlus),
     .NumLsus (NumLsus),
+    .NumAluLsus (NumAluLsus),
     .NumFpus (NumFpus),
     .NumAluRss (NumAluRss),
     .NumLsuRss (NumLsuRss),
+    .NumAluLsuRsis (NumAluLsuRsis),
+    .NumAluLsuRsrs (NumAluLsuRsrs),
     .NumFpuRss (NumFpuRss),
     .NumAluConstants (NumAluConstants),
     .NumLsuConstants (NumLsuConstants),
+    .NumAluLsuConstants (NumAluLsuConstants),
     .NumFpuConstants (NumFpuConstants),
     .NumAluRspPorts (NumAluRspPorts),
     .NumLsuRspPorts (NumLsuRspPorts),
     .NumFpuRspPorts (NumFpuRspPorts),
+    .NumAluLsuRspPorts (NumAluLsuRspPorts),
+    .En2ndAluLsuResPort (En2ndAluLsuResPort),
+    .UseAluLsus (UseAluLsus),
     .NumIntOutstandingLoads (NumIntOutstandingLoads),
     .NumIntOutstandingMem (NumIntOutstandingMem),
     .NumSequencerInstr (NumSequencerInstr),

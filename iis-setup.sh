@@ -12,7 +12,13 @@ export SN_VCS_SEPP=vcs-2024.09
 export SN_VERILATOR_SEPP=$SN_OSEDA
 export SN_QUESTA_SEPP=questa-2025.3
 export SN_YOSYS="$SN_OSEDA yosys"
-export SN_LLVM_BINROOT=/usr/scratch2/vulcano/colluca/tools/riscv32-snitch-llvm-almalinux8-15.0.0-snitch-0.5.0/bin
+
+# OLD VERSION
+# export SN_LLVM_BINROOT=/usr/scratch2/vulcano/colluca/tools/riscv32-snitch-llvm-almalinux8-15.0.0-snitch-0.5.0/bin
+
+# NEW VERSION with post increment and adapted XFREP and XDMA OpCodes
+export SN_LLVM_BINROOT=/usr/scratch2/vulcano/lnoussi/tools/riscv32-schnizo-llvm-funct3-011/bin
+export PATH=$SN_LLVM_BINROOT:$PATH
 
 # We need Make >4.3 for grouped targets
 export PATH=$PWD/util/bin:$PATH

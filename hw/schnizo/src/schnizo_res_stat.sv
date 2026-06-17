@@ -15,7 +15,8 @@
 //      information for the superscalar execution.
 // RF:  Register File
 module schnizo_res_stat import schnizo_pkg::*; #(
-  parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofRsis        = 4,
+  parameter int unsigned NofRsrs        = 4,
   parameter int unsigned NofConstants   = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
@@ -38,7 +39,9 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   parameter type         ext_res_req_t  = logic,
   parameter type         available_result_t = logic,
   parameter type         dest_mask_t    = logic,
-  parameter type         res_rsp_t      = logic
+  parameter type         res_rsp_t      = logic,
+  parameter int unsigned NofResPorts     = 1,
+  parameter bit          HasTwoDests     = 0
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -65,7 +68,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   input  logic      disp_req_valid_i,
   output logic      disp_req_ready_o,
   input  logic      instr_exec_commit_i,
-  output disp_rsp_t disp_rsp_o,
+  output disp_rsp_t [HasTwoDests:0] disp_rsp_o,
 
   // The issued instruction - to FU
   output issue_req_t issue_req_o,
@@ -74,20 +77,20 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   output logic       instr_exec_commit_o,
 
   // Result from FU
-  input  result_t     result_i,
-  input  result_tag_t result_tag_i,
-  input  logic        result_valid_i,
-  output logic        result_ready_o,
+  input  result_t     [NofResPorts-1:0] result_i,
+  input  result_tag_t [NofResPorts-1:0] result_tag_i,
+  input  logic        [NofResPorts-1:0] result_valid_i,
+  output logic        [NofResPorts-1:0] result_ready_o,
 
   // RF writeback
-  output result_t     rf_wb_result_o,
-  output result_tag_t rf_wb_tag_o,
-  output logic        rf_wb_valid_o,
-  input  logic        rf_wb_ready_i,
+  output result_t     [NofResPorts-1:0] rf_wb_result_o,
+  output result_tag_t [NofResPorts-1:0] rf_wb_tag_o,
+  output logic        [NofResPorts-1:0] rf_wb_valid_o,
+  input  logic        [NofResPorts-1:0] rf_wb_ready_i,
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
-  output available_result_t [NofRss-1:0] available_results_o,
+  output available_result_t [NofRsrs-1:0] available_results_o,
 
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
@@ -115,13 +118,18 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Parameters and type definitions //
   /////////////////////////////////////
 
-  // The RSS pointer / index vector width
-  localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
-  // We need to count from 0 to NofRss for the control logic -> +1 bit
-  localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
+  // The RS Issue Slot pointer / index vector width
+  localparam integer unsigned NofRsisWidth    = cf_math_pkg::idx_width(NofRsis);
+  localparam integer unsigned NofRsrsWidth    = cf_math_pkg::idx_width(NofRsrs);
+  // We need to count from 0 to NofRsis for the control logic -> +1 bit
+  localparam integer unsigned NofRsisWidthExt = cf_math_pkg::idx_width(NofRsis+1);
+  localparam integer unsigned NofRsrsWidthExt = cf_math_pkg::idx_width(NofRsrs+1);
 
-  typedef logic [NofRssWidth-1:0] rss_idx_t;
-  typedef logic [NofRssWidthExt-1:0] rss_cnt_t;
+  typedef logic [NofRsisWidth-1:0] rsis_idx_t;
+  typedef logic [NofRsisWidthExt-1:0] rsis_cnt_t;
+
+  typedef logic [NofRsrsWidth-1:0] rsrs_idx_t;
+  typedef logic [NofRsrsWidthExt-1:0] rsrs_cnt_t;
 
   localparam integer unsigned ConsumerCountWidth = cf_math_pkg::idx_width(ConsumerCount);
 
@@ -161,7 +169,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // The most recent result.
     rss_result_t                    result;
     // TODO(colluca): it should be possible to get rid of this
-    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
+    // Some instructions (e.g. stores) don't have a destination register,
+    // i.e. never generate a result.
     // Thus, we immediately retire the instruction when it's issued.
     logic                           no_dest;
     // The register ID where this instruction does commit into during regular execution.
@@ -184,6 +193,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // The instruction itself. Partially decoded. Depends on FU type.
     // TODO: Can we rely on the synthesis optimization to remove unused signals even if they are
     //       registered here?
+    fu_t                            fu;
     alu_op_e                        alu_op;
     lsu_op_e                        lsu_op;
     fpu_op_e                        fpu_op;
@@ -195,7 +205,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     // “waiting instruction” (not all operands are ready) in the RSS belongs to. It is toggled
     // each time the instruction is issued.
     logic                           instruction_iter;
-    // Some instructions (e.g. stores) don't have a destination register, i.e. never generate a result.
+    // Some instructions (e.g. stores) don't have a destination register,
+    // i.e. never generate a result.
     // Thus, we immediately retire the instruction when it's issued.
     logic                           no_dest;
     // All operands
@@ -275,34 +286,70 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   logic issue_hs;
   assign issue_hs = issue_req_valid_o && issue_req_ready_i;
 
+  logic rsrs_alloc_hs;
+  assign rsrs_alloc_hs = disp_hs;
+
+  logic [1:0] num_rsrs_allocs;
+  assign num_rsrs_allocs = rsrs_alloc_hs ? (disp_req_i_q.has_two_dests ? 2'b10 : 2'b01) : 2'b00;
+
+  logic expect_result_hs;
+  assign expect_result_hs = issue_hs;
+
+  // TODO(lnoussi): put has two dests into issue req or fu_data
+  logic [1:0] num_expected_results;
+  assign num_expected_results = expect_result_hs ? (
+                                (issue_req_o.fu_data.fu == schnizo_pkg::ALU_LSU_LOAD)
+                                ? 2'b10 : 2'b01) : 2'b00;
+
   logic result_hs;
-  assign result_hs = result_valid_i && result_ready_o;
+  assign result_hs = |(result_valid_i & result_ready_o);
+
+  logic [1:0] num_result_hs;
+  if (NofResPorts == 1) begin: gen_one_result_hs
+    assign num_result_hs = result_hs;
+  end else begin: gen_num_result_hs
+    always_comb begin
+      unique case (result_valid_i & result_ready_o)
+        2'b00: num_result_hs = 2'b00;
+        2'b01,
+        2'b10: num_result_hs = 2'b01;
+        2'b11: num_result_hs = 2'b10;
+      endcase
+    end
+  end
 
   logic retire_at_issue;
 
   // Dispatch and result trip counter outputs
-  rss_cnt_t disp_cnt;
-  rss_idx_t disp_idx, issue_idx, result_idx;
+  rsis_cnt_t disp_cnt;
+  rsrs_cnt_t rsrs_cnt;
+  rsis_idx_t disp_idx, issue_idx;
+  rsrs_idx_t allocated_rsrs_idx, assigned_rsrs_idx, result_idx;
   logic     last_disp;
   logic     trip_issue;
-  logic     last_result, trip_result;
+  logic     trip_result;
 
   logic [MaxIterationsW-1:0] lep_issue_iter_count;
   logic [MaxIterationsW-1:0] lep_result_iter_count;
 
   // The number of RSSs allocated during LCP1 is captured for use in LCP2 and LEP.
   // We snapshot the dispatch counter on the LCP1->LCP2 transition.
-  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
-  assign num_allocated_rss_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rss_q;
-  `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
+  rsis_cnt_t num_allocated_rsis_d, num_allocated_rsis_q;
+  assign num_allocated_rsis_d = goto_lcp2_i ? disp_cnt + disp_hs : num_allocated_rsis_q;
+  `FFAR(num_allocated_rsis_q, num_allocated_rsis_d, '0, clk_i, rst_i);
 
-  assign rs_full_o = disp_cnt == NofRss;
+  // Number of allocated Reservation-Station-Result-Slots (RSRS)
+  rsrs_cnt_t num_allocated_rsrs_d, num_allocated_rsrs_q;
+  assign num_allocated_rsrs_d = goto_lcp2_i ? rsrs_cnt + num_rsrs_allocs : num_allocated_rsrs_q;
+  `FFAR(num_allocated_rsrs_q, num_allocated_rsrs_d, '0, clk_i, rst_i);
+
+  assign rs_full_o = (disp_cnt == NofRsis) | (rsrs_cnt == NofRsrs);
 
   logic last_result_iter;
   assign last_result_iter = lep_result_iter_count == 1;
 
   logic any_instr_captured;
-  assign any_instr_captured = (num_allocated_rss_q != '0);
+  assign any_instr_captured = (num_allocated_rsis_q != '0);
 
   // ---------------------------
   // Finish detection
@@ -318,7 +365,7 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // the instruction may already be retiring, so to not waste a cycle we separately
   // include this condition (result_hs).
   assign lcp_finished = !disp_req_valid_i && (!fu_busy_i && !disp_req_valid_i_q ||
-                        ((disp_idx == result_idx) && result_hs));
+                        ((allocated_rsrs_idx == result_idx) && result_hs));
 
   // In LEP the RS has finished if:
   // - All instructions for all iterations have been dispatched
@@ -392,7 +439,8 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   //////////////////////////////
 
   schnizo_res_stat_slots #(
-    .NofRss          (NofRss),
+    .NofRsis         (NofRsis),
+    .NofRsrs         (NofRsrs),
     .NofConstants    (NofConstants),
     .NofOperands     (NofOperands),
     .NofResRspIfs    (NofResRspIfs),
@@ -415,15 +463,19 @@ module schnizo_res_stat import schnizo_pkg::*; #(
     .ext_res_req_t   (ext_res_req_t),
     .available_result_t   (available_result_t),
     .dest_mask_t     (dest_mask_t),
-    .res_rsp_t       (res_rsp_t)
+    .res_rsp_t       (res_rsp_t),
+    .NofResPorts     (NofResPorts),
+    .HasTwoDests     (HasTwoDests)
   ) i_res_stat_slots (
     .clk_i,
     .rst_i,
     .producer_id_i     (producer_id_i),
     .restart_i         (restart_i),
     .loop_state_i      (loop_state_i),
-    .disp_idx_i        (disp_idx),
-    .issue_idx_i       (issue_idx),
+    .disp_idx_i        (disp_idx),  // Idx for initial dispatch requests from outside
+    .allocated_rsrs_idx_i (allocated_rsrs_idx),  // Idx for allocating result slots
+    .assigned_rsrs_idx_i  (assigned_rsrs_idx),   // Idx for assigning result slots to issue requests
+    .issue_idx_i       (issue_idx),   // Index to issue instruction from issue slot
     .last_issue_iter_i (lep_issue_iter_count == 1),
     .last_result_iter_i(last_result_iter),
     .retire_at_issue_o (retire_at_issue),
@@ -462,56 +514,113 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Counters //
   //////////////
 
-  // This counts the number of dispatched instructions, which can be as many as NofRss.
+  // This counts the number of dispatched instructions, which can be as many as NofRsis.
   // The dispatch index on the other hand must point to a valid reservation station,
-  // so it should trip when it reaches NofRss-1.
+  // so it should trip when it reaches NofRsis-1.
   trip_counter #(
-    .WIDTH(NofRssWidthExt)
+    .WIDTH(NofRsisWidthExt)
   ) i_disp_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (disp_hs),
-    .delta_i (rss_cnt_t'(1)),
-    .bound_i (rss_cnt_t'((loop_state_i == LoopLcp1) ? NofRss : (num_allocated_rss_q - 1))),
+    .delta_i (rsis_cnt_t'(1)),
+    .bound_i (rsis_cnt_t'((loop_state_i == LoopLcp1) ? NofRsis : (num_allocated_rsis_q - 1))),
     .q_o     (disp_cnt),
     .last_o  (last_disp),
     .trip_o  ()
   );
-  assign disp_idx = (disp_cnt == NofRss) ? '0 : disp_cnt;
+  assign disp_idx = (disp_cnt == NofRsis) ? '0 : disp_cnt;
+
+  // This counter counts the number of allocated result slots once.
+  // This can be as many as NofRsrs.
+  trip_counter #(
+    .WIDTH($bits(rsrs_cnt_t))
+  ) i_rsrs_counter (
+    .clk_i,
+    .rst_ni  (!rst_i),
+    .clear_i (goto_lcp2_i || restart_i),
+    .en_i    (rsrs_alloc_hs && (loop_state_i inside {LoopLcp1, LoopLcp2})),
+    .delta_i (rsrs_cnt_t'(num_rsrs_allocs)),
+    .bound_i (rsrs_cnt_t'(NofRsrs)),
+    .q_o     (rsrs_cnt),
+    .last_o  (),
+    .trip_o  ()
+  );
+  assign allocated_rsrs_idx = (rsrs_cnt == NofRsrs) ? '0 : rsrs_cnt;
 
   trip_counter #(
-    .WIDTH(NofRssWidth)
+    .WIDTH(NofRsisWidth)
   ) i_issue_counter (
     .clk_i,
     .rst_ni  (!rst_i),
     .clear_i (goto_lcp2_i || restart_i),
     .en_i    (issue_hs),
-    .delta_i (rss_idx_t'(1)),
-    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
+    .delta_i (rsis_idx_t'(1)),
+    .bound_i (rsis_idx_t'((loop_state_i == LoopLcp1) ? (NofRsis - 1) : (num_allocated_rsis_q - 1))),
     .q_o     (issue_idx),
     .last_o  (),
     .trip_o  (trip_issue)
   );
+
+
+  // Assigned RSRS idx counter.
+  // This counter is used to assign result slots to an issue request.
+  // No normal trip counter, since we check bound with next value instead of current value.
+  // This is necessary, since we can't assign the bound to max-1, since we might
+  // increment the counter by 2 as well.
+  rsrs_cnt_t assign_rsrs_next;
+  rsrs_cnt_t assign_rsrs_bound;
+  logic assigned_rsrs_idx_reset;
+
+  assign assign_rsrs_bound = rsrs_cnt_t'((loop_state_i == LoopLcp1)
+                             ? NofRsrs : num_allocated_rsrs_q);
+  assign assign_rsrs_next  = rsrs_cnt_t'(assigned_rsrs_idx) + rsrs_cnt_t'(num_expected_results);
+  assign assigned_rsrs_idx_reset = goto_lcp2_i ||
+                                   restart_i ||
+                                   (assign_rsrs_next == assign_rsrs_bound);
+
+  always_ff @(posedge clk_i or posedge rst_i) begin
+    if (rst_i) begin
+      assigned_rsrs_idx <= '0;
+    end else if (assigned_rsrs_idx_reset) begin
+      assigned_rsrs_idx <= '0;
+    end else begin
+      assigned_rsrs_idx <= assign_rsrs_next[NofRsrsWidth-1:0];
+    end
+  end
 
   // An instruction retires as soon as the result is handshaked.
   // Instructions which don't produce a result retire as soon as they are issued.
   // TODO(colluca): it would probably be better to make this uniform at the FU level,
   // i.e. to enforce that every FU always produces a response, even if it doesn't carry a result.
   // This would eliminate the need to increment by 2 in some cycles.
-  trip_counter #(
-    .WIDTH(NofRssWidth)
-  ) i_result_counter (
-    .clk_i,
-    .rst_ni  (!rst_i),
-    .clear_i (goto_lcp2_i || restart_i),
-    .en_i    (retire_at_issue || result_hs),
-    .delta_i (rss_idx_t'(retire_at_issue + result_hs)),
-    .bound_i (rss_idx_t'((loop_state_i == LoopLcp1) ? (NofRss - 1) : (num_allocated_rss_q - 1))),
-    .q_o     (result_idx),
-    .last_o  (last_result),
-    .trip_o  (trip_result)
-  );
+  rsrs_cnt_t result_idx_next;
+  rsrs_cnt_t result_idx_bound;
+  logic result_counter_enable, result_counter_reset;
+
+  assign result_idx_next  = rsrs_cnt_t'(result_idx) + rsrs_cnt_t'(retire_at_issue + num_result_hs);
+  assign result_idx_bound = rsrs_cnt_t'((loop_state_i == LoopLcp1) ?
+                            NofRsrs : num_allocated_rsrs_q);
+  assign result_counter_enable = (retire_at_issue || result_hs);
+  assign result_counter_reset = (goto_lcp2_i || restart_i);
+
+  always_ff @(posedge clk_i or posedge rst_i) begin
+    if (rst_i) begin
+      result_idx <= '0;
+    end else if (result_counter_reset) begin
+      result_idx <= '0;
+    end else if (result_counter_enable) begin
+      if (result_idx_next == result_idx_bound) begin
+        result_idx <= '0;
+      end else begin
+        result_idx <= result_idx_next[NofRsrsWidth-1:0];
+      end
+    end else begin
+      result_idx <= result_idx;
+    end
+  end
+  assign trip_result = (result_idx_next == result_idx_bound) && result_counter_enable;
 
   counter #(
     .WIDTH          (MaxIterationsW),
@@ -547,35 +656,37 @@ module schnizo_res_stat import schnizo_pkg::*; #(
   // Assertions //
   ////////////////
 
-  rss_cnt_t disp_in_flight_q, disp_in_flight_d;
+  rsis_cnt_t disp_in_flight_q, disp_in_flight_d;
   // TODO(colluca): the size of this counter depends solely on the FU's maximum number of
   //                outstanding instructions.
   //                We should feed this parameter from outside and also use it to test that
   //                issue_in_flight counter never exceeds this value.
-  logic [31:0] issue_in_flight_q, issue_in_flight_d;
+  logic [7:0] pending_results_q, pending_results_d;
 
   `FFAR(disp_in_flight_q, disp_in_flight_d, '0, clk_i, rst_i)
-  `FFAR(issue_in_flight_q, issue_in_flight_d, '0, clk_i, rst_i)
+  `FFAR(pending_results_q, pending_results_d, '0, clk_i, rst_i)
 
   always_comb begin
     disp_in_flight_d = disp_in_flight_q;
-    issue_in_flight_d = issue_in_flight_q;
+    pending_results_d = pending_results_q;
 
     if (disp_hs) begin
       disp_in_flight_d += 1;
     end
     if (issue_hs) begin
       disp_in_flight_d -= 1;
-      issue_in_flight_d += 1;
+      // No has_two_dests in issue_req, but statement only used for assertion
+      pending_results_d += (issue_req_o.fu_data.fu == schnizo_pkg::ALU_LSU_LOAD) ? 2'b10 : 2'b01;
     end
     if (retire_at_issue || result_hs) begin
-      issue_in_flight_d -= (retire_at_issue + result_hs);
+      pending_results_d -= (retire_at_issue + num_result_hs);
     end
   end
 
   `ASSERT(DispatchBeforeIssue, issue_hs |-> (disp_hs || (disp_in_flight_q >= 1)), clk_i, rst_i)
-  `ASSERT(MaxDispatchIssueDistanceOne, disp_hs |-> (issue_hs || (disp_in_flight_q < 1)), clk_i, rst_i)
+  `ASSERT(MaxDispatchIssueDistanceOne,
+          disp_hs |-> (issue_hs || (disp_in_flight_q < 1)), clk_i, rst_i)
   `ASSERT(RetireAtIssueImpliesIssue, retire_at_issue |-> issue_hs, clk_i, rst_i)
-  `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (issue_in_flight_q >= 1)), clk_i, rst_i)
+  `ASSERT(IssueBeforeResult, result_hs |-> (issue_hs || (pending_results_q >= 1)), clk_i, rst_i)
 
 endmodule

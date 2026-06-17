@@ -27,9 +27,9 @@ def extract_fu_details(fu_string):
     # Return the fu_type, fu_id and slot_id
 
     # Define regex patterns
-    fu_type_pattern = r"^[A-Za-z]+$"
-    fu_id_pattern = r"^([A-Za-z]+)(\d+)$"
-    fu_slot_pattern = r"^([A-Za-z]+)(\d+)\.(\d+)$"
+    fu_type_pattern = r"^[A-Za-z_]+$"
+    fu_id_pattern = r"^([A-Za-z_]+)(\d+)$"
+    fu_slot_pattern = r"^([A-Za-z_]+)(\d+)\.(\d+)$"
 
     fu_type, fu_id, slot_id = None, None, None
 
@@ -162,7 +162,7 @@ class PerfettoInstructionTrace(PerfettoTrace):
         for cycle count synchronization.
         """
         super().__init__()
-        self.outstanding_insns = defaultdict(deque)
+        self.outstanding_insns = defaultdict(lambda: defaultdict(deque))
         self.ipc = 0
         self.ipc_time = None
 
@@ -184,7 +184,7 @@ class PerfettoInstructionTrace(PerfettoTrace):
             self.ipc_time = timestamp
             self.ipc = 1
 
-    def start_insn(self, fu, name, timestamp, annotations={}):
+    def start_insn(self, fu, name, timestamp, annotations={}, tag=""):
         """Record the start of an instruction execution.
 
         Creates a slice begin event to mark the start of instruction execution
@@ -211,7 +211,7 @@ class PerfettoInstructionTrace(PerfettoTrace):
 
         # We must keep track of the uuid of the event we started to end it later. We assign it to a
         # dict with a deque indexed by the hierarchical track uuid.
-        self.outstanding_insns[fu_string].appendleft(insn_uuid)
+        self.outstanding_insns[fu_string][tag].appendleft(insn_uuid)
 
         # Create slice begin event
         annotations['slot_id'] = slot_id
@@ -219,8 +219,9 @@ class PerfettoInstructionTrace(PerfettoTrace):
 
         # Update IPC
         self.update_ipc(timestamp)
+        return insn_uuid
 
-    def end_insn(self, fu, timestamp):
+    def end_insn(self, fu, timestamp, insn_uuid=None, tag=""):
         """Record the end of an instruction execution.
 
         Creates a slice end event to mark the completion of instruction execution
@@ -232,5 +233,8 @@ class PerfettoInstructionTrace(PerfettoTrace):
             timestamp: The timestamp when the instruction ends in nanoseconds.
         """
         fu_string, _ = extract_fu_details(fu)
-        insn_uuid = self.outstanding_insns[fu_string].pop()
+        if insn_uuid is None:
+            insn_uuid = self.outstanding_insns[fu_string][tag].pop()
+        else:
+            self.outstanding_insns[fu_string][tag].remove(insn_uuid)
         self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)

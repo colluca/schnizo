@@ -7,10 +7,10 @@
 // TODO(colluca): generalize and upstream to tech cells as a module that can switch
 // between memory or FFs
 module schnizo_res_stat_issue_memory #(
-  parameter  int unsigned NofRss          = 4,
+  parameter  int unsigned NofRsis         = 4,
   parameter  bit          UseSram         = 1'b0,
   parameter  type         rs_slot_issue_t = logic,
-  localparam type         addr_t          = logic [cf_math_pkg::idx_width(NofRss)-1:0]
+  localparam type         addr_t          = logic [cf_math_pkg::idx_width(NofRsis)-1:0]
 ) (
   input  logic clk_i,
   input  logic rst_ni,
@@ -41,7 +41,7 @@ module schnizo_res_stat_issue_memory #(
     // Port 1: read
     // Port 0: write
     tc_sram_impl #(
-      .NumWords (NofRss),
+      .NumWords (NofRsis),
       .DataWidth($bits(rs_slot_issue_t)),
       .ByteWidth(8),
       .NumPorts (2),
@@ -64,7 +64,7 @@ module schnizo_res_stat_issue_memory #(
 
   end else begin : gen_ffs
 
-    rs_slot_issue_t [NofRss-1:0] slot_qs, slot_ds;
+    rs_slot_issue_t [NofRsis-1:0] slot_qs, slot_ds;
 
     // Read port
     assign rdata_o = slot_qs[raddr_i];
@@ -76,7 +76,7 @@ module schnizo_res_stat_issue_memory #(
     end
 
     // Instantiate FF-based slots
-    for (genvar rss = 0; rss < NofRss; rss++) begin : gen_slot
+    for (genvar rss = 0; rss < NofRsis; rss++) begin : gen_slot
       `FF(slot_qs[rss], slot_ds[rss], '0);
     end
 

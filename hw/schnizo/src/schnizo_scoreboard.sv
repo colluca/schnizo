@@ -63,6 +63,14 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
       end else begin
         sbi_d[instr_dec_i.rd] = 1'b1;
       end
+
+      if (instr_dec_i.use_rd2) begin
+        if (instr_dec_i.rd2_is_fp) begin
+          sbf_d[instr_dec_i.rd2] = 1'b1;
+        end else begin
+          sbi_d[instr_dec_i.rd2] = 1'b1;
+        end
+      end
     end
 
     // Remove the reservation when a write back happens. This also catches the case of instructions
@@ -111,6 +119,7 @@ module schnizo_scoreboard import schnizo_pkg::*; #(
   logic dest_has_waw;
 
   assign dest_has_waw = instr_dec_i.rd_is_fp  ? sbf_q[instr_dec_i.rd]  : sbi_q[instr_dec_i.rd];
-  assign destination_ready_o = !dest_has_waw;
+  assign dest_has_waw_on_rd2 = instr_dec_i.use_rd2 ? (instr_dec_i.rd2_is_fp  ? sbf_q[instr_dec_i.rd2]  : sbi_q[instr_dec_i.rd2]) : '0;
+  assign destination_ready_o = !(dest_has_waw | dest_has_waw_on_rd2);
 
 endmodule

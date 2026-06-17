@@ -16,7 +16,10 @@ class AxpyDataGen(du.DataGen):
     # the occurrence of these splits the data should be aligned to 4KB
     BURST_ALIGNMENT = 4096
     # Function pointers to alternative implementations
-    FUNCPTRS = ["axpy_naive", "axpy_fma", "axpy_opt", "axpy_schnizo", "axpy_baseline"]
+    FUNCPTRS = ["axpy_naive", "axpy_fma", "axpy_opt", "axpy_schnizo",
+                "axpy_baseline", "axpy_unrolled_schnizo",
+                "axpy_peeled_schnizo", "axpy_peeled_10x_schnizo",
+                "axpy_post_increment_schnizo"]
 
     def golden_model(self, a, x, y):
         return a*x + y

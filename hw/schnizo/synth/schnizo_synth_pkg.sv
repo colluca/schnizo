@@ -31,7 +31,7 @@ package schnizo_synth_pkg;
     addr_t                 data_argc;
   } acc_req_t;
 
-    typedef struct packed {
+  typedef struct packed {
     logic [4:0] id;
     logic       error;
     data_t      data;
@@ -82,8 +82,11 @@ package schnizo_synth_pkg;
     rmt_entry_t              producer_op_a;
     rmt_entry_t              producer_op_b;
     rmt_entry_t              producer_op_c;
-    rmt_entry_t              current_producer_dest;
+    logic                    has_two_dests;
+    rmt_entry_t              current_dest_producer;
+    rmt_entry_t              current_dest2_producer;
     schnizo_pkg::instr_tag_t tag;
+    schnizo_pkg::instr_tag_t tag2;
   } disp_req_t;
 
   typedef struct packed {
@@ -95,12 +98,22 @@ package schnizo_synth_pkg;
     schnizo_pkg::instr_tag_t tag;
   } issue_req_t;
 
+  typedef struct packed {
+    fu_data_t                fu_data;
+    schnizo_pkg::instr_tag_t tag;
+    schnizo_pkg::instr_tag_t tag2;
+  } issue_req_two_tags_t;
+
   typedef logic [XLEN-1:0] alu_res_val_t;
 
   typedef struct packed {
     alu_res_val_t result;
     logic         compare_res;
   } alu_result_t;
+
+  localparam int RES_VAL_MAX_W = ($bits(data_t) > $bits(alu_res_val_t)) ?
+                                  $bits(data_t) : $bits(alu_res_val_t);
+  typedef logic [RES_VAL_MAX_W-1:0] alu_lsu_result_t;
 
   typedef struct packed {
     logic valid;

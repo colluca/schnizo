@@ -108,6 +108,8 @@ module snitch_cluster
   parameter bit [NrCores-1:0] XFVEC         = '0,
   /// Enable DOTP support.
   parameter bit [NrCores-1:0] XFDOTP        = '0,
+  /// Per-core enabling of the custom `PostIncrement` ISA extensions.
+  parameter bit [NrCores-1:0] PostIncrement = '0,
   /// Per-core enabling of the custom `Xdma` ISA extensions.
   parameter bit [NrCores-1:0] Xdma          = '0,
   /// Per-core enabling of the custom `Xfrep` ISA extensions.
@@ -147,23 +149,36 @@ module snitch_cluster
   parameter int unsigned NumAlus [NrCores] = '{default: 1},
   /// Per-core number of LSUs
   parameter int unsigned NumLsus [NrCores] = '{default: 1},
+  /// Per-core number of combined ALU_LSUs
+  parameter int unsigned NumAluLsus [NrCores] = '{default: 1},
   /// Per-core number of FPUs
   parameter int unsigned NumFpus [NrCores] = '{default: 0},
   /// Per-core number of Slots per ALU
   parameter int unsigned NumAluRss [NrCores] = '{default: 0},
   /// Per-core number of Slots per LSU
   parameter int unsigned NumLsuRss [NrCores] = '{default: 0},
+  /// Per-core number of Issue Slots per combined ALU_LSU
+  parameter int unsigned NumAluLsuRsis [NrCores] = '{default: 0},
+  /// Per-core number of Result Slots per combined ALU_LSU
+  parameter int unsigned NumAluLsuRsrs [NrCores] = '{default: 0},
   /// Per-core number of Slots per FPU
   parameter int unsigned NumFpuRss [NrCores] = '{default: 0},
   /// Per-core number of constants per ALU
   parameter int unsigned NumAluConstants [NrCores] = '{default: 0},
   /// Per-core number of constants per LSU
   parameter int unsigned NumLsuConstants [NrCores] = '{default: 0},
+  /// Per-core number of constants per ALU_LSU
+  parameter int unsigned NumAluLsuConstants [NrCores] = '{default: 0},
   /// Per-core number of constants per FPU
   parameter int unsigned NumFpuConstants [NrCores] = '{default: 0},
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
+  parameter int unsigned NumAluLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
+  parameter bit          En2ndAluLsuResPort [NrCores] = '{default: 0},
+  /// Per-core if the core should use the combined ALU+LSU or not
+  /// TODO(lnoussi): Factor out this variable to allow simply allocating 0 normal ALUs or LSUs
+  parameter logic UseAluLsus [NrCores] = '{default: 0},
   /// Per-core integer outstanding loads
   parameter int unsigned NumIntOutstandingLoads [NrCores] = '{default: 0},
   /// Per-core integer outstanding memory operations (load and stores)
@@ -377,7 +392,7 @@ module snitch_cluster
   localparam int unsigned DcaLaneDataWidth = NarrowDataWidth;
 
   function automatic int unsigned get_tcdm_ports(int unsigned core);
-    return NumLsus[core];
+    return NumLsus[core] + NumAluLsus[core];
   endfunction
 
   function automatic int unsigned get_tcdm_port_offs(int unsigned core_idx);
@@ -1174,21 +1189,29 @@ module snitch_cluster
       .XF8ALT (XF8ALT[i]),
       .XFVEC (XFVEC[i]),
       .XFDOTP (XFDOTP[i]),
+      .PostIncrement (PostIncrement[i]),
       .Xdma (Xdma[i]),
       .IsoCrossing (IsoCrossing),
       .Xfrep (Xfrep[i]),
       .NumAlus(NumAlus[i]),
       .NumLsus(NumLsus[i]),
+      .NumAluLsus(NumAluLsus[i]),
       .NumFpus(NumFpus[i]),
       .NumAluRss(NumAluRss[i]),
       .NumLsuRss(NumLsuRss[i]),
+      .NumAluLsuRsis(NumAluLsuRsis[i]),
+      .NumAluLsuRsrs(NumAluLsuRsrs[i]),
       .NumFpuRss(NumFpuRss[i]),
       .NumAluConstants(NumAluConstants[i]),
       .NumLsuConstants(NumLsuConstants[i]),
+      .NumAluLsuConstants(NumAluLsuConstants[i]),
       .NumFpuConstants(NumFpuConstants[i]),
       .NumAluRspPorts(NumAluRspPorts[i]),
       .NumLsuRspPorts(NumLsuRspPorts[i]),
+      .NumAluLsuRspPorts(NumAluLsuRspPorts[i]),
       .NumFpuRspPorts(NumFpuRspPorts[i]),
+      .En2ndAluLsuResPort(En2ndAluLsuResPort[i]),
+      .UseAluLsu(UseAluLsus[i]),
       // TODO(colluca): add Xpulpv2 to Schnizo
       // .Xpulppostmod (Xpulppostmod[i]),
       // .Xpulpabs (Xpulpabs[i]),

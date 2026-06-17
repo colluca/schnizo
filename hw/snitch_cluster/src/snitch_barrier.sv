@@ -18,19 +18,17 @@ module snitch_barrier #(
 
   logic [NrCores-1:0] arrival_d, arrival_q;
 
-  generate
-    for (genvar i = 0; i < NrCores; i++) begin : gen_arrival_bit
+  for (genvar i = 0; i < NrCores; i++) begin : gen_arrival_bit
 
-      `FF(arrival_q[i], arrival_d[i], 1'b0, clk_i, rst_ni)
+    `FF(arrival_q[i], arrival_d[i], 1'b0, clk_i, rst_ni)
 
-      always_comb begin
-        if (barrier_o) arrival_d[i] = 1'b0;
-        else if (barrier_i[i]) arrival_d[i] = 1'b1;
-        else arrival_d[i] = arrival_q[i];
-      end
-
+    always_comb begin
+      if (barrier_o) arrival_d[i] = 1'b0;
+      else if (barrier_i[i]) arrival_d[i] = 1'b1;
+      else arrival_d[i] = arrival_q[i];
     end
-  endgenerate
+
+  end
 
   assign barrier_o = &arrival_q;
 

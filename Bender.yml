@@ -27,7 +27,7 @@ dependencies:
   tech_cells_generic: { git: https://github.com/pulp-platform/tech_cells_generic.git, version:  0.2.13      }
   riscv-dbg:          { git: https://github.com/pulp-platform/riscv-dbg.git,          version:  0.8.1       }
   cluster_icache:     { git: https://github.com/pulp-platform/cluster_icache.git,     version:  0.3.0       }
-  idma:               { git: https://github.com/pulp-platform/iDMA.git,               version:  0.6.5       }
+  idma:               { git: https://github.com/LionelNoussi/iDMA.git,                rev:      funct3-011  }
 
 export_include_dirs:
   - hw/reqrsp_interface/include
@@ -174,6 +174,7 @@ sources:
       - hw/schnizo/src/schnizo_tracer_pkg.sv
       - hw/schnizo/src/schnizo_multiplier.sv
       - hw/schnizo/src/schnizo_alu.sv
+      - hw/schnizo/src/schnizo_alu_lsu.sv
       - hw/schnizo/src/schnizo_decoder.sv
       - hw/schnizo/src/schnizo_dispatcher.sv
       - hw/schnizo/src/schnizo_read_operands.sv
@@ -283,6 +284,9 @@ sources:
   - target: gf12
     files:
       - hw/schnizo/synth/schnizo_synth_pkg.sv
+      - hw/schnizo/synth/schnizo_alu_synth.sv
+      - hw/schnizo/synth/schnizo_lsu_synth.sv
+      - hw/schnizo/synth/schnizo_alu_lsu_synth.sv
       - hw/schnizo/synth/schnizo_res_stat_synth.sv
       - hw/schnizo/synth/schnizo_req_xbar_synth.sv
       - hw/schnizo/synth/schnizo_rsp_xbar_synth.sv

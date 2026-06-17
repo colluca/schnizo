@@ -31,3 +31,5 @@ gmon.out
 /tools/
 /build/
 /snitch.egg-info/
+
+/.vscode/

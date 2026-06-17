@@ -12,14 +12,17 @@
 // decoded instruction. If more than one FU of the same type is available, it further selects the
 // specific FU of that type to dispatch the instruction to.
 // It itself instantiates the RMT and updates it based on the dispatch information.
-module schnizo_dispatcher import schnizo_pkg::*; #(
+module schnizo_dispatcher import schnizo_pkg::*, cf_math_pkg::*; #(
   // Enable the superscalar feature
   parameter bit          EnableFrep  = 1,
   /// Size of both int and fp register file
   parameter int unsigned RegAddrSize = 5,
   parameter int unsigned NofAlus     = 1,
   parameter int unsigned NofLsus     = 1,
+  parameter int unsigned NofAluLsus  = 0,
   parameter int unsigned NofFpus     = 1,
+  parameter bit UseAluLsu = 0,
+  parameter bit PostIncrement = 0,
   parameter type         instr_dec_t = logic,
   parameter type         rmt_entry_t = logic,
   parameter type         disp_req_t  = logic,
@@ -41,26 +44,32 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   output disp_req_t disp_req_o,
   // Each FU has a response which must be valid at dispatch request handshake.
   // ALU
-  output logic      [NofAlus-1:0] alu_disp_req_valid_o,
-  input  logic      [NofAlus-1:0] alu_disp_req_ready_i,
-  input  disp_rsp_t [NofAlus-1:0] alu_disp_rsp_i,
-  input  logic      [NofAlus-1:0] alu_rs_full_i,
+  output logic      [iomsb(NofAlus):0] alu_disp_req_valid_o,
+  input  logic      [iomsb(NofAlus):0] alu_disp_req_ready_i,
+  input  disp_rsp_t [iomsb(NofAlus):0] alu_disp_rsp_i,
+  input  logic      [iomsb(NofAlus):0] alu_rs_full_i,
 
   // LSU
-  output logic      [NofLsus-1:0] lsu_disp_req_valid_o,
-  input  logic      [NofLsus-1:0] lsu_disp_req_ready_i,
-  input  disp_rsp_t [NofLsus-1:0] lsu_disp_rsp_i,
-  input  logic      [NofLsus-1:0] lsu_rs_full_i,
+  output logic      [iomsb(NofLsus):0] lsu_disp_req_valid_o,
+  input  logic      [iomsb(NofLsus):0] lsu_disp_req_ready_i,
+  input  disp_rsp_t [iomsb(NofLsus):0] lsu_disp_rsp_i,
+  input  logic      [iomsb(NofLsus):0] lsu_rs_full_i,
+
+  // ALU + LSU
+  output logic      [iomsb(NofAluLsus):0] alu_lsu_disp_req_valid_o,
+  input  logic      [iomsb(NofAluLsus):0] alu_lsu_disp_req_ready_i,
+  input  disp_rsp_t [iomsb(NofAluLsus):0][PostIncrement:0] alu_lsu_disp_rsp_i,
+  input  logic      [iomsb(NofAluLsus):0] alu_lsu_rs_full_i,
 
   // Handshake to the CSR FU. There is no response as it does not have a reservation station.
   output logic csr_disp_req_valid_o,
   input  logic csr_disp_req_ready_i,
 
   // FPU
-  output logic      [NofFpus-1:0] fpu_disp_req_valid_o,
-  input  logic      [NofFpus-1:0] fpu_disp_req_ready_i,
-  input  disp_rsp_t [NofFpus-1:0] fpu_disp_rsp_i,
-  input  logic      [NofFpus-1:0] fpu_rs_full_i,
+  output logic      [iomsb(NofFpus):0] fpu_disp_req_valid_o,
+  input  logic      [iomsb(NofFpus):0] fpu_disp_req_ready_i,
+  input  disp_rsp_t [iomsb(NofFpus):0] fpu_disp_rsp_i,
+  input  logic      [iomsb(NofFpus):0] fpu_rs_full_i,
 
   // Handshake to the accelerator interface
   output acc_req_t acc_req_o,
@@ -81,6 +90,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
 );
   localparam int unsigned NofAlusW = cf_math_pkg::idx_width(NofAlus);
   localparam int unsigned NofLsusW = cf_math_pkg::idx_width(NofLsus);
+  localparam int unsigned NofAluLsusW = cf_math_pkg::idx_width(NofAluLsus);
   localparam int unsigned NofFpusW = cf_math_pkg::idx_width(NofFpus);
 
   // Two RMT for the integer (rmti) and floating point (rmtf) register files.
@@ -102,6 +112,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   assign current_dest_entry = instr_dec_i.rd_is_fp ? rmtf_q[instr_dec_i.rd] :
                                                      rmti_q[instr_dec_i.rd];
 
+  // TODO(lnoussi): Remove if PostIncrement is deactivated
+  rmt_entry_t current_dest2_entry;
+  assign current_dest2_entry = instr_dec_i.rd2_is_fp ? rmtf_q[instr_dec_i.rd2] :
+                                                       rmti_q[instr_dec_i.rd2];
+
   always_comb begin : dispatch_generation
     disp_req_o = '0;
     disp_req_o.fu_data = instr_fu_data_i;
@@ -122,21 +137,28 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
                                  no_mapping;
 
       // current destination producer
-      // TODO(colluca): the comment correctly calls it "current destination producer".
-      //                Align LHS signal name.
-      disp_req_o.current_producer_dest = current_dest_entry;
+      disp_req_o.current_dest_producer = current_dest_entry;
+      disp_req_o.current_dest2_producer = current_dest2_entry;
     end else begin
       disp_req_o.producer_op_a         = '0;
       disp_req_o.producer_op_b         = '0;
       disp_req_o.producer_op_c         = '0;
-      disp_req_o.current_producer_dest = '0;
+      disp_req_o.current_dest_producer = '0;
+      disp_req_o.current_dest2_producer = '0;
     end
+
+    disp_req_o.has_two_dests = instr_dec_i.use_rd2;
 
     // generate the tag
     disp_req_o.tag.dest_reg       = instr_dec_i.rd;
     disp_req_o.tag.dest_reg_is_fp = instr_dec_i.rd_is_fp;
     disp_req_o.tag.is_branch      = instr_dec_i.is_branch;
     disp_req_o.tag.is_jump        = instr_dec_i.is_jal | instr_dec_i.is_jalr;
+
+    disp_req_o.tag2.dest_reg        = instr_dec_i.rd2;
+    disp_req_o.tag2.dest_reg_is_fp  = instr_dec_i.rd2_is_fp;
+    disp_req_o.tag2.is_branch       = '0;
+    disp_req_o.tag2.is_jump         = '0;
   end
 
   //////////////////
@@ -151,15 +173,18 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   logic       fu_ready;
   logic       fu_rs_full;
   disp_rsp_t  fu_response;
+  disp_rsp_t  fu_response2; // TODO(lnoussi): remove if !PostIncrement
   logic       dispatched;
 
   // FU selection counters
-  logic [NofAlusW-1:0] alu_idx;
-  logic [NofAlusW-1:0] alu_idx_raw;
-  logic [NofLsusW-1:0] lsu_idx;
-  logic [NofLsusW-1:0] lsu_idx_raw;
-  logic [NofFpusW-1:0] fpu_idx;
-  logic [NofFpusW-1:0] fpu_idx_raw;
+  logic [iomsb(NofAlusW):0] alu_idx;
+  logic [iomsb(NofAlusW):0] alu_idx_raw;
+  logic [iomsb(NofLsusW):0] lsu_idx;
+  logic [iomsb(NofLsusW):0] lsu_idx_raw;
+  logic [iomsb(NofAluLsusW):0] alu_lsu_idx;
+  logic [iomsb(NofAluLsusW):0] alu_lsu_idx_raw;
+  logic [iomsb(NofFpusW):0] fpu_idx;
+  logic [iomsb(NofFpusW):0] fpu_idx_raw;
 
   // Demux the dispatch request to the selected FU.
   // This FU selection must occur always independently of the validity of the instruction and it
@@ -168,6 +193,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   always_comb begin : fu_selection_req
     alu_disp_req_valid_o = '0;
     lsu_disp_req_valid_o = '0;
+    alu_lsu_disp_req_valid_o = '0;
     csr_disp_req_valid_o = 1'b0;
     fpu_disp_req_valid_o = '0;
     acc_disp_req_valid_o = 1'b0;
@@ -181,14 +207,30 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
-        alu_disp_req_valid_o[0] = dispatch_valid_i;
+        if (UseAluLsu) begin
+          alu_lsu_disp_req_valid_o[0] = dispatch_valid_i;
+        end else begin
+          alu_disp_req_valid_o[0] = dispatch_valid_i;
+        end
       end
       schnizo_pkg::ALU: begin
-        alu_disp_req_valid_o[alu_idx] = dispatch_valid_i;
+        if (UseAluLsu) begin
+          alu_lsu_disp_req_valid_o[alu_lsu_idx] = dispatch_valid_i; // Updated
+        end else begin
+          alu_disp_req_valid_o[alu_idx] = dispatch_valid_i;
+        end
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
-        lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i;
+        if (UseAluLsu) begin
+          alu_lsu_disp_req_valid_o[alu_lsu_idx] = dispatch_valid_i; // Updated
+        end else begin
+          lsu_disp_req_valid_o[lsu_idx] = dispatch_valid_i;
+        end
+      end
+      schnizo_pkg::ALU_LSU_LOAD,
+      schnizo_pkg::ALU_LSU_STORE: begin
+        alu_lsu_disp_req_valid_o[alu_lsu_idx] = dispatch_valid_i;
       end
       schnizo_pkg::CSR : begin
         csr_disp_req_valid_o = dispatch_valid_i;
@@ -227,6 +269,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
   // Mux the response from the selected FU
   always_comb begin : fu_selection_rsp
     fu_response = '0;
+    fu_response2 = '0;
     fu_ready    = 1'b0;
     fu_rs_full  = 1'b0;
 
@@ -234,21 +277,61 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       schnizo_pkg::MUL,
       schnizo_pkg::CTRL_FLOW: begin
         // always select ALU0 for branch and MUL instructions
-        fu_response = alu_disp_rsp_i[0];
-        fu_ready    = alu_disp_req_ready_i[0];
-        fu_rs_full  = alu_rs_full_i[0];
+        if (UseAluLsu) begin
+          if (PostIncrement) begin
+            {fu_response2, fu_response} = alu_lsu_disp_rsp_i[0];
+          end else begin
+            fu_response = alu_lsu_disp_rsp_i[0][0];
+          end
+          fu_ready    = alu_lsu_disp_req_ready_i[0];
+          fu_rs_full  = alu_lsu_rs_full_i[0];
+        end else begin
+          fu_response = alu_disp_rsp_i[0];
+          fu_ready    = alu_disp_req_ready_i[0];
+          fu_rs_full  = alu_rs_full_i[0];
+        end
       end
       schnizo_pkg::ALU: begin
-        fu_response = alu_disp_rsp_i[alu_idx];
-        fu_ready    = alu_disp_req_ready_i[alu_idx];
-        fu_rs_full  = alu_rs_full_i[alu_idx];
+        if (UseAluLsu) begin
+          if (PostIncrement) begin
+            {fu_response2, fu_response} = alu_lsu_disp_rsp_i[alu_lsu_idx];
+          end else begin
+            fu_response = alu_lsu_disp_rsp_i[alu_lsu_idx][0];
+          end
+          fu_ready    = alu_lsu_disp_req_ready_i[alu_lsu_idx];
+          fu_rs_full  = alu_lsu_rs_full_i[alu_lsu_idx];
+        end else begin
+          fu_response = alu_disp_rsp_i[alu_idx];
+          fu_ready    = alu_disp_req_ready_i[alu_idx];
+          fu_rs_full  = alu_rs_full_i[alu_idx];
+        end
       end
       schnizo_pkg::LOAD,
       schnizo_pkg::STORE: begin
         // per default take the non consistent mode.
-        fu_response = lsu_disp_rsp_i[lsu_idx];
-        fu_ready    = lsu_disp_req_ready_i[lsu_idx];
-        fu_rs_full  = lsu_rs_full_i[lsu_idx];
+        if (UseAluLsu) begin
+          if (PostIncrement) begin
+            {fu_response2, fu_response} = alu_lsu_disp_rsp_i[alu_lsu_idx];
+          end else begin
+            fu_response = alu_lsu_disp_rsp_i[alu_lsu_idx][0];
+          end
+          fu_ready    = alu_lsu_disp_req_ready_i[alu_lsu_idx];
+          fu_rs_full  = alu_lsu_rs_full_i[alu_lsu_idx];
+        end else begin
+          fu_response = lsu_disp_rsp_i[lsu_idx];
+          fu_ready    = lsu_disp_req_ready_i[lsu_idx];
+          fu_rs_full  = lsu_rs_full_i[lsu_idx];
+        end
+      end
+      schnizo_pkg::ALU_LSU_LOAD,
+      schnizo_pkg::ALU_LSU_STORE: begin
+        if (PostIncrement) begin
+          {fu_response2, fu_response} = alu_lsu_disp_rsp_i[alu_lsu_idx];
+        end else begin
+          fu_response = alu_lsu_disp_rsp_i[alu_lsu_idx][0];
+        end
+        fu_ready    = alu_lsu_disp_req_ready_i[alu_lsu_idx];
+        fu_rs_full  = alu_lsu_rs_full_i[alu_lsu_idx];
       end
       schnizo_pkg::CSR : begin
         // There is no response because there is no reservation station.
@@ -300,15 +383,18 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     // ---------------------------
     logic alu_idx_inc;
     logic lsu_idx_inc;
+    logic alu_lsu_idx_inc;
     logic fpu_idx_inc;
     logic alu_idx_reset;
     logic lsu_idx_reset;
+    logic alu_lsu_idx_reset;
     logic fpu_idx_reset;
 
     // Only select the counters during FREP. Without this the first instruction after LEP would be
     // executed on the "next" FU instead of the zero-th.
     assign alu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? alu_idx_raw : '0;
     assign lsu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? lsu_idx_raw : '0;
+    assign alu_lsu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? alu_lsu_idx_raw : '0;
     assign fpu_idx = (loop_state_i inside {LoopLcp1, LoopLcp2, LoopLep}) ? fpu_idx_raw : '0;
 
     // Reset at wrap around at dispatch or when switching to LCP2 or when restarting LxP
@@ -316,12 +402,16 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
                           || goto_lcp2_i || restart_i;
     assign lsu_idx_reset = ((lsu_idx_raw == ((NofLsus[NofLsusW-1:0])-1)) && lsu_idx_inc)
                           || goto_lcp2_i || restart_i;
+    assign alu_lsu_idx_reset = ((alu_lsu_idx_raw == ((NofAluLsus[NofAluLsusW-1:0])-1)) &&
+                               alu_lsu_idx_inc)
+                          || goto_lcp2_i || restart_i;
     assign fpu_idx_reset = ((fpu_idx_raw == ((NofFpus[NofFpusW-1:0])-1)) && fpu_idx_inc)
                           || goto_lcp2_i || restart_i;
 
     always_comb begin : dispatch_fu_selection
       alu_idx_inc = 1'b0;
       lsu_idx_inc = 1'b0;
+      alu_lsu_idx_inc = 1'b0;
       fpu_idx_inc = 1'b0;
 
       unique case (loop_state_i)
@@ -329,6 +419,7 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
         LoopHwLoop: begin
           alu_idx_inc = 1'b0;
           lsu_idx_inc = 1'b0;
+          alu_lsu_idx_inc = 1'b0;
           fpu_idx_inc = 1'b0;
         end
         LoopLcp1,
@@ -336,9 +427,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
           // Increment the counter if we dispatched into the FU during LCP
           alu_idx_inc = |(alu_disp_req_valid_o & alu_disp_req_ready_i);
           lsu_idx_inc = |(lsu_disp_req_valid_o & lsu_disp_req_ready_i);
+          alu_lsu_idx_inc = |(alu_lsu_disp_req_valid_o & alu_lsu_disp_req_ready_i);
           // Do not increment index if we want serialized memory accesses
           if (frep_mem_cons_mode_i inside {FrepMemSerialized}) begin
             lsu_idx_inc = 1'b0;
+            alu_lsu_idx_inc = 1'b0;
           end
           fpu_idx_inc = |(fpu_disp_req_valid_o & fpu_disp_req_ready_i);
         end
@@ -378,6 +471,21 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     );
 
     counter #(
+      .WIDTH          (NofAluLsusW),
+      .STICKY_OVERFLOW(0)
+    ) i_alu_lsu_idx_counter (
+      .clk_i,
+      .rst_ni    (~rst_i),
+      .clear_i   (alu_lsu_idx_reset),
+      .en_i      (alu_lsu_idx_inc),
+      .load_i    ('0),
+      .down_i    ('0),
+      .d_i       ('0),
+      .q_o       (alu_lsu_idx_raw),
+      .overflow_o()
+    );
+
+    counter #(
       .WIDTH          (NofFpusW),
       .STICKY_OVERFLOW(0)
     ) i_fpu_idx_counter (
@@ -395,9 +503,11 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
     // Always take the first FU
     assign alu_idx     = '0;
     assign lsu_idx     = '0;
+    assign alu_lsu_idx = '0;
     assign fpu_idx     = '0;
     assign alu_idx_raw = '0;
     assign lsu_idx_raw = '0;
+    assign alu_lsu_idx_raw = '0;
     assign fpu_idx_raw = '0;
   end
 
@@ -425,6 +535,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
       valid: 1'b1
     };
 
+    rmt_entry_t new_entry2;
+    assign new_entry2 = '{
+      producer:    fu_response2.producer,
+      valid: instr_dec_i.use_rd2
+    };
+
     always_comb begin : rmt_update
       rmti_d = rmti_q;
       rmtf_d = rmtf_q;
@@ -444,6 +560,12 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
             end else begin
               rmti_d[instr_dec_i.rd] = new_entry;
             end
+
+            if (instr_dec_i.rd2_is_fp) begin
+              rmtf_d[instr_dec_i.rd2] = new_entry2;
+            end else begin
+              rmti_d[instr_dec_i.rd2] = new_entry2;
+            end
           end
         end
         LoopLcp2: begin
@@ -456,6 +578,13 @@ module schnizo_dispatcher import schnizo_pkg::*; #(
               rmtf_d[instr_dec_i.rd] = new_entry;
             end else begin
               rmti_d[instr_dec_i.rd] = new_entry;
+            end
+          end
+          if (dispatched && !current_dest2_entry.valid) begin
+            if (instr_dec_i.rd2_is_fp) begin
+              rmtf_d[instr_dec_i.rd2] = new_entry2;
+            end else begin
+              rmti_d[instr_dec_i.rd2] = new_entry2;
             end
           end
         end

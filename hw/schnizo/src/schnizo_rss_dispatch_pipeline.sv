@@ -21,15 +21,17 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   parameter type         res_req_t        = logic,
   parameter type         operand_t        = logic,
   parameter type         rss_idx_t        = logic,
-  parameter type         issue_req_t      = logic
+  parameter type         issue_req_t      = logic,
+  parameter int unsigned NofResPorts     = 1,
+  parameter bit          HasTwoDests     = 0
 ) (
   input  logic            clk_i,
   input  logic            rst_ni,
 
   // Control
   input  logic            restart_i,
-  input  producer_id_t    disp_producer_id_i,
-  input  producer_id_t    issue_producer_id_i,
+  input  producer_id_t [HasTwoDests:0] disp_producer_id_i,
+  input  producer_id_t [HasTwoDests:0] issue_result_tag_id_i,
   input  loop_state_e     loop_state_i,
   input  logic            last_issue_iter_i,
   output logic            retire_at_issue_o,
@@ -45,9 +47,9 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   input  const_op_addr_t [NofConstantPorts-1:0] alloc_const_op_addr_i,
 
   // Result slot interface
-  input  rs_slot_result_t slot_result_i,
+  input  rs_slot_result_t [HasTwoDests:0] slot_result_i,
   input  rs_slot_result_t slot_result_reset_val_i,
-  output rs_slot_result_t slot_result_o,
+  output rs_slot_result_t [HasTwoDests:0] slot_result_o,
 
   // Dispatch
   input  disp_req_t disp_req_i,
@@ -105,6 +107,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   rs_slot_issue_t slot_issue_reset_val;
   assign slot_issue_reset_val = '{
     is_occupied:      1'b0, // suppresses operand requests
+    fu:               schnizo_pkg::NONE,
     alu_op:           AluOpAdd,
     lsu_op:           LsuOpLoad, // avoid store because the store flag has to be 0
     fpu_op:           FpuOpFadd,
@@ -169,6 +172,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
 
     slot_lcp1 = '{
       is_occupied:      1'b1,
+      fu:               disp_req_i.fu_data.fu,
       alu_op:           disp_req_i.fu_data.alu_op,
       lsu_op:           disp_req_i.fu_data.lsu_op,
       fpu_op:           disp_req_i.fu_data.fpu_op,
@@ -268,11 +272,13 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   // - LCP2: pass through the current result state, only updating `do_writeback` if needed.
   // This output is fed into res_req_handling as slot_i (instead of slot_result_qs) when dispatching,
   // so any concurrent consumer reads are applied on top of the dispatch update — no bypass needed.
+  // Handle Slot 0 (Always exists)
   always_comb begin
-    slot_result_o = slot_result_i;
+    slot_result_o[0] = slot_result_i[0];
+
     unique case (loop_state_i)
       LoopLcp1: begin
-        slot_result_o = '{
+        slot_result_o[0] = '{
           consumer_count: '0,
           consumed_by:    '0,
           result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
@@ -285,17 +291,46 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
         };
       end
       LoopLcp2: begin
-        // TODO(colluca): this could be provided by the dispatcher directly
-        if ((disp_producer_id_i == disp_req_i.current_producer_dest.producer) &&
-            disp_req_i.current_producer_dest.valid) begin
-          slot_result_o.do_writeback = 1'b1;
+        if ((disp_producer_id_i[0] == disp_req_i.current_dest_producer.producer) &&
+            disp_req_i.current_dest_producer.valid) begin
+          slot_result_o[0].do_writeback = 1'b1;
         end
       end
       default: ;
     endcase
 
-    if (restart_i) begin
-      slot_result_o = slot_result_reset_val_i;
+    if (restart_i) slot_result_o[0] = slot_result_reset_val_i;
+  end
+
+  // Handle Slot 1 (Only compiled if HasTwoDests is true)
+  if (HasTwoDests) begin : gen_second_result_slot_logic
+    always_comb begin
+      slot_result_o[1] = slot_result_i[1];
+
+      unique case (loop_state_i)
+        LoopLcp1: begin
+          if (disp_req_i.has_two_dests) begin
+            slot_result_o[1] = '{
+              consumer_count: '0,
+              consumed_by:    '0,
+              result:         rss_result_t'{ value: '0, is_valid: 1'b0, iteration: 1'b1 },
+              no_dest:        '0,
+              dest_id:        disp_req_i.tag2.dest_reg,
+              dest_is_fp:     disp_req_i.tag2.dest_reg_is_fp,
+              do_writeback:   1'b0
+            };
+          end
+        end
+        LoopLcp2: begin
+          if ((disp_producer_id_i[1] == disp_req_i.current_dest2_producer.producer) &&
+              disp_req_i.current_dest2_producer.valid) begin
+            slot_result_o[1].do_writeback = 1'b1;
+          end
+        end
+        default: ;
+      endcase
+
+      if (restart_i) slot_result_o[1] = slot_result_reset_val_i;
     end
   end
 
@@ -471,20 +506,31 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     // by all consumers yet.
     // Tag used for the operation is the slot_id, to identify the result destination in case
     // results can come back OoO from the FU (as is the case for the FPU).
-    issue_req_o                      = '0;
-    issue_req_o.fu_data.fu           = NONE; // Not required by FU
+    issue_req_o.fu_data              = '0;
+    issue_req_o.fu_data.fu           = alloc_const_op_slot.fu;
     issue_req_o.fu_data.alu_op       = alloc_const_op_slot.alu_op;
     issue_req_o.fu_data.lsu_op       = alloc_const_op_slot.lsu_op;
     issue_req_o.fu_data.csr_op       = CsrOpNone; // Not supported in FREP
     issue_req_o.fu_data.fpu_op       = alloc_const_op_slot.fpu_op;
     issue_req_o.fu_data.operand_a    = response_op_slots[0].value;
     issue_req_o.fu_data.operand_b    = response_op_slots[1].value;
-    issue_req_o.fu_data.imm          = (NofOperands >= 3) ? response_op_slots[2].value : '0;
+    if (NofOperands >= 3) begin
+      issue_req_o.fu_data.imm        = response_op_slots[2].value;
+    end else begin
+      issue_req_o.fu_data.imm        = '0;
+    end
     issue_req_o.fu_data.lsu_size     = alloc_const_op_slot.lsu_size;
     issue_req_o.fu_data.fpu_fmt_src  = alloc_const_op_slot.fpu_fmt_src;
     issue_req_o.fu_data.fpu_fmt_dst  = alloc_const_op_slot.fpu_fmt_dst;
     issue_req_o.fu_data.fpu_rnd_mode = alloc_const_op_slot.fpu_rnd_mode;
-    issue_req_o.tag                  = issue_producer_id_i.slot_id;
+    issue_req_o.tag                  = issue_result_tag_id_i[0].slot_id;
+  end
+
+  // Use a generate block to "hide" tag2 from the compiler when not in use
+  if (HasTwoDests) begin : gen_issue_tag2
+    always_comb begin
+      issue_req_o.tag2 = issue_result_tag_id_i[1].slot_id;
+    end
   end
 
   // Check operand validity
@@ -543,7 +589,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     `ASSERT(OpRspImpliesOccupied,  odn_op_rsps_valid_i[op] |-> alloc_const_op_slot.is_occupied)
     `ASSERT(OpRspImpliesProduced,  odn_op_rsps_valid_i[op] |->
             alloc_const_op_slot.operands[op].is_produced)
-    `ASSERT(OpRspImpliesRequested, odn_op_rsps_valid_i[op] |-> request_op_slots[op].requested) 
+    `ASSERT(OpRspImpliesRequested, odn_op_rsps_valid_i[op] |-> request_op_slots[op].requested)
   end
 
   // There can't be more than NofConstantPorts constants per instruction

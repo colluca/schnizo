@@ -3,15 +3,15 @@
 // SPDX-License-Identifier: SHL-0.51
 
 module schnizo_req_xbar_synth #(
-  parameter int unsigned NofOperandReqs    = 32'd0,
-  parameter int unsigned NofRs             = 32'd0,
-  parameter int unsigned NofRssPerRs       = 32'd0,
-  parameter int unsigned NofResRspIfsPerRs = 32'd0,
-  localparam int unsigned TotalNofRss       = NofRs * NofRssPerRs,
+  parameter int unsigned NofOperandReqs     = 32'd2,
+  parameter int unsigned NofRs              = 32'd2,
+  parameter int unsigned NofRsrsPerRs       = 32'd4,
+  parameter int unsigned NofResRspIfsPerRs  = 32'd1,
+  localparam int unsigned TotalNofRsrs      = NofRs * NofRsrsPerRs,
   localparam int unsigned TotalNofResRspIfs = NofRs * NofResRspIfsPerRs,
   localparam integer unsigned RsIdWidth = $clog2(NofRs),
   localparam type dest_mask_t = logic [NofOperandReqs-1:0],
-  localparam type slot_id_t = logic [$clog2(NofRssPerRs)-1:0],
+  localparam type slot_id_t = logic [$clog2(NofRsrsPerRs)-1:0],
   localparam type ext_res_req_t = struct packed {
     dest_mask_t dest_mask;
     slot_id_t   slot_id;
@@ -31,21 +31,21 @@ module schnizo_req_xbar_synth #(
   input  operand_req_t                         [NofOperandReqs-1:0]    op_reqs_i,
   input  logic                                 [NofOperandReqs-1:0]    op_reqs_valid_i,
   output logic                                 [NofOperandReqs-1:0]    op_reqs_ready_o,
-  input  schnizo_synth_pkg::available_result_t [TotalNofRss-1:0]       available_results_i,
+  input  schnizo_synth_pkg::available_result_t [TotalNofRsrs-1:0]      available_results_i,
   output ext_res_req_t                         [TotalNofResRspIfs-1:0] res_reqs_o,
   output logic                                 [TotalNofResRspIfs-1:0] res_reqs_valid_o,
   input  logic                                 [TotalNofResRspIfs-1:0] res_reqs_ready_i
 );
 
-  localparam int unsigned NofRssArr       [NofRs-1:0] = '{default: NofRssPerRs};
+  localparam int unsigned NofRsrsArr       [NofRs-1:0] = '{default: NofRsrsPerRs};
   localparam int unsigned NofResRspIfsArr [NofRs-1:0] = '{default: NofResRspIfsPerRs};
 
   schnizo_req_xbar #(
     .NofOperandReqs    (NofOperandReqs),
     .NofRs             (NofRs),
-    .NofRss            (NofRssArr),
+    .NofRsrs           (NofRsrsArr),
     .NofResRspIfs      (NofResRspIfsArr),
-    .TotalNofRss       (TotalNofRss),
+    .TotalNofRsrs      (TotalNofRsrs),
     .TotalNofResRspIfs (TotalNofResRspIfs),
     .operand_req_t     (operand_req_t),
     .res_req_t         (res_req_t),

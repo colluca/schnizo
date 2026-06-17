@@ -21,7 +21,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         result_t       = logic,
   parameter type         instr_tag_t    = logic,
   /// Reservation Station parameters
-  parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofRsis        = 4,
+  parameter int unsigned NofRsrs        = 4,
   parameter int unsigned NofConstants   = 4,
   // The maximal number of operands
   parameter int unsigned NofOperands    = 3,
@@ -38,7 +39,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   parameter type         ext_res_req_t  = logic,
   parameter type         available_result_t  = logic,
   parameter type         dest_mask_t    = logic,
-  parameter type         res_rsp_t      = logic
+  parameter type         res_rsp_t      = logic,
+  parameter int unsigned NofResPorts     = 1,
+  parameter bit          HasTwoDests     = 0
 ) (
   input  logic clk_i,
   input  logic rst_i,
@@ -69,26 +72,26 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   input  logic      disp_req_valid_i,
   output logic      disp_req_ready_o,
   input  logic      instr_exec_commit_i,
-  output disp_rsp_t disp_rsp_o,
+  output disp_rsp_t [HasTwoDests:0] disp_rsp_o,
   // From issue MUX to FU
   output issue_req_t issue_req_o,
   output logic       issue_req_valid_o,
   input  logic       issue_req_ready_i,
   output logic       instr_exec_commit_o,
   // From FU to the result DEMUX
-  input  result_t    result_i,
-  input  instr_tag_t result_tag_i,
-  input  logic       result_valid_i,
-  output logic       result_ready_o,
+  input  result_t    [NofResPorts-1:0]    result_i,
+  input  instr_tag_t [NofResPorts-1:0]    result_tag_i,
+  input  logic       [NofResPorts-1:0]    result_valid_i,
+  output logic       [NofResPorts-1:0]    result_ready_o,
   // From writeback MUX to writeback
-  output result_t    wb_result_o,
-  output instr_tag_t wb_result_tag_o,
-  output logic       wb_result_valid_o,
-  input  logic       wb_result_ready_i,
+  output result_t    [NofResPorts-1:0]   wb_result_o,
+  output instr_tag_t [NofResPorts-1:0]   wb_result_tag_o,
+  output logic       [NofResPorts-1:0]   wb_result_valid_o,
+  input  logic       [NofResPorts-1:0]   wb_result_ready_i,
 
   /// Operand distribution network
   // Info required for arbitration in request XBAR
-  output available_result_t [cf_math_pkg::iomsb(NofRss):0] available_results_o,
+  output available_result_t [cf_math_pkg::iomsb(NofRsrs):0] available_results_o,
 
   // TODO(colluca): use generic_reqrsp interfaces for all of these. Would then reduce to four signals:
   // operand_req_o, operand_rsp_i, result_req_i, result_rsp_o.
@@ -115,9 +118,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
   output logic     [NofOperands-1:0] op_rsps_ready_o
 );
 
-  typedef logic [cf_math_pkg::idx_width(NofRss)-1:0] rs_tag_t;
+  typedef logic [cf_math_pkg::idx_width(NofRsrs)-1:0] rs_tag_t;
 
-  if (Xfrep && (NofRss > 0)) begin : gen_superscalar
+  if (Xfrep && (NofRsis > 0)) begin : gen_superscalar
     // Module global switch between regular execution and superscalar path
     logic sel_lxp_path;
     assign sel_lxp_path = in_lxp_i;
@@ -139,7 +142,7 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     disp_req_t rs_disp_req;
     logic      rs_disp_req_valid;
     logic      rs_disp_req_ready;
-    disp_rsp_t rs_disp_rsp;
+    disp_rsp_t [HasTwoDests:0] rs_disp_rsp;
     // From dispatch interface DEMUX to dispatch2issue converter
     disp_req_t si_disp_req;
     logic      si_disp_req_valid;
@@ -162,20 +165,20 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     // via module interface
 
     // From the result DEMUX to the RS
-    result_t    rs_result;
-    instr_tag_t rs_result_tag;
-    logic       rs_result_valid;
-    logic       rs_result_ready;
+    result_t    [NofResPorts-1:0] rs_result;
+    instr_tag_t [NofResPorts-1:0] rs_result_tag;
+    logic       [NofResPorts-1:0] rs_result_valid;
+    logic       [NofResPorts-1:0] rs_result_ready;
     // From the RS to the writeback MUX
-    result_t    rs_wb_result;
-    instr_tag_t rs_wb_result_tag;
-    logic       rs_wb_result_valid;
-    logic       rs_wb_result_ready;
+    result_t    [NofResPorts-1:0] rs_wb_result;
+    instr_tag_t [NofResPorts-1:0] rs_wb_result_tag;
+    logic       [NofResPorts-1:0] rs_wb_result_valid;
+    logic       [NofResPorts-1:0] rs_wb_result_ready;
     // From result DEMUX to writeback MUX
-    result_t    si_wb_result;
-    instr_tag_t si_wb_result_tag;
-    logic       si_wb_result_valid;
-    logic       si_wb_result_ready;
+    result_t    [NofResPorts-1:0] si_wb_result;
+    instr_tag_t [NofResPorts-1:0] si_wb_result_tag;
+    logic       [NofResPorts-1:0] si_wb_result_valid;
+    logic       [NofResPorts-1:0] si_wb_result_ready;
 
     // Dispatch DEMUX
     assign rs_disp_req = disp_req_i;
@@ -200,6 +203,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     //                in the gen_scalar block. Could maybe be reused.
     assign si_issue_req.fu_data = si_disp_req.fu_data;
     assign si_issue_req.tag     = si_disp_req.tag;
+    if (HasTwoDests) begin: gen_2nd_issue_tag
+      assign si_issue_req.tag2 = si_disp_req.tag2;
+    end
     assign si_issue_req_valid = si_disp_req_valid;
     assign si_disp_req_ready  = si_issue_req_ready;
 
@@ -223,15 +229,17 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     assign rs_result_tag    = result_tag_i;
     assign si_wb_result     = result_i;
     assign si_wb_result_tag = result_tag_i;
-    stream_demux #(
-      .N_OUP(2)
-    ) i_fu_result_demux (
-      .inp_valid_i(result_valid_i),
-      .inp_ready_o(result_ready_o),
-      .oup_sel_i  (sel_lxp_path),
-      .oup_valid_o({rs_result_valid, si_wb_result_valid}),
-      .oup_ready_i({rs_result_ready, si_wb_result_ready})
-    );
+    for (genvar res_port = 0; res_port < NofResPorts; res_port++) begin
+      stream_demux #(
+        .N_OUP(2)
+      ) i_fu_result_demux (
+        .inp_valid_i(result_valid_i[res_port]),
+        .inp_ready_o(result_ready_o[res_port]),
+        .oup_sel_i  (sel_lxp_path),
+        .oup_valid_o({rs_result_valid[res_port], si_wb_result_valid[res_port]}),
+        .oup_ready_i({rs_result_ready[res_port], si_wb_result_ready[res_port]})
+      );
+    end
 
     // Writeback MUX
     // Local helper type to merge the MUX
@@ -240,32 +248,36 @@ module schnizo_fu_block import schnizo_pkg::*; #(
       instr_tag_t tag;
     } result_and_tag_t;
 
-    result_and_tag_t rs_wb_result_and_tag, si_wb_result_and_tag;
-    result_and_tag_t wb_result_and_tag;
-    assign rs_wb_result_and_tag = '{
-      result: rs_wb_result,
-      tag:    rs_wb_result_tag
-    };
-    assign si_wb_result_and_tag = '{
-      result: si_wb_result,
-      tag:    si_wb_result_tag
-    };
+    result_and_tag_t [NofResPorts-1:0] rs_wb_result_and_tag, si_wb_result_and_tag;
+    result_and_tag_t [NofResPorts-1:0] wb_result_and_tag;
 
-    stream_mux #(
-      .DATA_T(result_and_tag_t),
-      .N_INP (2)
-    ) i_fu_wb_mux (
-      .inp_data_i ({rs_wb_result_and_tag, si_wb_result_and_tag}),
-      .inp_valid_i({rs_wb_result_valid,   si_wb_result_valid}),
-      .inp_ready_o({rs_wb_result_ready,   si_wb_result_ready}),
-      .inp_sel_i  (sel_lxp_path),
-      .oup_data_o (wb_result_and_tag),
-      .oup_valid_o(wb_result_valid_o),
-      .oup_ready_i(wb_result_ready_i)
-    );
+    for (genvar res_port = 0; res_port < NofResPorts; res_port++) begin: gen_result_mux
+      assign rs_wb_result_and_tag[res_port] = '{
+        result: rs_wb_result[res_port],
+        tag:    rs_wb_result_tag[res_port]
+      };
+      assign si_wb_result_and_tag[res_port] = '{
+        result: si_wb_result[res_port],
+        tag:    si_wb_result_tag[res_port]
+      };
 
-    assign wb_result_o     = wb_result_and_tag.result;
-    assign wb_result_tag_o = wb_result_and_tag.tag;
+      stream_mux #(
+        .DATA_T(result_and_tag_t),
+        .N_INP (2)
+      ) i_fu_wb_mux (
+        .inp_data_i ({rs_wb_result_and_tag[res_port], si_wb_result_and_tag[res_port]}),
+        .inp_valid_i({rs_wb_result_valid[res_port],   si_wb_result_valid[res_port]}),
+        .inp_ready_o({rs_wb_result_ready[res_port],   si_wb_result_ready[res_port]}),
+        .inp_sel_i  (sel_lxp_path),
+        .oup_data_o (wb_result_and_tag[res_port]),
+        .oup_valid_o(wb_result_valid_o[res_port]),
+        .oup_ready_i(wb_result_ready_i[res_port])
+      );
+
+      assign wb_result_o[res_port]     = wb_result_and_tag[res_port].result;
+      assign wb_result_tag_o[res_port] = wb_result_and_tag[res_port].tag;
+    end
+
 
     // ---------------------------
     // Reservation Station
@@ -273,7 +285,8 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     // TODO(colluca): does the reservation station even need an instr_tag_t type that
     // is calculated as max(wb_tag_t, rs_tag_t)? If not, just pass rs_tag_t here
     schnizo_res_stat #(
-      .NofRss        (NofRss),
+      .NofRsis       (NofRsis),
+      .NofRsrs       (NofRsrs),
       .NofConstants  (NofConstants),
       .NofOperands   (NofOperands),
       .NofResRspIfs  (NofResRspIfs),
@@ -293,7 +306,9 @@ module schnizo_fu_block import schnizo_pkg::*; #(
       .ext_res_req_t (ext_res_req_t),
       .available_result_t   (available_result_t),
       .dest_mask_t   (dest_mask_t),
-      .res_rsp_t     (res_rsp_t)
+      .res_rsp_t     (res_rsp_t),
+      .NofResPorts   (NofResPorts),
+      .HasTwoDests   (HasTwoDests)
     ) i_res_stat (
       .clk_i,
       .rst_i,
@@ -354,13 +369,22 @@ module schnizo_fu_block import schnizo_pkg::*; #(
     // Convert the dispatch request to an issue request. Direct pass-through.
     assign issue_req_o.fu_data = disp_req_i.fu_data;
     assign issue_req_o.tag     = disp_req_i.tag;
+    if (HasTwoDests) begin
+      assign issue_req_o.tag2 = disp_req_i.tag2;
+    end
     assign issue_req_valid_o   = disp_req_valid_i;
     assign disp_req_ready_o    = issue_req_ready_i;
     // Dispatch response must match FU without superscalar feature
-    assign disp_rsp_o = producer_id_t'{
+    assign disp_rsp_o[0] = producer_id_t'{
       slot_id: '0,
       rs_id:   producer_id_i.rs_id
     };
+    if (HasTwoDests) begin
+      assign disp_rsp_o[1] = producer_id_t'{
+        slot_id: '0,
+        rs_id:   producer_id_i.rs_id
+      };
+    end
     assign instr_exec_commit_o = instr_exec_commit_i;
 
     // From FU result to the writeback. Direct pass-through.

@@ -229,9 +229,11 @@ module schnizo_controller import schnizo_pkg::*; #(
   // This means the operands must be valid. Otherwise we compute a wrong address and an exception
   // raised. We may NOT use the dispatch valid signal as these exception signals control this
   // signal. This would lead to loops. Therefore, we use the operands_ready signal.
-  assign load_addr_misaligned_o  = lsu_addr_misaligned_i && (instr_decoded_i.fu == LOAD) &&
+  assign load_addr_misaligned_o  = lsu_addr_misaligned_i && ((instr_decoded_i.fu == LOAD)
+                                   || (instr_decoded_i.fu == ALU_LSU_LOAD)) &&
                                    instr_valid_i && operands_ready;
-  assign store_addr_misaligned_o = lsu_addr_misaligned_i && (instr_decoded_i.fu == STORE) &&
+  assign store_addr_misaligned_o = lsu_addr_misaligned_i && ((instr_decoded_i.fu == STORE)
+                                   || (instr_decoded_i.fu == ALU_LSU_STORE)) &&
                                    instr_valid_i && operands_ready;
 
   // Signal to CSR when entering WFI state.

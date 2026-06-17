@@ -6,7 +6,8 @@
 class ReservationStationSlot:
     """State of a single Reservation Station Slot during a FREP loop."""
 
-    SNAPSHOT_KEYS = frozenset({'instr_data', 'pc_q', 'rs1', 'rs2', 'rd', 'rs1_is_fp', 'rs2_is_fp'})
+    SNAPSHOT_KEYS = frozenset({'instr_data', 'pc_q', 'rs1', 'rs2', 'rd', 'rd2', 'rd_is_fp',
+                               'rd2_is_fp', 'rs1_is_fp', 'rs2_is_fp'})
 
     def __init__(self):
         self.snapshot = {}

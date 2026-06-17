@@ -167,6 +167,19 @@ def format_alu_extras(extras):
     return ', '.join(comments)
 
 
+def format_alu_lsu_extras(extras):
+    comments = []
+    rs1 = reg_abi_name(extras['rs1'])
+    rs2 = reg_abi_name(extras['rs2'])
+    opa = int_lit(extras['alu_opa'])
+    opb = int_lit(extras['alu_opb'])
+    if rs1 != ZERO_REG:
+        comments.append(f'{rs1} = {opa}')
+    if rs2 != ZERO_REG:
+        comments.append(f'{rs2} = {opb}')
+    return ', '.join(comments)
+
+
 def format_fpu_extras(extras):
     flt_fmt = 1  # TODO: somehow get the flt format? for now assume always double
     comments = []
@@ -202,6 +215,8 @@ def format_extras(extras):
         comments.append(format_csr_extras(extras))
     elif fu_type == arch.FU_ALU:
         comments.append(format_alu_extras(extras))
+    elif fu_type == arch.FU_ALU_LSU:
+        comments.append(format_alu_lsu_extras(extras))
     elif fu_type == arch.FU_FPU:
         comments.append(format_fpu_extras(extras))
     elif fu_type not in arch.FU_TYPES:

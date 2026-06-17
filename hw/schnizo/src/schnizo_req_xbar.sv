@@ -8,10 +8,10 @@
 module schnizo_req_xbar #(
   parameter int unsigned  NofOperandReqs = 32'd0,
   parameter int unsigned  NofRs = 32'd0,
-  parameter int unsigned  NofRss       [NofRs-1:0] = '{default: 32'd0},
+  parameter int unsigned  NofRsrs       [NofRs-1:0] = '{default: 32'd0},
   parameter int unsigned  NofResRspIfs [NofRs-1:0] = '{default: 32'd0},
   // TODO(colluca): derive from previous arrays
-  parameter int unsigned  TotalNofRss = 32'd0,
+  parameter int unsigned  TotalNofRsrs = 32'd0,
   parameter int unsigned  TotalNofResRspIfs   = 32'd0,
   parameter type          operand_req_t  = logic,
   parameter type          res_req_t  = logic,
@@ -24,7 +24,7 @@ module schnizo_req_xbar #(
   input  operand_req_t      [NofOperandReqs-1:0]    op_reqs_i,
   input  logic              [NofOperandReqs-1:0]    op_reqs_valid_i,
   output logic              [NofOperandReqs-1:0]    op_reqs_ready_o,
-  input  available_result_t [TotalNofRss-1:0]       available_results_i,
+  input  available_result_t [TotalNofRsrs-1:0]       available_results_i,
   output ext_res_req_t      [TotalNofResRspIfs-1:0] res_reqs_o,
   output logic              [TotalNofResRspIfs-1:0] res_reqs_valid_o,
   input  logic              [TotalNofResRspIfs-1:0] res_reqs_ready_i
@@ -36,7 +36,7 @@ module schnizo_req_xbar #(
       int unsigned s;
       s = '0;
       for (int i = 0; i < n; i++) begin
-          s += NofRss[i];
+          s += NofRsrs[i];
       end
       return s;
   endfunction
@@ -53,12 +53,13 @@ module schnizo_req_xbar #(
   res_req_t [NofOperandReqs-1:0][NofRs-1:0] demuxed_reqs;
   logic     [NofOperandReqs-1:0][NofRs-1:0] demuxed_reqs_valid, demuxed_reqs_ready;
   for (genvar req = 0; req < NofOperandReqs; req++) begin : gen_demux_stage
+    localparam int unsigned SelWidth = (NofRs > 1) ? $clog2(NofRs) : 1;
     stream_demux #(
       .N_OUP(NofRs)
     ) i_demux (
       .inp_valid_i(op_reqs_valid_i[req]),
       .inp_ready_o(op_reqs_ready_o[req]),
-      .oup_sel_i  (op_reqs_i[req].producer),
+      .oup_sel_i  (op_reqs_i[req].producer[SelWidth-1:0]),
       .oup_valid_o(demuxed_reqs_valid[req]),
       .oup_ready_i(demuxed_reqs_ready[req])
     );
@@ -81,9 +82,9 @@ module schnizo_req_xbar #(
 
     localparam int unsigned RssOffset = rss_offset(rs);
     localparam int unsigned PortOffset = port_offset(rs);
-    localparam int unsigned LocalNofRss = NofRss[rs];
+    localparam int unsigned LocalNofRsrs = NofRsrs[rs];
     localparam int unsigned LocalNofPorts = NofResRspIfs[rs];
-    typedef logic [cf_math_pkg::idx_width(LocalNofRss)-1:0] local_slot_id_t;
+    typedef logic [cf_math_pkg::idx_width(LocalNofRsrs)-1:0] local_slot_id_t;
 
     // Filter
     ext_res_req_t [NofOperandReqs-1:0] filtered_reqs;
@@ -103,13 +104,13 @@ module schnizo_req_xbar #(
     end
 
     // Coalescing
-    dest_mask_t [LocalNofRss-1:0] coalesced_reqs;
-    logic       [LocalNofRss-1:0] coalesced_reqs_valid, coalesced_reqs_ready;
+    dest_mask_t [LocalNofRsrs-1:0] coalesced_reqs;
+    logic       [LocalNofRsrs-1:0] coalesced_reqs_valid, coalesced_reqs_ready;
     always_comb begin
       coalesced_reqs       = '0;
       coalesced_reqs_valid = '0;
       filtered_reqs_ready  = '0;
-      for (int unsigned rss = 0; rss < LocalNofRss; rss++) begin
+      for (int unsigned rss = 0; rss < LocalNofRsrs; rss++) begin
         for (int unsigned req = 0; req < NofOperandReqs; req++) begin
           if (filtered_reqs[req].slot_id == rss) begin
             coalesced_reqs_valid[rss] |= filtered_reqs_valid[req];
@@ -132,7 +133,7 @@ module schnizo_req_xbar #(
       automatic int cnt = 0;
       selects       = '0;
       port_assigned = '0;
-      for (int rss = 0; rss < LocalNofRss; rss++) begin
+      for (int rss = 0; rss < LocalNofRsrs; rss++) begin
         if (coalesced_reqs_valid[rss]) begin
           selects[cnt]       = rss;
           port_assigned[cnt] = 1'b1;
@@ -142,8 +143,8 @@ module schnizo_req_xbar #(
       end
     end
     // Each port drives its own ready vector; OR-combine per slot to avoid multiple drivers.
-    logic [LocalNofPorts-1:0][LocalNofRss-1:0] coalesced_reqs_ready_per_port;
-    for (genvar rss = 0; rss < LocalNofRss; rss++) begin : gen_combine_coalesced_ready
+    logic [LocalNofPorts-1:0][LocalNofRsrs-1:0] coalesced_reqs_ready_per_port;
+    for (genvar rss = 0; rss < LocalNofRsrs; rss++) begin : gen_combine_coalesced_ready
       always_comb begin
         coalesced_reqs_ready[rss] = 1'b0;
         for (int port = 0; port < LocalNofPorts; port++) begin
@@ -156,7 +157,7 @@ module schnizo_req_xbar #(
       logic mux_valid_o;
       stream_mux #(
         .DATA_T(dest_mask_t),
-        .N_INP(LocalNofRss)
+        .N_INP(LocalNofRsrs)
       ) i_mux (
         .inp_data_i (coalesced_reqs),
         .inp_valid_i(coalesced_reqs_valid),

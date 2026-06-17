@@ -45,24 +45,7 @@ module schnizo_alu import schnizo_pkg::*, schnizo_tracer_pkg::*; #(
   // ---------------
 
   logic sel_mul;
-
-  always_comb begin : datapath_select
-    sel_mul = 1'b0;
-
-    unique case (issue_req_i.fu_data.alu_op)
-      AluOpAdd,
-      AluOpSub,
-      AluOpXor,
-      AluOpOr,
-      AluOpAnd,
-      AluOpSlt,
-      AluOpSltu,
-      AluOpSll,
-      AluOpSrl,
-      AluOpSra: sel_mul = 1'b0;
-      default:  sel_mul = 1'b1;
-    endcase
-  end
+  assign sel_mul = (issue_req_i.fu_data.fu == schnizo_pkg::MUL) ? 1'b1 : 1'b0;
 
   logic alu_issue_valid, alu_issue_ready;
   logic mul_issue_valid, mul_issue_ready;
