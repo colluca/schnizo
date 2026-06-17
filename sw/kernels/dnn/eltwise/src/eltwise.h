@@ -236,8 +236,8 @@ static inline void eltwise_layer(eltwise_layer_t l) {
     uint32_t tile_bytes = tile_size * data_type_size;
 
     char *local_a = (char *)snrt_l1_next();
-    char *local_b = local_a + tile_bytes;
-    char *local_out = local_b + (is_unary ? 0 : tile_bytes);
+    char *local_b = local_a + tile_bytes + sizeof(double);
+    char *local_out = local_b + (is_unary ? 0 : tile_bytes + sizeof(double));
     if (is_unary) local_out = local_b;
 
     char *remote_a   = (char *)l.ifmap0;
