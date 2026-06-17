@@ -28,7 +28,7 @@ module snitch_hive import snitch_icache_pkg::*; #(
   /// If the cluster uses the schnova core
   parameter bit          UseSchnovaCore     = 1'b1,
   /// Physical register address width of schnova
-  parameter int unsigned PhysRegAddrWidth   = 6,
+  parameter int unsigned AccIdWidth   = 6,
   /// Data width of the Narrow bus.
   parameter int unsigned NarrowDataWidth    = 0,
   parameter int unsigned WideDataWidth      = 0,
@@ -70,7 +70,7 @@ module snitch_hive import snitch_icache_pkg::*; #(
   // Extend the ID to route back results to the appropriate core.
   // In case of schnizo the register address width is 5
   // for schnova this can be configurable
-  localparam int unsigned IdWidth = UseSchnovaCore ? PhysRegAddrWidth  : 5;
+  localparam int unsigned IdWidth = UseSchnovaCore ? AccIdWidth  : 5;
   localparam int unsigned LogCoreCount = cf_math_pkg::idx_width(CoreCount);
   localparam int unsigned ExtendedIdWidth = IdWidth + LogCoreCount;
 

@@ -2047,9 +2047,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   `ASSERT_INIT(NofFpuMismatch, XFREPO || (NofFpus == 1),
     "Too many FPUs, if XFREPO is not enabled only 1 FPU will be used anyways");
 
-  `ASSERT_INIT(PipelineWidthMismatch, XFREPO || (PipeWidth == 1),
-    "If XFREPO is not enabled, the pipeline width should be 1");
-
   `ASSERT_INIT(NofGprMismatch, XFREPO || (NofPhysGpr == 32),
     "If XFREPO is not enabled, the core only supports 32 gp logical registers");
 

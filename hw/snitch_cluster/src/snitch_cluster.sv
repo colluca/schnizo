@@ -74,13 +74,6 @@ module snitch_cluster
   parameter int unsigned NumExpWideTcdmPorts = 1,
   /// Whether the schnova or schnizo core is used in the cluster
   parameter bit          UseSchnovaCore      = 0,
-  /// If a freelist based physical register reclamation strategy is used
-  /// or a refernce counting based strategy.
-  parameter bit          UseFreeList = 1,
-  /// Number of physical general purpose registers
-  parameter int unsigned NofPhysGpr = 64,
-  /// Number of physical floating point registers
-  parameter int unsigned NofPhysFpr = 64,
   /// Width of a single icache line.
   parameter int unsigned ICacheLineWidth [NrHives] = '{default: 0},
   /// Number of icache lines per set.
@@ -187,6 +180,13 @@ module snitch_cluster
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
+  /// If a freelist based physical register reclamation strategy is used
+  /// or a refernce counting based strategy.
+  parameter bit          UseFreeList [NrCores] = '{default:0},
+  /// Number of physical general purpose registers
+  parameter int unsigned NofPhysGpr [NrCores] = '{default:0},
+  /// Number of physical floating point registers
+  parameter int unsigned NofPhysFpr [NrCores] = '{default:0},
   parameter int unsigned NumRobEntries [NrCores] = '{default:0},
   /// Per-core integer outstanding loads
   parameter int unsigned NumIntOutstandingLoads [NrCores] = '{default: 0},
@@ -299,7 +299,6 @@ module snitch_cluster
   // localparam type dca_req_t = `DCA_REQ_STRUCT(DataWidth),
   // localparam type dca_rsp_t = `DCA_RSP_STRUCT(DataWidth)
   // Workaround:
-  localparam int unsigned PhysRegAddrWidth = $clog2((NofPhysFpr > NofPhysGpr) ? NofPhysFpr : NofPhysGpr),
   localparam type dca_req_chan_t = `DCA_REQ_CHAN_STRUCT(DcaDataWidth),
   localparam type dca_req_t = `GENERIC_REQRSP_REQ_STRUCT(dca_req_chan_t),
   localparam type dca_rsp_chan_t = `DCA_RSP_CHAN_STRUCT(DcaDataWidth),
@@ -410,6 +409,20 @@ module snitch_cluster
     for (int i = 0; i < core_idx; i++) n += get_tcdm_ports(i);
     return n;
   endfunction
+
+  function automatic int get_max_phys_regs(int unsigned reg_counts [NrCores]);
+    int unsigned max_regs = 0;
+    for (int unsigned i = 0; i < NrCores; i++) begin
+      if (reg_counts[i] > max_regs) begin
+        max_regs = reg_counts[i];
+      end
+    end
+    return max_regs;
+  endfunction
+
+  localparam int unsigned MaxNofPhysGpr = get_max_phys_regs(NofPhysGpr);
+  localparam int unsigned MaxNofPhysFpr = get_max_phys_regs(NofPhysFpr);
+  localparam int unsigned AccIdWidth = $clog2((MaxNofPhysFpr > MaxNofPhysGpr) ? MaxNofPhysFpr : MaxNofPhysGpr);
 
   localparam int unsigned NrTCDMPortsCores = get_tcdm_port_offs(NrCores);
   localparam int unsigned NumTCDMIn = NrTCDMPortsCores + 1;
@@ -599,7 +612,7 @@ module snitch_cluster
     addr_t end_addr;
   } xbar_rule_t;
 
-  localparam integer unsigned IdWidth = UseSchnovaCore ? PhysRegAddrWidth : 5;
+  localparam integer unsigned IdWidth = UseSchnovaCore ? AccIdWidth : 5;
 
   typedef struct packed {
     acc_addr_e   addr;
@@ -1216,11 +1229,10 @@ module snitch_cluster
         .NumLsuRss(NumLsuRss[i]),
         .NumFpuRss(NumFpuRss[i]),
         .NumRobEntries(NumRobEntries[i]),
-        .NofPhysGpr(NofPhysGpr),
-        .NofPhysFpr(NofPhysFpr),
-        .PhysRegAddrWidth(PhysRegAddrWidth),
+        .NofPhysGpr(NofPhysGpr[i]),
+        .NofPhysFpr(NofPhysFpr[i]),
         .ICacheFetchDataWidth  (ICacheFetchDataWidth),
-        .UseFreeList (UseFreeList),
+        .UseFreeList (UseFreeList[i]),
         // TODO(colluca): add Xpulpv2 to Schnizo
         // .Xpulppostmod (Xpulppostmod[i]),
         // .Xpulpabs (Xpulpabs[i]),
@@ -1480,7 +1492,7 @@ module snitch_cluster
       .ICacheL1DataScm (ICacheL1DataScm[i]),
       .IsoCrossing (IsoCrossing),
       .UseSchnovaCore(UseSchnovaCore),
-      .PhysRegAddrWidth(PhysRegAddrWidth),
+      .AccIdWidth(AccIdWidth),
       .sram_cfg_t  (sram_cfg_t),
       .sram_cfgs_t (sram_cfgs_t),
       .axi_req_t (axi_mst_dma_req_t),

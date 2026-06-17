@@ -79,7 +79,6 @@ module schnova_cc #(
   parameter int unsigned NumRobEntries      = 32,
   parameter int unsigned NofPhysGpr         = 64,
   parameter int unsigned NofPhysFpr         = 64,
-  parameter int unsigned PhysRegAddrWidth   = 6,
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.
   parameter bit UseFreeList = 0,
@@ -114,6 +113,7 @@ module schnova_cc #(
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
   localparam int unsigned TCDMPorts = NumLsus,
+  localparam int unsigned PhysRegAddrWidth = $clog2((NofPhysFpr > NofPhysGpr) ? NofPhysFpr : NofPhysGpr),
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (

@@ -38,21 +38,6 @@
                     "description": "Whether the schnova or schnizo core is used in the cluster.",
                     "default": false
                 },
-                "use_freelist": {
-                    "type": "boolean",
-                    "description": "Whether free list based register reclamation is used in the schnova core. If false, a reference counter based implementation is used",
-                    "default": true
-                },
-                "num_phy_gpr": {
-                    "type": "number",
-                    "description": "The number of general purpose physical registers of schnova.",
-                    "default": 64
-                },
-                "num_phy_fpr": {
-                    "type": "number",
-                    "description": "The number of floating point physical registers of schnova.",
-                    "default": 64
-                },
                 "tcdm": {
                     "type": "object",
                     "description": "Configuration of the Tightly Coupled Data Memory of this cluster.",
@@ -665,11 +650,26 @@
                                             "description": "Number of ports to read results from each FPU. Only relevant if Xfrep is enabled.",
                                             "default": 1
                                         },
+                                        "use_freelist": {
+                                            "type": "boolean",
+                                            "description": "Whether free list based register reclamation is used in the schnova core. If false, a reference counter based implementation is used",
+                                            "default": false
+                                        },
+                                        "num_phy_gpr": {
+                                            "type": "number",
+                                            "description": "The number of general purpose physical registers of schnova.",
+                                            "default": 32
+                                        },
+                                        "num_phy_fpr": {
+                                            "type": "number",
+                                            "description": "The number of floating point physical registers of schnova.",
+                                            "default": 32
+                                        },
                                         "num_rob_entries": {
                                             "type": "number",
                                             "title": "Number of Reorder Buffer entries",
                                             "description": "The number of entries the reorder buffer contains. Only relevant when Schnova Core is used",
-                                            "default": 32
+                                            "default": 1
                                         },
                                         "xdma": {
                                             "type": "boolean",
