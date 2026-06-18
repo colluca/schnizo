@@ -119,6 +119,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
 
   // Rob Tag state
   logic [PipeWidth-1:0][RobTagWidth-1:0] rob_tag_d, rob_tag_q;
+  logic rob_tag_saved_d, rob_tag_saved_q;
   logic [PipeWidth-1:0] instr_dispatched;
 
   typedef struct packed {
@@ -161,7 +162,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
         // If we have already dispatched some instructions we have to use the rob tag we saved
         // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
         // tags starating from the current tail pointer
-        tag[i].rob_tag        = (|dispatched_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
+        tag[i].rob_tag        = (rob_tag_saved_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
         // Only assign a different rob tag if this instruction really needs a rob entry
         if (instr_rename_fpr_valid_i[i] || instr_rename_gpr_valid_i[i]) begin
           rob_idx++;
@@ -727,8 +728,12 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   // and scorebored signal handling    //
   ///////////////////////////////////////
 
-  assign first_instr_dispatched_o = (|(instr_dispatched & instr_valid_i)) &
-                                    !(|dispatched_q);
+  // Tracks if any valid instruction has *already* been dispatched in a previous cycle
+  logic valid_already_dispatched;
+  assign valid_already_dispatched = |(dispatched_q & instr_valid_i);
+
+  // Fires exactly on the cycle where the first valid instruction(s) transition to dispatched
+  assign first_instr_dispatched_o = |(instr_dispatched & instr_valid_i) & !valid_already_dispatched;
 
   // Only need to send the rob tag in case we do free list based reclamation
   if (UseFreeList) begin : gen_rob_tag
@@ -736,15 +741,22 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     assign refcnt_disp_req_o = '0;
     // Delacre the tag FF
     `FFAR(rob_tag_q, rob_tag_d, '0, clk_i, rst_i);
+    `FFAR(rob_tag_saved_q, rob_tag_saved_d, 1'b0, clk_i, rst_i);
     // We have to remember the first ROB tags because of partial dispatch
     always_comb begin
       rob_tag_d = rob_tag_q;
+      rob_tag_saved_d = rob_tag_saved_q;
       // Remember the rob tags the next cycle we pushed these into the ROB
       if (first_instr_dispatched_o & en_superscalar_i) begin
         rob_tag_d = rob_idx_i;
+        rob_tag_saved_d = 1'b1;
+      end
+      if (dispatched_o) begin
+        rob_tag_saved_d = 1'b0;
       end
       if (restart_i) begin
         rob_tag_d = '0;
+        rob_tag_saved_d = 1'b0;
       end
     end
   end else begin: gen_refcnt_set_req

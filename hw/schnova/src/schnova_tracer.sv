@@ -346,7 +346,7 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
     end
     // verilog_lint: waive-stop line-length
     if (UseFreeList) begin
-      assign cur_nof_allocated_rob_entries = gen_freelist_reg_manage.i_rob.allocated_entries;
+      assign cur_nof_allocated_rob_entries = gen_phys_reg_manage.gen_freelist_reg_manage.i_rob.allocated_entries;
       assign cur_nof_allocated_gpr = NofPhysGpr - gen_phys_reg_manage.gen_freelist_reg_manage.i_gpr_free_list.free_count;
       assign cur_nof_allocated_fpr = NofPhysFpr - gen_phys_reg_manage.gen_freelist_reg_manage.i_fpr_free_list.free_count;
     end else begin

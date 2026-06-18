@@ -36,11 +36,6 @@
         // Global core configurations
         // If the schnova or schnizo core is used in the cluster
         use_schnova_core: true,
-        use_freelist: false,
-        // Number of physical general purpose registers
-        num_phy_gpr: 32,
-        // Number of physical floating point registers
-        num_phy_fpr: 32,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -86,6 +81,13 @@
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
+                    { $ref: "#/compute_core_template" },
                     { $ref: "#/dma_core_template" },
                 ]
             }
@@ -128,6 +130,11 @@
         num_fpus: 1,
         num_fpu_slots: 1,
         num_fpu_buf_slots: 1,
+        use_freelist: false,
+        // Number of physical general purpose registers
+        num_phy_gpr: 32,
+        // Number of physical floating point registers
+        num_phy_fpr: 32,
         num_rob_entries: 1,
     },
     dma_core_template: {
@@ -149,6 +156,11 @@
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
+        use_freelist: false,
+        // Number of physical general purpose registers
+        num_phy_gpr: 32,
+        // Number of physical floating point registers
+        num_phy_fpr: 32,
         num_rob_entries: 1,
     }
 }

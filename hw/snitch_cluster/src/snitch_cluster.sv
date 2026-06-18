@@ -182,7 +182,7 @@ module snitch_cluster
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.
-  parameter bit          UseFreeList [NrCores] = '{default:0},
+  parameter bit [NrCores-1:0] UseFreeList = '0,
   /// Number of physical general purpose registers
   parameter int unsigned NofPhysGpr [NrCores] = '{default:0},
   /// Number of physical floating point registers

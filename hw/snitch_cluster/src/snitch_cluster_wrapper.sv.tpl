@@ -97,7 +97,6 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
-  localparam int unsigned UseFreeList   [${cfg['cluster']['nr_cores']}] = '{${core_cfg_int('use_freelist')}};
   localparam int unsigned NofPhysGpr    [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_phy_gpr')}};
   localparam int unsigned NofPhysFpr    [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_phy_fpr')}};
   localparam int unsigned NumRobEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_rob_entries')}};
@@ -173,7 +172,7 @@ module ${cfg['cluster']['name']}_wrapper (
     .Xfrep (${core_cfg_flat('xfrep')}),
     .XFREPI (${core_cfg_flat('xfrepi')}),
     .XFREPO (${core_cfg_flat('xfrepi')}),
-    .UseFreeList (UseFreeList),  
+    .UseFreeList (${core_cfg_flat('use_freelist')}),
     .UseSchnovaCore (${int(cfg['cluster']['use_schnova_core'])}),
     .Xcopift (${core_cfg_flat('xcopift')}),
     .Xpulppostmod (${core_cfg_flat('xpulppostmod')}),

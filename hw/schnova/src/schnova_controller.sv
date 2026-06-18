@@ -50,7 +50,6 @@ module schnova_controller import schnova_pkg::*; #(
   // Special FREP data
   input  logic [MaxIterationsWidth-1:0] frep_iterations_i,
   // To backend
-  output logic                      flush_backend_o,
   output logic                      dispatched_o,
   // Writeback interface
   input logic ctrl_instr_retired_i,
@@ -319,10 +318,29 @@ module schnova_controller import schnova_pkg::*; #(
   // path to loop_start_commit_i. Using a separate frep_exception breaks that path.
   assign frep_exception = interrupt_i | frep_sw_error;
 
-  // In case of an exception we flush the entire backend
-  // TODO(sorderma): When to restart controllably
-  assign flush_backend_o = exception_o;
-  assign rs_restart_o = exception_o || !en_superscalar_o;
+  logic wait_backend_q, wait_backend_d;
+  if (XFREPO) begin : gen_superscalar_restart
+    `FFAR(wait_backend_q, wait_backend_d, 1'b0, clk_i, rst_i);
+
+    always_comb begin 
+      wait_backend_d = wait_backend_q;
+      if (exception_o && !rs_idle_i && en_superscalar_o) begin
+        // We have to wait until the backend is idle
+        // that is we still execute all the instructions that are currently stored at
+        // the reservation station and dispatch buffer.
+        // Main reason: We have to somehow free the physical registers that were allocated
+        wait_backend_d = 1'b1;
+      end
+      if (rs_idle_i) begin
+        wait_backend_d = 1'b0;
+      end
+    end
+
+    // In case of an exception we flush the entire backend
+    assign rs_restart_o = (exception_o || !en_superscalar_o) && !wait_backend_q;
+  end else begin : gen_no_superscalar_restart
+    assign rs_restart_o = (exception_o || !en_superscalar_o);
+  end
 
   ////////////
   // Stalls //
@@ -427,6 +445,15 @@ module schnova_controller import schnova_pkg::*; #(
   logic rob_stall;
   assign rob_stall = en_superscalar_o ? ~rob_ready_i : 1'b0;
 
+  // We have to stall when we were in superscalar mode and an exception occured
+  // then we have to wait until the reservations station and dispatch buffers are empty
+  // before we can safely continue with the trap handler
+  logic backend_stall;
+  if (XFREPO) begin : gen_backend_stall
+    assign backend_stall = wait_backend_q;
+  end else begin : gen_no_backend_stall
+    assign backend_stall = 1'b0;
+  end
   // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
   ////////////////////
@@ -460,11 +487,36 @@ module schnova_controller import schnova_pkg::*; #(
                     loop_stall        |
                     freelist_stall    |
                     rob_stall         |
+                    backend_stall     |
                     ctrl_stall;
 
-  // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched
-  // in one go. Hence we only need a valid signal per block not for all instructions separately.
-  assign dispatch_instr_valid_o = (|instr_valid) & registers_ready_i & ~stall_raw;
+
+  
+  logic dispatch_instr_valid;
+  assign dispatch_instr_valid = (|instr_valid) & registers_ready_i & ~stall_raw;
+
+
+  if (XFREPO) begin : gen_multicycle_valid
+   logic multi_cycle_dispatch_q, multi_cycle_dispatch_d;
+    `FFAR(multi_cycle_dispatch_q, multi_cycle_dispatch_d, 1'b0, clk_i, rst_i);
+  always_comb begin
+    multi_cycle_dispatch_d = multi_cycle_dispatch_q;
+
+    if (dispatch_instr_valid) begin
+      multi_cycle_dispatch_d = 1'b1;
+    end
+    if (instr_dispatched) begin
+      multi_cycle_dispatch_d = 1'b0;
+    end
+  end 
+    // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched
+    // in one go. Hence we only need a valid signal per block not for all instructions separately.
+    assign dispatch_instr_valid_o = dispatch_instr_valid || multi_cycle_dispatch_q;
+  end else begin
+    assign dispatch_instr_valid_o = dispatch_instr_valid;
+  end
+
+
 
   // The instruction may only execute if there are no errors/exceptions.
   // TODO(colluca): clarify "multi-cycle issues" in following comment

@@ -539,7 +539,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic               fpu_status_valid;
   frep_mem_cons_mode_e frep_mem_cons_mode;
 
-  logic flush_backend;
   logic dispatched;
   logic phy_reg_alloc_ready;
   phy_id_t    [PipeWidth-1:0] allocated_gpr_regs;
@@ -774,7 +773,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // Special FREP data
     .frep_iterations_i      (fu_data[0].operand_a[FrepMaxItersWidth-1:0]),
     // To rename stage
-    .flush_backend_o (flush_backend),
     .dispatched_o(dispatched),
     .phy_reg_alloc_ready_i(phy_reg_alloc_ready),
     .rs_idle_i(rs_idle),
@@ -1788,7 +1786,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // verilog_lint: waive-start line-length
     if (XFREPO) begin : gen_rs_dispatch_trace
       assign rs_dispatch_trace[idx] = '{
-        valid:        (instr_exec_commit && instr_valid_masked[idx] && !i_dispatcher.gen_rs_dispatcher.i_rs_dispatcher.instr_has_hazard[idx]) || exception,
+        valid:        (instr_exec_commit && instr_valid_masked[idx] && !i_dispatcher.gen_rs_dispatcher.i_rs_dispatcher.instr_has_hazard[idx] && !i_dispatcher.gen_rs_dispatcher.i_rs_dispatcher.dispatched_q[idx]) || exception,
         pc_q:         i_frontend.pc_q + (idx * 4),
         pc_d:         i_frontend.pc_d,
         instr_data:   instr_fetch_data[idx],

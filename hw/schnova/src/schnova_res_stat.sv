@@ -46,7 +46,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   input  producer_id_t              producer_id_i,
   // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
   // handling logic. THERE MAY NOT BE ANY instruction in flight!
-  // TODO(colluca): add assertion
   input  logic                      restart_i,
   input  logic                      en_superscalar_i,
   // Whether the RS if full or empty
@@ -57,7 +56,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   input  disp_req_t disp_req_i,
   input  logic      disp_req_valid_i,
   output logic      disp_req_ready_o,
-  input  logic      instr_exec_commit_i,
   output disp_rsp_t disp_rsp_o,
 
   // The issued instruction - to FU

@@ -395,7 +395,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
         .disp_req_i             (alu_rs_disp_reqs_i[alu]),
         .disp_req_valid_i       (alu_rs_disp_reqs_valid_i[alu]),
         .disp_req_ready_o       (alu_rs_disp_reqs_ready_o[alu]),
-        .instr_exec_commit_i    (instr_exec_commit_i),
         .disp_rsp_o             (alu_rs_disp_rsp_o[alu]),
         // To FU
         .issue_req_o            (alu_rs_issue_req),
@@ -599,7 +598,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
         .disp_req_i         (lsu_rs_disp_reqs_i[lsu]),
         .disp_req_valid_i   (lsu_rs_disp_reqs_valid_i[lsu]),
         .disp_req_ready_o   (lsu_rs_disp_reqs_ready_o[lsu]),
-        .instr_exec_commit_i(instr_exec_commit_i),
         .disp_rsp_o         (lsu_rs_disp_rsp_o[lsu]),
         // To FU
         .issue_req_o        (lsu_rs_issue_req),
@@ -830,7 +828,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
         .disp_req_i         (fpu_rs_disp_reqs_i[fpu]),
         .disp_req_valid_i   (fpu_rs_disp_reqs_valid_i[fpu]),
         .disp_req_ready_o   (fpu_rs_disp_reqs_ready_o[fpu]),
-        .instr_exec_commit_i(fpu_instr_exec_commit_i),
         .disp_rsp_o         (fpu_rs_disp_rsp_o[fpu]),
         // To FU
         .issue_req_o           (fpu_rs_issue_req),

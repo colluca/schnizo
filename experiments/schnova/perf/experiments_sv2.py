@@ -138,13 +138,13 @@ def gen_experiments(ci=False):
     ]
 
     cfgs = [
-        'sv_2_1x1_1x1_1x1_6_4_8_44_38_0',
+        'sv_2_3x32_3x32_1x32_128_128_128_128_128_0',
     ]
 
     modes = ['superscalar']
     # sizes = [256, 512, 1024, 2048, 4096]
     sizes = [4096]
-    app_filter = ['exp']
+    app_filter = None
     core = None
 
     # Drop failing tests at 256 when running in CI
