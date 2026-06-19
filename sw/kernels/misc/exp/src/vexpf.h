@@ -4,11 +4,9 @@
 //
 // Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-
 #ifndef FUNC_PTR
 #define FUNC_PTR vexpf_schnizo
 #endif
-
 
 #define ALLOCATE_BUFFER(type, size) \
     (type *)snrt_l1_alloc_cluster_local(size * sizeof(type), sizeof(type))

@@ -21,38 +21,38 @@ def gen_experiments():
     # Generate list of experiments
     experiments = []
     for num_slots in num_slots_axis:
-            experiments.append({
-                'design': 'schnova_res_stat_synth',
-                'name': f'rs_alu_{num_slots}',
-                'hdl_params': {
-                    'NofRss': num_slots,
-                    'RsType': 0,
-                    'RegAddrWidth': 6,
-                    'NofRobEntries': 32,
-                }
-            })
+        experiments.append({
+            'design': 'schnova_res_stat_synth',
+            'name': f'rs_alu_{num_slots}',
+            'hdl_params': {
+                'NofRss': num_slots,
+                'RsType': 0,
+                'RegAddrWidth': 6,
+                'NofRobEntries': 32,
+            }
+        })
 
-            experiments.append({
-                'design': 'schnova_res_stat_synth',
-                'name': f'rs_lsu_{num_slots}',
-                'hdl_params': {
-                    'NofRss': num_slots,
-                    'RsType': 1,
-                    'RegAddrWidth': 6,
-                    'NofRobEntries': 32,
-                }
-            })
+        experiments.append({
+            'design': 'schnova_res_stat_synth',
+            'name': f'rs_lsu_{num_slots}',
+            'hdl_params': {
+                'NofRss': num_slots,
+                'RsType': 1,
+                'RegAddrWidth': 6,
+                'NofRobEntries': 32,
+            }
+        })
 
-            experiments.append({
-                'design': 'schnova_res_stat_synth',
-                'name': f'rs_fpu_{num_slots}',
-                'hdl_params': {
-                    'NofRss': num_slots,
-                    'RsType': 2,
-                    'RegAddrWidth': 6,
-                    'NofRobEntries': 32,
-                }
-            })
+        experiments.append({
+            'design': 'schnova_res_stat_synth',
+            'name': f'rs_fpu_{num_slots}',
+            'hdl_params': {
+                'NofRss': num_slots,
+                'RsType': 2,
+                'RegAddrWidth': 6,
+                'NofRobEntries': 32,
+            }
+        })
 
     return experiments
 

@@ -3,9 +3,6 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
 try:
     from . import experiments
 except ImportError:
@@ -81,7 +78,7 @@ def plot(dir=None, show=False, hide_x_axis=False, rs_type=0):
         # BASE COLOR = DESIGN TYPE
         # -----------------------------
         base_color = prop_cycle[0]   # baseline fixed color family
-        opt_color  = prop_cycle[1]   # optimized fixed color family
+        opt_color = prop_cycle[1]   # optimized fixed color family
 
         # lighten helper
         def lighten(color, factor=0.5):
@@ -89,7 +86,7 @@ def plot(dir=None, show=False, hide_x_axis=False, rs_type=0):
             return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
 
         base_seq_color = lighten(base_color)
-        opt_seq_color  = lighten(opt_color)
+        opt_seq_color = lighten(opt_color)
 
         # -----------------------------
         # BASELINE (left bar)
@@ -171,7 +168,7 @@ def plot(dir=None, show=False, hide_x_axis=False, rs_type=0):
     for idx, val in saving_pct.items():
         print(f"NofRss = {idx}: {val:.2f}%")
 
-    print (f"On average: {np.mean(saving_pct)}%")
+    print(f"On average: {np.mean(saving_pct)}%")
     if show:
         plt.show()
 
@@ -219,14 +216,18 @@ def linear_regression_constants(dir=None):
             fits[p][col] = {'slope': slope, 'intercept': intercept, 'r2': r**2}
     return fits
 
+
 def plot1():
     plot(show=True, rs_type=0)
+
 
 def plot2():
     plot(show=True, rs_type=1)
 
+
 def plot3():
     plot(show=True, rs_type=2)
+
 
 def main():
     plots = [plot1, plot2, plot3]
