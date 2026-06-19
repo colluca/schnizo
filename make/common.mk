@@ -34,7 +34,6 @@ SN_VLT            ?= $(SN_VERILATOR_SEPP) verilator
 # Internal executables
 SN_GENTRACE_PY  ?= $(SN_UTIL_DIR)/sz_trace/sz_gen_trace.py
 SV_GENTRACE_PY  ?= $(SN_UTIL_DIR)/sv_trace/sv_gen_trace.py
-SV_ALLOC_PY	    ?= $(SN_UTIL_DIR)/bench/join_alloc.py
 SN_ANNOTATE_PY  ?= $(SN_UTIL_DIR)/trace/annotate.py
 SN_EVENTS_PY    ?= $(SN_UTIL_DIR)/trace/events.py
 SN_JOIN_PY      ?= $(SN_UTIL_DIR)/bench/join.py

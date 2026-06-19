@@ -15,7 +15,6 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned LsuNofRss  = 2,
   parameter int unsigned FpuNofRss  = 4,
   parameter int unsigned NofOperandIfs = 1,
-  parameter bit          EnableAllocTrace = 1,
   parameter int unsigned NofPhysGpr = 64,
   parameter int unsigned NofPhysFpr = 64,
   parameter bit          XFREPO     = 1
@@ -83,16 +82,6 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
   } dispatch_detail_t;
 
   localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
-
-  integer unsigned max_nof_allocated_rss [NofFus];
-  integer unsigned cur_nof_allocated_rss [NofFus];
-  integer unsigned max_nof_allocated_rob_entries;
-  integer unsigned cur_nof_allocated_rob_entries;
-  integer unsigned max_nof_allocated_gpr;
-  integer unsigned cur_nof_allocated_gpr;
-  integer unsigned max_nof_allocated_fpr;
-  integer unsigned cur_nof_allocated_fpr;
-
 
   // Shadow Queues to mirror the dispatch hardware buffers
   dispatch_detail_t alu_shadow_q[$];
@@ -287,109 +276,15 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
                         format_fu_retire_trace(acc_retirement, 1'b0),
                         acc_retirement.valid);
 
-
-      if (EnableAllocTrace) begin
-        // Check the allocation counter of the reservation station slots
-        for (int alu = 0; alu < NofAlus; alu++) begin
-          if (max_nof_allocated_rss[alu] < cur_nof_allocated_rss[alu]) begin
-            max_nof_allocated_rss[alu] = cur_nof_allocated_rss[alu];
-          end
-        end
-
-        for (int lsu = 0; lsu < NofLsus; lsu++) begin
-          if (max_nof_allocated_rss[lsu+NofAlus] < cur_nof_allocated_rss[lsu+NofAlus]) begin
-            max_nof_allocated_rss[lsu+NofAlus] = cur_nof_allocated_rss[lsu+NofAlus];
-          end
-        end
-
-        for (int fpu = 0; fpu < NofFpus; fpu++) begin
-          if (max_nof_allocated_rss[fpu+NofAlus+NofLsus] < cur_nof_allocated_rss[fpu+NofAlus+NofLsus]) begin
-            max_nof_allocated_rss[fpu+NofAlus+NofLsus] = cur_nof_allocated_rss[fpu+NofAlus+NofLsus];
-          end
-        end
-
-        // check the rob allocation entry
-        if (max_nof_allocated_rob_entries < cur_nof_allocated_rob_entries) begin
-          max_nof_allocated_rob_entries = cur_nof_allocated_rob_entries;
-        end
-        // Check the free list counters
-        if (max_nof_allocated_gpr < cur_nof_allocated_gpr) begin
-          max_nof_allocated_gpr = cur_nof_allocated_gpr;
-        end
-
-        if (max_nof_allocated_fpr < cur_nof_allocated_fpr) begin
-          max_nof_allocated_fpr = cur_nof_allocated_fpr;
-        end
-      end
     end else begin
       cycle = '0;
-      max_nof_allocated_rss = '{ default: '0};
-      max_nof_allocated_rob_entries = '0;
-      max_nof_allocated_fpr = '0;
-      max_nof_allocated_gpr = '0;
       alu_shadow_q.delete();
       lsu_shadow_q.delete();
       fpu_shadow_q.delete();
     end
   end
 
-  if (XFREPO) begin
-    // verilog_lint: waive-start line-length
-    for (genvar alu = 0; alu < NofAlus; alu++) begin: gen_cur_alu_rss_alloc
-      assign cur_nof_allocated_rss[alu] = i_fu_stage.gen_alus[alu].gen_rs.i_res_stat.num_allocated_rss_q;
-    end
-    for (genvar lsu = 0; lsu < NofLsus; lsu++) begin: gen_cur_lsu_rss_alloc
-      assign cur_nof_allocated_rss[NofAlus+lsu] = i_fu_stage.gen_lsus[lsu].gen_rs.i_res_stat.num_allocated_rss_q;
-    end
-    for (genvar fpu = 0; fpu < NofFpus; fpu++) begin: gen_cur_fpu_rss_alloc
-      assign cur_nof_allocated_rss[NofAlus+NofLsus+fpu] = i_fu_stage.gen_fpus[fpu].gen_rs.i_res_stat.num_allocated_rss_q;
-    end
-    // verilog_lint: waive-stop line-length
-    if (UseFreeList) begin
-      assign cur_nof_allocated_rob_entries = gen_phys_reg_manage.gen_freelist_reg_manage.i_rob.allocated_entries;
-      assign cur_nof_allocated_gpr = NofPhysGpr - gen_phys_reg_manage.gen_freelist_reg_manage.i_gpr_free_list.free_count;
-      assign cur_nof_allocated_fpr = NofPhysFpr - gen_phys_reg_manage.gen_freelist_reg_manage.i_fpr_free_list.free_count;
-    end else begin
-      assign cur_nof_allocated_rob_entries = '0; // There is no ROB in this design
-      assign cur_nof_allocated_gpr = NofPhysGpr - gen_phys_reg_manage.gen_refcount_reg_manage.i_refcount.gpr_free_count;
-      assign cur_nof_allocated_fpr = NofPhysFpr - gen_phys_reg_manage.gen_refcount_reg_manage.i_refcount.fpr_free_count;
-    end
-  end else begin
-    assign cur_nof_allocated_rss = '{default: '0};
-    assign cur_nof_allocated_rob_entries = '0;
-    assign cur_nof_allocated_gpr = 32;
-    assign cur_nof_allocated_fpr = 32;
-  end
-
   final begin
-    if (EnableAllocTrace) begin
-      string msg;
-      int alloc_file_id;
-      string alloc_file_name;
-
-      msg = "";
-
-      for (int alu = 0; alu < NofAlus; alu++) begin
-        msg = {msg, $sformatf("ALU%0d value=%0d\n", alu, max_nof_allocated_rss[alu])};
-      end
-
-      for (int lsu = 0; lsu < NofLsus; lsu++) begin
-        msg = {msg, $sformatf("LSU%0d value=%0d\n", lsu, max_nof_allocated_rss[NofAlus+lsu])};
-      end
-
-      for (int fpu = 0; fpu < NofFpus; fpu++) begin
-        msg = {msg, $sformatf("FPU%0d value=%0d\n", fpu, max_nof_allocated_rss[NofAlus+NofLsus+fpu])};
-      end
-
-      msg = {msg, $sformatf("ROB value=%0d\n", max_nof_allocated_rob_entries)};
-      msg = {msg, $sformatf("GPR value=%0d\n", max_nof_allocated_gpr)};
-      msg = {msg, $sformatf("FPR value=%0d\n", max_nof_allocated_fpr)};
-
-      // Write the allocation metrics to a file
-      $sformat(alloc_file_name, "logs/alloc_metrics_hart_%05x.txt", hart_id_i);
-      alloc_file_id = $fopen(alloc_file_name, "w");
-      $fwrite(alloc_file_id, msg);
-    end
     $fclose(file_id);
   end
 

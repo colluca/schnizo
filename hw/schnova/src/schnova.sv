@@ -34,9 +34,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Enable Snitch DMA as accelerator.
   parameter bit          Xdma      = 0,
   /// Hardware loop feature for the schnova core
-  parameter bit          XFREPI             = 0,
+  parameter bit          XFREPI             = 1'b1,
   /// Superscalar out of order extension for the schnova core
-  parameter bit          XFREPO             = 0,
+  parameter bit          XFREPO             = 1'b1,
   /// Enable FP in general
   parameter bit          FP_EN     = 0,
   /// Enable F Extension.
@@ -1991,7 +1991,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .LsuNofRss      (LsuNofRss),
     .FpuNofRss      (FpuNofRss),
     .NofOperandIfs  (NofOperandIfs),
-    .EnableAllocTrace(1'b1),
     .NofPhysGpr     (NofPhysGpr),
     .NofPhysFpr     (NofPhysFpr),
     .XFREPO          (XFREPO)

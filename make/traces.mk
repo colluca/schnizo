@@ -55,9 +55,6 @@ sn-clean-perf:
 sn-clean-visual-trace:
 	rm -f $(SN_VISUAL_TRACE)
 
-sn-alloc: $(SV_ALLOC_PY)
-	$(SV_ALLOC_PY) $(SN_LOGS_DIR)
-
 $(addprefix $(SN_LOGS_DIR)/,sz_trace_hart_%.txt sz_hart_%_perf.json dma_%_perf.json): $(SN_LOGS_DIR)/sz_trace_hart_%.dasm $(SN_GENTRACE_PY) $(SN_GENTRACE_SRC) $(SV_GENTRACE_PY) $(SV_GENTRACE_SRC)
 		$(GENTRACE_PY) $< $(SN_GENTRACE_PY_FLAGS) --dma-trace $(SN_SIM_DIR)/dma_trace_$*_00000.log --dump-hart-perf $(SN_LOGS_DIR)/sz_hart_$*_perf.json --dump-dma-perf $(SN_LOGS_DIR)/dma_$*_perf.json --perfetto-trace $(SN_LOGS_DIR)/sz_perfetto_hart_$*.tb -o $(SN_LOGS_DIR)/sz_trace_hart_$*.txt
 

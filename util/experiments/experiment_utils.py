@@ -35,7 +35,7 @@ except ImportError as e:
 
 
 ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
-           'elab', 'synth', 'pln', 'alloc', 'pl-hw', 'vcd', 'none']
+           'elab', 'synth', 'pln', 'pl-hw', 'vcd', 'none']
 
 
 class ExperimentManager:
@@ -321,19 +321,6 @@ class ExperimentManager:
                         build.build_visual_trace(experiment['run_dir'], rendered_spec,
                                                  hw_cfg=hw_cfg)
             common.wait_processes(processes)
-
-        # Generate joint allocation metrics summary
-        if 'alloc' in self.actions or 'all' in self.actions:
-            for experiment in experiments:
-                print(colored('Generate allocation metrics', 'black', attrs=['bold']),
-                      colored(experiment['run_dir'], 'cyan', attrs=['bold']))
-                vars = {
-                    'SIM_DIR': experiment['run_dir'],
-                }
-                if self.args.n_procs:
-                    flags = ['-j', self.args.n_procs]
-                if experiment.get('core') == 'schnova':
-                    common.make('alloc', vars, flags=flags)
 
         # Run synthesis
         if any(x in ['elab', 'synth', 'pln', 'all'] for x in self.actions):

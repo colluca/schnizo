@@ -151,7 +151,7 @@ static inline void axpy_schnizo(uint32_t n, double a, double *x, double *y,
     snrt_mcycle();
 }
 
-static inline void axpy_schnova_unroll(uint32_t n, double a, double *x, 
+static inline void axpy_schnova_unroll(uint32_t n, double a, double *x,
                                        double *y, double *z) {
     int core_idx = snrt_cluster_core_idx();
     int num_cores = snrt_cluster_compute_core_num();
