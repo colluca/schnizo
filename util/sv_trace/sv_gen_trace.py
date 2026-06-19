@@ -221,8 +221,9 @@ def handle_dispatch_event(sim_time, cycle, priv_lvl, extras,
     return 0
 
 
-def handle_retirement_event(cycle, priv_lvl, extras,
-                            lsu_load_pipelines, lsu_store_pipelines, fpu_pipelines, perf_metrics, permissive):
+def handle_retirement_event(cycle, priv_lvl, extras, lsu_load_pipelines,
+                            lsu_store_pipelines, fpu_pipelines, perf_metrics,
+                            permissive):
     if (extras['producer'].startswith(FU_LSU) or extras['producer'].startswith(FU_FPU)):
         try:
             fu_id = extras['producer'].split('.')[0]
@@ -345,7 +346,8 @@ def gen_trace_line(line, mc_exec,
         trace_body = gen_writeback_trace(data)
     elif (data['event'] == EVENT_RETIREMENT):
         handle_retirement_event(cycle, priv_lvl, data,
-                                lsu_load_pipelines, lsu_store_pipelines, fpu_pipelines, perf_metrics, permissive)
+                                lsu_load_pipelines, lsu_store_pipelines,
+                                fpu_pipelines, perf_metrics, permissive)
         gen_retirement_perfetto(sim_time, cycle, priv_lvl, data, trace)
     else:
         raise ValueError(f"Not a valid event type: {data['event']}\n")
@@ -516,9 +518,12 @@ def main():
                 try:
                     # Process each event independently
                     trace_line, sim_time, cycle = gen_trace_line(line, args.mc_exec,
-                                                                 lsu_load_pipelines, lsu_store_pipelines, fpu_pipelines,
+                                                                 lsu_load_pipelines,
+                                                                 lsu_store_pipelines,
+                                                                 fpu_pipelines,
                                                                  trace, perf_metrics,
-                                                                 proc_state, args.permissive)
+                                                                 proc_state,
+                                                                 args.permissive)
                     # The newline character is in the trace line. This way the trace line can also
                     # be empty.
                     parsed_lines.append((cycle, sim_time, trace_line))

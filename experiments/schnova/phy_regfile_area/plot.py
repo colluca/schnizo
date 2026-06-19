@@ -3,8 +3,6 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
-import matplotlib.pyplot as plt
-import numpy as np
 try:
     from . import experiments
 except ImportError:
@@ -215,8 +213,10 @@ def linear_regression_constants(dir=None):
 def plot1():
     print(results())
 
+
 def plot2():
     plot_operand_ifs(show=True)
+
 
 def main():
     plots = [plot1, plot2]

@@ -6,7 +6,6 @@
 
 import matplotlib.colors as mcolors
 import matplotlib.path as mpath
-import matplotlib.axes as maxes
 
 
 PULP_COLOR = {
@@ -103,6 +102,7 @@ PULP_COLORS_BASE = [
 
 # Create a colormap using PULP colors
 pulp_cmap = mcolors.ListedColormap(PULP_COLORS_BASE, name="pulp_cmap")
+
 
 def curve_between_points(p1, p2, curve_height=0.5):
     """ "

@@ -5,13 +5,10 @@
 
 import argparse
 import matplotlib.patches as patches
-import matplotlib.path as mpath
 from area_row import AreaRow
 from plot_util import PULP_COLORS_BASE, smooth_polygon
-import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import pprint
 try:
     from . import experiments
 except ImportError:
@@ -48,7 +45,7 @@ def results(dir=None):
     baseline = 106
 
     df['AreaIncrease'] = (
-        df['StdCellArea']/ baseline
+        df['StdCellArea'] / baseline
     ).round(1)
     df['CLK'] = 1 - df['synth_results'].str['qor_summary'].str['WNS']
     df['1BitEqSeq'] = (df['synth_results'].str['multibit'].str['1BitEqSeq']).astype('int')
@@ -58,6 +55,7 @@ def results(dir=None):
     df.drop(columns=['synth_results'], inplace=True)
 
     return df
+
 
 def gp_area_efficiency_plot():
     designs = {
@@ -108,7 +106,6 @@ def gp_area_efficiency_plot():
         },
     }
 
-
     # ----------------------------------------
     # Performance calculation
     # GIPS = IPC / CLK(ns)
@@ -116,14 +113,14 @@ def gp_area_efficiency_plot():
 
     for d in designs.values():
         d["performance_gips"] = d["IPC"] / d["CLK"]
-        d["area_efficiency"]  = 1000 * d["performance_gips"] / d["area"]
+        d["area_efficiency"] = 1000 * d["performance_gips"] / d["area"]
 
     # ----------------------------------------
     # Same color per family, different markers
     # ----------------------------------------
 
     marker_map = {
-        "Schnova-ZOL" :     ("tab:orange", "o"),
+        "Schnova-ZOL":      ("tab:orange", "o"),
         "GP-PW1":           ("tab:blue",   "o"),
         "GP-PW1-Bal":       ("tab:blue",   "*"),
         "GP-PW2":           ("tab:green",   "o"),
@@ -155,7 +152,7 @@ def gp_area_efficiency_plot():
     plt.ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
 
     plt.xlim(left=0, right=3)
-    plt.ylim(bottom=0,top=10)
+    plt.ylim(bottom=0, top=10)
 
     plt.grid(True, alpha=0.35)
 
@@ -166,13 +163,14 @@ def gp_area_efficiency_plot():
     )
 
     plt.tight_layout()
-    #plt.show()
+    # plt.show()
     plt.savefig(
         "plot.png",
         bbox_inches="tight",
         pad_inches=0.1,
         dpi=300
     )
+
 
 def spec_area_efficiency_plot():
     designs = {
@@ -198,7 +196,6 @@ def spec_area_efficiency_plot():
         },
     }
 
-
     # ----------------------------------------
     # Performance calculation
     # GIPS = IPC / CLK(ns)
@@ -206,14 +203,14 @@ def spec_area_efficiency_plot():
 
     for d in designs.values():
         d["performance_gips"] = d["IPC"] / d["CLK"]
-        d["area_efficiency"]  = 1000 * d["performance_gips"] / d["area"]
+        d["area_efficiency"] = 1000 * d["performance_gips"] / d["area"]
 
     # ----------------------------------------
     # Same color per family, different markers
     # ----------------------------------------
 
     marker_map = {
-        "Schnova-ZOL" :     ("tab:orange", "o"),
+        "Schnova-ZOL":      ("tab:orange", "o"),
         "PW2-EXP":          ("tab:green",  "o"),
         "PW4-AXPY":         ("tab:purple", "o"),
         "PW8-AXPY":         ("tab:red",    "o"),
@@ -240,7 +237,7 @@ def spec_area_efficiency_plot():
     plt.ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
 
     plt.xlim(left=0, right=7)
-    plt.ylim(bottom=0,top=16)
+    plt.ylim(bottom=0, top=16)
 
     plt.grid(True, alpha=0.35)
 
@@ -251,7 +248,7 @@ def spec_area_efficiency_plot():
     )
 
     plt.tight_layout()
-    #plt.show()
+    # plt.show()
     plt.savefig(
         "plot.png",
         bbox_inches="tight",
@@ -259,27 +256,29 @@ def spec_area_efficiency_plot():
         dpi=300
     )
 
+
 def extract_hierarchy(tree):
-        rows = []
+    rows = []
 
-        def visit(node, path=""):
-            name = getattr(node, "name", "")
-            full_path = f"{path}/{name}" if path else name
+    def visit(node, path=""):
+        name = getattr(node, "name", "")
+        full_path = f"{path}/{name}" if path else name
 
-            rows.append({
-                "path": full_path,
-                "level": full_path.count("/"),
-                "CombArea": getattr(node, "CombArea", None),
-                "SeqArea": getattr(node, "SeqArea", None),
-                "StdCellArea": getattr(node, "StdCellArea", None),
-                "MacroBBArea": getattr(node, "MacroBBArea", None),
-            })
+        rows.append({
+            "path": full_path,
+            "level": full_path.count("/"),
+            "CombArea": getattr(node, "CombArea", None),
+            "SeqArea": getattr(node, "SeqArea", None),
+            "StdCellArea": getattr(node, "StdCellArea", None),
+            "MacroBBArea": getattr(node, "MacroBBArea", None),
+        })
 
-            for child in node.children:
-                visit(child, full_path)
+        for child in node.children:
+            visit(child, full_path)
 
-        visit(tree)
-        return pd.DataFrame(rows)
+    visit(tree)
+    return pd.DataFrame(rows)
+
 
 def connect(ax, gA, idxA, gB, idxB, bar_h, color="gray", alpha=0.2):
     labelsA, widthsA, leftsA, yA = gA.values()
@@ -302,6 +301,7 @@ def connect(ax, gA, idxA, gB, idxB, bar_h, color="gray", alpha=0.2):
         patches.PathPatch(path, facecolor=color, edgecolor='none', alpha=alpha)
     )
 
+
 def plot_core_breakdown(dir=None, name='gp_sv1'):
     df = experiments.results(dir=dir)
     df['hierarchy_details'] = df['synth_results'].str['hierarchy_details']
@@ -314,30 +314,23 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
     df['StdCellArea'] = df['StdCellArea'].map(to_kge)
     df['area'] = df['StdCellArea']
 
-    print(df)
-    
     # -----------------------------
     # Helper
     # -----------------------------
     def get_area(path):
         row = df[df['path'] == path]
         return row['area'].values[0] if len(row) else 0.0
-    
-    
+
     # -----------------------------
     # Build synthetic rows
     # -----------------------------
     root_area = get_area('.')
     schnova_area = get_area('./i_schnova')
     fu_stage_area = get_area('./i_schnova/i_fu_stage')
-    
+
     # ---- Row 1
     row1_names = ["Schnova", "Rest"]
-    row1_vals = [
-        schnova_area,
-        root_area - schnova_area
-    ]
-    
+
     # ---- Row 2
     blocks_lvl2 = {
         "FU Stage": "./i_schnova/i_fu_stage",
@@ -350,7 +343,7 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
         "ROB": "./i_schnova/i_rob",
         "Scoreboard": "./i_schnova/i_scoreboard",
     }
-    
+
     row2_names = list(blocks_lvl2.keys())
     row2_vals = [get_area(p) for p in blocks_lvl2.values()]
 
@@ -358,37 +351,35 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
 
     row2_names.append("Rename")
     row2_vals.append(sum(rename_vals))
-    
+
     row2_names.append("Rest")
     row2_vals.append(schnova_area - sum(row2_vals))
-    
-    
+
     # ---- Row 3 (FU stage)
     alu_area = df[
         df['path'].str.contains('gen_alus_') &
         df['path'].str.endswith('i_alu')
     ]['area'].sum()
-    
+
     fpu_area = df[
         df['path'].str.contains('gen_fpus_0__i_fpu/i_fpu')
     ]['area'].sum()
-    
+
     lsu_area = df[
         df['path'].str.contains('gen_lsus_') &
         df['path'].str.endswith('i_lsu')
     ]['area'].sum()
-    
+
     fu_block_area = df[
         df['path'].str.endswith('i_fu_block')
     ]['area'].sum()
-    
+
     row3_names = ["FPU", "FU Blocks", "3 ALUs", "3 LSUs"]
     row3_vals = [fpu_area, fu_block_area, alu_area,  lsu_area]
-    
+
     row3_names.append("Rest")
     row3_vals.append(fu_stage_area - sum(row3_vals))
-    
-    
+
     # -----------------------------
     # Build AreaRow objects
     # -----------------------------
@@ -397,19 +388,15 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
         AreaRow(row2_names, total_area=schnova_area, threshold=0.0, color_source=PULP_COLORS_BASE),
         AreaRow(row3_names, total_area=fu_stage_area, threshold=0.0, color_source=PULP_COLORS_BASE),
     ]
-    
-    row1 = rows[0].build(row1_vals, row1_names)
-    row2 = rows[1].build(row2_vals, row2_names)
-    row3 = rows[2].build(row3_vals, row3_names)
-    
+
     fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
-    
+
     BAR_H = 0.3
     Y_OFF = 1.0
     POS1_OFF = 0.65
     POS2_OFF = 0.95
-    
-    if name == 'gp_sv1': 
+
+    if name == 'gp_sv1':
         specs = [
             (rows[0], 0, None),
             (rows[1], Y_OFF, [4]),
@@ -419,13 +406,13 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
         specs = [
             (rows[0], 0, None),
             (rows[1], Y_OFF, [4]),
-            (rows[2], 2 * Y_OFF, [2,4]),
+            (rows[2], 2 * Y_OFF, [2, 4]),
         ]
-    
+
     ax.set_xlim(0, 1)
     ax.invert_yaxis()
     ax.axis('off')
-    
+
     geom = []
 
     for i, (row_obj, y, off) in enumerate(specs):
@@ -486,16 +473,16 @@ def plot_core_breakdown(dir=None, name='gp_sv1'):
     ax.add_patch(
         patches.PathPatch(path, facecolor="gray", edgecolor="none", alpha=0.2)
     )
-    
+
     plt.tight_layout()
     plt.savefig(
-    "plot.png",
-    bbox_inches="tight",
-    pad_inches=0.1,
-    dpi=300
+        "plot.png",
+        bbox_inches="tight",
+        pad_inches=0.1,
+        dpi=300
     )
     plt.show()
-    
+
 
 def plot1():
     gp_area_efficiency_plot()
@@ -512,9 +499,10 @@ def plot3():
 def plot4():
     plot_core_breakdown(name='gp_sv8')
 
+
 def plot5():
     print(results())
-    
+
 
 def main():
     plots = [plot1, plot2, plot3, plot4, plot5]

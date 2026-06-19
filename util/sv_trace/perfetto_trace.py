@@ -26,19 +26,19 @@ def extract_fu_details(fu_string):
     # Match the string against the patterns
     if re.match(fu_type_pattern, fu_string):
         return fu_string, fu_string, None
-        
+
     elif match := re.match(fu_id_pattern, fu_string):
         fu_type, fu_id, suffix = match.groups()
-        fu_track = f"{fu_type}{fu_id}"          # Visual Track: "LSU0"
-        queue_key = f"{fu_type}{fu_id}{suffix}" # Backend Queue: "LSU0L" or "LSU0S"
+        fu_track = f"{fu_type}{fu_id}"           # Visual Track: "LSU0"
+        queue_key = f"{fu_type}{fu_id}{suffix}"  # Backend Queue: "LSU0L" or "LSU0S"
         return fu_track, queue_key, None
-        
+
     elif match := re.match(fu_slot_pattern, fu_string):
         fu_type, fu_id, slot_id, suffix = match.groups()
-        fu_track = f"{fu_type}{fu_id}"          # Visual Track: "LSU0"
-        queue_key = f"{fu_type}{fu_id}{suffix}" # Backend Queue: "LSU0L" or "LSU0S"
+        fu_track = f"{fu_type}{fu_id}"           # Visual Track: "LSU0"
+        queue_key = f"{fu_type}{fu_id}{suffix}"  # Backend Queue: "LSU0L" or "LSU0S"
         return fu_track, queue_key, int(slot_id)
-        
+
     else:
         raise ValueError(f"Invalid FU string format to extract details: {fu_string}")
 
@@ -178,7 +178,7 @@ class PerfettoInstructionTrace(PerfettoTrace):
     def start_insn(self, fu, name, timestamp, annotations={}):
         # Unpack all three extracted details
         fu_track, queue_key, slot_id = extract_fu_details(fu)
-        
+
         # 1. Create the parent visual track using the clean base name (e.g., "LSU0")
         if fu_track not in self.tracks:
             self.add_track(fu_track, parent='Instructions')
@@ -200,6 +200,6 @@ class PerfettoInstructionTrace(PerfettoTrace):
     def end_insn(self, fu, timestamp):
         # We only care about the backend queue_key to pop the correct instruction
         _, queue_key, _ = extract_fu_details(fu)
-        
+
         insn_uuid = self.outstanding_insns[queue_key].pop()
         self.add_event(insn_uuid, TYPE_SLICE_END, timestamp, None)

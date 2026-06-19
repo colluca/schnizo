@@ -9,7 +9,6 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
-from tracemalloc import start
 import json5
 import mako
 import pandas as pd
@@ -122,7 +121,11 @@ class ExperimentManager:
         experiment['name'] = self.derive_name(experiment)
         experiment['run_dir'] = self.derive_dir(self.run_dir, experiment)
         experiment['power_dir'] = self.derive_dir(self.power_dir, experiment)
-        experiment['synth_dir'] = self.synth_dir / experiment['hw'] if 'hw' in experiment else self.derive_dir(self.synth_dir, experiment)
+        experiment["synth_dir"] = (
+            self.synth_dir / experiment["hw"]
+            if "hw" in experiment
+            else self.derive_dir(self.synth_dir, experiment)
+        )
         if 'app' in experiment:
             experiment['elf'] = self.derive_elf(experiment)
 
@@ -204,7 +207,7 @@ class ExperimentManager:
 
         # Run experiments
         if 'run' in self.actions or 'all' in self.actions:
-            
+
             simulations = sim_utils.get_simulations(
                 experiments,
                 run.SIMULATORS[self.args.simulator],
@@ -331,7 +334,6 @@ class ExperimentManager:
                     flags = ['-j', self.args.n_procs]
                 if experiment.get('core') == 'schnova':
                     common.make('alloc', vars, flags=flags)
-                
 
         # Run synthesis
         if any(x in ['elab', 'synth', 'pln', 'all'] for x in self.actions):
@@ -344,8 +346,9 @@ class ExperimentManager:
             processes = []
 
             if action == 'pln':
-                # We run a synthesis flow for the whole snitch cluster 
-                # Hence to save time we should only do that for unique hardware configurations, not for every experiment
+                # We run a synthesis flow for the whole snitch cluster
+                # Hence to save time we should only do that for unique hardware
+                # configurations, not for every experiment
                 unique_hw_experiments = {e['hw']: e for e in experiments}.values()
                 for experiment in unique_hw_experiments:
                     def func():
@@ -359,10 +362,13 @@ class ExperimentManager:
                         func = self.callbacks[action]
                     process = func()
                     processes.append(process)
-            else: 
+            else:
                 for experiment in experiments:
                     def func(design=None, hdl_params={}):
-                        hdl_params_str = ':'.join([f'{key}={val}' for key, val in hdl_params.items()])
+                        hdl_params_str = ":".join(
+                            f"{key}={val}"
+                            for key, val in hdl_params.items()
+                        )
                         vars = {
                             'DESIGN': design,
                             'HDL_PARAMS': hdl_params_str,
@@ -395,12 +401,9 @@ class ExperimentManager:
 
                 print(colored('Build post layout hardwarare', 'black', attrs=['bold']),
                       colored(bin, 'cyan', attrs=['bold']))
-                
+
                 # Here we first have to make a symbolic link for the generated netlist to the folder
                 # the bender.yml expects it to be in.
-                
-                # Path bender.yml expects the generated netlist to be in
-                dest_dir = Path('')
 
                 # First we need to find the root directory (where the Bender.yml is located)
                 def find_repo_root(start: Path) -> Path:
@@ -410,7 +413,7 @@ class ExperimentManager:
                             return cur
                         cur = cur.parent
                     raise RuntimeError("Could not find repository root")
-                
+
                 SN_ROOT = find_repo_root(Path(__file__).parent)
 
                 # Then the path where the bender.yml expects the postlayout to be in
@@ -434,7 +437,6 @@ class ExperimentManager:
                 common.make(bin, vars, dry_run=dry_run)
 
         if 'vcd' in self.actions or 'all' in self.actions:
-            
             # We have to extend the experiments with the vcd information
             experiments = self.extract_vcd_simregion(experiments)
             # We also have to tell the simulation that it should expect 1 and not 0

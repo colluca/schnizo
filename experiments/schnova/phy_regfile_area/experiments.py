@@ -16,10 +16,8 @@ class ExperimentManager(eu.ExperimentManager):
 
 def gen_experiments(designs=None):
     # Define axes
-    #num_write_ports_axis = [1, 2, 4, 8]
-    #num_op_ifs_axis = [4, 8, 12, 16, 20]
     num_write_ports_axis = [1]
-    num_op_ifs_axis = [4,8,12]
+    num_op_ifs_axis = [4, 8, 12]
     num_regs_axis = [48, 64, 80, 96, 112]
 
     # Generate list of experiments
@@ -40,11 +38,11 @@ def gen_experiments(designs=None):
                                 'NumRegs': num_regs
                             }
                         })
-                
 
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]
     return experiments
+
 
 def results(dir=None):
     manager = ExperimentManager(gen_experiments(), dir=dir, parse_args=False)

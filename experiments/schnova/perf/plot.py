@@ -11,19 +11,9 @@ from scipy.stats import gmean
 
 try:
     from . import experiments
-    from . import instr_mix_experiments
-    from . import experiments_sv1
-    from . import experiments_sv2
-    from . import experiments_sv4
-    from . import experiments_sv8
     from . import model
 except ImportError:
     import experiments
-    import instr_mix_experiments
-    import experiments_sv1
-    import experiments_sv2
-    import experiments_sv4
-    import experiments_sv8
     import model
 
 
@@ -193,34 +183,35 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     return plot_df
 
+
 def print_all_geomeans(df, metric='fpu_util'):
     """
-    Dynamically groups by ALL hardware configurations and modes present in the 
+    Dynamically groups by ALL hardware configurations and modes present in the
     dataframe, calculates the geometric mean across applications, and prints them.
     """
     print(f"--- Geometric Mean for {metric.upper()} (All Present Configs) ---")
-    
+
     # 1. Filter out rows where the metric or size might be missing
     clean_df = df.dropna(subset=[metric, 'size']).copy()
-    
+
     # 2. Get the max size per application for every unique (hw, mode) combination
     #    This mirrors your logic of looking at the largest problem size run.
     idx_max_size = clean_df.groupby(['app', 'hw', 'mode'])['size'].idxmax()
     reduced_df = clean_df.loc[idx_max_size]
-    
+
     # 3. Group by the configurations themselves to calculate the geomean across apps
     config_groups = reduced_df.groupby(['hw', 'mode'])
-    
+
     for (hw, mode), group in config_groups:
         # Extract the series of metrics across all applications for this config
         values = group[metric]
-        
+
         if not values.empty:
             gm_value = gmean(values)
-            
+
             # Label string combining both the hardware name and its mode
             config_label = f"HW: {hw} ({mode})"
-            
+
             # Format output based on the metric type
             if metric == 'ipc':
                 print(f"{config_label:50}: {gm_value:.2f}")
@@ -228,6 +219,7 @@ def print_all_geomeans(df, metric='fpu_util'):
                 print(f"{config_label:50}: {gm_value:.2%}")
             else:
                 print(f"{config_label:50}: {gm_value:.4f}")
+
 
 def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
     """
@@ -257,7 +249,7 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         - for vary_by='slots', slot counts are not identical
         """
 
-        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)$"
+        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)$"  # noqa: E501
         match = re.match(pattern, hw_name)
 
         if not match:
@@ -287,19 +279,14 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
 
         if vary_by == "alu_slots":
             return alu_slots
-        
         elif vary_by == "lsu_slots":
             return lsu_slots
-        
         elif vary_by == "fpu_slots":
             return fpu_slots
-        
         elif vary_by == "alus":
             return nof_alus
-        
         elif vary_by == "lsus":
             return nof_lsus
-        
         elif vary_by == "fpus":
             return nof_fpus
         elif vary_by == "alu_buf_slots":
@@ -310,13 +297,10 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
             return fpu_buf_slots
         elif vary_by == "gpr":
             return gpr
-        
         elif vary_by == "fpr":
             return fpr
-
         elif vary_by == "rob_entries":
             return rob_entries
-
         return None
 
     xlabel_map = {
@@ -407,6 +391,7 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
 
     return geomean_data
 
+
 def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=None, width=None):
     """
     Calculates and prints the geomean of IPC for a given config,
@@ -415,7 +400,7 @@ def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=Non
     # 1. Fetch base superscalar metrics
     metrics = model.theoretical_metrics(cfg=cfg_data, pipe_width=width)
     ipc_map = metrics['ipc']['superscalar'].copy()
-    
+
     # 2. Swap 'sz_axpy' if unrolled/scalar value is requested
     if is_axpy_unrolled:
         axpy_scalar_insns = model.BENCHMARK_INSNS['scalar']['sz_axpy']
@@ -425,27 +410,27 @@ def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=Non
     # 3. Apply App Filter
     if app_filter is not None:
         ipc_map = {app: ipc for app, ipc in ipc_map.items() if app in app_filter}
-    
+
     # 4. Calculate Geomean
     ipc_values = list(ipc_map.values())
-    
+
     if ipc_values:
         avg_ipc = gmean(ipc_values)
-        
+
         status = "(Axpy Unrolled/Scalar)" if is_axpy_unrolled else "(Default)"
         filter_status = f" | Filter: {', '.join(app_filter)}" if app_filter else ""
-        
+
         print(f"--- Geomean Analysis: {cfg_name} {status}{filter_status} ---")
         print(f"Geomean IPC: {avg_ipc:.4f}")
         print("-" * 40)
-        
+
         # 5. Print individual Ideal IPCs
         print(f"{'App Name':<20} | {'Ideal IPC':<10}")
         print("-" * 33)
         for app, ipc in ipc_map.items():
             print(f"{app:<20} | {ipc:<10.4f}")
         print("-" * 40 + "\n")
-        
+
     else:
         print(f"No IPC data found for {cfg_name} with the provided filter.\n")
 
@@ -458,12 +443,12 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
 
     # Identify whether the app name represents the balanced version
     plot_df['is_bal'] = plot_df['app'].str.endswith('_bal')
-    
+
     # Strip the '_bal' suffix to get the common base app name for grouping
     plot_df['base_app'] = plot_df.apply(
         lambda row: row['app'][:-4] if row['is_bal'] else row['app'], axis=1
     )
-    
+
     # Map the suffix flag to clean display categories
     plot_df['config'] = plot_df['is_bal'].map({True: 'Balanced', False: 'Normal'})
 
@@ -480,7 +465,7 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
     plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.6)
 
     # --- Optional: Ideal IPC Lines ---
-    # Since you now have a single cfg, if you still want to overlay ideal IPC metrics, 
+    # Since you now have a single cfg, if you still want to overlay ideal IPC metrics,
     # you can uncomment this block and replace 'your_cfg_name' with your actual hardware config.
     if metric == 'ipc':
         labeled = False
@@ -561,33 +546,30 @@ def plot6(show=True, dir=None):
 
 
 def plot8(show=True, dir=None, width=1, vary_by='slots', metric='ipc'):
-    if width == 1:
-        df = experiments_sv1.results(dir=dir)
-    elif width == 2:
-        df = experiments_sv2.results(dir=dir)
-    elif width == 4:
-        df = experiments_sv4.results(dir=dir)
-    elif width == 8:
-        df = experiments_sv8.results(dir=dir)
-    return geomean_plot(df, width, vary_by, metric,show)
+    df = experiments.results(dir=dir)
+    return geomean_plot(df, width, vary_by, metric, show)
+
 
 def plot9(width=1):
     if width == 1:
         print_geomean_ipc("Schnova SV1", model.SCHNOVA_S, True, None, width)
     elif width == 2:
-        print_geomean_ipc("Schnova SV2", model.SCHNOVA_M,True, None, width)
+        print_geomean_ipc("Schnova SV2", model.SCHNOVA_M, True, None, width)
     elif width == 4:
         print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
     elif width == 8:
         print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
 
+
 def plot10(show=True, dir=None):
-    df = instr_mix_experiments.results(dir=dir)
+    df = experiments.results(dir=dir)
     return balanced_comparison_plot(df, 'ipc', show=show)
+
 
 def plot11(dir=None):
     df = experiments.results(dir=dir)
     print_all_geomeans(df, 'ipc')
+
 
 def main():
     """Load results from CSV and generate plots"""
@@ -604,7 +586,6 @@ def main():
         default=plot_dict.keys(),
         help='Select which plots to show (default: all)'
     )
-    
 
     parser.add_argument(
         "--width",
@@ -615,7 +596,18 @@ def main():
 
     parser.add_argument(
         "--vary",
-        choices=["alus", "lsus", "fpus", "alu_slots", "lsu_slots", "fpu_slots", "alu_buf_slots", "lsu_buf_slots", "fpu_buf_slots", "gpr", "fpr", "rob_entries"],
+        choices=["alus",
+                 "lsus",
+                 "fpus",
+                 "alu_slots",
+                 "lsu_slots",
+                 "fpu_slots",
+                 "alu_buf_slots",
+                 "lsu_buf_slots",
+                 "fpu_buf_slots",
+                 "gpr",
+                 "fpr",
+                 "rob_entries"],
         default="slots",
         help="Hardware parameter to vary for plot8 "
              "(default: slots)"

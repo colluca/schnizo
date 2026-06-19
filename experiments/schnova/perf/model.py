@@ -68,19 +68,19 @@ def ideal_ipc(insns, cfg, pipe_width=None):
     Compute ideal IPC considering both FU bottlenecks AND pipeline width.
     """
     total_insns = sum(insns.values())
-    
+
     # 1. Back-end bottleneck: Cycles limited by specific Functional Units
     fu_cycles = [math.ceil(insns[fu] / cfg[fu]) for fu in cfg if insns.get(fu, 0)]
-    
+
     # 2. Front-end bottleneck: Cycles limited by Fetch/Dispatch width
     if pipe_width is not None:
         dispatch_cycles = math.ceil(total_insns / pipe_width)
     else:
-        dispatch_cycles = 0 # Assume infinite width if None
-        
+        dispatch_cycles = 0  # Assume infinite width if None
+
     # The slowest stage determines the total cycles
     total_cycles = max(max(fu_cycles), dispatch_cycles)
-    
+
     return total_insns / total_cycles
 
 

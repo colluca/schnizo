@@ -1,3 +1,7 @@
+// Copyright 2026 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
 module schnova_dispatcher_synth import schnova_synth_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned NofAlus     = 1,

@@ -70,11 +70,10 @@ def gen_experiments():
     # Define experiment axes
     cfgs = [
         'schnova_zol',
-        #'1x1_1x1_1x1',
     ]
 
-    modes = ['scalar', 
-             #'superscalar'
+    modes = ['scalar',
+             # 'superscalar'
              ]
     sizes = [4096]
     app_filter = None
@@ -114,9 +113,9 @@ def gen_experiments():
                             'core': core,
                             'data_cfg': {
                                 'n': size,
-                                'funcptr': 
+                                'funcptr':
                                 'axpy_fma' if not has_zol else
-                                'axpy_baseline' if mode == 'scalar' 
+                                'axpy_baseline' if mode == 'scalar'
                                 else 'axpy_schnova_unroll',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
@@ -168,7 +167,7 @@ def gen_experiments():
                                 'core': core,
                                 'data_cfg': {
                                     'n': size,
-                                    'func_ptr': 'calculate_psum_baseline' if not has_zol else 'calculate_psum_schnizo',
+                                    'func_ptr': 'calculate_psum_baseline' if not has_zol else 'calculate_psum_schnizo',  # noqa: E501
                                 },
                                 'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                         sim_bin, "${elf}"],
