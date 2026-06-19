@@ -352,11 +352,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   } sb_disp_data_t;
 
   typedef struct packed {
-    producer_id_t producer;
-    logic         valid; // set if producer is a valid mapping
-  } rmt_entry_t;
-
-  typedef struct packed {
     phy_id_t phy_reg_rs1;
     phy_id_t phy_reg_rs2;
     phy_id_t phy_reg_rs3;
@@ -897,8 +892,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NofLsuBufEntries(NofLsuBufEntries),
     .NofFpuBufEntries(NofFpuBufEntries),
     .instr_dec_t(instr_dec_t),
-    .rmt_entry_t(rmt_entry_t),
-    .phy_id_t(phy_id_t),
     .reg_map_t(reg_map_t),
     .instr_tag_t(instr_tag_t),
     .csr_disp_req_t(csr_disp_req_t),

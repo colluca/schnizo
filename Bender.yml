@@ -336,3 +336,4 @@ sources:
       - hw/schnova/synth/schnova_synth.sv
       - hw/schnova/synth/schnova_res_stat_synth.sv
       - hw/schnova/synth/schnova_phys_regfile_synth.sv
+      - hw/schnova/synth/schnova_dispatcher_synth.sv

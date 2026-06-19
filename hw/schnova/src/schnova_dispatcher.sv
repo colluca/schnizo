@@ -29,8 +29,6 @@ module schnova_dispatcher import schnova_pkg::*; #(
   parameter int unsigned NofFpuBufEntries = 32,
   parameter int unsigned RobTagWidth = 1,
   parameter type         instr_dec_t = logic,
-  parameter type         rmt_entry_t = logic,
-  parameter type         phy_id_t    = logic,
   parameter type         instr_tag_t = logic,
   parameter type         csr_disp_req_t = logic,
   parameter type         alu_si_disp_req_t = logic,
