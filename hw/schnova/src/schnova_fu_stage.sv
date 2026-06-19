@@ -345,6 +345,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic           alu_result_valid;
     logic           alu_result_ready;
     logic           alu_busy;
+    alu_issue_req_t alu_rs_issue_req;
+    logic           alu_rs_issue_req_valid;
+    logic           alu_rs_issue_req_ready;
 
     // pragma translate_off
     issue_alu_trace_t alu_trace_int;
@@ -352,9 +355,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     if (XFREPO) begin : gen_rs
       // Signals connecting the FU block and the actual FU
-      alu_issue_req_t alu_rs_issue_req;
-      logic           alu_rs_issue_req_valid;
-      logic           alu_rs_issue_req_ready;
+
 
       producer_id_t producer_start_id;
       assign producer_start_id = producer_id_t'{
@@ -548,17 +549,16 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic            lsu_result_valid;
     logic            lsu_result_ready;
     logic            lsu_busy;
+    lsu_issue_req_t  lsu_rs_issue_req;
+    logic            lsu_rs_issue_req_valid;
+    logic            lsu_rs_issue_req_ready;
+    logic            lsu_rs_exec_commit;
 
     // pragma translate_off
     issue_lsu_trace_t lsu_trace_int;
     // pragma translate_on
 
     if (XFREPO) begin : gen_rs
-      lsu_issue_req_t  lsu_rs_issue_req;
-      logic            lsu_rs_issue_req_valid;
-      logic            lsu_rs_issue_req_ready;
-      logic            lsu_rs_exec_commit;
-
       producer_id_t producer_start_id;
       assign producer_start_id = producer_id_t'{
         slot_id: '0, // does not matter
@@ -777,17 +777,16 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     fpu_result_t    fpu_result;
     instr_tag_t     fpu_result_tag;
     logic           fpu_busy;
+    fpu_issue_req_t fpu_rs_issue_req;
+    logic           fpu_rs_issue_req_valid;
+    logic           fpu_rs_issue_req_ready;
+    logic           fpu_rs_exec_commit;
 
     // pragma translate_off
     issue_fpu_trace_t fpu_trace_int;
     // pragma translate_on
 
     if (XFREPO) begin : gen_rs
-
-      fpu_issue_req_t fpu_rs_issue_req;
-      logic           fpu_rs_issue_req_valid;
-      logic           fpu_rs_issue_req_ready;
-      logic           fpu_rs_exec_commit;
 
       producer_id_t producer_start_id;
       assign producer_start_id = producer_id_t'{
