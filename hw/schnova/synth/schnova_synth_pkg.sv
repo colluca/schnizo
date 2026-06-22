@@ -11,6 +11,9 @@ package schnova_synth_pkg;
     localparam int unsigned NumIntOutstandingMem = 4;
     localparam logic [31:0] BootAddr = 32'h80000000;
     localparam int unsigned MaxIterationsW = 16;
+    localparam int unsigned RegAddrSize  = 5;
+    localparam int unsigned CaqDepth = 8;
+    localparam int unsigned CaqTagWidth = 16;
 
     localparam int unsigned AddrWidth = 48;
     localparam int unsigned DataWidth = 64;
@@ -243,5 +246,25 @@ package schnova_synth_pkg;
         phy_id_t         rs3;
         logic            use_imm_as_rs3;
     } sb_disp_data_t;
+
+    typedef struct packed {
+        fu_data_t fu_data;
+        instr_tag_t tag;
+    } issue_req_t;
+
+    // The ALU result without the branch decision
+    typedef logic [XLEN-1:0] alu_res_val_t;
+
+    typedef struct packed {
+      alu_res_val_t result;
+      logic         compare_res;
+    } alu_result_t;
+
+    typedef logic [FLEN-1:0] fpu_result_t;
+
+    typedef struct packed {
+      phy_id_t  phy_reg; // which physical register we request
+      logic     is_fp;   // if the physical register is a FPR
+    } operand_req_t;
 
 endpackage

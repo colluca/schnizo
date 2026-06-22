@@ -334,6 +334,10 @@ sources:
       - hw/schnizo/synth/schnizo_synth.sv
       - hw/schnizo/synth/snitch_synth.sv
       - hw/schnova/synth/schnova_synth.sv
-      - hw/schnova/synth/schnova_res_stat_synth.sv
       - hw/schnova/synth/schnova_phys_regfile_synth.sv
       - hw/schnova/synth/schnova_dispatcher_synth.sv
+      - hw/schnova/synth/schnova_fu_stage_synth.sv
+      - hw/schnova/synth/schnova_alu_res_stat_synth.sv
+      - hw/schnova/synth/schnova_lsu_res_stat_synth.sv
+      - hw/schnova/synth/schnova_fpu_res_stat_synth.sv
+      - hw/schnova/synth/schnova_refcount_synth.sv

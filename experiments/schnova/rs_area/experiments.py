@@ -22,35 +22,29 @@ def gen_experiments():
     experiments = []
     for num_slots in num_slots_axis:
         experiments.append({
-            'design': 'schnova_res_stat_synth',
+            'design': 'schnova_alu_res_stat_synth',
             'name': f'rs_alu_{num_slots}',
             'hdl_params': {
+                'UseFreeList': 0,
                 'NofRss': num_slots,
-                'RsType': 0,
-                'RegAddrWidth': 6,
-                'NofRobEntries': 32,
             }
         })
 
         experiments.append({
-            'design': 'schnova_res_stat_synth',
+            'design': 'schnova_lsu_res_stat_synth',
             'name': f'rs_lsu_{num_slots}',
             'hdl_params': {
+                'UseFreeList': 0,
                 'NofRss': num_slots,
-                'RsType': 1,
-                'RegAddrWidth': 6,
-                'NofRobEntries': 32,
             }
         })
 
         experiments.append({
-            'design': 'schnova_res_stat_synth',
+            'design': 'schnova_fpu_res_stat_synth',
             'name': f'rs_fpu_{num_slots}',
             'hdl_params': {
+                'UseFreeList': 0,
                 'NofRss': num_slots,
-                'RsType': 2,
-                'RegAddrWidth': 6,
-                'NofRobEntries': 32,
             }
         })
 

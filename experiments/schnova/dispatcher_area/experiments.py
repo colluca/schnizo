@@ -38,8 +38,8 @@ def gen_experiments(designs=None):
         'design': 'schnova_dispatcher_synth',
         'hdl_params': {
             'PipeWidth':        2,
-            'NofAlus':          2,
-            'NofLsus':          2,
+            'NofAlus':          1,
+            'NofLsus':          1,
             'NofFpus':          1,
             'NofAluBufEntries': 2,
             'NofLsuBufEntries': 2,
@@ -52,8 +52,8 @@ def gen_experiments(designs=None):
         'design': 'schnova_dispatcher_synth',
         'hdl_params': {
             'PipeWidth':        4,
-            'NofAlus':          3,
-            'NofLsus':          3,
+            'NofAlus':          1,
+            'NofLsus':          1,
             'NofFpus':          1,
             'NofAluBufEntries': 4,
             'NofLsuBufEntries': 4,
@@ -66,8 +66,8 @@ def gen_experiments(designs=None):
         'design': 'schnova_dispatcher_synth',
         'hdl_params': {
             'PipeWidth':        8,
-            'NofAlus':          3,
-            'NofLsus':          3,
+            'NofAlus':          1,
+            'NofLsus':          1,
             'NofFpus':          1,
             'NofAluBufEntries': 8,
             'NofLsuBufEntries': 8,
@@ -85,7 +85,7 @@ def gen_experiments(designs=None):
                 'NofAlus':          1,
                 'NofLsus':          1,
                 'NofFpus':          1,
-                'NofAluBufEntries': num_buf_entries_axis,
+                'NofAluBufEntries': num_buf_entries,
                 'NofLsuBufEntries': 1,
                 'NofFpuBufEntries': 1,
             }
@@ -98,7 +98,7 @@ def gen_experiments(designs=None):
                 'NofLsus':          1,
                 'NofFpus':          1,
                 'NofAluBufEntries': 1,
-                'NofLsuBufEntries': num_buf_entries_axis,
+                'NofLsuBufEntries': num_buf_entries,
                 'NofFpuBufEntries': 1,
             }
         })
@@ -111,7 +111,47 @@ def gen_experiments(designs=None):
                 'NofFpus':          1,
                 'NofAluBufEntries': 1,
                 'NofLsuBufEntries': 1,
-                'NofFpuBufEntries': num_buf_entries_axis,
+                'NofFpuBufEntries': num_buf_entries,
+            }
+        })
+
+    num_fus_axis = [1, 2, 3, 4]
+
+    for num_fus in num_fus_axis:
+        experiments.append({
+            'design': 'schnova_dispatcher_synth',
+            'hdl_params': {
+                'PipeWidth':        1,
+                'NofAlus':          num_fus,
+                'NofLsus':          1,
+                'NofFpus':          1,
+                'NofAluBufEntries': 4,
+                'NofLsuBufEntries': 4,
+                'NofFpuBufEntries': 4,
+            }
+        })
+        experiments.append({
+            'design': 'schnova_dispatcher_synth',
+            'hdl_params': {
+                'PipeWidth':        1,
+                'NofAlus':          1,
+                'NofLsus':          num_fus,
+                'NofFpus':          1,
+                'NofAluBufEntries': 4,
+                'NofLsuBufEntries': 4,
+                'NofFpuBufEntries': 4,
+            }
+        })
+        experiments.append({
+            'design': 'schnova_dispatcher_synth',
+            'hdl_params': {
+                'PipeWidth':        1,
+                'NofAlus':          1,
+                'NofLsus':          1,
+                'NofFpus':          num_fus,
+                'NofAluBufEntries': 4,
+                'NofLsuBufEntries': 4,
+                'NofFpuBufEntries': 4,
             }
         })
 

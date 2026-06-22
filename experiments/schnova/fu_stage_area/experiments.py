@@ -19,15 +19,15 @@ def gen_experiments(designs=None):
     experiments = []
 
     experiments.append({
-                            'design': 'schnova_phys_regfile_synth',
+                            'design': 'schnova_fu_stage_synth',
                             'hdl_params': {
-                                'NumRegs':   64,
-                                'DataWidth': 32,
-                                'IsGpr': 1,
-                                'NofAlus': 1,
-                                'NofLsus': 1,
-                                'NofFpus': 1,
-                                'PipeWidth': 1,
+                                'UseFreeList': 0,
+                                'NofAlus':   1,
+                                'AluNofRss': 1,
+                                'NofLsus':   1,
+                                'LsuNofRss': 1,
+                                'NofFpus':   1,
+                                'FpuNofRss': 1,
                             }
                         })
 
