@@ -37,8 +37,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter bit          XFREPI             = 1'b1,
   /// Superscalar out of order extension for the schnova core
   parameter bit          XFREPO             = 1'b1,
-  /// Enable FP in general
-  parameter bit          FP_EN     = 0,
   /// Enable F Extension.
   parameter bit          RVF       = 0,
   /// Enable D Extension.

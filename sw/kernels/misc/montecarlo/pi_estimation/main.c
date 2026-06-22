@@ -17,7 +17,7 @@
 #endif
 
 #ifndef FUNC_PTR
-#define FUNC_PTR calculate_psum_schnova
+#define FUNC_PTR calculate_psum_schnizo
 #endif
 
 #ifndef N_CORES
