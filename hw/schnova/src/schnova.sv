@@ -1,29 +1,25 @@
-// Copyright 2025 ETH Zurich and University of Bologna.
+// Copyright 2026 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
-
-// TODO
-// - LSU CAQ
-// - Debug support -> not required
-// - check all todos
 
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
 
 // Top-level of the Schnova core.
 //
-// As of this, it now features a superscalar loop execution.
+// As of this, it now features superscalar out of order execution
+// in a region defined by an frep.o instruction.
+// It also supports zero overhead loops (ZOL) via frep.i and frep.o instructions
 // This core implements the following RISC-V extensions:
 // - IMAFD (A ignoring aq and lr flags)
 // - Zicsr, Zicntr (Cycle & Instret only, always enabled)
 //
 // Limitation:
-// - The scoreboard assumes that only multi cycle functional units write to the floating point
-//   register file!
-// - when reaching the end of a program, we somehow have to make sure that all instructions
-//   have committed before the core gets stopped.
+// - Does not support precise exceptions when the core runs in superscalar out of order
+//   mode
 //
-// Use automatic retiming options in the synthesis tool to optimize the fpnew design.
+// Use automatic retiming options in the synthesis tool to optimize the fpnew design and multiplier in ALU
+// if MulInALU0 parameter is set
 module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Boot address of core.
   parameter logic [31:0] BootAddr  = 32'h0000_1000,
@@ -33,7 +29,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned DataWidth = 64,
   /// Enable Snitch DMA as accelerator.
   parameter bit          Xdma      = 0,
-  /// Hardware loop feature for the schnova core
+  /// Hardware loop feature for the schnova core (enable ZOL)
   parameter bit          XFREPI             = 1'b1,
   /// Superscalar out of order extension for the schnova core
   parameter bit          XFREPO             = 1'b1,
@@ -65,7 +61,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned NofAluBufEntries = 32,
   parameter int unsigned NofLsuBufEntries = 32,
   parameter int unsigned NofFpuBufEntries = 32,
-  parameter bit          MulInAlu0  = 1'b1,
+  parameter bit          MulInAlu0        = 1'b1,
   /// How many issued loads the LSU and thus the CAQ (consistency address queue) can hold.
   // This applies to all LSUs (each LSU can handle NumOutstandingLoads loads).
   parameter int unsigned NumOutstandingLoads = 0,
@@ -78,20 +74,20 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned NofPhysGpr = 64,
   /// Number of physical floating point registers
   parameter int unsigned NofPhysFpr = 64,
-  /// Number of address bits for the physical register
+  /// Number of total address bits needed to address both the FPR and GPR
   parameter int unsigned PhysRegAddrSize = 7,
-  /// The amount of rob entries
-  parameter int unsigned NofRobEntries = 128,
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.
-  parameter bit UseFreeList = 0,
+  parameter bit          UseFreeList = 0,
+  /// The amount of rob entries
+  parameter int unsigned NofRobEntries = 128,
   // Physical memory attributes
   parameter snitch_pma_pkg::snitch_pma_t SnitchPMACfg = '{default: 0},
   /// Consistency Address Queue (CAQ) parameters
   parameter int unsigned CaqDepth    = 0,
   parameter int unsigned CaqTagWidth = 0,
   /// Enable debug support.
-  parameter bit DebugSupport = 0,
+  parameter bit          DebugSupport = 0,
   /// FPU definitions
   parameter fpnew_pkg::fpu_implementation_t FPUImplementation = '0,
   /// Register the signals directly before the FPnew instance
@@ -101,41 +97,41 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
-  input  logic          clk_i,
-  input  logic          rst_i,
-  input  logic [31:0]   hart_id_i,
-  input  interrupts_t   irq_i,
+  input  logic                            clk_i,
+  input  logic                            rst_i,
+  input  logic [31:0]                     hart_id_i,
+  input  interrupts_t                     irq_i,
   // Instruction cache flush request (for FENCE_I instruction)
-  output logic          flush_i_valid_o,
+  output logic                            flush_i_valid_o,
   // Flush has completed when the signal goes to `1`.
   // Tie to `1` if unused
-  input  logic          flush_i_ready_i,
+  input  logic                            flush_i_ready_i,
   // Instruction Refill Port
-  output addr_t         inst_addr_o,
-  output logic          inst_cacheable_o,
-  input  logic [ICacheFetchDataWidth-1:0]   inst_data_i,
-  output logic          inst_valid_o,
-  input  logic          inst_ready_i,
+  output addr_t                           inst_addr_o,
+  output logic                            inst_cacheable_o,
+  input  logic [ICacheFetchDataWidth-1:0] inst_data_i,
+  output logic                            inst_valid_o,
+  input  logic                            inst_ready_i,
   /// Accelerator Interface - Master Port
   /// Independent channels for transaction request and read completion.
   /// AXI-like handshaking.
   /// Same IDs need to be handled in-order.
-  output acc_req_t  acc_qreq_o,
-  output logic      acc_qvalid_o,
-  input  logic      acc_qready_i,
-  input  acc_resp_t acc_prsp_i,
-  input  logic      acc_pvalid_i,
-  output logic      acc_pready_o,
+  output acc_req_t                        acc_qreq_o,
+  output logic                            acc_qvalid_o,
+  input  logic                            acc_qready_i,
+  input  acc_resp_t                       acc_prsp_i,
+  input  logic                            acc_pvalid_i,
+  output logic                            acc_pready_o,
   /// TCDM Data Interface
   /// Write transactions do not return data on the `P Channel`
   /// Transactions need to be handled strictly in-order.
-  output dreq_t [NofLsus-1:0] data_req_o,
-  input  drsp_t [NofLsus-1:0] data_rsp_i,
+  output dreq_t [NofLsus-1:0]             data_req_o,
+  input  drsp_t [NofLsus-1:0]             data_rsp_i,
   /// Core events for performance counters
-  output snitch_pkg::core_events_t core_events_o,
+  output snitch_pkg::core_events_t        core_events_o,
   /// Cluster HW barrier
-  output logic barrier_o,
-  input  logic barrier_i
+  output logic                            barrier_o,
+  input  logic                            barrier_i
 );
 
   //////////////////////////
@@ -143,23 +139,35 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   //////////////////////////
 
   localparam int unsigned XLEN = 32;
-  // localparam int unsigned FLEN = DataWidth;
+
   // The pipeline width of the PipeWidth-wide superscalar schnova processor
   localparam int unsigned PipeWidth = ICacheFetchDataWidth/32;
+
+  // Number of read ports to the physical register file, these ports are used to fetch
+  // the operands from the physical register file during scalar execution mode
   localparam int unsigned NrIntReadPorts = 2;
-  localparam int unsigned NrIntWritePorts = PipeWidth;
   localparam int unsigned NrFpReadPorts = 3;
+
+  // Number of write ports to the physical register file, in schnova these are 
+  // set to the pipelinewidth to not have a bottleneck at the writeback stage
+  localparam int unsigned NrIntWritePorts = PipeWidth;
   localparam int unsigned NrFpWritePorts = PipeWidth;
+
+  // Number of reorder buffer write ports, has to have as many as there are potentially 
+  // instructions that commit in one cycle
   localparam int unsigned NrRobWritePorts = NrIntWritePorts + NrFpWritePorts;
 
+  // The address width for the physical register files
+  // Note: Since the number of GPR and FPR can configured freely, these can differ
+  // however there is a global address widtdh (PhysRegAddrSize) that is sized to accomodate
+  // for both types of addresses.
+  // In addition to that, there is the RegAddrSize this is the address width of the logical registers
+  // defined by the ISA for this core 5 bits (32 logical registers)
   localparam int unsigned GprAddrWidth = $clog2(NofPhysGpr);
   localparam int unsigned FprAddrWidth = $clog2(NofPhysFpr);
 
-  // We have to read out a mapping for every source operand and potentially
-  // the destination operand if it takes multiple cycles except for the last destination operand
-  // since we only have to track/forward dependencies in this current instruction block
-  // If PipeWidth = 1, we still have to read the destination register for the scoreboard
-  // functionality
+  // Number of Register mapping table read and write ports
+  // We have to read out a mapping for every source and destination operand
   // Integer instructons have 2 source + 1 destination register
   localparam int unsigned RmtNrIntReadPorts = 2*PipeWidth + 1*PipeWidth;
   // Float instructions have 3 source + 1 destination register
@@ -171,8 +179,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // common data type for all FUs.
   localparam int OpLen = (FLEN > XLEN) ? FLEN : XLEN;
 
-  // TODO(colluca): should we define this in a package? The problem is it depends on parameters
-  // of the module so it would have to be a macro.
   // Decoded instruction for dispatcher
   typedef struct packed {
     fu_t                          fu; // 4 bit
@@ -219,18 +225,11 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     frep_mode_e                   frep_mode;
   } instr_dec_t;
 
+  // Common type for both physical gpr and fpr addresses
   typedef logic [PhysRegAddrSize-1:0] phy_id_t;
 
-  // The micro operation that is forwarded by the dispatcher
-  typedef struct packed {
-    fu_t                          fu; // 4 bit
-    alu_op_e                      alu_op; // 5 bit
-    lsu_op_e                      lsu_op; // 4 bit
-    csr_op_e                      csr_op; // 3 bit
-    fpu_op_e                      fpu_op; // 5 bit
-  } uop_t;
-
-  // Fetch block level info needed by the controller and frontend
+  // Data type common for every fetch block that is fetched
+  // this info is needed by the controller and frontend
   typedef struct packed {
     logic [XLEN-1:0]              imm;
     logic                         is_branch; // set if instruction is a branch
@@ -240,8 +239,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic [$clog2(PipeWidth)-1:0] instr_idx;
   } block_ctrl_info_t;
 
-  // !! The OpLen parameters are not always sign extended by the read_operands module !!
-  // Only consume the expected bits.
+  // Common data type for input data to every functional unit
   typedef struct packed {
     fu_t                   fu;
     alu_op_e               alu_op;
@@ -259,35 +257,39 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     fpnew_pkg::roundmode_e fpu_rnd_mode;
   } fu_data_t;
 
-  // ---------------------------
-  // RSS definitions / parameters
-  // ---------------------------
+  // ----------------------------
+  // RS definitions / parameters
+  // ----------------------------
+  
   localparam integer unsigned AluNofOperands = 2;
-  localparam integer unsigned LsuNofOperands = 2; // the 3rd operand is the address offset it is treated as a constant
+  localparam integer unsigned LsuNofOperands = 2; // the 3rd operand is the address offset which is a constant
   localparam integer unsigned FpuNofOperands = 3;
 
-  // There are three types of RSs; ALU, LSU and FPU RS.
-  // Each of them has to fetch a number of values from the register file
+  // There are three types of Reservation Stations (RS); ALU, LSU and FPU RS.
+  // Each of them has to fetch a number of operands from the register file
   // ALU: 
   // - operand A: Potentially from the GPR (if not a constant/immediate)
   // - operand B: Potentially from the GPR (if not a constant/immediate)
   // LSU:
   // - operand A: Always from the GPR
   // - operand B: Either from the GPR or the FPR
-  // - imm: Does not have to be read from the register file
+  // - imm: Immediate decoded from the instruction
   // FPU:
   // - operand A: Either from the GPR or the FPR
   // - operand B: From the FPR
   // - operand C: Potentially from the FPR (if not an immediate)
+  // Note: ALU instructions can have constant values that are not directly derived from the
+  // instruction (not immediates), for example that can be derived from the PC
 
-
-  // In total we need this many operand interfaces for the RSs.
-  // Each interface can request one operand from the physical register file
+  // Total number of operand interfaces, each operand interface can either fetch/request
+  // an operand from the physical FPR or GPR
   localparam integer unsigned NofOperandIfs = NofAlus * AluNofOperands +
                                               NofLsus * LsuNofOperands +
                                               NofFpus * FpuNofOperands;
 
-  // The number of read ports are not the same for the GPR and FPR
+  // The number of operand read ports to the GPR and FPR is not the same since
+  // some operands only have to read for example from the GPR or FPR for more information
+  // see the explanation above
   localparam integer unsigned NofOperandGprReadPorts = NofAlus * 2 +
                                                        NofLsus * 2 +
                                                        NofFpus * 1;
@@ -295,6 +297,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   localparam integer unsigned NofOperandFprReadPorts = NofLsus * 1 +
                                                        NofFpus * 3;
 
+  // Total number of functional units
   localparam integer unsigned NofFus = NofAlus + NofLsus + NofFpus;
 
   // Each RS has an unique number. The slots have unique numbers within the RS.
@@ -307,20 +310,22 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   localparam integer unsigned SlotIdWidth = cf_math_pkg::idx_width(MaxNofRss);
   localparam integer unsigned RsIdWidth  = cf_math_pkg::idx_width(NofFus);
 
-  typedef logic [SlotIdWidth-1:0]   slot_id_t;
-  typedef logic [RsIdWidth-1:0] rs_id_t;
+  typedef logic [SlotIdWidth-1:0] slot_id_t;
+  typedef logic [RsIdWidth-1:0]   rs_id_t;
 
+  // Each Reorderbuffer entry has an assocaiated tag, the address/tag widtdh is 
+  // defined by the reorder buffer size
   localparam int unsigned RobTagWidth = $clog2(NofRobEntries);
 
-  // In the worst case we will have to read 3 entries per instruction
-  // since floating point instructions can have 3 source registers.
-  localparam int unsigned NrDispReadPorts = PipeWidth*3;
-
+  // Type that uniquely defines an reservation station slot
   typedef struct packed {
     slot_id_t slot_id; // used to select the slot of the request within the RS
-    rs_id_t   rs_id; // used to control the request crossbar
+    rs_id_t   rs_id;   // used to control the request crossbar
   } producer_id_t;
 
+  // Type for the tag (additional information) that every instruction carries
+  // through the pipeline. This tag is then needed at specific stages in the pipeline
+  // for example in the writeback to know where to writeback this value to.
   typedef struct packed {
     producer_id_t               producer_id;
     phy_id_t                    dest_reg;
@@ -334,10 +339,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Dispatch/issue/result data types
   // ---------------------------
 
+  // Dispatch response type, every dispatch request leads to a response. This
+  // type is used to identify which functional unit responded to the dispatch request
   typedef struct packed {
     producer_id_t producer;
   } disp_rsp_t;
 
+  // Data type for information that the scoreboard needs for every dispatched
+  // instruction
   typedef struct packed {
     phy_id_t         rd;
     logic            rd_is_fp;
@@ -349,6 +358,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic            use_imm_as_rs3;
   } sb_disp_data_t;
 
+  // Register mapping table, data type contains information about all the physical
+  // source and destination register addresses
   typedef struct packed {
     phy_id_t phy_reg_rs1;
     phy_id_t phy_reg_rs2;
@@ -461,118 +472,294 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   typedef logic [OpLen-1:0] operand_t;
 
-  /////////////////
-  // Connections //
-  /////////////////
+  // ----------------------------------------
+  // Global Signals
+  // Signals connecting more than one module
+  // ----------------------------------------
+  logic       [PipeWidth-1:0][31:0] instr_fetch_data;
+  instr_dec_t [PipeWidth-1:0]       instr_decoded;
+  logic       [PipeWidth-1:0]       instr_valid_masked;
+  logic       [PipeWidth-1:0]       instr_rename_gpr_valid;
+  logic       [$clog2(PipeWidth):0] instr_rename_gpr_count;
+  logic       [PipeWidth-1:0]       instr_rename_fpr_valid;
+  logic       [$clog2(PipeWidth):0] instr_rename_fpr_count;
 
-  logic [PipeWidth-1:0][31:0] instr_fetch_data;
-  logic [PipeWidth-1:0]       instr_fetch_data_valid;
-  logic [XLEN-1:0]                 consecutive_pc;
-  logic [XLEN-1:0]                 next_pc;
-  logic                            loop_jump;
-  logic [31:0]                     loop_jump_addr;
+  logic [31:0]              pc;
+  fu_data_t [PipeWidth-1:0] fu_data;
+  reg_map_t [PipeWidth-1:0] reg_map;
+
+  logic        dispatched;
+  logic        en_superscalar;
+  logic        instr_exec_commit;
+  logic        rs_restart;
+  loop_state_e loop_state;
+
+  // ---------------------
+  // Frontend <-> Decoder
+  // ---------------------
+  logic [PipeWidth-1:0] instr_fetch_data_valid;
 
 
+  // ------------------------
+  // Frontend <-> Controller
+  // ------------------------
+  logic [XLEN-1:0] next_pc;
+  logic            loop_jump;
+  logic [31:0]     loop_jump_addr;
+
+
+  // ---------------------------
+  // Frontend <-> Read Operands
+  // ---------------------------
+  logic [31:0] jump_pc;
+
+
+  // -----------------------
+  // Frontend <-> Writeback
+  // -----------------------
+  logic [XLEN-1:0] consecutive_pc;
+
+
+  // -----------------------
+  // Decoder <-> Controller
+  // -----------------------
+  logic [PipeWidth-1:0] instr_valid;
+  logic [PipeWidth-1:0] instr_decoded_illegal;
+  block_ctrl_info_t     blk_ctrl_info;
+  block_ctrl_info_t     blk_ctrl_info_masked;
+
+
+  // ----------------
+  // Decoder <-> CSR
+  // ----------------
+  fpnew_pkg::roundmode_e fpu_rnd_mode;
+  fpnew_pkg::fmt_mode_t  fpu_fmt_mode; 
+
+ 
+  // -----------------------------------------
+  // Read operands <-> Physical Register File
+  // -----------------------------------------
   logic [NrIntReadPorts-1:0][GprAddrWidth-1:0]  gpr_raddr;
-  logic [NrIntReadPorts-1:0][XLEN-1:0]         gpr_rdata;
+  logic [NrIntReadPorts-1:0][XLEN-1:0]          gpr_rdata;
   logic [NrIntWritePorts-1:0][GprAddrWidth-1:0] gpr_waddr;
-  logic [NrIntWritePorts-1:0][XLEN-1:0]        gpr_wdata;
-  logic [NrIntWritePorts-1:0]                  gpr_we;
+  logic [NrIntWritePorts-1:0][XLEN-1:0]         gpr_wdata;
+  logic [NrIntWritePorts-1:0]                   gpr_we;
 
   logic [NrFpReadPorts-1:0][FprAddrWidth-1:0]  fpr_raddr;
-  logic [NrFpReadPorts-1:0][FLEN-1:0]         fpr_rdata;
+  logic [NrFpReadPorts-1:0][FLEN-1:0]          fpr_rdata;
   logic [NrFpWritePorts-1:0][FprAddrWidth-1:0] fpr_waddr;
-  logic [NrFpWritePorts-1:0][FLEN-1:0]        fpr_wdata;
-  logic [NrFpWritePorts-1:0]                  fpr_we;
+  logic [NrFpWritePorts-1:0][FLEN-1:0]         fpr_wdata;
+  logic [NrFpWritePorts-1:0]                   fpr_we;
 
-  fu_data_t [PipeWidth-1:0] fu_data;
 
-  logic            flush_i_valid;
-  logic [31:0]     pc;
-  logic [31:0]     jump_pc;
-  logic [PipeWidth-1:0] instr_valid;
-  logic [PipeWidth-1:0] instr_valid_masked;
-  logic [PipeWidth-1:0] instr_decoded_illegal;
-  logic            instr_illegal;
-  logic            stall;
-  logic            enter_wfi;
-  logic            ebreak;
-  logic            ecall;
-  logic            mret;
-  logic            sret;
-  logic[31:0]      mtvec;
-  logic[31:0]      mepc;
-  logic[31:0]      sepc;
-  logic            csr_exception_raw;
-  logic            barrier_stall;
-  logic            instr_addr_misaligned;
-  logic            lsu_addr_misaligned;
-  logic [0:0]      load_addr_misaligned;
-  logic [0:0]      store_addr_misaligned;
-  priv_lvl_t       priv_lvl;
-  logic            interrupt;
-  logic            exception;
-  logic            wfi; // asserted if we are waiting for an interrupt
+  // ----------------------------
+  // Controller <-> CSR/Frontend
+  // ----------------------------
+  logic [$clog2(PipeWidth):0] instr_valid_count;
+  logic                       instr_illegal;
+  logic                       enter_wfi;
+  logic                       ebreak;
+  logic                       ecall;
+  logic                       mret;
+  logic                       sret;
+  logic [31:0]                mtvec;
+  logic [31:0]                mepc;
+  logic [31:0]                sepc;
+  logic                       stall;
+  logic                       csr_exception_raw;
+  logic                       barrier_stall;
+  logic                       instr_addr_misaligned;
+  logic                       lsu_addr_misaligned;
+  logic                       load_addr_misaligned;
+  logic                       store_addr_misaligned;
+  priv_lvl_t                  priv_lvl;
+  logic                       interrupt;
+  logic                       exception;
+  logic                       wfi; // asserted if we are waiting for an interrupt
+
+
+  // --------------------------
+  // Controller <-> Dispatcher
+  // --------------------------
   logic dispatch_instr_valid;
   logic dispatch_instr_ready;
-  logic instr_exec_commit;
+  logic disp_buffers_empty;
+
+
+  // ------------------------
+  // Controller <-> FU Stage
+  // ------------------------
   logic fpu_instr_exec_commit;
 
-  fpnew_pkg::roundmode_e fpu_rnd_mode;
-  fpnew_pkg::fmt_mode_t  fpu_fmt_mode;
-  instr_dec_t [PipeWidth-1:0] instr_decoded;
-  block_ctrl_info_t blk_ctrl_info;
-  block_ctrl_info_t blk_ctrl_info_masked;
 
+  // --------------------------
+  // Controller <-> Scoreboard
+  // --------------------------
+  logic registers_ready;
+  logic sb_busy;
+  // -------------------------
+  // Controller <-> Writeback
+  // -------------------------
+  logic ctrl_instr_retired;
+
+  // -------------------
+  // Dispatcher <-> CSR
+  // -------------------
+  frep_mem_cons_mode_e frep_mem_cons_mode;
+  csr_disp_req_t       csr_disp_req;
+  logic                csr_disp_req_valid;
+  logic                csr_disp_req_ready;
+  csr_issue_req_t      csr_issue_req;
+
+  // ------------------------
+  // Dispatcher <-> FU Stage
+  // ------------------------
+  alu_si_disp_req_t               alu_si_disp_req;
+  logic                           alu_si_disp_req_valid;
+  logic                           alu_si_disp_req_ready;
+  alu_rs_disp_req_t [NofAlus-1:0] alu_rs_disp_reqs;
+  logic             [NofAlus-1:0] alu_rs_disp_req_valid;
+  logic             [NofAlus-1:0] alu_rs_disp_req_ready;
+  disp_rsp_t        [NofAlus-1:0] alu_rs_disp_rsp;
+  logic             [NofAlus-1:0] alu_rs_full;
+  lsu_si_disp_req_t               lsu_si_disp_req;
+  logic                           lsu_si_disp_req_valid;
+  logic                           lsu_si_disp_req_ready;
+  lsu_rs_disp_req_t [NofLsus-1:0] lsu_rs_disp_reqs;
+  logic             [NofLsus-1:0] lsu_rs_disp_req_valid;
+  logic             [NofLsus-1:0] lsu_rs_disp_req_ready;
+  disp_rsp_t        [NofLsus-1:0] lsu_rs_disp_rsp;
+  logic             [NofLsus-1:0] lsu_rs_full;
+  fpu_si_disp_req_t               fpu_si_disp_req;
+  logic                           fpu_si_disp_req_valid;
+  logic                           fpu_si_disp_req_ready;
+  fpu_rs_disp_req_t [NofFpus-1:0] fpu_rs_disp_reqs;
+  logic             [NofFpus-1:0] fpu_rs_disp_req_valid;
+  logic             [NofFpus-1:0] fpu_rs_disp_req_ready;
+  disp_rsp_t        [NofFpus-1:0] fpu_rs_disp_rsp;
+  logic             [NofFpus-1:0] fpu_rs_full;
+
+
+  // -----------------------------------------
+  // Dispatcher <-> Physical Register Manager
+  // -----------------------------------------
+  refcnt_req_t [PipeWidth-1:0] refcnt_disp_req;
+
+  // -----------------------
+  // FU Stage <-> Writeback
+  // -----------------------
   alu_result_t [NofAlus-1:0] alu_results;
   instr_tag_t  [NofAlus-1:0] alu_results_tag;
+
+
+  // ----------------------
+  // FU Stage <-> Frontend
+  // ----------------------
   alu_result_t branch_result;
-  logic [0:0]  lsu_empty;
+
+
+  // ------------------------
+  // FU Stage <-> Controller
+  // ------------------------
+  logic lsu_empty;
+
+
+  // -----------------
+  // FU Stage <-> CSR
+  // -----------------
   fpnew_pkg::status_t fpu_status;
   logic               fpu_status_valid;
-  frep_mem_cons_mode_e frep_mem_cons_mode;
 
-  logic dispatched;
+
+  // ------------------------------------
+  // FU Stage <-> Physical Register File
+  // ------------------------------------
+  operand_req_t [NofOperandIfs-1:0] op_reqs;
+  operand_t [NofOperandIfs-1:0]     op_rsps_data;
+  logic [NofOperandIfs-1:0]         op_rsps_valid;
+  operand_t [NofOperandIfs-1:0]     op_rsps_fpr_data;
+  operand_t [NofOperandIfs-1:0]     op_rsps_gpr_data;
+
+  
+  // ---------------------------------------
+  // FU Stage <-> Physical Register Manager
+  // ---------------------------------------
+  logic        [NofAlus-1:0] issue_alu_clr_req_valid;
+  refcnt_req_t [NofAlus-1:0] issue_alu_clr_req;
+  logic        [NofLsus-1:0] issue_lsu_clr_req_valid;
+  refcnt_req_t [NofLsus-1:0] issue_lsu_clr_req;
+  logic        [NofFpus-1:0] issue_fpu_clr_req_valid;
+  refcnt_req_t [NofFpus-1:0] issue_fpu_clr_req;
+
+
+  // --------------------
+  // FU Stage <-> Tracer
+  // --------------------
+  // Trace signals
+  // pragma translate_off
+  issue_alu_trace_t  alu_trace       [NofAlus];
+  issue_lsu_trace_t  lsu_trace       [NofLsus];
+  issue_fpu_trace_t  fpu_trace       [NofFpus];
+  retire_fu_trace_t  alu_retirements [NofAlus];
+  retire_fu_trace_t  lsu_load_retirements [NofLsus];
+  retire_fu_trace_t  lsu_store_retirements [NofLsus];
+  retire_fu_trace_t  fpu_retirements [NofFpus];
+  // pragma translate_on
+
+
+  // -----------------------------------
+  // Physical Reg Manage <-> Controller
+  // -----------------------------------
   logic phy_reg_alloc_ready;
-  phy_id_t    [PipeWidth-1:0] allocated_gpr_regs;
-  phy_id_t    [PipeWidth-1:0] allocated_fpr_regs;
-  logic [$clog2(PipeWidth):0]   instr_valid_count;
-  logic [PipeWidth-1:0]         instr_rename_gpr_valid;
-  logic [$clog2(PipeWidth):0]   instr_rename_gpr_count;
-  logic [PipeWidth-1:0]         instr_rename_fpr_valid;
-  logic [$clog2(PipeWidth):0]   instr_rename_fpr_count;
-  reg_map_t [PipeWidth-1:0]  reg_map;
 
+
+  // -----------------------------------
+  // Physical Reg Manage <-> Dispatcher
+  // -----------------------------------
+  phy_id_t [PipeWidth-1:0]                  allocated_gpr_regs;
+  phy_id_t [PipeWidth-1:0]                  allocated_fpr_regs;
+  logic                                     first_instr_dispatched;
+  logic    [PipeWidth-1:0][RobTagWidth-1:0] rob_idx;
+  logic                                     rob_ready;
+
+
+  // --------------------------------------
+  // Scoreboard <-> Physical Register File
+  // --------------------------------------
   logic [NofOperandIfs-1:0][PhysRegAddrSize-1:0] sb_raddr;
   logic [NofOperandIfs-1:0]                      sb_read_fp;
   logic [NofOperandIfs-1:0]                      sb_rdata;
 
-  operand_req_t [NofOperandIfs-1:0]              op_reqs;
-
-  operand_t [NofOperandIfs-1:0]                  op_rsps_data;
-  logic [NofOperandIfs-1:0]                      op_rsps_valid;
-  operand_t [NofOperandIfs-1:0]                  op_rsps_fpr_data;
-  operand_t [NofOperandIfs-1:0]                  op_rsps_gpr_data;
-
-  logic                                          first_instr_dispatched;
-  logic [PipeWidth-1:0][RobTagWidth-1:0]         rob_idx;
-
-  logic rob_ready;
-
+  
+  // -------------------------------------
+  // Writeback <-> Physical Register File
+  // -------------------------------------
   logic [NrRobWritePorts-1:0]                   wb_valid;
   logic [NrRobWritePorts-1:0][RobTagWidth-1:0]  wb_rob_idx;
+    logic       [NofAlus-1:0]                   alu_results_valid;
+  logic         [NofAlus-1:0]                   alu_results_ready;
+  logic         [NofLsus-1:0]                   lsu_results_valid;
+  logic         [NofLsus-1:0]                   lsu_results_ready;
+  instr_tag_t   [NofLsus-1:0]                   lsu_results_tag;
+  data_t        [NofLsus-1:0]                   lsu_results;
+  fpu_result_t  [NofFpus-1:0]                   fpu_results;
+  logic         [NofFpus-1:0]                   fpu_results_valid;
+  logic         [NofFpus-1:0]                   fpu_results_ready;
+  instr_tag_t   [NofFpus-1:0]                   fpu_results_tag;
 
-  logic ctrl_instr_retired;
 
-  logic en_superscalar;
-  logic registers_ready;
-  logic sb_busy;
+  // ------------------
+  // Writeback <-> CSR
+  // ------------------
+  logic csr_result_valid;
+  logic csr_result_ready;
+  instr_tag_t csr_result_tag;
+  logic [XLEN-1:0] csr_result;
 
-  logic disp_buffers_empty;
 
-  // ---------------------------
+  // ------------
   // Core Events
-  // ---------------------------
+  // ------------
   // Store if an instruction has retired last cycle and store the type of instruction retired
   logic instr_retired,              instr_retired_q;
   logic instr_retired_single_cycle, instr_retired_single_cycle_q;
@@ -584,10 +771,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic issue_core_to_fpu, issue_core_to_fpu_q;
   // we do not have a sequencer.
 
-  ///////////
-  // State //
-  ///////////
-
+  // ------
+  // State
+  // ------
   `FFAR(instr_retired_q,              instr_retired,              '0, clk_i, rst_i)
   `FFAR(instr_retired_single_cycle_q, instr_retired_single_cycle, '0, clk_i, rst_i)
   `FFAR(instr_retired_load_q,         instr_retired_load,         '0, clk_i, rst_i)
@@ -595,10 +781,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   `FFAR(issue_fpu_q,                  issue_fpu,                  '0, clk_i, rst_i)
   `FFAR(issue_core_to_fpu_q,          issue_core_to_fpu,          '0, clk_i, rst_i)
 
-  ///////////////////////
-  // Instruction fetch //
-  ///////////////////////
-
+  // -----------------------------
+  // Frontend (Instruction Fetch)
+  // -----------------------------
   schnova_frontend # (
     .XLEN                 (XLEN),
     .PipeWidth            (PipeWidth),
@@ -611,15 +796,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ) i_frontend (
     .clk_i,
     .rst_i,
-    // From L0 instruction cache
+    // To/From L0 Instruction Cache
     .instr_fetch_data_i       (inst_data_i),
+    .instr_fetch_valid_o      (inst_valid_o),
     .instr_fetch_ready_i      (inst_ready_i),
-    // To L0 instruction cache
     .instr_fetch_addr_o       (inst_addr_o),
     .instr_fetch_cacheable_o  (inst_cacheable_o),
-    .instr_fetch_valid_o      (inst_valid_o),
-    .instr_valid_count_i      (instr_valid_count),
     // From controller
+    .instr_valid_count_i      (instr_valid_count),
     .exception_i              (exception),
     .stall_i                  (stall),
     .mret_i                   (mret),
@@ -627,36 +811,33 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .en_superscalar_i         (en_superscalar),
     .loop_jump_i              (loop_jump),
     .loop_jump_addr_i         (loop_jump_addr),
-    // To controller
+    // To controller / CSR
     .pc_o                     (pc),
-    .consecutive_pc_o         (consecutive_pc),
     .next_pc_o                (next_pc),
+    // To Writeback
+    .consecutive_pc_o         (consecutive_pc),
+    // To Read Operands
     .jump_pc_o                (jump_pc),
-    // Exception source interface
+    // From CSR (Exception Source Interface)
     .wfi_i                    (wfi),
     .barrier_stall_i          (barrier_stall),
     .mtvec_i                  (mtvec),
     .mepc_i                   (mepc),
     .sepc_i                   (sepc),
-    // Branch result
+    // From ALU0 (branch result)
     .alu_compare_res_i        (branch_result.compare_res),
     .alu_result_i             (branch_result.result),
     // From decoder
     .blk_ctrl_info_i          (blk_ctrl_info_masked),
-    // To decoder and dispatcher
+    // To Decoder / Dispatcher
     .instr_fetch_data_o      (instr_fetch_data),
     .instr_fetch_data_valid_o(instr_fetch_data_valid)
   );
 
-  // Instruction Cache flush request interface
-  assign flush_i_valid_o = flush_i_valid;
 
-  /////////////
-  // Decoder //
-  /////////////
-
-  // TODO(colluca): could lead to conflicts, e.g. instr_dec_t also depends on XLEN. The best would be
-  // to only pass e.g. XLEN here, and internally derive instr_dec_t in the decoder using a macro.
+  // --------
+  // Decoder
+  // --------
   schnova_decoder #(
     .XLEN              (XLEN),
     .XFREPI            (XFREPI),
@@ -675,18 +856,24 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .clk_i,
     .rst_i,
     .en_superscalar_i        (en_superscalar),
+    // From Dispatcher
     .instr_fetch_data_i      (instr_fetch_data),
     .instr_fetch_data_valid_i(instr_fetch_data_valid),
+    // From CSR
     .fpu_round_mode_i        (fpu_rnd_mode),
     .fpu_fmt_mode_i          (fpu_fmt_mode),
+    // To Controller
     .instr_valid_o           (instr_valid),
     .instr_illegal_o         (instr_decoded_illegal),
     .blk_ctrl_info_o         (blk_ctrl_info),
+    // Decoded Instruction
     .instr_dec_o             (instr_decoded)
   );
 
 
-
+  // --------------
+  // Read Operands
+  // --------------
   // Read the operands - do always read (even if invalid instr) because controller depends on
   // values from registers. See for example the FREP instruction and its number of iterations.
   schnova_read_operands #(
@@ -702,41 +889,36 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fu_data_t     (fu_data_t)
   ) i_read_operands (
     .en_superscalar_i(en_superscalar),
-    .jump_pc_i(jump_pc),
-    .instr_dec_i(instr_decoded),
-    // Need the first register map info, since we always read from the physical register
-    // only the first instruction actually reads from the PRF.
-    .reg_map_i  (reg_map[0]),
+    // From Frontend
+    .jump_pc_i       (jump_pc),
+    // From Decoder
+    .instr_dec_i     (instr_decoded),
+    // From Renaming Stage
+    .reg_map_i  (reg_map[0]), // Only the first instruction directly reads its operands
+    // From / To Physical Register File
     .gpr_raddr_o(gpr_raddr),
     .gpr_rdata_i(gpr_rdata),
     .fpr_raddr_o(fpr_raddr),
     .fpr_rdata_i(fpr_rdata),
+    // To Dispatcher and Controller (For Frep Iterations)
     .fu_data_o  (fu_data)
   );
 
-  ////////////////
-  // Controller //
-  ////////////////
 
-  logic                         all_rs_finish;
-  logic                         rs_idle;
-  logic                         rs_restart;
-  loop_state_e                  loop_state;
-
-  // The reservation is idle if there are no instructions inflight targeting reservation stations
-  // This is the case if
-  // 1) The dispatch buffer is empty (otherwise new instruction can be dispatched to the rs even if the frontend is stalled)
-  // 2) The reservation stations is empty and the functional units are not busy
-  assign rs_idle = all_rs_finish && disp_buffers_empty;
+  // -----------
+  // Controller
+  // -----------
+  logic all_rs_finish;
+  logic rs_idle;
 
   schnova_controller #(
     .PipeWidth          (PipeWidth),
     .XLEN               (XLEN),
     .XFREPI             (XFREPI),
     .XFREPO             (XFREPO), 
-    .NrIntWritePorts(NrIntWritePorts),
-    .NrFpWritePorts (NrFpWritePorts),
-    .RegAddrSize    (RegAddrSize),
+    .NrIntWritePorts    (NrIntWritePorts),
+    .NrFpWritePorts     (NrFpWritePorts),
+    .RegAddrSize        (RegAddrSize),
     .MaxIterationsWidth (FrepMaxItersWidth),
     .instr_dec_t        (instr_dec_t),
     .block_ctrl_info_t  (block_ctrl_info_t),
@@ -746,7 +928,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .rst_i,
     // Frontend interface
     .flush_i_ready_i        (flush_i_ready_i),
-    .flush_i_valid_o        (flush_i_valid),
+    .flush_i_valid_o        (flush_i_valid_o),
     .pc_i                   (pc),
     .next_pc_i              (next_pc),
     .loop_jump_o            (loop_jump),
@@ -804,35 +986,48 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .sb_busy_i              (sb_busy)
   );
 
-  ////////////
-  // Rename //
-  ////////////
+  // The reservation is idle if there are no instructions inflight targeting reservation stations
+  // This is the case if
+  // 1) The dispatch buffer is empty (otherwise new instruction can be dispatched to the rs even if the frontend is stalled)
+  // 2) The reservation stations is empty and the functional units are not busy
+  assign rs_idle = all_rs_finish && disp_buffers_empty;
 
+
+  // -------
+  // Rename
+  // -------
   if (XFREPO) begin : gen_rename
     schnova_rename #(
-      .PipeWidth(PipeWidth),
+      .PipeWidth        (PipeWidth),
       .RmtNrIntReadPorts(RmtNrIntReadPorts),
-      .RmtNrFpReadPorts(RmtNrFpReadPorts),
-      .RmtNrWritePorts(RmtNrWritePorts),
-      .RegAddrSize(RegAddrSize),
-      .NofPhysGpr(NofPhysGpr),
-      .NofPhysFpr(NofPhysFpr),
-      .instr_dec_t(instr_dec_t),
-      .phy_id_t(phy_id_t),
-      .reg_map_t(reg_map_t)
+      .RmtNrFpReadPorts (RmtNrFpReadPorts),
+      .RmtNrWritePorts  (RmtNrWritePorts),
+      .RegAddrSize      (RegAddrSize),
+      .NofPhysGpr       (NofPhysGpr),
+      .NofPhysFpr       (NofPhysFpr),
+      .instr_dec_t      (instr_dec_t),
+      .phy_id_t         (phy_id_t),
+      .reg_map_t        (reg_map_t)
     ) i_rename (
       .clk_i,
       .rst_i,
-      .en_superscalar_i(en_superscalar),
-      .dispatched_i(dispatched),
-      .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
-      .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
-      .instr_dec_i(instr_decoded),
-      .reg_map_o(reg_map),
-      .allocated_gpr_regs_i(allocated_gpr_regs),
-      .allocated_fpr_regs_i(allocated_fpr_regs)
+      // From Decoder
+      .instr_dec_i              (instr_decoded),
+      // From Controller
+      .en_superscalar_i         (en_superscalar),
+      .dispatched_i             (dispatched),
+      .instr_rename_gpr_valid_i (instr_rename_gpr_valid),
+      .instr_rename_fpr_valid_i (instr_rename_fpr_valid),
+      // From Physical Register Management
+      .allocated_gpr_regs_i     (allocated_gpr_regs),
+      .allocated_fpr_regs_i     (allocated_fpr_regs),
+      // Register Mapping output
+      .reg_map_o                (reg_map)
     );
   end else begin : gen_no_rename
+    // If XFREPO is not enabled, the core is a scalar core
+    // no superscalar out of order is enabled so we don't need
+    // renaming.
     assign reg_map[0] = '{
       phy_reg_rs1:      instr_decoded[0].rs1,
       phy_reg_rs2:      instr_decoded[0].rs2,
@@ -842,170 +1037,112 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     };
   end
 
-  //////////////
-  // Dispatch //
-  //////////////
 
-  // Create the dispatch request
-  alu_si_disp_req_t               alu_si_disp_req;
-  logic                           alu_si_disp_req_valid;
-  logic                           alu_si_disp_req_ready;
-  alu_rs_disp_req_t [NofAlus-1:0] alu_rs_disp_reqs;
-  logic             [NofAlus-1:0] alu_rs_disp_req_valid;
-  logic             [NofAlus-1:0] alu_rs_disp_req_ready;
-  disp_rsp_t        [NofAlus-1:0] alu_rs_disp_rsp;
-  logic             [NofAlus-1:0] alu_rs_full;
-  lsu_si_disp_req_t               lsu_si_disp_req;
-  logic                           lsu_si_disp_req_valid;
-  logic                           lsu_si_disp_req_ready;
-  lsu_rs_disp_req_t [NofLsus-1:0] lsu_rs_disp_reqs;
-  logic             [NofLsus-1:0] lsu_rs_disp_req_valid;
-  logic             [NofLsus-1:0] lsu_rs_disp_req_ready;
-  disp_rsp_t        [NofLsus-1:0] lsu_rs_disp_rsp;
-  logic             [NofLsus-1:0] lsu_rs_full;
-  csr_disp_req_t                  csr_disp_req;
-  logic                           csr_disp_req_valid;
-  logic                           csr_disp_req_ready;
-  fpu_si_disp_req_t               fpu_si_disp_req;
-  logic                           fpu_si_disp_req_valid;
-  logic                           fpu_si_disp_req_ready;
-  fpu_rs_disp_req_t [NofFpus-1:0] fpu_rs_disp_reqs;
-  logic             [NofFpus-1:0] fpu_rs_disp_req_valid;
-  logic             [NofFpus-1:0] fpu_rs_disp_req_ready;
-  disp_rsp_t        [NofFpus-1:0] fpu_rs_disp_rsp;
-  logic             [NofFpus-1:0] fpu_rs_full;
-  refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req;
-
+  // -----------
+  // Dispatcher
+  // -----------
   schnova_dispatcher #(
-    .XFREPO      (XFREPO),
-    .UseFreeList(UseFreeList),
-    .PipeWidth(PipeWidth),
-    .XLEN     (XLEN),
-    .RobTagWidth(RobTagWidth),
-    .RegAddrSize(RegAddrSize),
-    .NofAlus    (NofAlus),
-    .NofLsus    (NofLsus),
-    .NofFpus    (NofFpus),
-    .NofAluBufEntries(NofAluBufEntries),
-    .NofLsuBufEntries(NofLsuBufEntries),
-    .NofFpuBufEntries(NofFpuBufEntries),
-    .instr_dec_t(instr_dec_t),
-    .reg_map_t(reg_map_t),
-    .instr_tag_t(instr_tag_t),
-    .csr_disp_req_t(csr_disp_req_t),
+    .XFREPO           (XFREPO),
+    .UseFreeList      (UseFreeList),
+    .PipeWidth        (PipeWidth),
+    .XLEN             (XLEN),
+    .RobTagWidth      (RobTagWidth),
+    .RegAddrSize      (RegAddrSize),
+    .NofAlus          (NofAlus),
+    .NofLsus          (NofLsus),
+    .NofFpus          (NofFpus),
+    .NofAluBufEntries (NofAluBufEntries),
+    .NofLsuBufEntries (NofLsuBufEntries),
+    .NofFpuBufEntries (NofFpuBufEntries),
+    .instr_dec_t      (instr_dec_t),
+    .reg_map_t        (reg_map_t),
+    .instr_tag_t      (instr_tag_t),
+    .csr_disp_req_t   (csr_disp_req_t),
     .alu_si_disp_req_t(alu_si_disp_req_t),
     .lsu_si_disp_req_t(lsu_si_disp_req_t),
     .fpu_si_disp_req_t(fpu_si_disp_req_t),
     .alu_rs_disp_req_t(alu_rs_disp_req_t),
     .lsu_rs_disp_req_t(lsu_rs_disp_req_t),
     .fpu_rs_disp_req_t(fpu_rs_disp_req_t),
-    .disp_rsp_t (disp_rsp_t),
-    .refcnt_req_t(refcnt_req_t),
-    .producer_id_t(producer_id_t),
-    .rs_id_t(rs_id_t),
-    .fu_data_t  (fu_data_t),
-    .acc_req_t  (acc_req_t),
-    .sb_disp_data_t(sb_disp_data_t)
+    .disp_rsp_t       (disp_rsp_t),
+    .refcnt_req_t     (refcnt_req_t),
+    .producer_id_t    (producer_id_t),
+    .rs_id_t          (rs_id_t),
+    .fu_data_t        (fu_data_t),
+    .acc_req_t        (acc_req_t),
+    .sb_disp_data_t   (sb_disp_data_t)
   ) i_dispatcher (
     .clk_i,
     .rst_i,
-    // Rename interface
-    .reg_map_i           (reg_map),
-    .en_superscalar_i    (en_superscalar),
-    .instr_dec_i         (instr_decoded),
-    .instr_fu_data_i     (fu_data),
-    .instr_fetch_data_i  (instr_fetch_data),
-    .dispatch_valid_i    (dispatch_instr_valid), // main control signal / stall signal
-    .instr_exec_commit_i (instr_exec_commit),
-    .dispatch_ready_o    (dispatch_instr_ready),
-    // From decoder
-    .instr_valid_i       (instr_valid_masked),
-    .instr_rename_gpr_valid_i(instr_rename_gpr_valid),
-    .instr_rename_gpr_count_i(instr_rename_gpr_count),
-    .instr_rename_fpr_valid_i(instr_rename_fpr_valid),
-    .instr_rename_fpr_count_i(instr_rename_fpr_count),
-    // ROB
-    .first_instr_dispatched_o(first_instr_dispatched),
-    .rob_idx_i(rob_idx),
-    // ALU
-    .alu_si_disp_req_o      (alu_si_disp_req),
-    .alu_si_disp_req_valid_o(alu_si_disp_req_valid),
-    .alu_si_disp_req_ready_i(alu_si_disp_req_ready),
-    .alu_rs_disp_reqs_o     (alu_rs_disp_reqs),
-    .alu_rs_disp_req_valid_o(alu_rs_disp_req_valid),
-    .alu_rs_disp_req_ready_i(alu_rs_disp_req_ready),
-    .alu_rs_disp_rsp_i      (alu_rs_disp_rsp),
-    .alu_rs_full_i          (alu_rs_full),
-    // LSU
-    .lsu_si_disp_req_o      (lsu_si_disp_req),
-    .lsu_si_disp_req_valid_o(lsu_si_disp_req_valid),
-    .lsu_si_disp_req_ready_i(lsu_si_disp_req_ready),
-    .lsu_rs_disp_reqs_o     (lsu_rs_disp_reqs),
-    .lsu_rs_disp_req_valid_o(lsu_rs_disp_req_valid),
-    .lsu_rs_disp_req_ready_i(lsu_rs_disp_req_ready),
-    .lsu_rs_disp_rsp_i      (lsu_rs_disp_rsp),
-    .lsu_rs_full_i          (lsu_rs_full),
-    // CSR
-    .csr_disp_req_o         (csr_disp_req),
-    .csr_disp_req_valid_o   (csr_disp_req_valid),
-    .csr_disp_req_ready_i   (csr_disp_req_ready),
-    // FPU
-    .fpu_si_disp_req_o      (fpu_si_disp_req),
-    .fpu_si_disp_req_valid_o(fpu_si_disp_req_valid),
-    .fpu_si_disp_req_ready_i(fpu_si_disp_req_ready),
-    .fpu_rs_disp_reqs_o     (fpu_rs_disp_reqs),
-    .fpu_rs_disp_req_valid_o(fpu_rs_disp_req_valid),
-    .fpu_rs_disp_req_ready_i(fpu_rs_disp_req_ready),
-    .fpu_rs_disp_rsp_i      (fpu_rs_disp_rsp),
-    .fpu_rs_full_i          (fpu_rs_full),
-    // Shared accelerator interface
-    .acc_req_o              (acc_qreq_o),
-    .acc_disp_req_valid_o   (acc_qvalid_o),
-    .acc_disp_req_ready_i   (acc_qready_i),
-    // RS control signals
-    .restart_i              (rs_restart),
-    .frep_mem_cons_mode_i   (frep_mem_cons_mode),
-    // To Refcounter
-    .refcnt_disp_req_o      (refcnt_disp_req),
-    .disp_buffers_empty_o   (disp_buffers_empty)
+    // From / To Controller
+    .en_superscalar_i         (en_superscalar),
+    .restart_i                (rs_restart),
+    .dispatch_valid_i         (dispatch_instr_valid),
+    .dispatch_ready_o         (dispatch_instr_ready),
+    .instr_valid_i            (instr_valid_masked),
+    .instr_rename_gpr_valid_i (instr_rename_gpr_valid),
+    .instr_rename_gpr_count_i (instr_rename_gpr_count),
+    .instr_rename_fpr_valid_i (instr_rename_fpr_valid),
+    .instr_rename_fpr_count_i (instr_rename_fpr_count),
+    .instr_exec_commit_i      (instr_exec_commit),
+    .disp_buffers_empty_o     (disp_buffers_empty),
+    // From Decoder
+    .instr_dec_i              (instr_decoded),
+    // From Rename
+    .reg_map_i                (reg_map),
+    // From Read Operands
+    .instr_fu_data_i          (fu_data),
+    .instr_fetch_data_i       (instr_fetch_data),
+    // From CSR
+    .frep_mem_cons_mode_i     (frep_mem_cons_mode),
+    // From / To Physical Register Manager
+    .first_instr_dispatched_o (first_instr_dispatched),
+        .refcnt_disp_req_o    (refcnt_disp_req),
+    .rob_idx_i                (rob_idx),
+    // ALU Dispatch
+    .alu_si_disp_req_o        (alu_si_disp_req),
+    .alu_si_disp_req_valid_o  (alu_si_disp_req_valid),
+    .alu_si_disp_req_ready_i  (alu_si_disp_req_ready),
+    .alu_rs_disp_reqs_o       (alu_rs_disp_reqs),
+    .alu_rs_disp_req_valid_o  (alu_rs_disp_req_valid),
+    .alu_rs_disp_req_ready_i  (alu_rs_disp_req_ready),
+    .alu_rs_disp_rsp_i        (alu_rs_disp_rsp),
+    .alu_rs_full_i            (alu_rs_full),
+    // LSU Dispatch
+    .lsu_si_disp_req_o        (lsu_si_disp_req),
+    .lsu_si_disp_req_valid_o  (lsu_si_disp_req_valid),
+    .lsu_si_disp_req_ready_i  (lsu_si_disp_req_ready),
+    .lsu_rs_disp_reqs_o       (lsu_rs_disp_reqs),
+    .lsu_rs_disp_req_valid_o  (lsu_rs_disp_req_valid),
+    .lsu_rs_disp_req_ready_i  (lsu_rs_disp_req_ready),
+    .lsu_rs_disp_rsp_i        (lsu_rs_disp_rsp),
+    .lsu_rs_full_i            (lsu_rs_full),
+    // CSR Dispatch
+    .csr_disp_req_o           (csr_disp_req),
+    .csr_disp_req_valid_o     (csr_disp_req_valid),
+    .csr_disp_req_ready_i     (csr_disp_req_ready),
+    // FPU Dispatch
+    .fpu_si_disp_req_o        (fpu_si_disp_req),
+    .fpu_si_disp_req_valid_o  (fpu_si_disp_req_valid),
+    .fpu_si_disp_req_ready_i  (fpu_si_disp_req_ready),
+    .fpu_rs_disp_reqs_o       (fpu_rs_disp_reqs),
+    .fpu_rs_disp_req_valid_o  (fpu_rs_disp_req_valid),
+    .fpu_rs_disp_req_ready_i  (fpu_rs_disp_req_ready),
+    .fpu_rs_disp_rsp_i        (fpu_rs_disp_rsp),
+    .fpu_rs_full_i            (fpu_rs_full),
+    // ACC Dispatch
+    .acc_req_o                (acc_qreq_o),
+    .acc_disp_req_valid_o     (acc_qvalid_o),
+    .acc_disp_req_ready_i     (acc_qready_i)
   );
 
-  //////////////////////
-  // Functional Units //
-  //////////////////////
 
-  logic            [NofAlus-1:0] alu_results_valid;
-  logic            [NofAlus-1:0] alu_results_ready;
-  logic            [NofLsus-1:0] lsu_results_valid;
-  logic            [NofLsus-1:0] lsu_results_ready;
-  instr_tag_t      [NofLsus-1:0] lsu_results_tag;
-  data_t           [NofLsus-1:0] lsu_results;
-  fpu_result_t     [NofFpus-1:0] fpu_results;
-  logic            [NofFpus-1:0] fpu_results_valid;
-  logic            [NofFpus-1:0] fpu_results_ready;
-  instr_tag_t      [NofFpus-1:0] fpu_results_tag;
-
-  logic            [NofAlus-1:0] issue_alu_clr_req_valid;
-  refcnt_req_t     [NofAlus-1:0] issue_alu_clr_req;
-  logic            [NofLsus-1:0] issue_lsu_clr_req_valid;
-  refcnt_req_t     [NofLsus-1:0] issue_lsu_clr_req;
-  logic            [NofFpus-1:0] issue_fpu_clr_req_valid;
-  refcnt_req_t     [NofFpus-1:0] issue_fpu_clr_req;
-
-  // Trace signals
-  // pragma translate_off
-  issue_alu_trace_t  alu_trace       [NofAlus];
-  issue_lsu_trace_t  lsu_trace       [NofLsus];
-  issue_fpu_trace_t  fpu_trace       [NofFpus];
-  retire_fu_trace_t  alu_retirements [NofAlus];
-  retire_fu_trace_t  lsu_load_retirements [NofLsus];
-  retire_fu_trace_t  lsu_store_retirements [NofLsus];
-  retire_fu_trace_t  fpu_retirements [NofFpus];
-  // pragma translate_on
-
+  // ---------
+  // FU Stage
+  // ---------
   schnova_fu_stage #(
-    .XFREPO      (XFREPO),
-    .UseFreeList(UseFreeList),
+    .XFREPO             (XFREPO),
+    .UseFreeList        (UseFreeList),
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
@@ -1063,107 +1200,102 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ) i_fu_stage (
     .clk_i,
     .rst_i,
-    // TODO(colluca): typo
-    .hard_id_i            (hart_id_i),
-    .restart_i            (rs_restart),
-    .en_superscalar_i     (en_superscalar),
-    .all_rs_finish_o      (all_rs_finish),
-    // Global commit signal
-    .instr_exec_commit_i  (instr_exec_commit),
-    .fpu_instr_exec_commit_i(fpu_instr_exec_commit),
-    // Trace
+    .hart_id_i                (hart_id_i),
+    // From / To Controller
+    .restart_i                (rs_restart),
+    .en_superscalar_i         (en_superscalar),
+    .all_rs_finish_o          (all_rs_finish),
+    .instr_exec_commit_i      (instr_exec_commit),
+    .fpu_instr_exec_commit_i  (fpu_instr_exec_commit),
+    // To Tracer
     // pragma translate_off
-    .alu_trace_o          (alu_trace),
-    .lsu_trace_o          (lsu_trace),
-    .fpu_trace_o          (fpu_trace),
-    .alu_retire_trace_o   (alu_retirements),
-    .lsu_load_retire_trace_o (lsu_load_retirements),
-    .lsu_store_retire_trace_o(lsu_store_retirements),
-    .fpu_retire_trace_o   (fpu_retirements),
+    .alu_trace_o              (alu_trace),
+    .lsu_trace_o              (lsu_trace),
+    .fpu_trace_o              (fpu_trace),
+    .alu_retire_trace_o       (alu_retirements),
+    .lsu_load_retire_trace_o  (lsu_load_retirements),
+    .lsu_store_retire_trace_o (lsu_store_retirements),
+    .fpu_retire_trace_o       (fpu_retirements),
     // pragma translate_on
-    // ALU
-    .alu_si_disp_req_i      (alu_si_disp_req),
-    .alu_si_disp_req_valid_i(alu_si_disp_req_valid),
-    .alu_si_disp_req_ready_o(alu_si_disp_req_ready),
-    .alu_rs_disp_reqs_i      (alu_rs_disp_reqs),
-    .alu_rs_disp_reqs_valid_i(alu_rs_disp_req_valid),
-    .alu_rs_disp_reqs_ready_o(alu_rs_disp_req_ready),
-    .alu_rs_disp_rsp_o       (alu_rs_disp_rsp),
-    .alu_rs_full_o        (alu_rs_full),
-    // LSU
-    .lsu_si_disp_req_i      (lsu_si_disp_req),
-    .lsu_si_disp_req_valid_i(lsu_si_disp_req_valid),
-    .lsu_si_disp_req_ready_o(lsu_si_disp_req_ready),
-    .lsu_rs_disp_reqs_i      (lsu_rs_disp_reqs),
-    .lsu_rs_disp_reqs_valid_i(lsu_rs_disp_req_valid),
-    .lsu_rs_disp_reqs_ready_o(lsu_rs_disp_req_ready),
-    .lsu_rs_disp_rsp_o       (lsu_rs_disp_rsp),
-    .lsu_empty_o          (lsu_empty),
-    .lsu_addr_misaligned_o(lsu_addr_misaligned),
-    .lsu_dreq_o           (data_req_o), // Each LSU has its own reqrsp port
-    .lsu_drsp_i           (data_rsp_i), // Each LSU has its own reqrsp port
-    .lsu_rs_full_o        (lsu_rs_full),
-    .caq_addr_i           ('0),
-    .caq_track_write_i    ('0),
-    .caq_req_valid_i      ('0),
-    .caq_req_ready_o      (),
-    .caq_rsp_valid_i      ('0),
-    .caq_rsp_valid_o      (),
-    //FPU
-    .fpu_si_disp_req_i      (fpu_si_disp_req),
-    .fpu_si_disp_req_valid_i(fpu_si_disp_req_valid),
-    .fpu_si_disp_req_ready_o(fpu_si_disp_req_ready),
-    .fpu_rs_disp_reqs_i      (fpu_rs_disp_reqs),
-    .fpu_rs_disp_reqs_valid_i(fpu_rs_disp_req_valid),
-    .fpu_rs_disp_reqs_ready_o(fpu_rs_disp_req_ready),
-    .fpu_rs_disp_rsp_o       (fpu_rs_disp_rsp),
-    .fpu_rs_full_o        (fpu_rs_full),
-    .fpu_status_o         (fpu_status),
-    .fpu_status_valid_o   (fpu_status_valid),
-    // Operand requests
-    .op_reqs_o            (op_reqs),
-    // Operand responses
-    .op_rsps_i(op_rsps_data),
-    .op_rsps_valid_i(op_rsps_valid),
-    // Refcount issue signals
+    // ALU Dispatch
+    .alu_si_disp_req_i        (alu_si_disp_req),
+    .alu_si_disp_req_valid_i  (alu_si_disp_req_valid),
+    .alu_si_disp_req_ready_o  (alu_si_disp_req_ready),
+    .alu_rs_disp_reqs_i       (alu_rs_disp_reqs),
+    .alu_rs_disp_reqs_valid_i (alu_rs_disp_req_valid),
+    .alu_rs_disp_reqs_ready_o (alu_rs_disp_req_ready),
+    .alu_rs_disp_rsp_o        (alu_rs_disp_rsp),
+    .alu_rs_full_o            (alu_rs_full),
+    // LSU Dispatch
+    .lsu_si_disp_req_i        (lsu_si_disp_req),
+    .lsu_si_disp_req_valid_i  (lsu_si_disp_req_valid),
+    .lsu_si_disp_req_ready_o  (lsu_si_disp_req_ready),
+    .lsu_rs_disp_reqs_i       (lsu_rs_disp_reqs),
+    .lsu_rs_disp_reqs_valid_i (lsu_rs_disp_req_valid),
+    .lsu_rs_disp_reqs_ready_o (lsu_rs_disp_req_ready),
+    .lsu_rs_disp_rsp_o        (lsu_rs_disp_rsp),
+    .lsu_empty_o              (lsu_empty),
+    .lsu_addr_misaligned_o    (lsu_addr_misaligned),
+    .lsu_dreq_o               (data_req_o), // Each LSU has its own reqrsp port
+    .lsu_drsp_i               (data_rsp_i), // Each LSU has its own reqrsp port
+    .lsu_rs_full_o            (lsu_rs_full),
+    // LSU CAQ Signals
+    .caq_addr_i               ('0),
+    .caq_track_write_i        ('0),
+    .caq_req_valid_i          ('0),
+    .caq_req_ready_o          (),
+    .caq_rsp_valid_i          ('0),
+    .caq_rsp_valid_o          (),
+    //FPU Dispatch
+    .fpu_si_disp_req_i        (fpu_si_disp_req),
+    .fpu_si_disp_req_valid_i  (fpu_si_disp_req_valid),
+    .fpu_si_disp_req_ready_o  (fpu_si_disp_req_ready),
+    .fpu_rs_disp_reqs_i       (fpu_rs_disp_reqs),
+    .fpu_rs_disp_reqs_valid_i (fpu_rs_disp_req_valid),
+    .fpu_rs_disp_reqs_ready_o (fpu_rs_disp_req_ready),
+    .fpu_rs_disp_rsp_o        (fpu_rs_disp_rsp),
+    .fpu_rs_full_o            (fpu_rs_full),
+    .fpu_status_o             (fpu_status),
+    .fpu_status_valid_o       (fpu_status_valid),
+    // Operand Request /Responses
+    .op_reqs_o                (op_reqs),
+    .op_rsps_i                (op_rsps_data),
+    .op_rsps_valid_i          (op_rsps_valid),
+    // To Physical Register File
     .issue_alu_clr_req_valid_o(issue_alu_clr_req_valid),
-    .issue_alu_clr_req_o(issue_alu_clr_req),
+    .issue_alu_clr_req_o      (issue_alu_clr_req),
     .issue_lsu_clr_req_valid_o(issue_lsu_clr_req_valid),
-    .issue_lsu_clr_req_o(issue_lsu_clr_req),
+    .issue_lsu_clr_req_o      (issue_lsu_clr_req),
     .issue_fpu_clr_req_valid_o(issue_fpu_clr_req_valid),
-    .issue_fpu_clr_req_o(issue_fpu_clr_req),
+    .issue_fpu_clr_req_o      (issue_fpu_clr_req),
     // ALU WB
-    .alu_results_o      (alu_results),
-    .alu_results_tag_o  (alu_results_tag),
-    .alu_results_valid_o(alu_results_valid),
-    .alu_results_ready_i(alu_results_ready),
-    .branch_result_o      (branch_result),
+    .alu_results_o            (alu_results),
+    .alu_results_tag_o        (alu_results_tag),
+    .alu_results_valid_o      (alu_results_valid),
+    .alu_results_ready_i      (alu_results_ready),
+    .branch_result_o          (branch_result),
     // LSU WB
-    .lsu_results_o      (lsu_results),
-    .lsu_results_tag_o  (lsu_results_tag),
-    .lsu_results_valid_o(lsu_results_valid),
-    .lsu_results_ready_i(lsu_results_ready),
+    .lsu_results_o            (lsu_results),
+    .lsu_results_tag_o        (lsu_results_tag),
+    .lsu_results_valid_o      (lsu_results_valid),
+    .lsu_results_ready_i      (lsu_results_ready),
     // FPU WB
-    .fpu_results_o      (fpu_results),
-    .fpu_results_tag_o  (fpu_results_tag),
-    .fpu_results_valid_o(fpu_results_valid),
-    .fpu_results_ready_i(fpu_results_ready)
+    .fpu_results_o            (fpu_results),
+    .fpu_results_tag_o        (fpu_results_tag),
+    .fpu_results_valid_o      (fpu_results_valid),
+    .fpu_results_ready_i      (fpu_results_ready)
   );
 
-  // CSR FU & register file
+
+  // ----
+  // CSR
+  // ----
   // Has direct connection to control logic, exceptions are handled directly without the commit guard.
   // I.e., the CSR always checks for exception but the controller masks it out if the current
   //instruction isn't a CSR instruction.
-  // TODO: Maybe we should unify the behaviour?
-  logic csr_result_valid;
-  logic csr_result_ready;
-  instr_tag_t csr_result_tag;
-  logic [XLEN-1:0] csr_result;
-  csr_issue_req_t csr_issue_req;
 
   // Convert dispatch request to issue request for CSR.
   // The valid/ready is fed through so no extra signals.
-  
   assign csr_issue_req = csr_disp_req;
 
   schnova_csr #(
@@ -1182,16 +1314,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NofFpus     (NofFpus),
     .FpuNofRss   (FpuNofRss)
   ) i_csr (
-    .clk_i(clk_i),
-    .rst_i(rst_i),
-    .issue_req_i        (csr_issue_req),
-    .issue_req_valid_i  (csr_disp_req_valid),
-    .issue_req_ready_o  (csr_disp_req_ready),
-    .illegal_csr_instr_o(csr_exception_raw),
-    .result_o      (csr_result),
-    .result_tag_o  (csr_result_tag),
-    .result_valid_o(csr_result_valid),
-    .result_ready_i(csr_result_ready),
+    .clk_i                  (clk_i),
+    .rst_i                  (rst_i),
+    .issue_req_i            (csr_issue_req),
+    .issue_req_valid_i      (csr_disp_req_valid),
+    .issue_req_ready_o      (csr_disp_req_ready),
+    .illegal_csr_instr_o    (csr_exception_raw),
+    .result_o               (csr_result),
+    .result_tag_o           (csr_result_tag),
+    .result_valid_o         (csr_result_valid),
+    .result_ready_i         (csr_result_ready),
     .irq_i                  (irq_i),
     .enter_wfi_i            (enter_wfi),
     .pc_i                   (pc),
@@ -1222,12 +1354,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_retired_i        (instr_retired)
   );
 
-  ////////////////
-  // Write back //
-  ////////////////
 
+  // ----------
+  // Writeback
+  // ----------
   // Convert the accelerator response to a proper result and result tag such that the
-  // write back and scoreboard functions properly.
+  // writeback and scoreboard functions properly.
   logic [XLEN-1:0] acc_result;
   instr_tag_t      acc_result_tag;
   always_comb begin : acc_response_conversion
@@ -1237,9 +1369,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     acc_result_tag.dest_reg_is_fp = 1'b0;
   end
 
-  // See module for details and specialities!
   schnova_writeback #(
-    .XFREPO          (XFREPO),
+    .XFREPO         (XFREPO),
     .UseFreeList    (UseFreeList),
     .PipeWidth      (PipeWidth),
     .RobTagWidth    (RobTagWidth),
@@ -1250,16 +1381,16 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .NofFpus        (NofFpus),
     .NrIntWritePorts(NrIntWritePorts),
     .NrFpWritePorts (NrFpWritePorts),
-    .NrRobWritePorts (NrRobWritePorts),
-    .GprAddrWidth  (GprAddrWidth),
-    .FprAddrWidth  (FprAddrWidth),
+    .NrRobWritePorts(NrRobWritePorts),
+    .GprAddrWidth   (GprAddrWidth),
+    .FprAddrWidth   (FprAddrWidth),
     .instr_tag_t    (instr_tag_t),
     .alu_result_t   (alu_result_t),
     .fpu_result_t   (fpu_result_t),
     .data_t         (data_t)
   ) i_writeback (
     .en_superscalar_i  (en_superscalar),
-    // ALU interface
+    // From / To ALU
     .alu_results_i      (alu_results),
     .alu_results_tag_i  (alu_results_tag),
     .alu_results_valid_i(alu_results_valid),
@@ -1267,29 +1398,29 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     // To ROB
     .wb_valid_o(wb_valid),
     .wb_rob_idx_o(wb_rob_idx),
-    // TODO (soderma): This used to be PC+4, the instruction after the jal/jalr
+    // From Frontend
     .consecutive_pc_i  (consecutive_pc),
-    // CSR interface
+    // From / To CSR
     .csr_result_i      (csr_result),
     .csr_result_tag_i  (csr_result_tag),
     .csr_result_valid_i(csr_result_valid),
     .csr_result_ready_o(csr_result_ready),
-    // LSU interface
+    // From / To LSU
     .lsu_results_i      (lsu_results),
     .lsu_results_tag_i  (lsu_results_tag),
     .lsu_results_valid_i(lsu_results_valid),
     .lsu_results_ready_o(lsu_results_ready),
-    // FPU interface
+    // From / To FPU
     .fpu_results_i      (fpu_results),
     .fpu_results_tag_i  (fpu_results_tag),
     .fpu_results_valid_i(fpu_results_valid),
     .fpu_results_ready_o(fpu_results_ready),
-    // Accelerator interface
+    // From / To ACC
     .acc_result_i      (acc_result),
     .acc_result_tag_i  (acc_result_tag),
     .acc_result_valid_i(acc_pvalid_i),
     .acc_result_ready_o(acc_pready_o),
-    // Register file interface
+    // To Physical Register File
     .gpr_waddr_o       (gpr_waddr),
     .gpr_wdata_o       (gpr_wdata),
     .gpr_we_o          (gpr_we),
@@ -1300,15 +1431,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .retired_single_cycle_o(instr_retired_single_cycle),
     .retired_load_o        (instr_retired_load),
     .retired_acc_o         (instr_retired_acc),
-    // Control instruction retirement
+    // To Controller
     .ctrl_instr_retired_o(ctrl_instr_retired)
   );
 
-  /////////////////
-  // Core Events //
-  /////////////////
 
-  // TODO (soderma): Make core events superscalar
+  // ------------
+  // Core Events
+  // ------------
+  // TODO: Make core events superscalar
 
   // This is 1to1 from Snitch and it is misnamed. The stall signal tells us that we did not
   // dispatch an instruction. However, it is used to signal if we retired an instruction right now.
@@ -1332,13 +1463,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       assign all_issue_fpu_handshakes[i] = fpu_rs_disp_req_valid[i] & fpu_rs_disp_req_ready[i];
     end
   end
-  // TODO (soderma): This was just written to compile
   assign issue_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
   // In Snitch this signal captures when an instruction is offloaded to the FP SS. This can include
   // also FP loads as the FP register is in the subsystem. schnova cannot distinguish this case as
   // we handle all instructions in the core. We thus set the same signal.
-  // TODO: rework the core events
-  // TODO (soderma): This was just written to compile
   assign issue_core_to_fpu = (|all_issue_fpu_handshakes) & instr_exec_commit;
 
   assign core_events_o.retired_instr = instr_retired_q;
@@ -1351,23 +1479,18 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign core_events_o.issue_core_to_fpu = issue_core_to_fpu_q;
   assign core_events_o.issue_fpu_seq     = '0;
 
-  ///////////////////////////////
-  //      Physical register    //
-  //        management         //
-  ///////////////////////////////
-
+  // -----------------------------
+  // Physical Register Management
+  // -----------------------------
   // 1) Either it is done via a classic approach with a rob and free list
   // 2) Or it is done via a reference counting based approach
   if (XFREPO) begin : gen_phys_reg_manage
     if (UseFreeList) begin : gen_freelist_reg_manage
-      ///////////////////////////
-      //      Free List        //
-      ///////////////////////////
+      // ---------
+      // Freelist
+      // ---------
 
-      // We pop physical registers from the free list
-      // once we have sucessfully dispatched instructions
-      // and are in the scalar execution mode.
-      // Physical register allocation signals
+      // Local parameters and connections
       localparam int unsigned NumArchRegs = 2**RegAddrSize;
 
       logic freelist_push;
@@ -1376,65 +1499,72 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       logic freelist_fpr_ready;
 
       logic [$clog2(PipeWidth):0] freelist_gpr_push_count;
-      phy_id_t [PipeWidth-1:0] retired_gpr_regs;
       logic [$clog2(PipeWidth):0] freelist_fpr_push_count;
-      phy_id_t [PipeWidth-1:0] retired_fpr_regs;
+      phy_id_t [PipeWidth-1:0]    retired_gpr_regs;
+      phy_id_t [PipeWidth-1:0]    retired_fpr_regs;
 
+      // We pop physical registers from the free list
+      // once we have sucessfully dispatched  all instructions
+      // and are in the super scalar execution mode.
       assign pop_freelist = dispatched & en_superscalar;
 
       schnova_free_list #(
-        .PipeWidth(PipeWidth),
+        .PipeWidth  (PipeWidth),
         .NumPhysRegs(NofPhysGpr),
         .NumArchRegs(NumArchRegs),
-        .phy_id_t(phy_id_t)
+        .phy_id_t   (phy_id_t)
       ) i_gpr_free_list (
         .clk_i,
         .rst_i,
-        .pop_i(pop_freelist),
-        .freelist_ready_o(freelist_gpr_ready),
-        .pop_count_i(instr_rename_gpr_count),
-        .allocated_regs_o(allocated_gpr_regs),
-        .push_i(freelist_push),
-        .push_count_i(freelist_gpr_push_count),
-        .retired_regs_i(retired_gpr_regs)
+        // To / From Controller
+        .pop_i            (pop_freelist),
+        .freelist_ready_o (freelist_gpr_ready),
+        .pop_count_i      (instr_rename_gpr_count),
+        // To Rename
+        .allocated_regs_o (allocated_gpr_regs),
+        // From Reorder Buffer
+        .push_i           (freelist_push),
+        .push_count_i     (freelist_gpr_push_count),
+        .retired_regs_i   (retired_gpr_regs)
       );
 
       schnova_free_list #(
-        .PipeWidth(PipeWidth),
+        .PipeWidth  (PipeWidth),
         .NumPhysRegs(NofPhysFpr),
         .NumArchRegs(NumArchRegs),
-        .phy_id_t(phy_id_t)
+        .phy_id_t   (phy_id_t)
       ) i_fpr_free_list (
         .clk_i,
         .rst_i,
-        .pop_i(pop_freelist),
-        .freelist_ready_o(freelist_fpr_ready),
-        .pop_count_i(instr_rename_fpr_count),
-        .allocated_regs_o(allocated_fpr_regs),
-        .push_i(freelist_push),
-        .push_count_i(freelist_fpr_push_count),
-        .retired_regs_i(retired_fpr_regs)
+        // To / From Controller
+        .pop_i            (pop_freelist),
+        .freelist_ready_o (freelist_fpr_ready),
+        .pop_count_i      (instr_rename_fpr_count),
+        // To Rename
+        .allocated_regs_o (allocated_fpr_regs),
+        // From Reorder Buffer
+        .push_i           (freelist_push),
+        .push_count_i     (freelist_fpr_push_count),
+        .retired_regs_i   (retired_fpr_regs)
       );
 
+      // New instructions can only be dispatched if there are both enough physical gpr and fpr registers
+      // for renaming in superscalar execution mode.
       assign phy_reg_alloc_ready = freelist_fpr_ready & freelist_gpr_ready;
 
-      ////////////////////
-      // Reorder Buffer //
-      ////////////////////
 
-      // The incoming dispatch request will only be valid
-      // if we have enough ROB entries otherwise the controller
-      // would stall the dispatch by forcing the valid to zero.
+      // ---------------
+      // Reorder Buffer
+      // ---------------
 
-      logic                                rob_push;
-      logic [$clog2(PipeWidth):0]          rob_push_count;
-
-      // We only allocate new entries in the ROB in superscalar mode
-      // The allocation happens once the first instruction is successfully dispatched.
-      // we immediately allocate all the instructions in the block at once even if not all of them are yet dispatched  
+      // Local connections
+      logic                          rob_push;
+      logic    [$clog2(PipeWidth):0] rob_push_count;
       logic    [$clog2(PipeWidth):0] alloc_idx;
       phy_id_t [PipeWidth-1:0]       phy_reg_rd_old;
       logic    [PipeWidth-1:0]       phy_reg_rd_old_is_fp;
+
+      // New instructions can only be dispatched if we have enough ROB entries
       always_comb begin : pack_old_phy_reg
         // Per default we don't assign a mapping
         phy_reg_rd_old = '0;
@@ -1453,41 +1583,49 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
         end
       end
 
-
+      // New ROB entries are only allocated in the superscalar mode
+      // Allocation happens once for the entire fetch block, at the cycle the first instruction
+      // was successfully dispatched.
       assign rob_push = first_instr_dispatched & en_superscalar;
       assign rob_push_count = instr_rename_gpr_count + instr_rename_fpr_count;
 
       schnova_reorder_buffer #(
-        .PipeWidth(PipeWidth),
-        .NofEntries(NofRobEntries),
+        .PipeWidth      (PipeWidth),
+        .NofEntries     (NofRobEntries),
         .NrRobWritePorts(NrRobWritePorts),
-        .phy_id_t(phy_id_t)
+        .phy_id_t       (phy_id_t)
       ) i_rob (
         .clk_i,
         .rst_i,
-        // Dispatch interface
-        .rob_push_i(rob_push),
-        .rob_push_count_i(rob_push_count),
-        .rob_phy_reg_rd_old_i(phy_reg_rd_old),
-        .rob_phy_reg_rd_old_is_fp_i(phy_reg_rd_old_is_fp),
-        .rob_idx_o(rob_idx),
-        .rob_ready_o(rob_ready),
-        // Writeback Interface
-        .wb_valid_i(wb_valid),
-        .wb_rob_idx_i(wb_rob_idx),
-        // Freelist interface
-        .freelist_push_o(freelist_push),
-        .gpr_push_count_o(freelist_gpr_push_count),
-        .gpr_retired_regs_o(retired_gpr_regs),
-        .fpr_push_count_o(freelist_fpr_push_count),
-        .fpr_retired_regs_o(retired_fpr_regs)
+        // From / To Controller
+        .rob_ready_o                (rob_ready),
+        .rob_push_count_i           (rob_push_count),
+        // From / To Dispatcher
+        .rob_push_i                 (rob_push),
+        .rob_idx_o                  (rob_idx),
+        // From Rename
+        .rob_phy_reg_rd_old_i       (phy_reg_rd_old),
+        .rob_phy_reg_rd_old_is_fp_i (phy_reg_rd_old_is_fp),
+        // From Writeback
+        .wb_valid_i                 (wb_valid),
+        .wb_rob_idx_i               (wb_rob_idx),
+        // To Freelist
+        .freelist_push_o            (freelist_push),
+        .gpr_push_count_o           (freelist_gpr_push_count),
+        .gpr_retired_regs_o         (retired_gpr_regs),
+        .fpr_push_count_o           (freelist_fpr_push_count),
+        .fpr_retired_regs_o         (retired_fpr_regs)
       );
     end else begin : gen_refcount_reg_manage
+      // -------------------
+      // Reference Counting
+      // -------------------
 
-      logic instr_exec_commit_superscalar;
+      // Local connections
       phy_id_t [PipeWidth-1:0] phy_reg_rd;
       phy_id_t [PipeWidth-1:0] phy_reg_rd_old;
       logic    [PipeWidth-1:0] is_rd_fp;
+      logic                    instr_exec_commit_superscalar;
 
       always_comb begin : pack_reg_rd_old
         for (int unsigned i = 0; i < PipeWidth; i++) begin
@@ -1501,60 +1639,69 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       assign rob_ready = 1'b1;
       assign rob_idx = '0; // Not used
 
+      // We only perform reference counting in superscalar execution mode
       assign instr_exec_commit_superscalar = en_superscalar ? instr_exec_commit: 1'b0;
 
       schnova_refcount #(
-        .PipeWidth(PipeWidth),
-        .NofPhysGpr(NofPhysGpr),
-        .NofPhysFpr(NofPhysFpr),
-        .NofAlus(NofAlus),
-        .AluNofRss(AluNofRss),
-        .NofLsus(NofLsus),
-        .LsuNofRss(LsuNofRss),
-        .NofFpus(NofFpus),
-        .FpuNofRss(FpuNofRss),
-        .phy_id_t(phy_id_t),
-        .refcnt_req_t(refcnt_req_t)
+        .PipeWidth    (PipeWidth),
+        .NofPhysGpr   (NofPhysGpr),
+        .NofPhysFpr   (NofPhysFpr),
+        .NofAlus      (NofAlus),
+        .AluNofRss    (AluNofRss),
+        .NofLsus      (NofLsus),
+        .LsuNofRss    (LsuNofRss),
+        .NofFpus      (NofFpus),
+        .FpuNofRss    (FpuNofRss),
+        .phy_id_t     (phy_id_t),
+        .refcnt_req_t (refcnt_req_t)
       ) i_refcount (
         .clk_i,
         .rst_i,
-        // Dispatcher Interface (Set new reference for RAT)
+        // From / To Controller
         .instr_exec_commit_superscalar_i(instr_exec_commit_superscalar),
-        .instr_valid_i(instr_valid_masked),
-        .dispatched_i(dispatched),
-        .refcnt_disp_req_i(refcnt_disp_req),
-        .phy_reg_rd_i    (phy_reg_rd),
-        .phy_reg_rd_old_i(phy_reg_rd_old),
-        .is_rd_fp_i      (is_rd_fp),
-        // Issue Inteface (Clear / Overwrite entries)
-        .issue_alu_clr_req_valid_i(issue_alu_clr_req_valid),
-        .issue_alu_clr_req_i(issue_alu_clr_req),
-        .issue_lsu_clr_req_valid_i(issue_lsu_clr_req_valid),
-        .issue_lsu_clr_req_i(issue_lsu_clr_req),
-        .issue_fpu_clr_req_valid_i(issue_fpu_clr_req_valid),
-        .issue_fpu_clr_req_i(issue_fpu_clr_req),
-        // Allocation interface
-        .rename_gpr_count_i(instr_rename_gpr_count),
-        .rename_fpr_count_i(instr_rename_fpr_count),
-        .allocated_gpr_regs_o(allocated_gpr_regs),
-        .allocated_fpr_regs_o(allocated_fpr_regs),
-        .phy_reg_alloc_ready_o(phy_reg_alloc_ready)
+        .instr_valid_i                  (instr_valid_masked),
+        .dispatched_i                   (dispatched),
+        .rename_gpr_count_i             (instr_rename_gpr_count),
+        .rename_fpr_count_i             (instr_rename_fpr_count),
+        .phy_reg_alloc_ready_o          (phy_reg_alloc_ready),
+        // From / To Dispatcher
+        .refcnt_disp_req_i              (refcnt_disp_req),
+        // From / To Rename
+        .phy_reg_rd_i                   (phy_reg_rd),
+        .phy_reg_rd_old_i               (phy_reg_rd_old),
+        .is_rd_fp_i                     (is_rd_fp),
+        .allocated_gpr_regs_o           (allocated_gpr_regs),
+        .allocated_fpr_regs_o           (allocated_fpr_regs),
+        // From FU Stage (Reservation Stations)
+        .issue_alu_clr_req_valid_i      (issue_alu_clr_req_valid),
+        .issue_alu_clr_req_i            (issue_alu_clr_req),
+        .issue_lsu_clr_req_valid_i      (issue_lsu_clr_req_valid),
+        .issue_lsu_clr_req_i            (issue_lsu_clr_req),
+        .issue_fpu_clr_req_valid_i      (issue_fpu_clr_req_valid),
+        .issue_fpu_clr_req_i            (issue_fpu_clr_req)
       );
     end
-
   end else begin : gen_no_phys_reg_manage
+    // Make sure the core stalls if configured wrongly
+    // (If it jumps to superscalar execution when no
+    // physical register management is implemented)
+    assign phy_reg_alloc_ready = 1'b0;
     assign rob_ready           = 1'b0;
     assign rob_idx             = '0; // Not used
-    assign phy_reg_alloc_ready = 1'b0;
   end
 
-  ////////////////
-  // Scoreboard //
-  ////////////////
 
+  // -----------
+  // Scoreboard
+  // -----------
+
+  // Local connections
   logic update_sb;
   sb_disp_data_t [PipeWidth-1:0] disp_data;
 
+  // In superscalar mode, we update the scoreboard at the same cycle the first instruction
+  // was successfully dispatched (similarily to how the rob is handled)
+  // in scalar mode we update once all instructions are dispatched (which is only one in that case)
   assign update_sb = en_superscalar ? first_instr_dispatched : dispatched;
 
   always_comb begin : pack_disp_data
@@ -1574,100 +1721,104 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   schnova_scoreboard #(
-    .XFREPO    (XFREPO),
-    .PipeWidth(PipeWidth),
-    .NrReadPorts(NofOperandIfs),
+    .XFREPO         (XFREPO),
+    .PipeWidth      (PipeWidth),
+    .NrReadPorts    (NofOperandIfs),
     .NrIntWritePorts(NrIntWritePorts),
-    .NrFpWritePorts(NrFpWritePorts),
-    .PhysAddrWidth(PhysRegAddrSize),
-    .GprAddrWidth(GprAddrWidth),
-    .FprAddrWidth(FprAddrWidth),
-    .NofPhysGpr(NofPhysGpr),
-    .NofPhysFpr(NofPhysFpr),
-    .sb_disp_data_t(sb_disp_data_t)
+    .NrFpWritePorts (NrFpWritePorts),
+    .PhysAddrWidth  (PhysRegAddrSize),
+    .GprAddrWidth   (GprAddrWidth),
+    .FprAddrWidth   (FprAddrWidth),
+    .NofPhysGpr     (NofPhysGpr),
+    .NofPhysFpr     (NofPhysFpr),
+    .sb_disp_data_t (sb_disp_data_t)
   ) i_scoreboard (
-    // clock and reset
     .clk_i,
     .rst_i,
-    .en_superscalar_i(en_superscalar),
-    // Dispatched at least one instruction
-    .dispatched_i(update_sb),
-     // From dispatcher
-    .instr_valid_i(instr_valid_masked),
-    .disp_data_i(disp_data),
-    // Physical register interface
-    .raddr_i(sb_raddr),
-    .read_fp_i(sb_read_fp),
-    .rdata_o(sb_rdata),
-    // Register writeback snooping
-    .wb_gpr_addr_i(gpr_waddr),
-    .wb_gpr_en_i(gpr_we),
-    .wb_fpr_addr_i(fpr_waddr),
-    .wb_fpr_en_i(fpr_we),
-    // To controller
+    // From / To Controller
+    .en_superscalar_i (en_superscalar),
+    .dispatched_i     (update_sb),
+    .instr_valid_i    (instr_valid_masked),
     .registers_ready_o(registers_ready),
-    .sb_busy_o(sb_busy)
+    .sb_busy_o        (sb_busy),
+    // From Dispatcher
+    .disp_data_i      (disp_data),
+    // From Physical Register File
+    .raddr_i          (sb_raddr),
+    .read_fp_i        (sb_read_fp),
+    .rdata_o          (sb_rdata),
+    // Frome Writeback
+    .wb_gpr_addr_i    (gpr_waddr),
+    .wb_gpr_en_i      (gpr_we),
+    .wb_fpr_addr_i    (fpr_waddr),
+    .wb_fpr_en_i      (fpr_we)
 );
 
-  /////////////////////////////
-  // Physical Register Files //
-  /////////////////////////////
 
+  // ------------------------
+  // Physical Register Files
+  // ------------------------
   schnova_phys_regfile #(
-    .XFREPO         (XFREPO),
-    .DataWidth     (XLEN),
-    .OpLen         (OpLen),
-    .NofAlus       (NofAlus),
-    .NofLsus       (NofLsus),
-    .NofFpus       (NofFpus),
-    .NrReadPorts   (NrIntReadPorts),
-    .NrOperandReadPorts(NofOperandGprReadPorts),
-    .NofOperandIfs (NofOperandIfs),
-    .NrWritePorts  (NrIntWritePorts),
-    .IsGpr         (1),
-    .PhysAddrWidth (PhysRegAddrSize),
-    .AddrWidth     (GprAddrWidth),
-    .NumRegs       (NofPhysGpr),
-    .operand_req_t (operand_req_t)
+    .XFREPO             (XFREPO),
+    .DataWidth          (XLEN),
+    .OpLen              (OpLen),
+    .NofAlus            (NofAlus),
+    .NofLsus            (NofLsus),
+    .NofFpus            (NofFpus),
+    .NrReadPorts        (NrIntReadPorts),
+    .NrOperandReadPorts (NofOperandGprReadPorts),
+    .NofOperandIfs      (NofOperandIfs),
+    .NrWritePorts       (NrIntWritePorts),
+    .IsGpr              (1),
+    .PhysAddrWidth      (PhysRegAddrSize),
+    .AddrWidth          (GprAddrWidth),
+    .NumRegs            (NofPhysGpr),
+    .operand_req_t      (operand_req_t)
   ) i_int_phy_regfile (
     .clk_i,
-    .rst_ni (~rst_i),
-    .raddr_i(gpr_raddr),
-    .rdata_o(gpr_rdata),
-    .waddr_i(gpr_waddr),
-    .wdata_i(gpr_wdata),
-    .we_i   (gpr_we),
-    .op_reqs_i(op_reqs),
-    .op_rsps_data_o(op_rsps_gpr_data)
+    .rst_ni         (~rst_i),
+    // From / To Read operands
+    .raddr_i        (gpr_raddr),
+    .rdata_o        (gpr_rdata),
+    // From Writeback
+    .waddr_i        (gpr_waddr),
+    .wdata_i        (gpr_wdata),
+    .we_i           (gpr_we),
+    // From / To FU Stage (Reservation Stations)
+    .op_reqs_i      (op_reqs),
+    .op_rsps_data_o (op_rsps_gpr_data)
   );
 
   if (NofFpus > 0) begin : gen_fp_rf
     schnova_phys_regfile #(
-      .XFREPO         (XFREPO),
-      .DataWidth     (FLEN),
-      .OpLen         (OpLen),
-      .NofAlus       (NofAlus),
-      .NofLsus       (NofLsus),
-      .NofFpus       (NofFpus),
-      .NrReadPorts   (NrFpReadPorts),
-      .NrOperandReadPorts(NofOperandFprReadPorts),
-      .NofOperandIfs (NofOperandIfs),
-      .NrWritePorts  (NrFpWritePorts),
-      .IsGpr         (0),
-      .PhysAddrWidth (PhysRegAddrSize),
-      .AddrWidth     (FprAddrWidth),
-      .NumRegs       (NofPhysFpr),
-      .operand_req_t (operand_req_t)
+      .XFREPO             (XFREPO),
+      .DataWidth          (FLEN),
+      .OpLen              (OpLen),
+      .NofAlus            (NofAlus),
+      .NofLsus            (NofLsus),
+      .NofFpus            (NofFpus),
+      .NrReadPorts        (NrFpReadPorts),
+      .NrOperandReadPorts (NofOperandFprReadPorts),
+      .NofOperandIfs      (NofOperandIfs),
+      .NrWritePorts       (NrFpWritePorts),
+      .IsGpr              (0),
+      .PhysAddrWidth      (PhysRegAddrSize),
+      .AddrWidth          (FprAddrWidth),
+      .NumRegs            (NofPhysFpr),
+      .operand_req_t      (operand_req_t)
     ) i_fp_phy_regfile (
       .clk_i,
-      .rst_ni (~rst_i),
-      .raddr_i(fpr_raddr),
-      .rdata_o(fpr_rdata),
-      .waddr_i(fpr_waddr),
-      .wdata_i(fpr_wdata),
-      .we_i   (fpr_we),
-      .op_reqs_i(op_reqs),
-      .op_rsps_data_o(op_rsps_fpr_data)
+      .rst_ni         (~rst_i),
+      // From / To Read operands
+      .raddr_i        (fpr_raddr),
+      .rdata_o        (fpr_rdata),
+      // From Writeback
+      .waddr_i        (fpr_waddr),
+      .wdata_i        (fpr_wdata),
+      .we_i           (fpr_we),
+      // From / To FU Stage (Reservation Stations)
+      .op_reqs_i      (op_reqs),
+      .op_rsps_data_o (op_rsps_fpr_data)
     );
   end else begin : gen_no_fp_rf
     assign fpr_rdata = '0;
@@ -1675,10 +1826,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   end
 
   if (XFREPO) begin : gen_op_handling
+    // For every operand request we snoop the scoreboard to know
+    // whether the requested physical register is valid or not
     always_comb begin : sb_operand_req_snooping
       for (int unsigned op = 0; op < NofOperandIfs; op++) begin
-        sb_raddr[op] =  op_reqs[op].phy_reg;
-        sb_read_fp[op] = op_reqs[op].is_fp;
+        sb_raddr[op]      =  op_reqs[op].phy_reg;
+        sb_read_fp[op]    = op_reqs[op].is_fp;
         op_rsps_valid[op] = ~sb_rdata[op];
       end
     end
@@ -1980,47 +2133,47 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   };
 
   schnova_tracer #(
-    .UseFreeList    (UseFreeList),
-    .PipeWidth      (PipeWidth),
-    .NofAlus        (NofAlus),
-    .NofLsus        (NofLsus),
-    .NofFpus        (NofFpus),
-    .AluNofRss      (AluNofRss),
-    .LsuNofRss      (LsuNofRss),
-    .FpuNofRss      (FpuNofRss),
-    .NofOperandIfs  (NofOperandIfs),
-    .NofPhysGpr     (NofPhysGpr),
-    .NofPhysFpr     (NofPhysFpr),
-    .XFREPO          (XFREPO)
+    .UseFreeList  (UseFreeList),
+    .PipeWidth    (PipeWidth),
+    .NofAlus      (NofAlus),
+    .NofLsus      (NofLsus),
+    .NofFpus      (NofFpus),
+    .AluNofRss    (AluNofRss),
+    .LsuNofRss    (LsuNofRss),
+    .FpuNofRss    (FpuNofRss),
+    .NofOperandIfs(NofOperandIfs),
+    .NofPhysGpr   (NofPhysGpr),
+    .NofPhysFpr   (NofPhysFpr),
+    .XFREPO       (XFREPO)
   ) i_tracer (
-    .clk_i              (clk_i),
-    .rst_i              (rst_i),
-    .hart_id_i          (hart_id_i),
-    .core_trace         (core_trace),
-    .si_dispatch_trace  (si_dispatch_trace),
-    .rs_dispatch_trace  (rs_dispatch_trace),
-    .alu_disp_req_trace (alu_disp_req_trace),
-    .lsu_disp_req_trace (lsu_disp_req_trace),
-    .fpu_disp_req_trace (fpu_disp_req_trace),
-    .alu_trace          (alu_trace),
-    .lsu_trace          (lsu_trace),
-    .fpu_trace          (fpu_trace),
-    .rss_alu_traces     (rss_alu_traces),
-    .rss_lsu_traces     (rss_lsu_traces),
-    .rss_fpu_traces     (rss_fpu_traces),
-    .csr_trace          (csr_trace),
-    .acc_trace          (acc_trace),
-    .alu_retirements    (alu_retirements),
-    .lsu_load_retirements  (lsu_load_retirements),
-    .lsu_store_retirements (lsu_store_retirements),
-    .fpu_retirements    (fpu_retirements),
-    .csr_retirement     (csr_retirement),
-    .acc_retirement     (acc_retirement),
-    .alu_wb_trace       (alu_wb_trace),
-    .lsu_wb_trace       (lsu_wb_trace),
-    .fpu_wb_trace       (fpu_wb_trace),
-    .csr_wb_trace       (csr_wb_trace),
-    .acc_wb_trace       (acc_wb_trace)
+    .clk_i                (clk_i),
+    .rst_i                (rst_i),
+    .hart_id_i            (hart_id_i),
+    .core_trace           (core_trace),
+    .si_dispatch_trace    (si_dispatch_trace),
+    .rs_dispatch_trace    (rs_dispatch_trace),
+    .alu_disp_req_trace   (alu_disp_req_trace),
+    .lsu_disp_req_trace   (lsu_disp_req_trace),
+    .fpu_disp_req_trace   (fpu_disp_req_trace),
+    .alu_trace            (alu_trace),
+    .lsu_trace            (lsu_trace),
+    .fpu_trace            (fpu_trace),
+    .rss_alu_traces       (rss_alu_traces),
+    .rss_lsu_traces       (rss_lsu_traces),
+    .rss_fpu_traces       (rss_fpu_traces),
+    .csr_trace            (csr_trace),
+    .acc_trace            (acc_trace),
+    .alu_retirements      (alu_retirements),
+    .lsu_load_retirements (lsu_load_retirements),
+    .lsu_store_retirements(lsu_store_retirements),
+    .fpu_retirements      (fpu_retirements),
+    .csr_retirement       (csr_retirement),
+    .acc_retirement       (acc_retirement),
+    .alu_wb_trace         (alu_wb_trace),
+    .lsu_wb_trace         (lsu_wb_trace),
+    .fpu_wb_trace         (fpu_wb_trace),
+    .csr_wb_trace         (csr_wb_trace),
+    .acc_wb_trace         (acc_wb_trace)
   );
 
   // pragma translate_on

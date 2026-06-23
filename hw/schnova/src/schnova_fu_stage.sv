@@ -88,7 +88,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
-  input  logic [31:0] hard_id_i,
+  input  logic [31:0] hart_id_i,
 
   // Trace outputs
   // pragma translate_off
@@ -921,7 +921,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // pragma translate_off
       .trace_o          (fpu_trace_int),
       // pragma translate_on
-      .hart_id_i        (hard_id_i),
+      .hart_id_i        (hart_id_i),
       .issue_req_i      (fpu_issue_req),
       .issue_req_valid_i(fpu_issue_req_valid),
       .issue_commit_i   (fpu_exec_commit),

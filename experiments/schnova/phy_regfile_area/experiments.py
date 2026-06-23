@@ -18,16 +18,114 @@ def gen_experiments(designs=None):
 
     experiments = []
 
-    experiments.append({
+    num_regs_axis = [48, 64, 80, 96, 112]
+    num_fus_axis = [1, 2, 3, 4]
+    pipewidth_axis = [1, 2, 4, 8]
+
+    for num_regs in num_regs_axis:
+        for num_fus in num_fus_axis:
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 32,
+                                        'IsGpr':     1,
+                                        'NofAlus':   num_fus,
+                                        'NofLsus':   1,
+                                        'NofFpus':   1,
+                                        'PipeWidth': 1,
+                                    }
+                                })
+
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 64,
+                                        'IsGpr':     0,
+                                        'NofAlus':   num_fus,
+                                        'NofLsus':   1,
+                                        'NofFpus':   1,
+                                        'PipeWidth': 1,
+                                    }
+                                })
+
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 32,
+                                        'IsGpr':     1,
+                                        'NofAlus':   1,
+                                        'NofLsus':   num_fus,
+                                        'NofFpus':   1,
+                                        'PipeWidth': 1,
+                                    }
+                                })
+
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 64,
+                                        'IsGpr':     0,
+                                        'NofAlus':   1,
+                                        'NofLsus':   num_fus,
+                                        'NofFpus':   1,
+                                        'PipeWidth': 1,
+                                    }
+                                })
+
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 32,
+                                        'IsGpr':     1,
+                                        'NofAlus':   1,
+                                        'NofLsus':   1,
+                                        'NofFpus':   num_fus,
+                                        'PipeWidth': 1,
+                                    }
+                                })
+
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 64,
+                                        'IsGpr':     0,
+                                        'NofAlus':   1,
+                                        'NofLsus':   1,
+                                        'NofFpus':   num_fus,
+                                        'PipeWidth': 1,
+                                    }
+                                })
+
+        for pipewidth in pipewidth_axis:
+            experiments.append({
+                                    'design': 'schnova_phys_regfile_synth',
+                                    'hdl_params': {
+                                        'NumRegs':   num_regs,
+                                        'DataWidth': 32,
+                                        'IsGpr':     1,
+                                        'NofAlus':   1,
+                                        'NofLsus':   1,
+                                        'NofFpus':   1,
+                                        'PipeWidth': pipewidth,
+                                    }
+                                })
+
+            experiments.append({
                             'design': 'schnova_phys_regfile_synth',
                             'hdl_params': {
-                                'NumRegs':   64,
-                                'DataWidth': 32,
-                                'IsGpr': 1,
-                                'NofAlus': 1,
-                                'NofLsus': 1,
-                                'NofFpus': 1,
-                                'PipeWidth': 1,
+                                'NumRegs':   num_regs,
+                                'DataWidth': 64,
+                                'IsGpr':     0,
+                                'NofAlus':   1,
+                                'NofLsus':   1,
+                                'NofFpus':   1,
+                                'PipeWidth': pipewidth,
                             }
                         })
 

@@ -154,7 +154,7 @@ module schnova_fu_stage_synth import schnova_synth_pkg::*; #(
   ) i_fu_stage (
     .clk_i,
     .rst_i(~rst_ni),
-    .hard_id_i('0),
+    .hart_id_i('0),
     .alu_trace_o(),
     .lsu_trace_o(),
     .fpu_trace_o(),

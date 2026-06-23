@@ -8,7 +8,7 @@
 
 // The Schnova core complex.
 //
-// A container for Schnizo and core-local accelerators such as the DMA, connected through the
+// A container for Schnova and core-local accelerators such as the DMA, connected through the
 // accelerator offload interface.
 // It also forks data memory requests between SoC and TCDM.
 // Finally, it collects all core and accelerator events.
@@ -81,12 +81,12 @@ module schnova_cc #(
   parameter int unsigned NofPhysFpr         = 64,
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.
-  parameter bit UseFreeList = 0,
+  parameter bit          UseFreeList        = 0,
   // LSU parameters
   parameter int unsigned NumIntOutstandingLoads = 0,
   parameter int unsigned NumIntOutstandingMem   = 0,
   /// Number of bits that get fetched per fetch request
-  parameter int unsigned ICacheFetchDataWidth      = 0,
+  parameter int unsigned ICacheFetchDataWidth   = 0,
   /// Add isochronous clock-domain crossings e.g., make it possible to operate
   /// the core in a slower clock domain.
   parameter bit          IsoCrossing        = 0,
@@ -113,6 +113,7 @@ module schnova_cc #(
   parameter bit          TCDMAliasEnable = 1'b0,
   parameter logic [AddrWidth-1:0] TCDMAliasStart  = '0,
   localparam int unsigned TCDMPorts = NumLsus,
+  /// Total physical register width is the maximum width needed to represent both gpr and fpr addresses
   localparam int unsigned PhysRegAddrWidth = $clog2((NofPhysFpr > NofPhysGpr) ? NofPhysFpr : NofPhysGpr),
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
