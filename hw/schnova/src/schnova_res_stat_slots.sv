@@ -13,7 +13,7 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   parameter  int unsigned     NofConsts        = 1,
   parameter  int unsigned     RegAddrWidth     = 5,
   parameter  bit              UseSram          = 1'b0,
-  parameter  rs_type_e        RsType           = 0,
+  parameter  rs_type_e        RsType           = ALU_RS,
   parameter  type             rs_slot_issue_t  = logic,
   parameter  type             rss_operand_t    = logic,
   parameter  type             rss_const_t      = logic,

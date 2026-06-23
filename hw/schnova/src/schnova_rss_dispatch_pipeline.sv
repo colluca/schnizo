@@ -8,7 +8,7 @@ module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
   parameter bit          UseFreeList      = 1'b1,
   parameter int unsigned NofOperands      = 2,
   parameter int unsigned NofConsts        = 3,
-  parameter rs_type_e    RsType           = 0,
+  parameter rs_type_e    RsType           = ALU_RS,
   parameter type         disp_req_t       = logic,
   parameter type         producer_id_t    = logic,
   parameter type         rs_slot_issue_t  = logic,
