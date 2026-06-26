@@ -28,7 +28,7 @@ int main() {
     snrt_cluster_hw_barrier();
 
     // Calculate exponential of input array using vectorized implementation
-    vexpf_kernel(a, b);
+    vexpf_kernel(a, b, len, batch_size);
 
 #ifdef BIST
     // Check if the results are correct

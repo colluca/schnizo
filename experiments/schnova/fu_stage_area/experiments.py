@@ -18,18 +18,47 @@ def gen_experiments(designs=None):
 
     experiments = []
 
-    experiments.append({
-                            'design': 'schnova_fu_stage_synth',
-                            'hdl_params': {
-                                'UseFreeList': 0,
-                                'NofAlus':   1,
-                                'AluNofRss': 1,
-                                'NofLsus':   1,
-                                'LsuNofRss': 1,
-                                'NofFpus':   1,
-                                'FpuNofRss': 1,
-                            }
-                        })
+    num_fu_axis = [1, 2, 3, 4]
+    num_rss_axis = [1, 2, 4, 8, 16, 32]
+
+    for num_fu in num_fu_axis:
+        for num_rss in num_rss_axis:
+            experiments.append({
+                                    'design': 'schnova_fu_stage_synth',
+                                    'hdl_params': {
+                                        'UseFreeList': 0,
+                                        'NofAlus':   num_fu,
+                                        'AluNofRss': num_rss,
+                                        'NofLsus':   1,
+                                        'LsuNofRss': 1,
+                                        'NofFpus':   1,
+                                        'FpuNofRss': 1,
+                                    }
+                                })
+            experiments.append({
+                                    'design': 'schnova_fu_stage_synth',
+                                    'hdl_params': {
+                                        'UseFreeList': 0,
+                                        'NofAlus':   1,
+                                        'AluNofRss': 1,
+                                        'NofLsus':   num_fu,
+                                        'LsuNofRss': num_rss,
+                                        'NofFpus':   1,
+                                        'FpuNofRss': 1,
+                                    }
+                                })
+            experiments.append({
+                                    'design': 'schnova_fu_stage_synth',
+                                    'hdl_params': {
+                                        'UseFreeList': 0,
+                                        'NofAlus':   1,
+                                        'AluNofRss': 1,
+                                        'NofLsus':   1,
+                                        'LsuNofRss': 1,
+                                        'NofFpus':   num_fu,
+                                        'FpuNofRss': num_rss,
+                                    }
+                                })
 
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]

@@ -12,7 +12,7 @@
 #define FREP "frep.o"
 #endif
 
-static inline void vexpf_schnova(double *a, double *b) {
+static inline void vexpf_schnova(double *a, double *b, uint32_t len, uint32_t batch_size) {
     int n_batches = len / batch_size;
     int n_iterations = n_batches + 2;
     int n_frep_m2 = batch_size / 4 - 2;
