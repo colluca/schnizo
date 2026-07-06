@@ -6,5 +6,5 @@
     "CI": 1,
     "IH": 1,
     "IW": ${experiment['data_cfg']['size']},
-    "funcptr": "batchnorm_fp32_schnizo"
+    "funcptr": "batchnorm_fp32_schnova"
 }

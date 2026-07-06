@@ -6,5 +6,5 @@
     "size": ${experiment['data_cfg']['size']},
     "n_tiles": 1,
     "approximate": "sigmoid",
-    "funcptr": "gelu_fp32_sigmoid_schnizo"
+    "funcptr": "gelu_fp32_sigmoid_schnova"
 }

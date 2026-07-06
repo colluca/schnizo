@@ -5,5 +5,5 @@
 {
     "input_dim": {"batch_size": 1, "seq_len": 1, "input_samples": ${experiment['data_cfg']['size']}},
     "reduce_dim": -1,
-    "funcptr": "softmax_fp32_schnizo"
+    "funcptr": "softmax_fp32_schnova"
 }

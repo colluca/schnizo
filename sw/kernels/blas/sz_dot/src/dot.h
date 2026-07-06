@@ -150,12 +150,8 @@ static inline void dot_schnova(uint32_t n, double *x, double *y,
     double *x_addr = &x[0];
     double *y_addr = &y[0];
 
-    // Naive unrolling does not work well for schnova, for example if you pack all floating point instructions
-    // after each other then schnova can only dispatch one per cycle if it has 1 FPU. Because it has to
-    // dispatch these instructions in order. For performance
-    // it is better to group different types of instructions (ALU, LSU and FPU) together in order to
-    // maximize the amount of instructions that can be dispatched per cycle
-    // Note: This of can be optimized to a specific hardware configuration
+#ifdef BALANCE_INSTRUCTION_MIX                            
+    // This is the balanced version of the dot product kernel
     asm volatile(
         // clang-format off
         FREP   " %[n_frep], 14, 0, 0         \n"
@@ -178,7 +174,30 @@ static inline void dot_schnova(uint32_t n, double *x, double *y,
           [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
         : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
         : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
-
+#else
+    asm volatile(
+        // clang-format off
+        FREP   " %[n_frep], 14, 0, 0         \n"
+        "fld     fa0,  0(%[xa])              \n"
+        "fld     fa1,  0(%[ya])              \n"
+        "fld     fa2,  8(%[xa])              \n"
+        "fld     fa3,  8(%[ya])              \n"
+        "fld     fa4, 16(%[xa])              \n"
+        "fld     fa5, 16(%[ya])              \n"
+        "fld     fa6, 24(%[xa])              \n"
+        "fld     fa7, 24(%[ya])              \n"  // moving adds before fmadd won't reduce
+        "fmadd.d %[sum1], fa0, fa1, %[sum1]  \n"  // LCP overhead as the 1st fmadd can start
+        "addi    %[xa], %[xa], %[inc]        \n"
+        "fmadd.d %[sum2], fa2, fa3, %[sum2]  \n"  // immediately.
+        "fmadd.d %[sum3], fa4, fa5, %[sum3]  \n"
+        "fmadd.d %[sum4], fa6, fa7, %[sum4]  \n"
+        "addi    %[ya], %[ya], %[inc]        \n"
+        // clang-format on
+        : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),
+          [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
+        : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
+        : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
+#endif
     // Reduce the 4 streams
     sum1 += sum2;
     sum3 += sum4;

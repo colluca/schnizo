@@ -131,6 +131,7 @@ static inline void vlogf_schnova(float *a, double *b) {
                     "add      t0, %[T], t0                  \n" // T[i]
                     "add      t1, %[T], t1                  \n" // T[i]
                     FREP   " %[n_frep], 90, 0, 0            \n"
+#ifdef BALANCE_INSTRUCTION_MIX
                     "fld      fa0, 0(a1)                    \n" // invc = T[i].invc
                     "fld      fa4, 0(a7)                    \n" // invc = T[i].invc
                     "fld      fa5, 0(t0)                    \n" // invc = T[i].invc
@@ -221,6 +222,98 @@ static inline void vlogf_schnova(float *a, double *b) {
                     "fmadd.d  ft4, ft10, fa6, ft4           \n" // y = y * r2 + (y0 + r)
                     "fsd      ft4, 24(%[output])            \n"
                     "addi     %[output], %[output], %[incd] \n" // address update
+#else
+                    "fld      fa0, 0(a1)                    \n" // invc = T[i].invc
+                    "fld      fa4, 0(a7)                    \n" // invc = T[i].invc
+                    "fld      fa5, 0(t0)                    \n" // invc = T[i].invc
+                    "fld      fa6, 0(t1)                    \n" // invc = T[i].invc
+                    "fld      fa1, 8(a1)                    \n" // logc = T[i].logc
+                    "fld      fa7, 8(a7)                    \n" // logc = T[i].logc
+                    "fld      ft3, 8(t0)                    \n" // logc = T[i].logc
+                    "fld      ft4, 8(t1)                    \n" // logc = T[i].logc
+                    "fmv.w.x  fa2, a3                       \n" // asfloat (iz)
+                    "fmv.w.x  ft5, t5                       \n" // asfloat (iz)
+                    "fmv.w.x  ft6, t6                       \n" // asfloat (iz)
+                    "fmv.w.x  ft7, s0                       \n" // asfloat (iz)
+                    "fcvt.d.s fa2, fa2                      \n" // z = (double_t) asfloat (iz)
+                    "fcvt.d.s ft5, ft5                      \n" // z = (double_t) asfloat (iz)
+                    "fcvt.d.s ft6, ft6                      \n" // z = (double_t) asfloat (iz)
+                    "fcvt.d.s ft7, ft7                      \n" // z = (double_t) asfloat (iz)
+                    "fmadd.d  fa2, fa2, fa0, %[A3]          \n" // r = z * invc - 1
+                    "fmadd.d  ft5, ft5, fa4, %[A3]          \n" // r = z * invc - 1
+                    "fmadd.d  ft6, ft6, fa5, %[A3]          \n" // r = z * invc - 1
+                    "fmadd.d  ft7, ft7, fa6, %[A3]          \n" // r = z * invc - 1
+                    "fcvt.d.w fa0, a2                       \n" // (double_t) k
+                    "fcvt.d.w fa4, t2                       \n" // (double_t) k
+                    "fcvt.d.w fa5, t3                       \n" // (double_t) k
+                    "fcvt.d.w fa6, t4                       \n" // (double_t) k
+                    "fmadd.d  fa1, fa0, %[Ln2], fa1         \n" // y0 = logc + (double_t) k * Ln2
+                    "fmadd.d  fa7, fa4, %[Ln2], fa7         \n" // y0 = logc + (double_t) k * Ln2
+                    "fmadd.d  ft3, fa5, %[Ln2], ft3         \n" // y0 = logc + (double_t) k * Ln2
+                    "fmadd.d  ft4, fa6, %[Ln2], ft4         \n" // y0 = logc + (double_t) k * Ln2
+                    "fmul.d   fa0, fa2, fa2                 \n" // r2 = r * r
+                    "fmul.d   fa4, ft5, ft5                 \n" // r2 = r * r
+                    "fmul.d   fa5, ft6, ft6                 \n" // r2 = r * r
+                    "fmul.d   fa6, ft7, ft7                 \n" // r2 = r * r
+                    "fmadd.d  fa3, fa2, %[A1], %[A2]        \n" // y = A[1] * r + A[2]
+                    "fmadd.d  ft8, ft5, %[A1], %[A2]        \n" // y = A[1] * r + A[2]
+                    "fmadd.d  ft9, ft6, %[A1], %[A2]        \n" // y = A[1] * r + A[2]
+                    "fmadd.d  ft10, ft7, %[A1], %[A2]       \n" // y = A[1] * r + A[2]
+                    "fmadd.d  fa3, fa0, %[A0], fa3          \n" // y = A[0] * r2 + y
+                    "fmadd.d  ft8, fa4, %[A0], ft8          \n" // y = A[0] * r2 + y
+                    "fmadd.d  ft9, fa5, %[A0], ft9          \n" // y = A[0] * r2 + y
+                    "fmadd.d  ft10, fa6, %[A0], ft10        \n" // y = A[0] * r2 + y
+                    "fadd.d   fa1, fa1, fa2                 \n" // y = y * r2 + (y0 + r)
+                    "fadd.d   fa7, fa7, ft5                 \n" // y = y * r2 + (y0 + r)
+                    "fadd.d   ft3, ft3, ft6                 \n" // y = y * r2 + (y0 + r)
+                    "fadd.d   ft4, ft4, ft7                 \n" // y = y * r2 + (y0 + r)
+                    "fmadd.d  fa1, fa3, fa0, fa1            \n" // y = y * r2 + (y0 + r)
+                    "fmadd.d  fa7, ft8, fa4, fa7            \n" // y = y * r2 + (y0 + r)
+                    "fmadd.d  ft3, ft9, fa5, ft3            \n" // y = y * r2 + (y0 + r)
+                    "fmadd.d  ft4, ft10, fa6, ft4           \n" // y = y * r2 + (y0 + r)
+                    "lw       a0,  0(%[input])              \n" // ix = asuint (x)
+                    "lw       a4,  4(%[input])              \n" // ix = asuint (x)
+                    "lw       a5,  8(%[input])              \n" // ix = asuint (x)
+                    "lw       a6, 12(%[input])              \n" // ix = asuint (x)
+                    "fsd      fa1, 0(%[output])             \n"
+                    "fsd      fa7, 8(%[output])             \n"
+                    "fsd      ft3, 16(%[output])            \n"
+                    "fsd      ft4, 24(%[output])            \n"
+                    "sub      a1, a0, %[OFF]                \n" // tmp = ix - OFF
+                    "sub      a7, a4, %[OFF]                \n" // tmp = ix - OFF
+                    "sub      t0, a5, %[OFF]                \n" // tmp = ix - OFF
+                    "sub      t1, a6, %[OFF]                \n" // tmp = ix - OFF
+                    "srai     a2, a1, 23                    \n" // k = (int32_t) tmp >> 23
+                    "srai     t2, a7, 23                    \n" // k = (int32_t) tmp >> 23
+                    "srai     t3, t0, 23                    \n" // k = (int32_t) tmp >> 23
+                    "srai     t4, t1, 23                    \n" // k = (int32_t) tmp >> 23
+                    "lui      a3, 1046528                   \n" // 0x1ff << 23
+                    "lui      t5, 1046528                   \n" // 0x1ff << 23
+                    "lui      t6, 1046528                   \n" // 0x1ff << 23
+                    "lui      s0, 1046528                   \n" // 0x1ff << 23
+                    "and      a3, a1, a3                    \n" // tmp & 0x1ff << 23
+                    "and      t5, a7, t5                    \n" // tmp & 0x1ff << 23
+                    "and      t6, t0, t6                    \n" // tmp & 0x1ff << 23
+                    "and      s0, t1, s0                    \n" // tmp & 0x1ff << 23
+                    "sub      a3, a0, a3                    \n" // iz = ix - (tmp & 0x1ff << 23)
+                    "sub      t5, a4, t5                    \n" // iz = ix - (tmp & 0x1ff << 23)
+                    "sub      t6, a5, t6                    \n" // iz = ix - (tmp & 0x1ff << 23)
+                    "sub      s0, a6, s0                    \n" // iz = ix - (tmp & 0x1ff << 23)
+                    "srli     a1, a1, 15                    \n" // tmp >> (23 - LOGF_TABLE_BITS)
+                    "srli     a7, a7, 15                    \n" // tmp >> (23 - LOGF_TABLE_BITS)
+                    "srli     t0, t0, 15                    \n" // tmp >> (23 - LOGF_TABLE_BITS)
+                    "srli     t1, t1, 15                    \n" // tmp >> (23 - LOGF_TABLE_BITS)
+                    "andi     a1, a1, 240                   \n" // i = (tmp >> (23 - LOGF_TABLE_BITS)) % N
+                    "andi     a7, a7, 240                   \n" // i = (tmp >> (23 - LOGF_TABLE_BITS)) % N
+                    "andi     t0, t0, 240                   \n" // i = (tmp >> (23 - LOGF_TABLE_BITS)) % N
+                    "andi     t1, t1, 240                   \n" // i = (tmp >> (23 - LOGF_TABLE_BITS)) % N
+                    "add      a1, %[T], a1                  \n" // T[i]
+                    "add      a7, %[T], a7                  \n" // T[i]
+                    "add      t0, %[T], t0                  \n" // T[i]
+                    "add      t1, %[T], t1                  \n" // T[i]
+                    "addi     %[input], %[input], %[incf]   \n" // address update
+                    "addi     %[output], %[output], %[incd] \n" // address update
+#endif
                     // Terminate final iteration                    
                     "fld      fa0, 0(a1)                    \n" // invc = T[i].invc
                     "fld      fa4, 0(a7)                    \n" // invc = T[i].invc

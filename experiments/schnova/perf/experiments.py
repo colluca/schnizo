@@ -67,9 +67,15 @@ class ExperimentManager(eu.ExperimentManager):
             cdefines['APPLICATION'] = 'APPLICATION_' + experiment['mc_app'].upper()
             cdefines['PRNG'] = 'PRNG_' + experiment['mc_prng'].upper()
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
-
         if experiment['app'] == 'exp' or experiment['app'] == 'log':
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
+        if (experiment['app'] == 'eltwise'   or 
+            experiment['app'] == 'batchnorm' or
+            experiment['app'] == 'gelu'      or
+            experiment['app'] == 'relu'      or
+            experiment['app'] == 'silu'      or
+            experiment['app'] == 'softmax'):
+            cdefines['FORCE_THREE_LSU_OPS'] = 1
         return cdefines
 
     def derive_env(self, experiment):
@@ -81,8 +87,8 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments():
     # Define experiment axes
     cfgs = [
-        #"3x32_3x32_1x64"
-        'GP-PW1',
+        #'3x32_3x32_1x64',
+        'GP-PW8',
     ]
 
     modes = [
@@ -97,7 +103,7 @@ def gen_experiments():
     for cfg in cfgs:
         # Check if this config targets the schnova core
         is_schnova_core = cfg.startswith('sv') or cfg.startswith('schnova') or cfg.startswith('GP')
-        has_zol = cfg.endswith('zol') or cfg.startswith('GP')
+        has_zol = cfg.endswith('zol') or cfg.startswith('GP') or cfg.startswith('3x32')
         core = 'schnova' if is_schnova_core else None
         app_class = _HW_APP_CLASS.get(cfg)
         compatible = set(APPLICATION_CLASS[app_class] if app_class else APPLICATION_CLASS['GP'])
@@ -128,8 +134,8 @@ def gen_experiments():
                                 'n': size,
                                 'funcptr':
                                 'axpy_fma' if not has_zol else
-                                'axpy_baseline' if mode == 'scalar'
-                                else 'axpy_schnova_unroll',
+                                'axpy_baseline' if mode == 'scalar' else 
+                                'axpy_schnova',
                             },
                             'cmd': [str(MK_DIR / 'sw/kernels/blas/sz_axpy/scripts/verify.py'),
                                     sim_bin, "${elf}"],
@@ -225,10 +231,10 @@ def gen_experiments():
 def results(dir=None):
     df = ExperimentManager(gen_experiments(), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
-    df['total_power'] = df.apply(lambda row: row['power_results'].total_power, axis=1)
-    df['clock_power'] = df.apply(lambda row: row['power_results'].clock_power, axis=1)
-    print(df['total_power'])
-    print(df['clock_power'])
+    #df['total_power'] = df.apply(lambda row: row['power_results'].total_power, axis=1)
+    #df['clock_power'] = df.apply(lambda row: row['power_results'].clock_power, axis=1)
+    #print(df['total_power'])
+    #print(df['clock_power'])
     df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
     return df

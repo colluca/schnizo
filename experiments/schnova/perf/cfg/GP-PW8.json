@@ -33,6 +33,9 @@
             emaw: 2,
             emas: 1
         },
+        // Global core configurations
+        // If the schnova or schnizo core is used in the cluster
+        use_schnova_core: true,
         // Timing parameters
         timing: {
             lat_comp_fp32: 2,
@@ -72,7 +75,9 @@
                 icache: {
                     size: 16, // total instruction cache size in kByte
                     ways: 2, // number of ways
-                    cacheline: 512 // word size in bits
+                    cacheline: 512, // word size in bits
+                    l0_cacheline_count: 16, // Number of cache lines in L0 ICache
+                    fetch_data_width: 256, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -97,7 +102,8 @@
     // Templates.
     compute_core_template: {
         isa: "rv32imafd",
-        xfrep:     true, // enables the superscalar feature
+        xfrepi: true,
+        xfrepo: true,
         Xdiv_sqrt: true,
         xdma: false,
         xf16: false,
@@ -110,32 +116,46 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 32,
-        num_alu_constants: 16,
+        num_alu_slots: 128,
+        num_alu_buf_slots: 128,
         num_lsus: 3,
-        num_lsu_slots: 32,
-        num_lsu_constants: 64,
+        num_lsu_slots: 128,
+        num_lsu_buf_slots: 128,
         num_fpus: 1,
-        num_fpu_slots: 64,
-        num_fpu_constants: 32,
-        num_alu_rsp_ports: 32,
-        num_lsu_rsp_ports: 32,
-        num_fpu_rsp_ports: 64,
+        num_fpu_slots: 128,
+        num_fpu_buf_slots: 128,
+        use_freelist: false,
+        // Number of physical general purpose registers
+        num_phy_gpr: 128,
+        // Number of physical floating point registers
+        num_phy_fpr: 128,
+        num_rob_entries: 1,
     },
     dma_core_template: {
         isa: "rv32imafd",
+        Xdiv_sqrt: true,
         xdma: true,
         xssr: false,
-        xfrep: false,
+        xfrepi: false,
+        xfrepo: false,
         xf16: false,
         xf16alt: false,
         xf8: false,
         xf8alt: false,
         xfdotp: false,
         xfvec: false,
+        num_alu_buf_slots: 1,
+        num_lsu_buf_slots: 1,
+        num_fpu_buf_slots: 1,
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
+        use_freelist: false,
+        // Number of physical general purpose registers
+        num_phy_gpr: 32,
+        // Number of physical floating point registers
+        num_phy_fpr: 32,
+        num_rob_entries: 1,
     }
 }

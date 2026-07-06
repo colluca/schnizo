@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+from turtle import width
 import matplotlib.pyplot as plt
 import numpy as np
 import re
@@ -12,9 +13,11 @@ from scipy.stats import gmean
 try:
     from . import experiments
     from . import model
+    from . import pw8_experiments
 except ImportError:
     import experiments
     import model
+    import pw8_experiments
 
 
 METRIC_LABELS = {
@@ -56,62 +59,15 @@ def fit_inverse_function(n_vals, y_vals, x_lim):
     return n_fit, (a * n_fit) / (b * n_fit + c), a, b, c
 
 
-def kernel_scaling_plot(df, app, show=True):
-    """Plot IPC and FPU utilization vs problem size with fitted curves"""
-    # Extract relevant data
-    df = df[(df['hw'] == '3x32_3x32_1x64') & (df['app'] == app) &
-            (df['mode'] == 'superscalar')].copy()
-    df = df.sort_values('size')
-    n_vals = df['size'].to_numpy(dtype=float)
-    ipc_vals = df['ipc'].to_numpy(dtype=float)
-    util_vals = df['fpu_util'].to_numpy(dtype=float)
-
-    # Plot measured data
-    fig, ax = plt.subplots(1, 2)
-    ax[0].scatter(n_vals, ipc_vals, color='black', marker='o', label='Measurements', zorder=2)
-    ax[1].scatter(n_vals, util_vals, color='black', marker='o', label='Measurements', zorder=2)
-
-    # Interpolate and plot
-    function_label = 'Fit: $\\frac{a*n}{b*n+c}$'
-    x_lim = 6000
-    n_fit, ipc_fit, a, b, _ = fit_inverse_function(n_vals, ipc_vals, x_lim)
-    ax[0].plot(n_fit, ipc_fit, color='black', linestyle='--', label=function_label, zorder=1)
-    ax[0].axhline(a / b, color='tab:red', linestyle='-', label='Fit: asymptote')
-    n_fit, util_fit, a, b, _ = fit_inverse_function(n_vals, util_vals, x_lim)
-    ax[1].plot(n_fit, util_fit, color='black', linestyle='--', label=function_label, zorder=1)
-    ax[1].axhline(a / b, color='tab:red', linestyle='-', label='Fit: asymptote')
-
-    # Format plot
-    fig.supxlabel(f'{APP_LABELS[app]} vector length (in multiples of 256 elements)')
-    xticks = n_vals.tolist()
-    for a in ax:
-        a.set_xticks(xticks)
-        a.set_xticklabels([str(int(v) // 256) for v in xticks])
-    # ax[0].set_ylabel('IPC')
-    # ax[1].set_ylabel('FPU Utilization')
-    if app == 'sz_axpy':
-        ax[0].set_yticks(sorted({t for t in set(ax[0].get_yticks()) | {7} if t == int(t)}))
-    ax[0].legend()
-    ax[1].legend()
-    ax[0].grid(True, color='gainsboro', linewidth=0.5)
-    ax[1].grid(True, color='gainsboro', linewidth=0.5)
-    fig.tight_layout()
-
-    if show:
-        plt.show()
-
-    return df
-
-
 def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     """ Compare Schnizo (Scalar/Superscalar) vs. Schnova Core """
 
     # Define the configs that are used for the comparison
     schnizo_cfg = '3x32_3x32_1x64'
-    schnova_cfgs = ['sv_1_3x32_3x32_1x32_32_128_128_256',
-                    'sv_2_3x32_3x32_1x32_32_128_128_256',
-                    'sv_4_3x32_3x32_1x32_32_128_128_256',
-                    'sv_8_3x32_3x32_1x32_32_128_128_256',]
+    schnova_cfgs = ['GP-PW8',
+                    'GP-PW8',
+                    'GP-PW8',
+                    'GP-PW8',]
 
     schnizo_df = (df['hw'] == schnizo_cfg)
     schnova_df = (df['hw'].isin(schnova_cfgs)) & (df['mode'] == 'superscalar')
@@ -120,8 +76,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
     def identify_config(row):
         if row['hw'] == schnizo_cfg:
             return f"Schnizo {row['mode'].capitalize()}"
-        width = row['hw'].split('_')[1]
-        return f"Schnova Width {width}"
+        width = row['hw'].split('-')[1]
+        return f"Schnova {width}"
 
     plot_df['config'] = plot_df.apply(identify_config, axis=1)
 
@@ -130,7 +86,7 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     ordered_cols = [
         'Schnizo Scalar', 'Schnizo Superscalar',
-        'Schnova Width 1', 'Schnova Width 2', 'Schnova Width 4', 'Schnova Width 8'
+        'Schnova PW1', 'Schnova PW2', 'Schnova PW4', 'Schnova PW8'
     ]
     plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
 
@@ -180,6 +136,8 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     if show:
         plt.show()
+
+    plt.savefig("test.png")
 
     return plot_df
 
@@ -392,7 +350,7 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
     return geomean_data
 
 
-def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=None, width=None):
+def print_geomean_ipc(cfg_name, cfg_data, use_unrolling=False, app_filter=None, width=None):
     """
     Calculates and prints the geomean of IPC for a given config,
     followed by the individual Ideal IPC for each app.
@@ -402,10 +360,11 @@ def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=Non
     ipc_map = metrics['ipc']['superscalar'].copy()
 
     # 2. Swap 'sz_axpy' if unrolled/scalar value is requested
-    if is_axpy_unrolled:
-        axpy_scalar_insns = model.BENCHMARK_INSNS['scalar']['sz_axpy']
-        axpy_scalar_ipc = model.ideal_ipc(axpy_scalar_insns, cfg_data, pipe_width=width)
-        ipc_map['sz_axpy'] = axpy_scalar_ipc
+    if use_unrolling:
+        for app in ['sz_axpy', 'add', 'mul', 'div', 'neg']:
+            insns = model.BENCHMARK_INSNS['scalar'][app]
+            ipc = model.ideal_ipc(insns, cfg_data, pipe_width=width)
+            ipc_map[app] = ipc
 
     # 3. Apply App Filter
     if app_filter is not None:
@@ -417,7 +376,7 @@ def print_geomean_ipc(cfg_name, cfg_data, is_axpy_unrolled=False, app_filter=Non
     if ipc_values:
         avg_ipc = gmean(ipc_values)
 
-        status = "(Axpy Unrolled/Scalar)" if is_axpy_unrolled else "(Default)"
+        status = "(Axpy Unrolled/Scalar)" if use_unrolling else "(Default)"
         filter_status = f" | Filter: {', '.join(app_filter)}" if app_filter else ""
 
         print(f"--- Geomean Analysis: {cfg_name} {status}{filter_status} ---")
@@ -517,40 +476,21 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
 
 def plot1(show=True, dir=None):
     df = experiments.results(dir=dir)
-    return kernel_scaling_plot(df, app="sz_axpy", show=show)
+    return superscalar_comparison_plot(df, 'fpu_util', show=show)
 
 
 def plot2(show=True, dir=None):
     df = experiments.results(dir=dir)
-    return kernel_scaling_plot(df, app="sz_dot", show=show)
-
-
-def plot3(show=True, dir=None):
-    df = experiments.results(dir=dir)
-    return kernel_scaling_plot(df, app="exp", show=show)
-
-
-def plot4(show=True, dir=None):
-    df = experiments.results(dir=dir)
-    return kernel_scaling_plot(df, app="log", show=show)
-
-
-def plot5(show=True, dir=None):
-    df = experiments.results(dir=dir)
-    return superscalar_comparison_plot(df, 'fpu_util', show=show)
-
-
-def plot6(show=True, dir=None):
-    df = experiments.results(dir=dir)
     return superscalar_comparison_plot(df, 'ipc', show=show)
 
 
-def plot8(show=True, dir=None, width=1, vary_by='slots', metric='ipc'):
-    df = experiments.results(dir=dir)
+def plot3(show=True, dir=None, width=1, vary_by='slots', metric='ipc'):
+    if width == 8:
+        df = pw8_experiments.results(vary_by=vary_by, dir=dir)
     return geomean_plot(df, width, vary_by, metric, show)
 
 
-def plot9(width=1):
+def plot4(width=1):
     if width == 1:
         print_geomean_ipc("Schnova SV1", model.SCHNOVA_S, True, None, width)
     elif width == 2:
@@ -561,20 +501,20 @@ def plot9(width=1):
         print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
 
 
-def plot10(show=True, dir=None):
+def plot5(show=True, dir=None):
     df = experiments.results(dir=dir)
     return balanced_comparison_plot(df, 'ipc', show=show)
 
 
-def plot11(dir=None):
-    df = experiments.results(dir=dir)
+def plot6(dir=None):
+    df = pw8_experiments.results(dir=dir)
     print_all_geomeans(df, 'ipc')
 
 
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot8, plot9, plot10, plot11]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
@@ -591,7 +531,7 @@ def main():
         "--width",
         type=int,
         default=1,
-        help="Pipeline width for plot8 (default: 1)"
+        help="Pipeline width for plot3 (default: 1)"
     )
 
     parser.add_argument(
@@ -609,7 +549,7 @@ def main():
                  "fpr",
                  "rob_entries"],
         default="slots",
-        help="Hardware parameter to vary for plot8 "
+        help="Hardware parameter to vary for plot3 "
              "(default: slots)"
     )
 
@@ -618,20 +558,20 @@ def main():
         type=str,
         choices=["ipc", "fpu_util"],
         default="ipc",
-        help="Metric to plot for plot8 (default: ipc)"
+        help="Metric to plot for plot3 (default: ipc)"
     )
 
     args = parser.parse_args()
 
     # Generate selected plots
     for name in args.plots:
-        if name == "plot8":
+        if name == "plot3":
             _ = plot_dict[name](
                 width=args.width,
                 vary_by=args.vary,
                 metric=args.metric,
             )
-        elif name == "plot9":
+        elif name == "plot4":
             _ = plot_dict[name](
                 width=args.width,
             )

@@ -81,6 +81,106 @@ static inline void relu_fp32_schnizo(float *in, float *out, uint32_t size) {
 #endif
 }
 
+// Load-use-store kernel: frep.i → 4x unroll, frep.o → scalar.
+// frep.i: 4 flw + 4 fmax.s + 4 fsw + 2 addi = 14 insns, n_frep = size/4 - 1.
+// frep.o: flw + fmax.s + fsw + 2 addi = 5 insns, n_frep = size - 1.
+// ft3 = 0.0f held outside FREP in both cases.
+static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
+#ifdef UNROLL
+    // LSU0 is dedicated for loads
+    uint32_t load_mask = (1 << 0);
+    // LSU1 is dedicated for stores
+    uint32_t store_mask = (1 << 1);
+    if (szrt_nof_lsus() == 2) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+    int n_frep = size / 4 - 1;
+    asm volatile(
+        "fmv.w.x  ft3, zero              \n"
+        FREP    " %[n], 14, 0, 0         \n"
+        "flw      fa0,  0(%[in])         \n"
+        "flw      fa1,  4(%[in])         \n"
+        "flw      fa2,  8(%[in])         \n"
+        "flw      fa3, 12(%[in])         \n"
+        "fmax.s   fa0, fa0, ft3          \n"
+        "fmax.s   fa1, fa1, ft3          \n"
+        "fmax.s   fa2, fa2, ft3          \n"
+        "fmax.s   fa3, fa3, ft3          \n"
+        "fsw      fa0,  0(%[out])        \n"
+        "fsw      fa1,  4(%[out])        \n"
+        "fsw      fa2,  8(%[out])        \n"
+        "fsw      fa3, 12(%[out])        \n"
+        "addi     %[in],  %[in],  16    \n"
+        "addi     %[out], %[out], 16    \n"
+        : [in]  "+r"(in), [out] "+r"(out)
+        : [n]   "r"(n_frep)
+        : "ft3", "fa0", "fa1", "fa2", "fa3", "memory"
+    );
+#elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
+    // LSU0 is dedicated for loads
+    uint32_t load_mask = (1 << 0);
+    // LSU1 is dedicated for stores
+    uint32_t store_mask = (1 << 1);
+    if (szrt_nof_lsus() == 2) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+    int n_frep = size / 4 - 1;
+    asm volatile(
+        "fmv.w.x  ft3, zero              \n"
+        FREP    " %[n], 14, 0, 0         \n"
+        "flw      fa0,  0(%[in])         \n"
+        "fmax.s   fa0, fa0, ft3          \n"
+        "fsw      fa0,  0(%[out])        \n"
+        "flw      fa1,  4(%[in])         \n"
+        "fmax.s   fa1, fa1, ft3          \n"
+        "fsw      fa1,  4(%[out])        \n"
+        "flw      fa2,  8(%[in])         \n"
+        "fmax.s   fa2, fa2, ft3          \n"
+        "fsw      fa2,  8(%[out])        \n"
+        "flw      fa3, 12(%[in])         \n"
+        "fmax.s   fa3, fa3, ft3          \n"
+        "fsw      fa3, 12(%[out])        \n"
+        "addi     %[in],  %[in],  16    \n"
+        "addi     %[out], %[out], 16    \n"
+        : [in]  "+r"(in), [out] "+r"(out)
+        : [n]   "r"(n_frep)
+        : "ft3", "fa0", "fa1", "fa2", "fa3", "memory"
+    );
+#else
+    // LSU0 and LSU1 are dedicated for loads
+    uint32_t load_mask = (1 << 0) | (1 << 1);
+    // LSU2 is dedicated for stores
+    uint32_t store_mask = (1 << 2);
+    if (szrt_nof_lsus() >= 3) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+    int n_frep = size - 1;
+    asm volatile(
+        "nop                             \n"
+        "nop                             \n"
+        "nop                             \n"
+        "nop                             \n"
+        "nop                             \n"
+        "fmv.w.x  ft3, zero              \n"
+        "frep.o   %[n], 5, 0, 0          \n"
+        "flw      fa0,  0(%[in])         \n"
+        "fmax.s   fa0, fa0, ft3          \n"
+        "fsw      fa0,  0(%[out])        \n"
+        "addi     %[in],  %[in],   4    \n"
+        "addi     %[out], %[out],  4    \n"
+        : [in]  "+r"(in), [out] "+r"(out)
+        : [n]   "r"(n_frep)
+        : "ft3", "fa0", "memory"
+    );
+#endif
+}
+
 // Tiles the flat size axis across clusters.
 // Requires size % n_tiles == 0 and n_tiles % num_clusters == 0.
 static inline void relu_layer(relu_layer_t l) {

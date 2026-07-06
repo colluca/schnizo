@@ -4,4 +4,4 @@
 
 from . import plot, experiments
 
-__all__ = ["plot", "experiments"]
+__all__ = ["plot", "experiments", "PW8_resources"]

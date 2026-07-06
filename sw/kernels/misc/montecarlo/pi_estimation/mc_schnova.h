@@ -96,6 +96,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "nop \n"
             "nop \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
+#ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d  ft0, ft0, %[div]          \n" 
             "mul %[int_x0], %[int_x0], %[Ap]   \n" 
             "fmul.d  ft1, ft1, %[div]          \n" 
@@ -144,7 +145,32 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "fcvt.d.wu ft3, %[int_x3]          \n" 
             "add %[temp3], %[temp3], a7        \n" 
             "fcvt.d.wu fa3, %[int_y3]          \n"
-
+#else
+            // Normalize PRNs to [0, 1] range
+            "fmul.d ft0, ft0, %[div] \n"
+            "fmul.d ft1, ft1, %[div] \n"
+            "fmul.d ft2, ft2, %[div] \n"
+            "fmul.d ft3, ft3, %[div] \n"
+            "fmul.d fa0, fa0, %[div] \n"
+            "fmul.d fa1, fa1, %[div] \n"
+            "fmul.d fa2, fa2, %[div] \n"
+            "fmul.d fa3, fa3, %[div] \n"
+            // x^2 + y^2
+            EVAL_X2_PLUS_Y2_UNROLL4(ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3,
+                                    ft0, ft1, ft2, ft3)
+            // (x^2 + y^2) < 1
+            FLT_UNROLL_4(ft0, ft1, ft2, ft3, %[one], %[one], %[one], %[one],
+                         a4, a5, a6, a7)
+            EVAL_LCG_UNROLL4
+            FCVT_UNROLL_8(%[int_x0], %[int_y0], %[int_x1], %[int_y1],
+                          %[int_x2], %[int_y2], %[int_x3], %[int_y3],
+                          ft0, fa0, ft1, fa1, ft2, fa2, ft3, fa3)
+                        // Update the partial sums
+            "add %[temp0], %[temp0], a4 \n"
+            "add %[temp1], %[temp1], a5 \n"
+            "add %[temp2], %[temp2], a6 \n"
+            "add %[temp3], %[temp3], a7 \n"
+#endif
 #elif (APPLICATION == APPLICATION_PI) && (PRNG == PRNG_XOSHIRO128P)
             // Note: Here the aligment has even more importance
             // if it is not aligned this code will use 8 cachelines in the I$
@@ -155,6 +181,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "nop                               \n"
             "nop                               \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
+#ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d ft0, ft0, %[div]           \n"
             "add t0, %[s_0], %[s_3]            \n"
             "sll t4, %[s_1], 9                 \n"
@@ -268,11 +295,36 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "add %[temp1], %[temp1], a5        \n"
             "add %[temp2], %[temp2], a6        \n"
             "add %[temp3], %[temp3], a7        \n"
-
+#else
+            // Normalize PRNs to [0, 1] range
+            "fmul.d ft0, ft0, %[div] \n"
+            "fmul.d ft1, ft1, %[div] \n"
+            "fmul.d ft2, ft2, %[div] \n"
+            "fmul.d ft3, ft3, %[div] \n"
+            "fmul.d fa0, fa0, %[div] \n"
+            "fmul.d fa1, fa1, %[div] \n"
+            "fmul.d fa2, fa2, %[div] \n"
+            "fmul.d fa3, fa3, %[div] \n"
+            // x^2 + y^2
+            EVAL_X2_PLUS_Y2_UNROLL4(ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3,
+                                    ft0, ft1, ft2, ft3)
+            // (x^2 + y^2) < 1
+            FLT_UNROLL_4(ft0, ft1, ft2, ft3, %[one], %[one], %[one], %[one],
+                         a4, a5, a6, a7)
+            EVAL_XOSHIRO128P_UNROLL4
+            FCVT_UNROLL_8(t0, t1, t2, t3, a0, a1, a2, a3,
+                          ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3)
+            // Update the partial sums
+            "add %[temp0], %[temp0], a4 \n"
+            "add %[temp1], %[temp1], a5 \n"
+            "add %[temp2], %[temp2], a6 \n"
+            "add %[temp3], %[temp3], a7 \n"
+#endif
 #elif (APPLICATION == APPLICATION_POLY) && (PRNG == PRNG_LCG)
             "nop                               \n"
             "nop                               \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
+#ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d  ft0, ft0, %[div]          \n" 
             "mul %[int_x0], %[int_x0], %[Ap]   \n"
             "fmul.d  ft1, ft1, %[div]          \n" 
@@ -333,7 +385,33 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "fcvt.d.wu fa2, %[int_y2]          \n"
             "fcvt.d.wu ft3, %[int_x3]          \n"
             "fcvt.d.wu fa3, %[int_y3]          \n"
-
+#else
+            // Normalize PRNs to [0, 1] range
+            "fmul.d ft0, ft0, %[div] \n"
+            "fmul.d ft1, ft1, %[div] \n"
+            "fmul.d ft2, ft2, %[div] \n"
+            "fmul.d ft3, ft3, %[div] \n"
+            "fmul.d fa0, fa0, %[div] \n"
+            "fmul.d fa1, fa1, %[div] \n"
+            "fmul.d fa2, fa2, %[div] \n"
+            "fmul.d fa3, fa3, %[div] \n"
+            // y * 3
+            // x^3 + x^2 - x + 2
+            EVAL_POLY_UNROLL4(ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3, ft4, ft5,
+                              ft6, ft7, ft0, ft1, ft2, ft3)
+            // y * 3 < x^3 + x^2 - x + 2
+            FLT_UNROLL_4(fa0, fa1, fa2, fa3, ft0, ft1, ft2, ft3, a4, a5, a6,
+                         a7)
+            EVAL_LCG_UNROLL4
+            FCVT_UNROLL_8(%[int_x0], %[int_y0], %[int_x1], %[int_y1],
+                          %[int_x2], %[int_y2], %[int_x3], %[int_y3],
+                          ft0, fa0, ft1, fa1, ft2, fa2, ft3, fa3)
+            // Update the partial sums
+            "add %[temp0], %[temp0], a4 \n"
+            "add %[temp1], %[temp1], a5 \n"
+            "add %[temp2], %[temp2], a6 \n"
+            "add %[temp3], %[temp3], a7 \n"
+#endif
 #elif (APPLICATION == APPLICATION_POLY) && (PRNG == PRNG_XOSHIRO128P)
             // Align the frep body to make sure we only touch 8 cache lines
             // otherwise we would have a conflict miss for every instruction
@@ -349,6 +427,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "nop                               \n"
             "nop                               \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
+#ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d ft0, ft0, %[div]           \n"
             "add t0, %[s_0], %[s_3]            \n"
             "sll t4, %[s_1], 9                 \n"
@@ -475,6 +554,23 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "fcvt.d.wu fa1, a1                 \n"
             "fcvt.d.wu fa2, a2                 \n"
             "fcvt.d.wu fa3, a3                 \n"
+#else
+            // y * 3
+            // x^3 + x^2 - x + 2
+            EVAL_POLY_UNROLL4(ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3, ft4, ft5,
+                              ft6, ft7, ft0, ft1, ft2, ft3)
+            // y * 3 < x^3 + x^2 - x + 2
+            FLT_UNROLL_4(fa0, fa1, fa2, fa3, ft0, ft1, ft2, ft3, a4, a5, a6,
+                         a7)
+            EVAL_XOSHIRO128P_UNROLL4
+            FCVT_UNROLL_8(t0, t1, t2, t3, a0, a1, a2, a3,
+                          ft0, ft1, ft2, ft3, fa0, fa1, fa2, fa3)
+            // Update the partial sums
+            "add %[temp0], %[temp0], a4 \n"
+            "add %[temp1], %[temp1], a5 \n"
+            "add %[temp2], %[temp2], a6 \n"
+            "add %[temp3], %[temp3], a7 \n"            
+#endif
 #endif
             // Terminate final iteration
             // Normalize PRNs to [0, 1] range

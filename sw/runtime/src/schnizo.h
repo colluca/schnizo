@@ -115,6 +115,14 @@ inline unsigned szrt_nof_fpu_slots() {
 #define FREP_MEM_CONS_OFFSET 0
 #define FREP_MEM_CONS_MASK ((1 << FREP_MEM_CONS_BITS) - 1)
 
+#define FREP_LSU_LOAD_EN_BITS 7
+#define FREP_LSU_LOAD_EN_OFFSET 3
+#define FREP_LSU_LOAD_EN_MASK ((1 << FREP_LSU_LOAD_EN_BITS) - 1)
+
+#define FREP_LSU_STORE_EN_BITS 7
+#define FREP_LSU_STORE_EN_OFFSET 10
+#define FREP_LSU_STORE_EN_MASK ((1 << FREP_LSU_STORE_EN_BITS) - 1)
+
 typedef enum {
     FREP_MEM_NO_CONSISTENCY = 0,
     FREP_MEM_SERIALIZED = 1
@@ -145,5 +153,45 @@ inline void szrt_set_frep_mem_consistency(frep_mem_consistency_e mode) {
     config = szrt_frep_config();
     config &= ~(FREP_MEM_CONS_MASK << FREP_MEM_CONS_OFFSET);
     config |= (mode & FREP_MEM_CONS_MASK) << FREP_MEM_CONS_OFFSET;
+    asm volatile("csrw copift, %[reg]" : : [ reg ] "r"(config) :);
+}
+
+/**
+ * @brief Reads out the current LSU Load Enable capability mask.
+ */
+inline uint32_t szrt_frep_lsu_load_en() {
+    return (szrt_frep_config() >> FREP_LSU_LOAD_EN_OFFSET) & FREP_LSU_LOAD_EN_MASK;
+}
+
+/**
+ * @brief Sets the LSU Load Enable capability mask.
+ * @param load_en A 7-bit mask representing which LSUs are allowed to handle LOADs.
+ */
+inline void szrt_set_frep_lsu_load_en(uint32_t load_en) {
+    uint32_t volatile config = 0;
+
+    config = szrt_frep_config();
+    config &= ~(FREP_LSU_LOAD_EN_MASK << FREP_LSU_LOAD_EN_OFFSET);
+    config |= (load_en & FREP_LSU_LOAD_EN_MASK) << FREP_LSU_LOAD_EN_OFFSET;
+    asm volatile("csrw copift, %[reg]" : : [ reg ] "r"(config) :);
+}
+
+/**
+ * @brief Reads out the current LSU Store Enable capability mask.
+ */
+inline uint32_t szrt_frep_lsu_store_en() {
+    return (szrt_frep_config() >> FREP_LSU_STORE_EN_OFFSET) & FREP_LSU_STORE_EN_MASK;
+}
+
+/**
+ * @brief Sets the LSU Store Enable capability mask.
+ * @param store_en A 7-bit mask representing which LSUs are allowed to handle STOREs.
+ */
+inline void szrt_set_frep_lsu_store_en(uint32_t store_en) {
+    uint32_t volatile config = 0;
+
+    config = szrt_frep_config();
+    config &= ~(FREP_LSU_STORE_EN_MASK << FREP_LSU_STORE_EN_OFFSET);
+    config |= (store_en & FREP_LSU_STORE_EN_MASK) << FREP_LSU_STORE_EN_OFFSET;
     asm volatile("csrw copift, %[reg]" : : [ reg ] "r"(config) :);
 }

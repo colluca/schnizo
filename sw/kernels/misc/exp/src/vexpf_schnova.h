@@ -102,6 +102,7 @@ static inline void vexpf_schnova(double *a, double *b, uint32_t len, uint32_t ba
                     "fld     ft4, 16(%[in_addr])              \n"
                     "fld     ft5, 24(%[in_addr])              \n"
                     FREP   " %[n_frep], 90, 0, 0              \n"
+#ifdef BALANCE_INSTRUCTION_MIX
                     "fmul.d  fa3, %[InvLn2N], fa3                     \n" // [FPU] z0 = InvLn2N * xd
                     "addi    %[in_addr], %[in_addr], %[inc]           \n" // [ALU] update input ptr early
                     "fmul.d  ft3, %[InvLn2N], ft3                     \n" // [FPU] z1
@@ -192,6 +193,98 @@ static inline void vexpf_schnova(double *a, double *b, uint32_t len, uint32_t ba
                     "fsd     fs1, 16(%[out_addr])                     \n" // [LSU] out2
                     "fsd     fs2, 24(%[out_addr])                     \n" // [LSU] out3
                     "addi    %[out_addr], %[out_addr], %[inc]         \n" // [ALU] update output ptr
+#else
+                    "fmul.d  fa3, %[InvLn2N], fa3             \n" // z = InvLn2N * xd
+                    "fmul.d  ft3, %[InvLn2N], ft3             \n" // z = InvLn2N * xd
+                    "fmul.d  ft4, %[InvLn2N], ft4             \n" // z = InvLn2N * xd
+                    "fmul.d  ft5, %[InvLn2N], ft5             \n" // z = InvLn2N * xd
+                    "addi    %[in_addr], %[in_addr], %[inc]   \n" // increment address after FPU to hide latency
+                    "fadd.d  fa1, fa3, %[SHIFT]               \n" // kd = (double) (z + SHIFT)
+                    "fadd.d  fa5, ft3, %[SHIFT]               \n" // kd = (double) (z + SHIFT)
+                    "fadd.d  fa6, ft4, %[SHIFT]               \n" // kd = (double) (z + SHIFT)
+                    "fadd.d  fa7, ft5, %[SHIFT]               \n" // kd = (double) (z + SHIFT)
+                    "fmv.x.w a0, fa1                          \n" // ki = asuint64 (kd)
+                    "fmv.x.w a3, fa5                          \n" // ki = asuint64 (kd)
+                    "fmv.x.w a4, fa6                          \n" // ki = asuint64 (kd)
+                    "fmv.x.w a5, fa7                          \n" // ki = asuint64 (kd)
+                    "andi    a1, a0, 0x1f                     \n" // ki % N
+                    "andi    a6, a3, 0x1f                     \n" // ki % N
+                    "andi    a7, a4, 0x1f                     \n" // ki % N
+                    "andi    t0, a5, 0x1f                     \n" // ki % N
+                    "slli    a1, a1, 0x3                      \n" // T[ki % N]
+                    "slli    a6, a6, 0x3                      \n" // T[ki % N]
+                    "slli    a7, a7, 0x3                      \n" // T[ki % N]
+                    "slli    t0, t0, 0x3                      \n" // T[ki % N]
+                    "add     a1, %[T], a1                     \n" // T[ki % N]
+                    "add     a6, %[T], a6                     \n" // T[ki % N]
+                    "add     a7, %[T], a7                     \n" // T[ki % N]
+                    "add     t0, %[T], t0                     \n" // T[ki % N]
+                    "lw      a2, 0(a1)                        \n" // t = T[ki % N]
+                    "lw      t1, 0(a6)                        \n" // t = T[ki % N]
+                    "lw      t2, 0(a7)                        \n" // t = T[ki % N]
+                    "lw      t3, 0(t0)                        \n" // t = T[ki % N]
+                    "lw      a1, 4(a1)                        \n" // t = T[ki % N]
+                    "lw      a6, 4(a6)                        \n" // t = T[ki % N]
+                    "lw      a7, 4(a7)                        \n" // t = T[ki % N]
+                    "lw      t0, 4(t0)                        \n" // t = T[ki % N]
+                    "slli    a0, a0, 0xf                      \n" // ki << (52 - EXP2F_TABLE_BITS)
+                    "slli    a3, a3, 0xf                      \n" // ki << (52 - EXP2F_TABLE_BITS)
+                    "slli    a4, a4, 0xf                      \n" // ki << (52 - EXP2F_TABLE_BITS)
+                    "slli    a5, a5, 0xf                      \n" // ki << (52 - EXP2F_TABLE_BITS)
+                    "sw      a2, 0(%[t])                      \n" // store lower 32b of t (unaffected)
+                    "sw      t1, 8(%[t])                      \n" // store lower 32b of t (unaffected)
+                    "sw      t2, 16(%[t])                     \n" // store lower 32b of t (unaffected)
+                    "sw      t3, 24(%[t])                     \n" // store lower 32b of t (unaffected)
+                    "add     a0, a0, a1                       \n" // t += ki << (52 - EXP2F_TABLE_BITS)
+                    "add     a3, a3, a6                       \n" // t += ki << (52 - EXP2F_TABLE_BITS)
+                    "add     a4, a4, a7                       \n" // t += ki << (52 - EXP2F_TABLE_BITS)
+                    "add     a5, a5, t0                       \n" // t += ki << (52 - EXP2F_TABLE_BITS)
+                    "sw      a0, 4(%[t])                      \n" // store upper 32b of t
+                    "sw      a3, 12(%[t])                     \n" // store upper 32b of t
+                    "sw      a4, 20(%[t])                     \n" // store upper 32b of t
+                    "sw      a5, 28(%[t])                     \n" // store upper 32b of t
+                    "fsub.d  fa2, fa1, %[SHIFT]               \n" // kd -= SHIFT
+                    "fsub.d  ft6, fa5, %[SHIFT]               \n" // kd -= SHIFT
+                    "fsub.d  ft7, fa6, %[SHIFT]               \n" // kd -= SHIFT
+                    "fsub.d  ft8, fa7, %[SHIFT]               \n" // kd -= SHIFT
+                    "fsub.d  fa3, fa3, fa2                    \n" // r = z - kd
+                    "fsub.d  ft3, ft3, ft6                    \n" // r = z - kd
+                    "fsub.d  ft4, ft4, ft7                    \n" // r = z - kd
+                    "fsub.d  ft5, ft5, ft8                    \n" // r = z - kd
+                    "fmadd.d fa2, %[C0], fa3, %[C1]           \n" // z = C[0] * r + C[1]
+                    "fmadd.d ft6, %[C0], ft3, %[C1]           \n" // z = C[0] * r + C[1]
+                    "fmadd.d ft7, %[C0], ft4, %[C1]           \n" // z = C[0] * r + C[1]
+                    "fmadd.d ft8, %[C0], ft5, %[C1]           \n" // z = C[0] * r + C[1]
+                    "fld     fa0, 0(%[t])                     \n" // s = asdouble (t)
+                    "fld     ft9, 8(%[t])                     \n" // s = asdouble (t)
+                    "fld     ft10, 16(%[t])                   \n" // s = asdouble (t)
+                    "fld     ft11, 24(%[t])                   \n" // s = asdouble (t)
+                    "fmadd.d fa4, %[C2], fa3, %[C3]           \n" // y = C[2] * r + C[3]
+                    "fmadd.d fs0, %[C2], ft3, %[C3]           \n" // y = C[2] * r + C[3]
+                    "fmadd.d fs1, %[C2], ft4, %[C3]           \n" // y = C[2] * r + C[3]
+                    "fmadd.d fs2, %[C2], ft5, %[C3]           \n" // y = C[2] * r + C[3]
+                    "fmul.d  fa1, fa3, fa3                    \n" // r2 = r * r
+                    "fmul.d  fa5, ft3, ft3                    \n" // r2 = r * r
+                    "fmul.d  fa6, ft4, ft4                    \n" // r2 = r * r
+                    "fmul.d  fa7, ft5, ft5                    \n" // r2 = r * r
+                    "fmadd.d fa4, fa2, fa1, fa4               \n" // w = z * r2 + y
+                    "fmadd.d fs0, ft6, fa5, fs0               \n" // w = z * r2 + y
+                    "fmadd.d fs1, ft7, fa6, fs1               \n" // w = z * r2 + y
+                    "fmadd.d fs2, ft8, fa7, fs2               \n" // w = z * r2 + y
+                    "fmul.d  fa4, fa4, fa0                    \n" // y = w * s
+                    "fmul.d  fs0, fs0, ft9                    \n" // y = w * s
+                    "fmul.d  fs1, fs1, ft10                   \n" // y = w * s
+                    "fmul.d  fs2, fs2, ft11                   \n" // y = w * s
+                    "fld     fa3, 0(%[in_addr])               \n"
+                    "fld     ft3, 8(%[in_addr])               \n"
+                    "fld     ft4, 16(%[in_addr])              \n"
+                    "fld     ft5, 24(%[in_addr])              \n"
+                    "fsd     fa4, 0(%[out_addr])              \n"
+                    "fsd     fs0, 8(%[out_addr])              \n"
+                    "fsd     fs1, 16(%[out_addr])             \n"
+                    "fsd     fs2, 24(%[out_addr])             \n"
+                    "addi    %[out_addr], %[out_addr], %[inc] \n" // address update
+#endif
                     // Terminate final iteration
                     "fmul.d  fa3, %[InvLn2N], fa3             \n" // z = InvLn2N * xd
                     "fmul.d  ft3, %[InvLn2N], ft3             \n" // z = InvLn2N * xd

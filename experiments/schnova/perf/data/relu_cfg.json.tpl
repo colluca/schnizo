@@ -5,5 +5,5 @@
 {
     "size": ${experiment['data_cfg']['size']},
     "n_tiles": 1,
-    "funcptr": "relu_fp32_schnizo"
+    "funcptr": "relu_fp32_schnova"
 }
