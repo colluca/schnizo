@@ -260,7 +260,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // ----------------------------
   // RS definitions / parameters
   // ----------------------------
-  
+
   localparam integer unsigned AluNofOperands = 2;
   localparam integer unsigned LsuNofOperands = 2; // the 3rd operand is the address offset which is a constant
   localparam integer unsigned FpuNofOperands = 3;
@@ -606,6 +606,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Dispatcher <-> CSR
   // -------------------
   frep_mem_cons_mode_e frep_mem_cons_mode;
+  logic [NofLsus-1:0]  frep_lsu_load_en;
+  logic [NofLsus-1:0]  frep_lsu_store_en;
   csr_disp_req_t       csr_disp_req;
   logic                csr_disp_req_valid;
   logic                csr_disp_req_ready;
@@ -722,6 +724,12 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic    [PipeWidth-1:0][RobTagWidth-1:0] rob_idx;
   logic                                     rob_ready;
 
+  // -----------------------------------
+  // Physical Reg Manage <-> Scoreboard
+  // -----------------------------------
+  logic [NofPhysGpr-1:0] sbi_q;
+  logic [NofPhysFpr-1:0] sbf_q;
+
 
   // --------------------------------------
   // Scoreboard <-> Physical Register File
@@ -730,7 +738,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   logic [NofOperandIfs-1:0]                      sb_read_fp;
   logic [NofOperandIfs-1:0]                      sb_rdata;
 
-  
+
   // -------------------------------------
   // Writeback <-> Physical Register File
   // -------------------------------------
@@ -1095,6 +1103,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .instr_fetch_data_i       (instr_fetch_data),
     // From CSR
     .frep_mem_cons_mode_i     (frep_mem_cons_mode),
+    .frep_lsu_load_en_i       (frep_lsu_load_en),
+    .frep_lsu_store_en_i      (frep_lsu_store_en),
     // From / To Physical Register Manager
     .first_instr_dispatched_o (first_instr_dispatched),
         .refcnt_disp_req_o    (refcnt_disp_req),
@@ -1347,6 +1357,8 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .barrier_o              (barrier_o),
     .barrier_stall_o        (barrier_stall),
     .frep_mem_cons_mode_o   (frep_mem_cons_mode),
+    .frep_lsu_load_en_o     (frep_lsu_load_en),
+    .frep_lsu_store_en_o    (frep_lsu_store_en),
     .fpu_status_i           (fpu_status),
     .fpu_status_valid_i     (fpu_status_valid),
     .fpu_rnd_mode_o         (fpu_rnd_mode),
@@ -1678,7 +1690,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
         .issue_lsu_clr_req_valid_i      (issue_lsu_clr_req_valid),
         .issue_lsu_clr_req_i            (issue_lsu_clr_req),
         .issue_fpu_clr_req_valid_i      (issue_fpu_clr_req_valid),
-        .issue_fpu_clr_req_i            (issue_fpu_clr_req)
+        .issue_fpu_clr_req_i            (issue_fpu_clr_req),
+        // From Scoreboard
+        .sbi_q_i(sbi_q),
+        .sbf_q_i(sbf_q)
       );
     end
   end else begin : gen_no_phys_reg_manage
@@ -1751,7 +1766,10 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .wb_gpr_addr_i    (gpr_waddr),
     .wb_gpr_en_i      (gpr_we),
     .wb_fpr_addr_i    (fpr_waddr),
-    .wb_fpr_en_i      (fpr_we)
+    .wb_fpr_en_i      (fpr_we),
+    // To Reference Count
+    .sbi_q_o(sbi_q),
+    .sbf_q_o(sbf_q)
 );
 
 
@@ -1960,7 +1978,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign alu_disp_req_trace[alu] = '{
       valid: alu_rs_disp_req_valid[alu] && alu_rs_disp_req_ready[alu],
       rs_id: alu,
-      disp_resp:  i_fu_stage.producer_to_string(alu_rs_disp_rsp[alu].producer)
+      disp_resp:  i_fu_stage.producer_to_string(alu_rs_disp_rsp[alu].producer),
+      phy_rd:   alu_rs_disp_reqs[alu].tag.dest_reg,
+      rd_is_fp: alu_rs_disp_reqs[alu].tag.dest_reg_is_fp
     };
 
     for (genvar rss = 0; rss < AluNofRss; rss++) begin : gen_alu_traces_rss
@@ -1987,7 +2007,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign lsu_disp_req_trace[lsu] = '{
       valid: lsu_rs_disp_req_valid[lsu] && lsu_rs_disp_req_ready[lsu],
       rs_id: NofAlus + lsu,
-      disp_resp:  i_fu_stage.producer_to_string(lsu_rs_disp_rsp[lsu].producer)
+      disp_resp:  i_fu_stage.producer_to_string(lsu_rs_disp_rsp[lsu].producer),
+      phy_rd:  lsu_rs_disp_reqs[lsu].tag.dest_reg,
+      rd_is_fp: lsu_rs_disp_reqs[lsu].tag.dest_reg_is_fp
     };
 
     for (genvar rss = 0; rss < LsuNofRss; rss++) begin : gen_lsu_traces_rss
@@ -2021,7 +2043,9 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign fpu_disp_req_trace[fpu] = '{
       valid: fpu_rs_disp_req_valid[fpu] && fpu_rs_disp_req_ready[fpu],
       rs_id: NofAlus + NofLsus + fpu,
-      disp_resp:  i_fu_stage.producer_to_string(fpu_rs_disp_rsp[fpu].producer)
+      disp_resp:  i_fu_stage.producer_to_string(fpu_rs_disp_rsp[fpu].producer),
+      phy_rd:   fpu_rs_disp_reqs[fpu].tag.dest_reg,
+      rd_is_fp: fpu_rs_disp_reqs[fpu].tag.dest_reg_is_fp
     };
 
     for (genvar rss = 0; rss < FpuNofRss; rss++) begin : gen_fpu_traces_rss

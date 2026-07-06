@@ -127,29 +127,74 @@ module schnova_tracer import schnova_pkg::*, schnova_tracer_pkg::*; #(
             schnova_pkg::FPU:       fpu_shadow_q.push_back(details[i]);
           endcase
         end
-      end
+      end 
 
-      for (int unsigned alu = 0; alu < NofAlus; alu++) begin
+      // Pop from alu Shadow Queue
+      for (int alu = 0; alu < NofAlus; alu++) begin
         if (alu_disp_req_trace[alu].valid && (core_trace.loop_state inside {LoopDep})) begin
-          alu_disp_req_details[alu] = alu_shadow_q.pop_front();
-          alu_disp_req_details[alu].dispatch_trace.disp_resp = alu_disp_req_trace[alu].disp_resp;
-          dispatch_queue[alu_disp_req_trace[alu].rs_id].push_back(alu_disp_req_details[alu]);
+          automatic int match_idx = -1;
+          // Search the pool for the instruction matching this port's destination reg
+          for (int k = 0; k < alu_shadow_q.size(); k++) begin
+            if ((alu_shadow_q[k].dispatch_trace.phy_rd == alu_disp_req_trace[alu].phy_rd) &&
+                (alu_shadow_q[k].dispatch_trace.rd_is_fp == alu_disp_req_trace[alu].rd_is_fp)) begin
+              match_idx = k;
+              break;
+            end
+          end
+
+          // If found, extract it out-of-order and remove it from the pool
+          if (match_idx != -1) begin
+            alu_disp_req_details[alu] = alu_shadow_q[match_idx];
+            alu_shadow_q.delete(match_idx);
+            alu_disp_req_details[alu].dispatch_trace.disp_resp = alu_disp_req_trace[alu].disp_resp;
+            dispatch_queue[alu_disp_req_trace[alu].rs_id].push_back(alu_disp_req_details[alu]);
+          end
         end
       end
 
-      for (int unsigned lsu = 0; lsu < NofLsus; lsu++) begin
+
+      // Pop from lsu Shadow Queue
+      for (int lsu = 0; lsu < NofLsus; lsu++) begin
         if (lsu_disp_req_trace[lsu].valid && (core_trace.loop_state inside {LoopDep})) begin
-          lsu_disp_req_details[lsu] = lsu_shadow_q.pop_front();
-          lsu_disp_req_details[lsu].dispatch_trace.disp_resp = lsu_disp_req_trace[lsu].disp_resp;
-          dispatch_queue[lsu_disp_req_trace[lsu].rs_id].push_back(lsu_disp_req_details[lsu]);
+          automatic int match_idx = -1;
+          // Search the pool for the instruction matching this port's destination reg
+          for (int k = 0; k < lsu_shadow_q.size(); k++) begin
+            if ((lsu_shadow_q[k].dispatch_trace.phy_rd == lsu_disp_req_trace[lsu].phy_rd) &&
+                (lsu_shadow_q[k].dispatch_trace.rd_is_fp == lsu_disp_req_trace[lsu].rd_is_fp)) begin
+              match_idx = k;
+              break;
+            end
+          end
+
+          if (match_idx != -1) begin
+            lsu_disp_req_details[lsu] = lsu_shadow_q[match_idx];
+            lsu_shadow_q.delete(match_idx);
+            lsu_disp_req_details[lsu].dispatch_trace.disp_resp = lsu_disp_req_trace[lsu].disp_resp;
+            dispatch_queue[lsu_disp_req_trace[lsu].rs_id].push_back(lsu_disp_req_details[lsu]);
+          end
         end
       end
 
-      for (int unsigned fpu = 0; fpu < NofFpus; fpu++) begin
+      // Pop from fpu Shadow Queue
+      for (int fpu = 0; fpu < NofFpus; fpu++) begin
+        fpu_disp_req_details[fpu] = '{header: "", dispatch_trace: '{valid: 1'b0, default: '0}};
         if (fpu_disp_req_trace[fpu].valid && (core_trace.loop_state inside {LoopDep})) begin
-          fpu_disp_req_details[fpu] = fpu_shadow_q.pop_front();
-          fpu_disp_req_details[fpu].dispatch_trace.disp_resp = fpu_disp_req_trace[fpu].disp_resp;
-          dispatch_queue[fpu_disp_req_trace[fpu].rs_id].push_back(fpu_disp_req_details[fpu]);
+          automatic int match_idx = -1;
+          // Search the pool for the instruction matching this port's destination reg
+          for (int k = 0; k < fpu_shadow_q.size(); k++) begin
+              if ((fpu_shadow_q[k].dispatch_trace.phy_rd == fpu_disp_req_trace[fpu].phy_rd) &&
+                  (fpu_shadow_q[k].dispatch_trace.rd_is_fp == fpu_disp_req_trace[fpu].rd_is_fp)) begin
+              match_idx = k;
+              break;
+            end
+          end
+
+          if (match_idx != -1) begin
+            fpu_disp_req_details[fpu] = fpu_shadow_q[match_idx];
+            fpu_shadow_q.delete(match_idx);  
+            fpu_disp_req_details[fpu].dispatch_trace.disp_resp = fpu_disp_req_trace[fpu].disp_resp;
+            dispatch_queue[fpu_disp_req_trace[fpu].rs_id].push_back(fpu_disp_req_details[fpu]);
+          end
         end
       end
 

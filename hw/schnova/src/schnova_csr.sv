@@ -55,11 +55,11 @@
 //       - 3'b000: No memory consistency. Use all available LSUs in increasing order
 //       - 3'b001: Serialize all memory operations by using only one LSU. This allows to keep
 //                 memory consistency but less performance.
-//       - 3'b010: Separate load and store streams onto separate LSUs. Not yet implemented.
-//                 Probably needs another field to configure which LSU is for what stream.
 //       - Other values are reserved.
-//     Bits 31:3: Reserved
-//
+//     Bits 9:3  : Enable load operations for each LSU. Bit 3 corresponds to LSU0, bit 4 to LSU1, etc.
+//     Bits 16:10: Enable store operations for each LSU. Bit 10 corresponds to LSU0, bit 11 to LSU1, etc.
+//     Bits 31:17: Reserved
+// 
 // Deviations from the Snitch design:
 // - CsrMseg: Is not implemented as it is SSR (stream sematic register) specific.
 //
@@ -144,6 +144,8 @@ module schnova_csr import schnova_pkg::*; #(
   output logic                    barrier_stall_o,
   // FREP configuration
   output frep_mem_cons_mode_e     frep_mem_cons_mode_o,
+  output logic [NofLsus-1:0]      frep_lsu_load_en_o,
+  output logic [NofLsus-1:0]      frep_lsu_store_en_o,
   // FPU state update from the retiring FPU instruction
   input  fpnew_pkg::status_t      fpu_status_i,
   input  logic                    fpu_status_valid_i,
@@ -307,8 +309,11 @@ module schnova_csr import schnova_pkg::*; #(
   } frep_state_t;
 
   typedef struct packed {
-    logic [31:3]         reserved;
-    frep_mem_cons_mode_e mem_constistency_mode;
+    logic [14:0]         reserved;
+    logic [6:0]          LsuStoreEn;
+    logic [6:0]          LsuLoadEn;
+    // Bit 2:0 memory consistency mode.
+    frep_mem_cons_mode_e mem_consistency_mode;
   } frep_config_t;
 
   // ---------------------------
@@ -439,7 +444,9 @@ module schnova_csr import schnova_pkg::*; #(
   frep_config_t frep_config_default;
   assign frep_config_default = '{
     reserved: '0,
-    mem_constistency_mode: FrepMemNoConsistency
+    LsuStoreEn: 7'b1111111, // All LSUs allow stores
+    LsuLoadEn:  7'b1111111, // All LSUs allow loads
+    mem_consistency_mode: FrepMemNoConsistency
   };
   `FFAR(frep_config_q, frep_config_d, frep_config_default, clk_i, rst_i);
 
@@ -804,10 +811,12 @@ module schnova_csr import schnova_pkg::*; #(
         schnova_pkg::CsrFrepConfig: begin
           automatic frep_config_t frep_config = frep_config_t'(csr_wdata);
           // Only update valid values
-          if (frep_config.mem_constistency_mode inside
+          if (frep_config.mem_consistency_mode inside
               {FrepMemNoConsistency, FrepMemSerialized}) begin
-            frep_config_d.mem_constistency_mode = frep_config.mem_constistency_mode;
+            frep_config_d.mem_consistency_mode = frep_config.mem_consistency_mode;
           end
+          frep_config_d.LsuStoreEn = frep_config.LsuStoreEn;
+          frep_config_d.LsuLoadEn  = frep_config.LsuLoadEn;
         end
         default: ;
       endcase
@@ -960,7 +969,9 @@ module schnova_csr import schnova_pkg::*; #(
   assign barrier_stall_o = barrier_stall_q;
 
   // Send FREP memory consistency mode to dispatcher
-  assign frep_mem_cons_mode_o = frep_config_q.mem_constistency_mode;
+  assign frep_mem_cons_mode_o = frep_config_q.mem_consistency_mode;
+  assign frep_lsu_load_en_o   = frep_config_q.LsuLoadEn[NofLsus-1:0];
+  assign frep_lsu_store_en_o  = frep_config_q.LsuStoreEn[NofLsus-1:0];
   // FPU update
   assign fpu_rnd_mode_o = fcsr_q.frm;
   assign fpu_fmt_mode_o = fcsr_q.fmode;

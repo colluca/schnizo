@@ -47,8 +47,10 @@ package schnova_tracer_pkg;
 
   typedef struct {
     logic valid;
-    int unsigned rs_id;
-    string disp_resp;
+    longint rs_id;
+    string  disp_resp;
+    longint phy_rd;
+    longint rd_is_fp;
   } disp_req_trace_t;
 
   typedef struct {

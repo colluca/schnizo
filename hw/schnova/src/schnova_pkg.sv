@@ -209,7 +209,6 @@ package schnova_pkg;
   typedef enum logic [2:0] {
     FrepMemNoConsistency      = 3'b000,
     FrepMemSerialized         = 3'b001
-    // FrepMemSeparateStreams = 3'b010
   } frep_mem_cons_mode_e;
 
   // pragma translate_off

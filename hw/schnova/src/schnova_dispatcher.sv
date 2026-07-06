@@ -116,6 +116,8 @@ module schnova_dispatcher import schnova_pkg::*; #(
   input  logic                           restart_i,
   // Memory consistency mode during FREP loop
   input frep_mem_cons_mode_e             frep_mem_cons_mode_i,
+  input logic [NofLsus-1:0]              frep_lsu_load_en_i,
+  input logic [NofLsus-1:0]              frep_lsu_store_en_i,
   // To refcount
   output refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req_o
 );
@@ -257,6 +259,8 @@ module schnova_dispatcher import schnova_pkg::*; #(
       .restart_i(restart_i),
       // Memory consistency mode during FREP loop
       .frep_mem_cons_mode_i(frep_mem_cons_mode_i),
+      .frep_lsu_load_en_i(frep_lsu_load_en_i),
+      .frep_lsu_store_en_i(frep_lsu_store_en_i),
       // To refcount
       .refcnt_disp_req_o(refcnt_disp_req_o)
     );

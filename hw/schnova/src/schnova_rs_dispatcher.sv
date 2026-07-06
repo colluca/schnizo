@@ -86,6 +86,8 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   input  logic                           restart_i,
   // Memory consistency mode during FREP loop
   input frep_mem_cons_mode_e             frep_mem_cons_mode_i,
+  input logic [NofLsus-1:0]              frep_lsu_load_en_i,
+  input logic [NofLsus-1:0]              frep_lsu_store_en_i,
   // To refcount
   output refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req_o
 );
@@ -130,6 +132,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   typedef struct packed {
     lsu_rs_disp_req_t disp_req;
     logic             disp_to_lsu0;
+    logic             is_load;
   } lsu_buf_t;
   typedef fpu_rs_disp_req_t fpu_buf_t;
 
@@ -366,7 +369,8 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
       if (disp_to_lsu[i] && !instr_has_hazard[i]) begin
         lsu_disp_buf_push_data[lsu_push_idx[i]] = '{
                                                     disp_req: lsu_rs_disp_reqs[i],
-                                                    disp_to_lsu0: (frep_mem_cons_mode_i == FrepMemSerialized) ? 1'b1 : 1'b0
+                                                    disp_to_lsu0: (frep_mem_cons_mode_i == FrepMemSerialized) ? 1'b1 : 1'b0,
+                                                    is_load: instr_dec_i[i].fu == schnova_pkg::LOAD
                                                   };
       end
       if (disp_to_fpu[i] && !instr_has_hazard[i]) begin
@@ -467,28 +471,23 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
 
     for (int unsigned i = 0; i < NofAlus; i++) begin
       if (alu_disp_buf_pop_data_valid[i] && !alu_older_stalled) begin
-        // Condition A: Restricted to ALU 0
+        // Restricted to dispatch to ALU 0
         if (alu_disp_buf_pop_data[i].disp_to_alu0) begin
-          if (alu_rs_disp_req_ready_i[0] && !alu_claimed[0]) begin
-            alu_assigned[i] = 1'b1;
-            alu_claimed[0]  = 1'b1;
-            alu_port[i]     = NofAlusW'(0); 
-          end
+          alu_rot_idx = NofAlusW'(0);
         end else begin
-          // Condition B: General ALU instruction with explicit wrap-around
-          for (int unsigned j = 0; j < NofAlus; j++) begin
-            if (NofAlusIsPow2) begin
-              alu_rot_idx = alu_idx + NofAlusW'(j);
-            end else begin
-              alu_rot_idx = ((alu_idx + NofAlusW'(j)) >= NofAlus) ? (alu_idx + NofAlusW'(j)) - NofAlus
-                                                                  : (alu_idx + NofAlusW'(j));
-            end
-            if (alu_rs_disp_req_ready_i[alu_rot_idx] && !alu_claimed[alu_rot_idx] && !alu_assigned[i]) begin
-              alu_assigned[i]       = 1'b1;
-              alu_claimed[alu_rot_idx] = 1'b1;
-              alu_port[i]           = alu_rot_idx;
-            end
+          // Otherwise strict deterministic round-robin slot mapping
+          if (NofAlusIsPow2) begin
+            alu_rot_idx = alu_idx + NofAlusW'(i);
+          end else begin
+            alu_rot_idx = ((alu_idx + NofAlusW'(i)) >= NofAlus) ? (alu_idx + NofAlusW'(i)) - NofAlus
+                                                                : (alu_idx + NofAlusW'(i));
           end
+        end
+        // Check availability of the RS pointed to by the idx
+        if (alu_rs_disp_req_ready_i[alu_rot_idx] && !alu_claimed[alu_rot_idx]) begin
+          alu_assigned[i] = 1'b1;
+          alu_claimed[alu_rot_idx]  = 1'b1;
+          alu_port[i]     = alu_rot_idx; 
         end
 
         if (alu_assigned[i]) begin
@@ -510,8 +509,22 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   logic [NofLsus-1:0]               lsu_assigned;       // Whether this dispatch req was assigned an rs
   logic [NofLsus-1:0][NofLsusW-1:0] lsu_port;           // The assigned lsu port
   logic [NofLsus-1:0]               lsu_claimed;        // Whether this rs was already claimed
+  // Whether this dispatch request matches the type of instructions that this LSU is
+  // configured for.
+  logic [NofLsus-1:0][NofLsus-1:0]  lsu_match_matrix;  // [instruction_idx][lsu_idx]       
   logic                             lsu_older_stalled;  // Cascade flag for strict in-order blocking
   logic [NofLsusW-1:0]              lsu_rot_idx;
+
+  // Precalcualte t he LSU match matrix
+  always_comb begin: lsu_match_matrix_gen
+    lsu_match_matrix = '0;
+    for (int unsigned i = 0; i < NofLsus; i++) begin
+      for (int unsigned j = 0; j < NofLsus; j++) begin
+        lsu_match_matrix[i][j] = (lsu_disp_buf_pop_data[i].is_load  && frep_lsu_load_en_i[j]) ||
+                                 (!lsu_disp_buf_pop_data[i].is_load && frep_lsu_store_en_i[j]);
+      end
+    end
+  end
 
   always_comb begin : lsu_buffer_pop_steering
     lsu_rs_disp_reqs_o      = '0;
@@ -525,31 +538,33 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
 
     for (int unsigned i = 0; i < NofLsus; i++) begin
       if (lsu_disp_buf_pop_data_valid[i] && !lsu_older_stalled) begin
-
-        // Condition A: Restricted to LSU 0
         if (lsu_disp_buf_pop_data[i].disp_to_lsu0) begin
+          // Instructions restricted to LSU0 must dispatch to LSU0
           if (lsu_rs_disp_req_ready_i[0] && !lsu_claimed[0]) begin
-            lsu_assigned[i] = 1'b1;
-            lsu_claimed[0]  = 1'b1;
-            lsu_port[i]     = NofLsusW'(0); 
-          end
+              lsu_assigned[i] = 1'b1;
+              lsu_claimed[0]  = 1'b1;
+              lsu_port[i]     = NofLsusW'(0);
+          end 
         end else begin
-          // Condition B: General LSU instruction with explicit wrap-around
+          // General LSU dispatching to any LSU that is configured to handle this type of 
+          // instruction
           for (int unsigned j = 0; j < NofLsus; j++) begin
-            // Explicit modulo implementation
-            if (NofLsusIsPow2) begin
-              lsu_rot_idx = lsu_idx + NofLsusW'(j);
-            end else begin
-              lsu_rot_idx = ((lsu_idx + NofLsusW'(j)) >= NofLsus) ? (lsu_idx + NofLsusW'(j)) - NofLsus
-                                                                  : (lsu_idx + NofLsusW'(j));
-            end
-            if (lsu_rs_disp_req_ready_i[lsu_rot_idx] && !lsu_claimed[lsu_rot_idx] && !lsu_assigned[i]) begin
-              lsu_assigned[i]       = 1'b1;
-              lsu_claimed[lsu_rot_idx] = 1'b1;
-              lsu_port[i]           = lsu_rot_idx;
+            if (!lsu_assigned[i]) begin
+              if (NofLsusIsPow2) begin
+                lsu_rot_idx = lsu_idx + NofLsusW'(j);
+              end else begin
+                lsu_rot_idx = ((lsu_idx + NofLsusW'(j)) >= NofLsus) ? (lsu_idx + NofLsusW'(j)) - NofLsus
+                                                                    : (lsu_idx + NofLsusW'(j));
+              end
+              if (lsu_rs_disp_req_ready_i[lsu_rot_idx] && !lsu_claimed[lsu_rot_idx] && lsu_match_matrix[i][lsu_rot_idx]) begin
+                lsu_assigned[i]          = 1'b1;
+                lsu_claimed[lsu_rot_idx] = 1'b1;
+                lsu_port[i]              = lsu_rot_idx;
+              end
             end
           end
         end
+
         if (lsu_assigned[i]) begin
           lsu_rs_disp_reqs_o[lsu_port[i]]      = lsu_disp_buf_pop_data[i].disp_req;
           // pragma translate_off
@@ -584,20 +599,18 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
 
     for (int unsigned i = 0; i < NofFpus; i++) begin
       if (fpu_disp_buf_pop_data_valid[i] && !fpu_older_stalled) begin
-        // General FPU instruction with explicit wrap-around
-        for (int unsigned j = 0; j < NofFpus; j++) begin
-          // Explicit modulo implementation
-          if (NofFpusIsPow2) begin
-            fpu_rot_idx = fpu_idx + NofFpusW'(j);
+        // Strict deterministic round-robin slot mapping
+        if (NofFpusIsPow2) begin
+            fpu_rot_idx = fpu_idx + NofFpusW'(i);
           end else begin
-            fpu_rot_idx = ((fpu_idx + NofFpusW'(j)) >= NofFpus) ? (fpu_idx + NofFpusW'(j)) - NofFpus
-                                                                : (fpu_idx + NofFpusW'(j));
-          end
-          if (fpu_rs_disp_req_ready_i[fpu_rot_idx] && !fpu_claimed[fpu_rot_idx] && !fpu_assigned[i]) begin
-            fpu_assigned[i]       = 1'b1;
-            fpu_claimed[fpu_rot_idx] = 1'b1;
-            fpu_port[i]           = fpu_rot_idx;
-          end
+            fpu_rot_idx = ((fpu_idx + NofFpusW'(i)) >= NofFpus) ? (fpu_idx + NofFpusW'(i)) - NofFpus
+                                                                : (fpu_idx + NofFpusW'(i));
+        end
+        // Check availability of only the strictly designated port
+        if (fpu_rs_disp_req_ready_i[fpu_rot_idx] && !fpu_claimed[fpu_rot_idx]) begin
+          fpu_assigned[i]          = 1'b1;
+          fpu_claimed[fpu_rot_idx] = 1'b1;
+          fpu_port[i]              = fpu_rot_idx;
         end
         if (fpu_assigned[i]) begin
           fpu_rs_disp_reqs_o[fpu_port[i]]      = fpu_disp_buf_pop_data[i];
@@ -616,16 +629,34 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   end
 
 
+  logic [NofAlus-1:0] alu0_forced;
+  logic [NofAlus-1:0] rr_assigned;
   logic [$clog2(NofAlus):0] alu_idx_inc;
   logic [$clog2(NofLsus):0] lsu_idx_inc_raw;
   logic [$clog2(NofLsus):0] lsu_idx_inc;
   logic [$clog2(NofFpus):0] fpu_idx_inc;
 
-  // For the ALU and FPU the increment is always equal to the pop count
-  assign alu_idx_inc = alu_disp_pop_count;
+
+  always_comb begin
+    // For the ALU it can be that some instructions are forced to ALU0, these we ignore for the round-robin
+    // counter update
+    for (int unsigned i = 0; i < NofAlus; i++) begin
+      alu0_forced[i] = alu_disp_buf_pop_data[i].disp_to_alu0;
+    end
+
+    rr_assigned = alu_assigned & ~alu0_forced;
+    alu_idx_inc = '0;
+    // Calcualte the the increment with by counting the number of set bits
+    for (int unsigned i = 0; i < NofAlus; i++) begin
+      alu_idx_inc += rr_assigned[i];
+    end
+  end
+  
+  // FPU the increment is always equal to the pop count
   assign fpu_idx_inc = fpu_disp_pop_count;
 
   // For the LSU it can be that we are in the serialized mode then we don't have to increment
+  // Since we anyway only dispatch to LSU0
   assign lsu_idx_inc_raw = lsu_disp_pop_count;
   assign lsu_idx_inc = (frep_mem_cons_mode_i inside {FrepMemSerialized}) ? '0 : lsu_idx_inc_raw;
 
