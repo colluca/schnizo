@@ -41,7 +41,10 @@ module schnova_refcount import schnova_pkg::*; #(
     input  logic [$clog2(PipeWidth):0]   rename_fpr_count_i,
     output phy_id_t [PipeWidth-1:0]      allocated_gpr_regs_o,
     output phy_id_t [PipeWidth-1:0]      allocated_fpr_regs_o,
-    output logic                         phy_reg_alloc_ready_o
+    output logic                         phy_reg_alloc_ready_o,
+    // From Scoreboard
+    input logic [NofPhysGpr-1:0]         sbi_q_i,
+    input logic [NofPhysFpr-1:0]         sbf_q_i
 );
 
     // GPR Max References: 1 (RAT) + ALU(2/slot) + LSU(2/slot) + FPU(1/slot)
@@ -197,14 +200,14 @@ module schnova_refcount import schnova_pkg::*; #(
                 end
                 if (!refcnt_disp_req_i[instr_idx].is_op_c_cnst) begin
                     fpr_disp_rs3_oh[refcnt_disp_req_i[instr_idx].phy_reg_op_c][instr_idx] = 1'b1;
-                end                
+                end
             end
         end
 
         // Geneate the onehot encoding for the issue reference updates
         for (int unsigned alu = 0; alu < NofAlus; alu++) begin
             if (issue_alu_clr_req_valid_i[alu]) begin
-                if (!issue_alu_clr_req_i[alu].is_op_a_cnst && 
+                if (!issue_alu_clr_req_i[alu].is_op_a_cnst &&
                     issue_alu_clr_req_i[alu].phy_reg_op_a != '0) begin
                     gpr_issue_alu_rs1_oh[issue_alu_clr_req_i[alu].phy_reg_op_a][alu] = 1'b1;
                 end
@@ -247,7 +250,6 @@ module schnova_refcount import schnova_pkg::*; #(
                 end
                 // op_b always FPR
                 fpr_issue_fpu_rs2_oh[issue_fpu_clr_req_i[fpu].phy_reg_op_b][fpu] = 1'b1; 
-                
                 if (!issue_fpu_clr_req_i[fpu].is_op_c_cnst) begin
                     fpr_issue_fpu_rs3_oh[issue_fpu_clr_req_i[fpu].phy_reg_op_c][fpu] = 1'b1;
                 end
@@ -276,10 +278,10 @@ module schnova_refcount import schnova_pkg::*; #(
 
         for (int unsigned fpr = 0; fpr < NofPhysFpr; fpr++) begin
             // Concatenate FPR wires
-            fpr_inc_vec[fpr] = {fpr_disp_rd_oh[fpr], fpr_disp_rs1_oh[fpr], 
+            fpr_inc_vec[fpr] = {fpr_disp_rd_oh[fpr], fpr_disp_rs1_oh[fpr],
                                 fpr_disp_rs2_oh[fpr], fpr_disp_rs3_oh[fpr]};
-            fpr_dec_vec[fpr] = {fpr_disp_rd_old_oh[fpr], fpr_issue_lsu_rs2_oh[fpr], 
-                                fpr_issue_fpu_rs1_oh[fpr], fpr_issue_fpu_rs2_oh[fpr], 
+            fpr_dec_vec[fpr] = {fpr_disp_rd_old_oh[fpr], fpr_issue_lsu_rs2_oh[fpr],
+                                fpr_issue_fpu_rs1_oh[fpr], fpr_issue_fpu_rs2_oh[fpr],
                                 fpr_issue_fpu_rs3_oh[fpr]};
 
             fpr_inc[fpr] = '0;
@@ -362,11 +364,15 @@ module schnova_refcount import schnova_pkg::*; #(
     logic phy_gpr_alloc_ready, phy_fpr_alloc_ready;
 
     always_comb begin : free_vector_calc
+        // A physical register is free if its reference count dropped to zero
+        // and if the corresponding scoreboard entry is not busy.
+        // The second condition is needed to avoid WAW hazards in the form of
+        // race conditions.
         for (int unsigned i = 0; i < NofPhysGpr; i++) begin
-            gpr_free_vector[i] = (gpr_counters_q[i] == '0);
+            gpr_free_vector[i] = (gpr_counters_q[i] == '0) && !sbi_q_i[i];
         end
         for (int unsigned i = 0; i < NofPhysFpr; i++) begin
-            fpr_free_vector[i] = (fpr_counters_q[i] == '0);
+            fpr_free_vector[i] = (fpr_counters_q[i] == '0) && !sbf_q_i[i];
         end
     end
 

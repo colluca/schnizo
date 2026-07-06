@@ -41,7 +41,10 @@ module schnova_scoreboard #(
   input  logic [NrFpWritePorts-1:0]                    wb_fpr_en_i,
   // To controller
   output logic                                    registers_ready_o,
-  output logic                                    sb_busy_o
+  output logic                                    sb_busy_o,
+  // To Refcount
+  output logic [NofPhysGpr-1:0]                   sbi_q_o,
+  output logic [NofPhysFpr-1:0]                   sbf_q_o
 );
 
   logic [NofPhysGpr-1:0] sbi_d, sbi_q;
@@ -90,6 +93,10 @@ module schnova_scoreboard #(
     sbf_d = (sbf_q | sbf_set) & ~sbf_clr;
 
     sbi_d[0] = 1'b0; // x0 is never busy
+
+    // Assign the scoreboard as an output
+    sbi_q_o = sbi_q;
+    sbf_q_o = sbf_q;
   end
 
   ///////////////////////////
