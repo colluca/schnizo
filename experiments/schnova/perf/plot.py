@@ -13,10 +13,16 @@ from scipy.stats import gmean
 try:
     from . import experiments
     from . import model
+    from . import pw1_experiments
+    from . import pw2_experiments
+    from . import pw4_experiments
     from . import pw8_experiments
 except ImportError:
     import experiments
     import model
+    import pw1_experiments
+    import pw2_experiments
+    import pw4_experiments
     import pw8_experiments
 
 
@@ -484,9 +490,15 @@ def plot2(show=True, dir=None):
     return superscalar_comparison_plot(df, 'ipc', show=show)
 
 
-def plot3(show=True, dir=None, width=1, vary_by='slots', metric='ipc'):
+def plot3(show=True, dir=None, width=1, vary_by='slots', use_rob=False, use_bal=False,metric='ipc'):
+    if width == 1:
+        df = pw1_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, dir=dir)
+    elif width == 2:
+        df = pw2_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, dir=dir)
+    elif width == 4:
+        df = pw4_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, dir=dir)
     if width == 8:
-        df = pw8_experiments.results(vary_by=vary_by, dir=dir)
+        df = pw8_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, dir=dir)
     return geomean_plot(df, width, vary_by, metric, show)
 
 
@@ -535,6 +547,18 @@ def main():
     )
 
     parser.add_argument(
+        "--use_rob",
+        action="store_true",  # Sets to True if present, False if absent
+        help="Use a ROB instead of reference counting for the register size experiments."
+    )
+    
+    parser.add_argument(
+        "--use_bal",
+        action="store_true",  # Sets to True if present, False if absent
+        help="Use a balanced instruction mix for the software kernels."
+    )
+
+    parser.add_argument(
         "--vary",
         choices=["alus",
                  "lsus",
@@ -569,6 +593,8 @@ def main():
             _ = plot_dict[name](
                 width=args.width,
                 vary_by=args.vary,
+                use_rob=args.use_rob,
+                use_bal=args.use_bal,
                 metric=args.metric,
             )
         elif name == "plot4":
