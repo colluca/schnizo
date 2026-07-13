@@ -60,6 +60,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter bit          RegisterFPUIn  = 0,
   // Register the signals directly after the FPnew instance
   parameter bit          RegisterFPUOut = 0,
+  // Reroder buffer tag width
+  parameter int unsigned RobTagWidth         = 5,
   /// Others
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
@@ -183,7 +185,15 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output fpu_result_t [NofFpus-1:0] fpu_results_o,
   output instr_tag_t  [NofFpus-1:0] fpu_results_tag_o,
   output logic        [NofFpus-1:0] fpu_results_valid_o,
-  input  logic        [NofFpus-1:0] fpu_results_ready_i
+  input  logic        [NofFpus-1:0] fpu_results_ready_i,
+  
+  // Store writeback snooping for reorder buffer
+  output logic [NofAlus-1:0]                  alu_rob_z_wb_valid_o,
+  output logic [NofAlus-1:0][RobTagWidth-1:0] alu_rob_z_tag_o,
+  output logic [NofLsus-1:0]                  lsu_rob_z_wb_valid_o,
+  output logic [NofLsus-1:0][RobTagWidth-1:0] lsu_rob_z_tag_o,
+  output logic [NofFpus-1:0]                  fpu_rob_z_wb_valid_o,
+  output logic [NofFpus-1:0][RobTagWidth-1:0] fpu_rob_z_tag_o
 );
 
   /////////////////////////////////////
@@ -348,6 +358,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     alu_issue_req_t alu_rs_issue_req;
     logic           alu_rs_issue_req_valid;
     logic           alu_rs_issue_req_ready;
+    logic           alu_rob_z_wb_valid;
 
     // pragma translate_off
     issue_alu_trace_t alu_trace_int;
@@ -469,6 +480,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     schnova_alu #(
       .XLEN         (XLEN),
+      .UseFreeList  (UseFreeList),
+      .RobTagWidth  (RobTagWidth),
       .HasBranch    (alu == '0), // only the first ALU has the branch logic
       .HasMultiplier((alu == '0) && MulInAlu0), // only the first ALU has the multiplier
       .issue_req_t  (alu_issue_req_t),
@@ -487,8 +500,13 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .tag_o            (alu_result_tag),
       .result_valid_o   (alu_result_valid_raw),
       .result_ready_i   (alu_result_ready),
-      .busy_o           (alu_busy)
+      .busy_o           (alu_busy),
+      .rob_z_wb_valid_o (alu_rob_z_wb_valid),
+      .rob_z_tag_o      (alu_rob_z_tag_o[alu])
     );
+
+    // Only assert a valid writeback for the zero register in superscalar mode
+    assign alu_rob_z_wb_valid_o[alu] = (en_superscalar_i) ? alu_rob_z_wb_valid : 1'b0;
 
     // Populate the producer field of the trace
     // pragma translate_off
@@ -553,6 +571,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic            lsu_rs_issue_req_valid;
     logic            lsu_rs_issue_req_ready;
     logic            lsu_rs_exec_commit;
+    logic            lsu_rob_z_wb_valid;
 
     // pragma translate_off
     issue_lsu_trace_t lsu_trace_int;
@@ -675,6 +694,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     schnova_lsu #(
       .XLEN               (XLEN),
       .issue_req_t        (lsu_issue_req_t),
+      .RobTagWidth        (RobTagWidth),
+      .UseFreeList        (UseFreeList),
       .AddrWidth          (AddrWidth),
       .DataWidth          (DataWidth),
       .dreq_t             (dreq_t),
@@ -697,6 +718,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .issue_req_valid_i(lsu_issue_req_valid),
       .issue_commit_i   (lsu_exec_commit),
       .issue_req_ready_o(lsu_issue_req_ready),
+      .rob_z_tag_o        (lsu_rob_z_tag_o[lsu]),
+      .rob_z_wb_valid_o   (lsu_rob_z_wb_valid),
       .result_o         (lsu_result),
       .tag_o            (lsu_result_tag),
       .result_error_o   (), // ignored
@@ -714,6 +737,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .caq_rsp_valid_i  (caq_rsp_valid_i[lsu]),
       .caq_rsp_valid_o  (caq_rsp_valid_o[lsu])
     );
+
+    // Only enable valid writeback zero register snooping in superscalar mode
+    assign lsu_rob_z_wb_valid_o[lsu] = (en_superscalar_i) ? lsu_rob_z_wb_valid : 1'b0;
 
     // Suppress exceptions in superscalar mode for now because we anyway don't handle them one cycle later.
     assign lsu_addr_misaligned[lsu] = lsu_addr_misaligned_raw;
@@ -781,6 +807,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     logic           fpu_rs_issue_req_valid;
     logic           fpu_rs_issue_req_ready;
     logic           fpu_rs_exec_commit;
+    logic           fpu_rob_z_wb_valid;
 
     // pragma translate_off
     issue_fpu_trace_t fpu_trace_int;
@@ -903,6 +930,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     schnova_fpu #(
       .FPUImplementation(FPUImplementation),
+      .RobTagWidth        (RobTagWidth),
+      .UseFreeList        (UseFreeList),
       .RVF              (RVF),
       .RVD              (RVD),
       .XF16             (XF16),
@@ -931,8 +960,13 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
       .result_valid_o   (fpu_result_valid[fpu]),
       .result_ready_i   (fpu_result_ready[fpu]),
       .status_o         (fpu_status[fpu]),
-      .busy_o           (fpu_busy)
+      .busy_o           (fpu_busy),
+      .rob_z_wb_valid_o (fpu_rob_z_wb_valid),
+      .rob_z_tag_o      (fpu_rob_z_tag_o[fpu])
     );
+
+    // Only signal valid zero register writeback in superscalar mode
+    assign fpu_rob_z_wb_valid_o[fpu] = en_superscalar_i ? fpu_rob_z_wb_valid : 1'b0;
 
     // Populate the producer and instr_iter fields of the trace
     // pragma translate_off

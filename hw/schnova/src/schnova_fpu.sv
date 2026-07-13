@@ -23,6 +23,8 @@ module schnova_fpu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter bit          RegisterFPUIn  = 0,
   // Register the signals directly after the FPnew instance
   parameter bit          RegisterFPUOut = 0,
+  parameter int unsigned RobTagWidth    = 5,
+  parameter bit          UseFreeList    = 0,
   parameter type         issue_req_t    = logic,
   parameter type         instr_tag_t    = logic
 ) (
@@ -49,7 +51,11 @@ module schnova_fpu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output fpnew_pkg::status_t status_o,
 
   // Asynchronous busy signal. Asserted when any instruction is in flight.
-  output logic               busy_o
+  output logic               busy_o,
+
+  // Rob zero Register Snooping
+  output logic                   rob_z_wb_valid_o,
+  output logic [RobTagWidth-1:0] rob_z_tag_o
 );
 
   // ---------------------------
@@ -324,9 +330,17 @@ module schnova_fpu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign result_o = fpu_out_q.result;
   assign status_o = fpu_out_q.status;
   assign tag_o = fpu_out_q.tag;
+
+  if (UseFreeList) begin : gen_rob_snooping
+    // Set the zero register snooping signals
+    assign rob_z_wb_valid_o  = (tag_o.dest_reg == '0) && !tag_o.dest_reg_is_fp && result_valid_o && result_ready_i;
+    assign rob_z_tag_o       = tag_o.rob_tag;
+  end else begin : gen_no_rob_snooping
+    assign rob_z_wb_valid_o = '0;
+    assign rob_z_tag_o      = '0;
+  end
   // The FPU is busy if anywhere is valid data. This includes the data before and after the cut.
   assign busy_o = (|{issue_req_valid_i, fpu_busy, result_valid_o});
-
   ////////////
   // Tracer //
   ////////////

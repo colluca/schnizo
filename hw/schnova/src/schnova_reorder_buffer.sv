@@ -8,6 +8,9 @@
 module schnova_reorder_buffer import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned NofEntries  = 64,
+  parameter int unsigned NofAlus     = 1,
+  parameter int unsigned NofLsus     = 1,
+  parameter int unsigned NofFpus     = 1,
   parameter int unsigned NrRobWritePorts  = 2,
   parameter type         phy_id_t = logic,
   localparam int unsigned TagWidth = $clog2(NofEntries)
@@ -30,7 +33,14 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   output [$clog2(PipeWidth):0] gpr_push_count_o,
   output phy_id_t [PipeWidth-1:0] gpr_retired_regs_o,
   output [$clog2(PipeWidth):0] fpr_push_count_o,
-  output phy_id_t [PipeWidth-1:0] fpr_retired_regs_o
+  output phy_id_t [PipeWidth-1:0] fpr_retired_regs_o,
+  // Store writeback snooping for reorder buffer
+  input logic [NofAlus-1:0]               alu_rob_z_wb_valid_i,
+  input logic [NofAlus-1:0][TagWidth-1:0] alu_rob_z_tag_i,
+  input logic [NofLsus-1:0]               lsu_rob_z_wb_valid_i,
+  input logic [NofLsus-1:0][TagWidth-1:0] lsu_rob_z_tag_i,
+  input logic [NofFpus-1:0]               fpu_rob_z_wb_valid_i,
+  input logic [NofFpus-1:0][TagWidth-1:0] fpu_rob_z_tag_i
 );
 
   typedef struct packed {
@@ -42,6 +52,10 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
 
   rob_entry_t [NofEntries-1:0] rob;
   logic [NrRobWritePorts-1:0][NofEntries-1:0] wb_dec;
+
+  logic [NofAlus-1:0][NofEntries-1:0] alu_z_wb_dec;
+  logic [NofLsus-1:0][NofEntries-1:0] lsu_z_wb_dec;
+  logic [NofFpus-1:0][NofEntries-1:0] fpu_z_wb_dec;
 
   logic [TagWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
   logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
@@ -63,6 +77,34 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       end
     end
   end
+
+  always_comb begin : alu_z_wb_decoder
+    for (int unsigned j = 0; j < NofAlus; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (alu_rob_z_tag_i[j] == i) alu_z_wb_dec[j][i] = alu_rob_z_wb_valid_i[j];
+        else alu_z_wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
+  always_comb begin : lsu_z_wb_decoder
+    for (int unsigned j = 0; j < NofLsus; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (lsu_rob_z_tag_i[j] == i) lsu_z_wb_dec[j][i] = lsu_rob_z_wb_valid_i[j];
+        else lsu_z_wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
+  always_comb begin : fpu_z_wb_decoder
+    for (int unsigned j = 0; j < NofFpus; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (fpu_rob_z_tag_i[j] == i) fpu_z_wb_dec[j][i] = fpu_rob_z_wb_valid_i[j];
+        else fpu_z_wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
 
   always_comb begin : idx_calculation
     for (int unsigned i = 0; i < PipeWidth; i++) begin
@@ -118,13 +160,13 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
       if (pop_valid[i] && rob[read_idx[i]].rd_is_fp) begin
         fpr_retired_regs_o[commit_fpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
         fpr_commit_valid[i] = 1'b1;
-
         commit_fpr_idx = commit_fpr_idx + 1;
       end else if (pop_valid[i] && !rob[read_idx[i]].rd_is_fp) begin
-        gpr_retired_regs_o[commit_gpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
-        gpr_commit_valid[i] = 1'b1;
-
-        commit_gpr_idx = commit_gpr_idx + 1;
+        if (rob[read_idx[i]].phy_reg_rd_old != '0) begin
+          gpr_retired_regs_o[commit_gpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
+          gpr_commit_valid[i] = 1'b1;
+          commit_gpr_idx = commit_gpr_idx + 1;
+        end
       end
     end
   end
@@ -143,7 +185,12 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
     .popcount_o(fpr_push_count_o)
   );
 
-  assign pop_count = gpr_push_count_o + fpr_push_count_o;
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_rob_pop_count (
+    .data_i(pop_valid),
+    .popcount_o(pop_count)
+  );
 
   // We push registers to the freelist once we can remove at least one entry from the
   // rob
@@ -176,6 +223,33 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
           end
         end
       end
+
+      // Update the ROB when a zero register issue happens
+      for (int unsigned j = 0; j < NofAlus; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (alu_z_wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+      for (int unsigned j = 0; j < NofLsus; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (lsu_z_wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+      for (int unsigned j = 0; j < NofFpus; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (fpu_z_wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+
 
       // Update the ROB upon push
       if(rob_push_i && rob_ready_o) begin

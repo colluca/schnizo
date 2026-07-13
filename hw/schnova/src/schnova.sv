@@ -692,6 +692,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   refcnt_req_t [NofLsus-1:0] issue_lsu_clr_req;
   logic        [NofFpus-1:0] issue_fpu_clr_req_valid;
   refcnt_req_t [NofFpus-1:0] issue_fpu_clr_req;
+  
+
+  logic [NofAlus-1:0]                  alu_rob_z_wb_valid;
+  logic [NofAlus-1:0][RobTagWidth-1:0] alu_rob_z_tag;
+  logic [NofLsus-1:0]                  lsu_rob_z_wb_valid;
+  logic [NofLsus-1:0][RobTagWidth-1:0] lsu_rob_z_tag;
+  logic [NofFpus-1:0]                  fpu_rob_z_wb_valid;
+  logic [NofFpus-1:0][RobTagWidth-1:0] fpu_rob_z_tag;
 
 
   // --------------------
@@ -1153,6 +1161,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   schnova_fu_stage #(
     .XFREPO             (XFREPO),
     .UseFreeList        (UseFreeList),
+    .RobTagWidth        (RobTagWidth),
     .MulInAlu0          (MulInAlu0),
     .NofAlus            (NofAlus),
     .AluNofRss          (AluNofRss),
@@ -1293,7 +1302,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .fpu_results_o            (fpu_results),
     .fpu_results_tag_o        (fpu_results_tag),
     .fpu_results_valid_o      (fpu_results_valid),
-    .fpu_results_ready_i      (fpu_results_ready)
+    .fpu_results_ready_i      (fpu_results_ready),
+    // To ROB
+    .alu_rob_z_wb_valid_o(alu_rob_z_wb_valid),
+    .alu_rob_z_tag_o(alu_rob_z_tag),
+    .lsu_rob_z_wb_valid_o(lsu_rob_z_wb_valid),
+    .lsu_rob_z_tag_o(lsu_rob_z_tag),
+    .fpu_rob_z_wb_valid_o(fpu_rob_z_wb_valid),
+    .fpu_rob_z_tag_o(fpu_rob_z_tag)
   );
 
 
@@ -1572,26 +1588,14 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // Local connections
       logic                          rob_push;
       logic    [$clog2(PipeWidth):0] rob_push_count;
-      logic    [$clog2(PipeWidth):0] alloc_idx;
       phy_id_t [PipeWidth-1:0]       phy_reg_rd_old;
       logic    [PipeWidth-1:0]       phy_reg_rd_old_is_fp;
 
-      // New instructions can only be dispatched if we have enough ROB entries
+      // Pack the old destination register and whether the target is the fpr or gpr
       always_comb begin : pack_old_phy_reg
-        // Per default we don't assign a mapping
-        phy_reg_rd_old = '0;
-        phy_reg_rd_old_is_fp = '0;
-
-        alloc_idx = '0;
         for (int unsigned i = 0; i < PipeWidth; i++) begin
-          if (instr_rename_gpr_valid[i]) begin
-            phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
-            alloc_idx = alloc_idx + 1;
-          end else if (instr_rename_fpr_valid[i]) begin
-            phy_reg_rd_old[alloc_idx] = reg_map[i].phy_reg_rd_old;
-            phy_reg_rd_old_is_fp[alloc_idx] = 1'b1;
-              alloc_idx = alloc_idx + 1;
-          end
+          phy_reg_rd_old[i]       = reg_map[i].phy_reg_rd_old;
+          phy_reg_rd_old_is_fp[i] = instr_decoded[i].rd_is_fp;
         end
       end
 
@@ -1599,12 +1603,15 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
       // Allocation happens once for the entire fetch block, at the cycle the first instruction
       // was successfully dispatched.
       assign rob_push = first_instr_dispatched & en_superscalar;
-      assign rob_push_count = instr_rename_gpr_count + instr_rename_fpr_count;
+      assign rob_push_count = instr_valid_count;
 
       schnova_reorder_buffer #(
         .PipeWidth      (PipeWidth),
         .NofEntries     (NofRobEntries),
         .NrRobWritePorts(NrRobWritePorts),
+        .NofAlus        (NofAlus),
+        .NofLsus        (NofLsus),
+        .NofFpus        (NofFpus),
         .phy_id_t       (phy_id_t)
       ) i_rob (
         .clk_i,
@@ -1615,6 +1622,13 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
         // From / To Dispatcher
         .rob_push_i                 (rob_push),
         .rob_idx_o                  (rob_idx),
+        // From FU Stage
+        .alu_rob_z_wb_valid_i       (alu_rob_z_wb_valid),
+        .alu_rob_z_tag_i            (alu_rob_z_tag),
+        .lsu_rob_z_wb_valid_i       (lsu_rob_z_wb_valid),
+        .lsu_rob_z_tag_i            (lsu_rob_z_tag),
+        .fpu_rob_z_wb_valid_i       (fpu_rob_z_wb_valid),
+        .fpu_rob_z_tag_i            (fpu_rob_z_tag),
         // From Rename
         .rob_phy_reg_rd_old_i       (phy_reg_rd_old),
         .rob_phy_reg_rd_old_is_fp_i (phy_reg_rd_old_is_fp),

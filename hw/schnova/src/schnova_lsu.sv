@@ -40,6 +40,8 @@ module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   /// Whether the LSU should track repeated instructions issued by a sequencer
   /// and accordingly filter them from its CAQ responses as is necessary.
   parameter bit          CaqRespTrackSeq     = 0,
+  parameter int unsigned RobTagWidth         = 5,
+  parameter bit          UseFreeList         = 0,
   localparam type addr_t = logic [AddrWidth-1:0],
   localparam type data_t = logic [DataWidth-1:0]
 ) (
@@ -50,7 +52,9 @@ module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // pragma translate_off
   output issue_lsu_trace_t trace_o,
   // pragma translate_on
-
+  // Rob zero Register Snooping
+  output logic                   rob_z_wb_valid_o,
+  output logic [RobTagWidth-1:0] rob_z_tag_o,
   // Instruction stream
   input  issue_req_t issue_req_i,
   input  logic       issue_req_valid_i,
@@ -463,6 +467,18 @@ module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   assign lsu_pvalid_o = data_rsp_i.p_valid & ~mem_out;
   assign data_req_o.p_ready = lsu_pready_i | mem_out;
 
+
+  if (UseFreeList) begin : gen_rob_snooping
+    // A store is fire and forget, however we still need to track when the execution finished
+    // for the ROB. The reorder buffer has to record the completion of every instruction
+    // even instructions that won't write to a register
+    assign rob_z_wb_valid_o = issue_req_valid_i && issue_req_ready_o && is_store;
+    // We have to forward the rob tag associated with that instruction
+    assign rob_z_tag_o = issue_req_i.tag.rob_tag;
+  end else begin : gen_no_rob_snooping
+    assign rob_z_wb_valid_o = '0;
+    assign rob_z_tag_o      = '0;
+  end
   ////////////
   // Tracer //
   ////////////

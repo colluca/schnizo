@@ -12,6 +12,9 @@ module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned XLEN          = 32,
   parameter bit          HasBranch     = 1'b1,
   parameter bit          HasMultiplier = 1'b0,
+  // Reroder buffer tag width
+  parameter int unsigned RobTagWidth         = 5,
+  parameter bit          UseFreeList         = 0,
   parameter type         issue_req_t   = logic,
   parameter type         instr_tag_t   = logic
 ) (
@@ -32,7 +35,10 @@ module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output instr_tag_t      tag_o,
   output logic            result_valid_o,
   input  logic            result_ready_i,
-  output logic            busy_o
+  output logic            busy_o,
+  // Rob zero Register Snooping
+  output logic                   rob_z_wb_valid_o,
+  output logic [RobTagWidth-1:0] rob_z_tag_o
 );
 
   typedef struct packed {
@@ -286,6 +292,16 @@ module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   assign result_o = result_and_tag.result;
   assign tag_o = result_and_tag.tag;
+
+  // Signal valid writebacks to the zero register
+  if (UseFreeList) begin : gen_rob_snooping
+    assign rob_z_wb_valid_o = (tag_o.dest_reg == '0) && result_valid_o && result_ready_i;
+    assign rob_z_tag_o = tag_o.rob_tag;
+  end else begin : gen_no_rob_snooping
+    assign rob_z_wb_valid_o = '0;
+    assign rob_z_tag_o = '0;
+  end
+
   // The ALU is busy if there is valid data passing through.
   assign busy_o = alu_issue_valid || mul_busy;
 

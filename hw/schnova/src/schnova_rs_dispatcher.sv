@@ -139,8 +139,6 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   ////////////////////////
   // Request generation //
   ////////////////////////
-  logic [$clog2(PipeWidth):0] rob_idx;
-
   instr_tag_t [PipeWidth-1:0] tag;
 
   // The dispatch request contains
@@ -150,7 +148,6 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   // 3) The instruction as well as its tag
 
   always_comb begin : rs_dispatch_generation
-    rob_idx = '0;
     alu_rs_disp_reqs = '0;
     lsu_rs_disp_reqs = '0;
     fpu_rs_disp_reqs = '0;
@@ -165,11 +162,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
         // If we have already dispatched some instructions we have to use the rob tag we saved
         // otherwise we can just use the rob tag coming from the ROB which are contiguous ROB
         // tags starating from the current tail pointer
-        tag[i].rob_tag        = (rob_tag_saved_q) ? rob_tag_q[rob_idx] : rob_idx_i[rob_idx];
-        // Only assign a different rob tag if this instruction really needs a rob entry
-        if (instr_rename_fpr_valid_i[i] || instr_rename_gpr_valid_i[i]) begin
-          rob_idx++;
-        end
+        tag[i].rob_tag        = (rob_tag_saved_q) ? rob_tag_q[i] : rob_idx_i[i];
       end
 
       // ALU
