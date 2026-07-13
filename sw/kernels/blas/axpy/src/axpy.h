@@ -67,7 +67,7 @@ static inline void axpy_opt(uint32_t n, double a, double *x, double *y,
     snrt_ssr_disable();
 }
 
-static inline void axpy_job(axpy_args_t *args) {
+static inline void axpy_job(const axpy_args_t *args) {
     uint32_t frac, offset, size;
     uint64_t local_x0_addr, local_y0_addr, local_z0_addr, local_x1_addr,
         local_y1_addr, local_z1_addr;
@@ -83,7 +83,7 @@ static inline void axpy_job(axpy_args_t *args) {
 
     // Copy job arguments to TCDM
     if (snrt_is_dm_core()) {
-        snrt_dma_start_1d(local_args, args, sizeof(axpy_args_t));
+        snrt_dma_start_1d(local_args, (axpy_args_t *)args, sizeof(axpy_args_t));
         snrt_dma_wait_all();
     }
     snrt_cluster_hw_barrier();

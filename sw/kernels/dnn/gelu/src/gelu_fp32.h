@@ -8,7 +8,7 @@
 #include "snrt.h"
 
 #include "../../eltwise/src/eltwise.h"
-#include "../../misc/exp/src/vexpf_fp32_schnizo.h"
+#include "../../misc/exp/src/vexpf_schnizo_fp32.h"
 
 // GeLU sigmoid approximation (Hendrycks & Gimpel, arXiv:1606.08415, eq. 4):
 // y = x * sigmoid(1.702 * x) = x / (1 + exp(-1.702 * x))

@@ -23,6 +23,16 @@ typedef struct {
 
 /**
  * @brief FP64 batchnorm: y = gamma * x + beta, using SSR for streaming.
+
+
+ * @param ifmap pointer to input feature map
+ * @param gamma pointer to gamma
+ * @param beta pointer to beta
+ * @param ofmap pointer to output feature map
+ * @param OW width of output feature map
+ * @param CI number of input channels
+ * @param compute_num number of compute units
+ * @param setup_SSR setup SSR strides and bounds
  */
 static inline void batchnorm_fp64(double *ifmap, double *gamma, double *beta,
                                   double *ofmap, uint32_t OW, uint32_t CI,
@@ -30,6 +40,7 @@ static inline void batchnorm_fp64(double *ifmap, double *gamma, double *beta,
 #ifdef SNRT_SUPPORTS_FREP
 #ifdef SNRT_SUPPORTS_SSR
 
+    // initial SSR setup
     if (setup_SSR) {
         uint32_t ssr_b[2] = {OW, CI / compute_num};
         uint32_t ssr_i[2] = {CI * sizeof(double), compute_num * sizeof(double)};
@@ -38,6 +49,7 @@ static inline void batchnorm_fp64(double *ifmap, double *gamma, double *beta,
         snrt_ssr_loop_2d(SNRT_SSR_DM1, ssr_b[0], ssr_b[1], ssr_i[0], ssr_i[1]);
     }
 
+    // SSR address setup
     snrt_ssr_read(SNRT_SSR_DM0, SNRT_SSR_2D, ifmap);
     snrt_ssr_write(SNRT_SSR_DM1, SNRT_SSR_2D, ofmap);
     snrt_ssr_enable();
@@ -46,6 +58,7 @@ static inline void batchnorm_fp64(double *ifmap, double *gamma, double *beta,
         double g = gamma[ci];
         double b = beta[ci];
 
+        // frep over OW dimension
         asm volatile(
             "frep.o %[n_frep], 1, 0, 0 \n"
             "fmadd.d ft1, ft0, %[g], %[b] \n" ::[g] "f"(g),

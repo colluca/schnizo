@@ -36,6 +36,7 @@
 #include "vexpf_optimized.h"
 #include "vexpf_optimized_v2.h"
 #include "vexpf_schnizo.h"
+#include "vexpf_schnizo_fp32.h"
 static inline void vexpf_kernel(double *a, double *b, uint32_t len,
                                 uint32_t batch_size) {
     snrt_mcycle();

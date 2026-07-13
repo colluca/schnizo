@@ -8,7 +8,7 @@
 #include "snrt.h"
 
 #include "../../eltwise/src/eltwise.h"
-#include "../../misc/exp/src/vexpf_fp32_schnizo.h"
+#include "../../misc/exp/src/vexpf_schnizo_fp32.h"
 
 typedef void (*silu_fp_t)(float *in, float *out, uint32_t size);
 
