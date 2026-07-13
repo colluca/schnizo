@@ -6,19 +6,22 @@
 
 #include "math.h"
 #include "snrt.h"
+
 #include "../../eltwise/src/eltwise.h"
 #include "../../misc/exp/src/vexpf_fp32_schnizo.h"
 
 // GeLU sigmoid approximation (Hendrycks & Gimpel, arXiv:1606.08415, eq. 4):
 // y = x * sigmoid(1.702 * x) = x / (1 + exp(-1.702 * x))
-static inline void gelu_fp32_sigmoid_naive(float *in, float *out, uint32_t size) {
+static inline void gelu_fp32_sigmoid_naive(float *in, float *out,
+                                           uint32_t size) {
     for (uint32_t i = 0; i < size; i++)
         out[i] = in[i] / (1.0f + expf(-1.702f * in[i]));
 }
 
 // Optimized GeLU sigmoid approx using vectorized exp and eltwise kernels.
 // Requires size % 4 == 0 and size >= 8.
-static inline void gelu_fp32_sigmoid_schnizo(float *in, float *out, uint32_t size) {
+static inline void gelu_fp32_sigmoid_schnizo(float *in, float *out,
+                                             uint32_t size) {
     // Step 1: out[i] = -1.702f * in[i]
     {
         float *src = in, *dst = out;
@@ -45,8 +48,7 @@ static inline void gelu_fp32_sigmoid_schnizo(float *in, float *out, uint32_t siz
             // clang-format on
             : [ src ] "+r"(src), [ dst ] "+r"(dst)
             : [ n ] "r"(n_frep), [ scale ] "f"(scale)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+            : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = size - 1;
         asm volatile(
@@ -60,8 +62,7 @@ static inline void gelu_fp32_sigmoid_schnizo(float *in, float *out, uint32_t siz
             // clang-format on
             : [ src ] "+r"(src), [ dst ] "+r"(dst)
             : [ n ] "r"(n_frep), [ scale ] "f"(scale)
-            : "fa0", "memory"
-        );
+            : "fa0", "memory");
 #endif
     }
 
@@ -94,8 +95,7 @@ static inline void gelu_fp32_sigmoid_schnizo(float *in, float *out, uint32_t siz
             // clang-format on
             : [ src ] "+r"(src), [ dst ] "+r"(dst)
             : [ n ] "r"(n_frep), [ one ] "f"(one)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+            : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = size - 1;
         asm volatile(
@@ -109,8 +109,7 @@ static inline void gelu_fp32_sigmoid_schnizo(float *in, float *out, uint32_t siz
             // clang-format on
             : [ src ] "+r"(src), [ dst ] "+r"(dst)
             : [ n ] "r"(n_frep), [ one ] "f"(one)
-            : "fa0", "memory"
-        );
+            : "fa0", "memory");
 #endif
     }
 

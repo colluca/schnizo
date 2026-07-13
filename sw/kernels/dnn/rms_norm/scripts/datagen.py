@@ -87,8 +87,8 @@ class RmsNormDataGen(du.DataGen):
         header += [du.format_array_definition(ctype, weight_uid,
                    weight, alignment=self.BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
-        result_def = du.format_array_definition(ctype, 'golden',
-                     du.flatten(ofmap), alignment=self.BURST_ALIGNMENT)
+        result_def = du.format_array_definition(
+            ctype, 'golden', du.flatten(ofmap), alignment=self.BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

@@ -6,7 +6,9 @@
 
 #include "math.h"
 #include "snrt.h"
+
 #include "blas.h"
+
 #include "../../misc/exp/src/vexpf.h"
 
 /**
@@ -86,7 +88,7 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
 
     for (int32_t b = 0; b < batch_size; b++) {
         for (int32_t s = 0; s < seq_len; s++) {
-            float *row_in  = &input [b * batch_offset + s * ldI];
+            float *row_in = &input[b * batch_offset + s * ldI];
             float *row_out = &output[b * batch_offset + s * ldI];
 
             // find max (compute-bound, fmax.s: 4 accumulators for both frep.i/o)
@@ -108,11 +110,10 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "fmax.s %[m3], %[m3], fa3          \n"
                     "addi   %[ptr], %[ptr], 16         \n"
                     // clang-format on
-                    : [ m0 ] "+f"(m0), [ m1 ] "+f"(m1),
-                      [ m2 ] "+f"(m2), [ m3 ] "+f"(m3), [ ptr ] "+r"(ptr)
+                    : [ m0 ] "+f"(m0), [ m1 ] "+f"(m1), [ m2 ] "+f"(m2),
+                      [ m3 ] "+f"(m3), [ ptr ] "+r"(ptr)
                     : [ n ] "r"(n_frep)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
                 m0 = fmaxf(m0, m1);
                 m2 = fmaxf(m2, m3);
                 max_core = fmaxf(m0, m2);
@@ -143,8 +144,7 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     // clang-format on
                     : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
                     : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
                 int n_frep = input_samples - 1;
                 asm volatile(
@@ -158,8 +158,7 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     // clang-format on
                     : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
                     : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "memory"
-                );
+                    : "fa0", "memory");
 #endif
             }
 
@@ -184,11 +183,10 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "fadd.s %[s3], %[s3], fa3          \n"
                     "addi   %[ptr], %[ptr], 16         \n"
                     // clang-format on
-                    : [ s0 ] "+f"(sum1), [ s1 ] "+f"(sum2),
-                      [ s2 ] "+f"(sum3), [ s3 ] "+f"(sum4), [ ptr ] "+r"(ptr)
+                    : [ s0 ] "+f"(sum1), [ s1 ] "+f"(sum2), [ s2 ] "+f"(sum3),
+                      [ s3 ] "+f"(sum4), [ ptr ] "+r"(ptr)
                     : [ n ] "r"(n_frep)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
                 sum1 += sum2;
                 sum3 += sum4;
                 sum = sum1 + sum3;

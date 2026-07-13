@@ -31,7 +31,7 @@ class InterpolateDataGen(du.DataGen):
         out_w = kwargs['out_width']
         prec = du.size_from_precision_t(kwargs['prec'])
         # Each cluster holds its slice of planes; check worst case (1 cluster)
-        in_bytes  = batch_size * channels * in_h  * in_w  * prec
+        in_bytes = batch_size * channels * in_h * in_w * prec
         out_bytes = batch_size * channels * out_h * out_w * prec
         du.validate_tcdm_footprint(in_bytes + out_bytes)
 
@@ -41,15 +41,15 @@ class InterpolateDataGen(du.DataGen):
         self.validate(**kwargs)
 
         batch_size = kwargs['batch_size']
-        channels   = kwargs['channels']
-        in_h       = kwargs['in_height']
-        in_w       = kwargs['in_width']
-        out_h      = kwargs['out_height']
-        out_w      = kwargs['out_width']
-        prec       = kwargs['prec']
+        channels = kwargs['channels']
+        in_h = kwargs['in_height']
+        in_w = kwargs['in_width']
+        out_h = kwargs['out_height']
+        out_w = kwargs['out_width']
+        prec = kwargs['prec']
 
         torch_type = du.torch_type_from_precision_t(prec)
-        ctype      = du.ctype_from_precision_t(prec)
+        ctype = du.ctype_from_precision_t(prec)
 
         ifmap = torch.randn(batch_size, channels, in_h, in_w, dtype=torch_type)
         ofmap = self.golden_model(ifmap, out_h, out_w).detach()
@@ -77,8 +77,8 @@ class InterpolateDataGen(du.DataGen):
         header += [du.format_array_definition(ctype, ifmap_uid,
                    ifmap, alignment=self.BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
-        result_def = du.format_array_definition(ctype, 'golden',
-                     du.flatten(ofmap), alignment=self.BURST_ALIGNMENT)
+        result_def = du.format_array_definition(
+            ctype, 'golden', du.flatten(ofmap), alignment=self.BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

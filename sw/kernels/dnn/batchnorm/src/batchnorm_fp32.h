@@ -17,14 +17,14 @@
 // Cores take interleaved channels.
 
 static inline void batchnorm_fp32_naive(void *ifmap, void *gamma, void *beta,
-                                         void *ofmap, uint32_t CI,
-                                         uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                        void *ofmap, uint32_t CI,
+                                        uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
@@ -34,36 +34,36 @@ static inline void batchnorm_fp32_naive(void *ifmap, void *gamma, void *beta,
 }
 
 static inline void batchnorm_fp32_baseline(void *ifmap, void *gamma, void *beta,
-                                            void *ofmap, uint32_t CI,
-                                            uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                           void *ofmap, uint32_t CI,
+                                           uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
-        #pragma clang loop unroll_count(4)
+#pragma clang loop unroll_count(4)
         for (uint32_t p = 0; p < n_pixels; p++)
             out[c * n_pixels + p] = in[c * n_pixels + p] * gc + bc;
     }
 }
 
 static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
-                                           void *ofmap, uint32_t CI,
-                                           uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                          void *ofmap, uint32_t CI,
+                                          uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
-        float *cin  = in  + c * n_pixels;
+        float *cin = in + c * n_pixels;
         float *cout = out + c * n_pixels;
 #ifdef FORCE_HW_LOOP
         int n_frep = n_pixels / 4 - 1;
@@ -83,10 +83,9 @@ static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
             "fsw     fa3, 12(%[out])          \n"
             "addi    %[in],  %[in],  16       \n"
             "addi    %[out], %[out], 16       \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+            : [ in ] "+r"(cin), [ out ] "+r"(cout)
+            : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
+            : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = n_pixels - 1;
         asm volatile(
@@ -96,10 +95,9 @@ static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
             "fsw     fa0,  0(%[out])          \n"
             "addi    %[in],  %[in],  4        \n"
             "addi    %[out], %[out], 4        \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "memory"
-        );
+            : [ in ] "+r"(cin), [ out ] "+r"(cout)
+            : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
+            : "fa0", "memory");
 #endif
     }
 }

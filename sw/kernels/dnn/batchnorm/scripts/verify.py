@@ -30,21 +30,21 @@ class BatchnormVerifier(Verifier):
             'ofmap_ptr': 'I',
             'dtype':    'I'
         }
-        self.layer    = self.get_input_from_symbol('layer', self.layer_struct)
-        self.CI       = self.layer['CI']
-        self.IH       = self.layer['IH']
-        self.IW       = self.layer['IW']
-        self.prec     = self.layer['dtype']
+        self.layer = self.get_input_from_symbol('layer', self.layer_struct)
+        self.CI = self.layer['CI']
+        self.IH = self.layer['IH']
+        self.IW = self.layer['IW']
+        self.prec = self.layer['dtype']
 
     def get_actual_results(self):
         return self.get_output_from_symbol('ofmap', ctype_from_precision_t(self.prec))
 
     def get_expected_results(self):
-        ctype    = ctype_from_precision_t(self.prec)
+        ctype = ctype_from_precision_t(self.prec)
         n_pixels = self.IH * self.IW
-        ifmap = torch.tensor(self.get_input_from_symbol('ifmap',  ctype).reshape(self.CI, n_pixels))
+        ifmap = torch.tensor(self.get_input_from_symbol('ifmap', ctype).reshape(self.CI, n_pixels))
         gamma = torch.tensor(self.get_input_from_symbol('gamma_', ctype))
-        beta  = torch.tensor(self.get_input_from_symbol('beta',   ctype))
+        beta = torch.tensor(self.get_input_from_symbol('beta', ctype))
         return BatchnormDataGen().golden_model(ifmap, gamma, beta).flatten()
 
     def check_results(self, *args):

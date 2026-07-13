@@ -173,7 +173,8 @@ def gen_experiments_registry():
                         continue
                     seen.add(key)
                     verify = MK_DIR / f"sw/kernels/dnn/{app}/scripts/verify.py"
-                    cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                    cmd = ([str(verify), sim_bin, "${elf}"] if verify.exists()
+                           else [sim_bin, "${elf}"])
                     experiments.append({
                         'app': app,
                         'hw': HW,
@@ -200,9 +201,9 @@ def results(dir=None, mode='debug'):
         dir = Path(__file__).parent
     df = ExperimentManager(gen_experiments(mode), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
-    df['ipc']    = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'),    axis=1)
+    df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['tstart'] = df.apply(lambda row: row['results'].get_metric(roi, 'tstart'), axis=1)
-    df['tend']   = df.apply(lambda row: row['results'].get_metric(roi, 'tend'),   axis=1)
+    df['tend'] = df.apply(lambda row: row['results'].get_metric(roi, 'tend'), axis=1)
     return df
 
 

@@ -6,6 +6,7 @@
 
 #include "math.h"
 #include "snrt.h"
+
 #include "../../eltwise/src/eltwise.h"
 #include "../../misc/exp/src/vexpf_fp32_schnizo.h"
 
@@ -22,8 +23,7 @@ typedef struct {
 
 // SiLU (Swish): y = x * sigmoid(x) = x / (1 + exp(-x))
 static inline void silu_fp32_naive(float *in, float *out, uint32_t size) {
-    for (uint32_t i = 0; i < size; i++)
-        out[i] = in[i] / (1.0f + expf(-in[i]));
+    for (uint32_t i = 0; i < size; i++) out[i] = in[i] / (1.0f + expf(-in[i]));
 }
 
 // Optimized SiLU using vectorized exp and eltwise kernels.
@@ -63,8 +63,7 @@ static inline void silu_fp32_schnizo(float *in, float *out, uint32_t size) {
             // clang-format on
             : [ src ] "+r"(src), [ dst ] "+r"(dst)
             : [ n ] "r"(n_frep), [ one ] "f"(one)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+            : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = size - 1;
         asm volatile(
@@ -78,8 +77,7 @@ static inline void silu_fp32_schnizo(float *in, float *out, uint32_t size) {
             // clang-format on
             : [ src ] "+r"(src), [ dst ] "+r"(dst)
             : [ n ] "r"(n_frep), [ one ] "f"(one)
-            : "fa0", "memory"
-        );
+            : "fa0", "memory");
 #endif
     }
 
@@ -96,10 +94,10 @@ static inline void silu_layer(silu_layer_t l) {
     uint32_t tile_size = l.size / l.n_tiles;
     uint32_t tile_bytes = tile_size * data_type_size;
 
-    char *local_in  = (char *)snrt_l1_next();
+    char *local_in = (char *)snrt_l1_next();
     char *local_out = local_in + tile_bytes;
 
-    char *remote_in  = (char *)l.ifmap;
+    char *remote_in = (char *)l.ifmap;
     char *remote_out = (char *)l.ofmap;
 
     for (uint32_t ct = 0; ct < n_tiles_per_cluster; ct++) {
@@ -115,12 +113,11 @@ static inline void silu_layer(silu_layer_t l) {
 
         if (snrt_is_compute_core()) {
             uint32_t num_cores = snrt_cluster_compute_core_num();
-            uint32_t core_idx  = snrt_cluster_core_idx();
-            uint32_t per_core  = tile_size / num_cores;
+            uint32_t core_idx = snrt_cluster_core_idx();
+            uint32_t per_core = tile_size / num_cores;
             snrt_mcycle();
-            l.funcptr((float *)local_in  + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core);
+            l.funcptr((float *)local_in + core_idx * per_core,
+                      (float *)local_out + core_idx * per_core, per_core);
             snrt_mcycle();
         }
 

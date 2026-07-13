@@ -84,7 +84,8 @@ def plot(dir=None, show=False, hide_x_axis=False):
     handles, labels = ax.get_legend_handles_labels()
     order = [2 * (i % n_bars) + (i // n_bars) for i in range(2 * n_bars)]
     ax.legend([handles[i] for i in order], [labels[i] for i in order],
-              ncol=2, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8, loc='upper left')
+              ncol=2, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8,
+              loc='upper left')
     ax.grid(True, axis='y')
     fig.tight_layout()
 
@@ -136,7 +137,8 @@ def plot_constants(dir=None, show=False, hide_x_axis=False):
     handles, labels = ax.get_legend_handles_labels()
     order = [2 * (i % n_bars) + (i // n_bars) for i in range(2 * n_bars)]
     ax.legend([handles[i] for i in order], [labels[i] for i in order],
-              ncol=2, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8, loc='upper left')
+              ncol=2, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8,
+              loc='upper left')
     ax.grid(True, axis='y')
     fig.tight_layout()
 

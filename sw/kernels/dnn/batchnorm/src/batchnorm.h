@@ -7,7 +7,7 @@
 #include "batchnorm_fp32.h"
 
 typedef void (*batchnorm_fp_t)(void *ifmap, void *gamma, void *beta,
-                                void *ofmap, uint32_t CI, uint32_t n_pixels);
+                               void *ofmap, uint32_t CI, uint32_t n_pixels);
 
 typedef struct {
     uint32_t CI;
@@ -59,20 +59,20 @@ static inline void batchnorm_fp64(double *ifmap, double *gamma, double *beta,
 }
 
 static inline void batchnorm_layer(batchnorm_layer_t l) {
-    uint32_t n_pixels       = l.IH * l.IW;
+    uint32_t n_pixels = l.IH * l.IW;
     uint32_t data_type_size = l.dtype;
-    uint32_t ifmap_size     = l.CI * n_pixels * data_type_size;
-    uint32_t weights_size   = l.CI * data_type_size;
+    uint32_t ifmap_size = l.CI * n_pixels * data_type_size;
+    uint32_t weights_size = l.CI * data_type_size;
 
     char *local_ifmap = (char *)snrt_l1_next();
     char *local_gamma = local_ifmap + ifmap_size;
-    char *local_beta  = local_gamma + weights_size;
-    char *local_ofmap = local_beta  + weights_size;
+    char *local_beta = local_gamma + weights_size;
+    char *local_ofmap = local_beta + weights_size;
 
     if (snrt_is_dm_core()) {
         snrt_dma_start_1d(local_ifmap, l.ifmap, ifmap_size);
         snrt_dma_start_1d(local_gamma, l.gamma, weights_size);
-        snrt_dma_start_1d(local_beta,  l.beta,  weights_size);
+        snrt_dma_start_1d(local_beta, l.beta, weights_size);
         snrt_dma_wait_all();
     }
 
@@ -80,7 +80,8 @@ static inline void batchnorm_layer(batchnorm_layer_t l) {
 
     if (snrt_is_compute_core()) {
         snrt_mcycle();
-        l.funcptr(local_ifmap, local_gamma, local_beta, local_ofmap, l.CI, n_pixels);
+        l.funcptr(local_ifmap, local_gamma, local_beta, local_ofmap, l.CI,
+                  n_pixels);
         snrt_mcycle();
     }
 

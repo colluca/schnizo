@@ -49,10 +49,10 @@ class NmsDataGen(du.DataGen):
     def validate(self, **kwargs):
         n = kwargs['num_boxes']
         prec = du.size_from_precision_t(kwargs['prec'])
-        boxes_bytes  = n * 4 * prec
+        boxes_bytes = n * 4 * prec
         scores_bytes = n * prec
-        keep_bytes   = n * 4  # uint32_t
-        idx_bytes    = n * 4  # sort buffer
+        keep_bytes = n * 4  # uint32_t
+        idx_bytes = n * 4  # sort buffer
         du.validate_tcdm_footprint(boxes_bytes + scores_bytes + keep_bytes + idx_bytes)
 
     def emit_header(self, **kwargs):
@@ -60,23 +60,23 @@ class NmsDataGen(du.DataGen):
 
         self.validate(**kwargs)
 
-        n             = kwargs['num_boxes']
+        n = kwargs['num_boxes']
         iou_threshold = kwargs['iou_threshold']
-        prec          = kwargs['prec']
+        prec = kwargs['prec']
 
         torch_type = du.torch_type_from_precision_t(prec)
-        ctype      = du.ctype_from_precision_t(prec)
+        ctype = du.ctype_from_precision_t(prec)
 
         # Generate random boxes (x1,y1,x2,y2) with x2>x1, y2>y1
         xy1 = torch.rand(n, 2, dtype=torch_type) * 100.0
-        wh  = torch.rand(n, 2, dtype=torch_type) * 50.0 + 1.0
+        wh = torch.rand(n, 2, dtype=torch_type) * 50.0 + 1.0
         boxes = torch.cat([xy1, xy1 + wh], dim=1)
         scores = torch.rand(n, dtype=torch_type)
         keep = self.golden_model(boxes, scores, iou_threshold)
 
-        boxes_uid  = 'boxes'
+        boxes_uid = 'boxes'
         scores_uid = 'scores'
-        keep_uid   = 'keep'
+        keep_uid = 'keep'
 
         layer_cfg = {
             'num_boxes':     n,
@@ -100,8 +100,8 @@ class NmsDataGen(du.DataGen):
         header += [du.format_array_definition(ctype, scores_uid,
                    du.flatten(scores), alignment=self.BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
-        result_def = du.format_array_definition('uint32_t', 'golden',
-                     du.flatten(keep), alignment=self.BURST_ALIGNMENT)
+        result_def = du.format_array_definition(
+            'uint32_t', 'golden', du.flatten(keep), alignment=self.BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

@@ -180,7 +180,8 @@ def gen_experiments(ci=False):
                 if cfg == HARDWARE_ALIASES['GP-L']:
                     for app in DNN_SIMPLE_APPS:
                         verify = MK_DIR / f"sw/kernels/dnn/{app}/scripts/verify.py"
-                        cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                        cmd = ([str(verify), sim_bin, "${elf}"] if verify.exists()
+                               else [sim_bin, "${elf}"])
                         experiments.append({
                             'app': app,
                             'hw': cfg,

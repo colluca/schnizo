@@ -16,6 +16,7 @@ METRIC_LABELS = {
     'ipc': 'IPC',
 }
 
+
 def app_label(app):
     return app.removeprefix('sz_').replace('xoshiro128p', 'xoshiro')
 
