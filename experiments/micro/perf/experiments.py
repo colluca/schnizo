@@ -87,9 +87,9 @@ def gen_experiments(ci=False):
     app_filter = None
 
     # Drop failing tests at 256 when running in CI
-    # Also drop tests at 512 and 4096, just for CI runtime
+    # In fact, only run tests at 1024 for faster CI runtimes
     if ci:
-        sizes = sizes[2:-1]
+        sizes = sizes[-3:-2]
 
     # Generate experiment list
     experiments = []
