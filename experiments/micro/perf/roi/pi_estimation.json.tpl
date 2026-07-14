@@ -4,7 +4,7 @@
 
 [
     {
-        "thread": "${f'hart_0'}",
+        "thread": "hart_0",
         "roi": [
             {"idx": 0, "label": "runtime"},
             {"idx": 1, "label": "start"},
