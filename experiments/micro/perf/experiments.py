@@ -30,6 +30,10 @@ APPLICATION_CLASS['GP'] = [app for classes in APPLICATION_CLASS.values() for app
 # Maps hw string to its target app class; absent keys accept all apps (GP)
 _HW_APP_CLASS = {HARDWARE_ALIASES[cls]: cls for cls in ['LA', 'MC', 'TR']}
 
+DNN_SIMPLE_APPS = ['relu', 'gelu', 'silu', 'layernorm', 'rms_norm', 'batchnorm', 'softmax']
+DNN_ELTWISE_OPS = ['ELTWISE_ADD', 'ELTWISE_MUL', 'ELTWISE_NEG', 'ELTWISE_DIV']
+DNN_APPS = DNN_SIMPLE_APPS + ['eltwise']
+
 
 class ExperimentManager(eu.ExperimentManager):
 
@@ -37,10 +41,14 @@ class ExperimentManager(eu.ExperimentManager):
         base_axes = eu.derive_axes_from_keys(experiment, keys=['app', 'mode', 'hw'])
         if experiment['app'] == 'pi_estimation':
             base_axes['app'] = f"{experiment['mc_app']}_{experiment['mc_prng']}"
+        if experiment['app'] == 'eltwise':
+            base_axes['app'] = experiment['op'].replace('ELTWISE_', '').lower()
         if experiment['app'] in ['sz_axpy', 'sz_dot', 'pi_estimation']:
             return {**base_axes, 'size': experiment['data_cfg']['n']}
         if experiment['app'] in ['exp', 'log']:
             return {**base_axes, 'size': experiment['data_cfg']['len']}
+        if experiment['app'] in DNN_APPS:
+            return {**base_axes, 'size': experiment['data_cfg']['size']}
         return base_axes
 
     def derive_hw_cfg(self, experiment):
@@ -62,6 +70,12 @@ class ExperimentManager(eu.ExperimentManager):
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         return cdefines
 
+    def derive_env(self, experiment):
+        env = super().derive_env(experiment)
+        if experiment['app'] in DNN_APPS:
+            env['SN_HW_FDIV'] = '1'
+        return env
+
 
 def gen_experiments(ci=False):
     # Define experiment axes
@@ -73,9 +87,9 @@ def gen_experiments(ci=False):
     app_filter = None
 
     # Drop failing tests at 256 when running in CI
-    # Also drop tests at 512 and 4096, just for CI runtime
+    # In fact, only run tests at 1024 for faster CI runtimes
     if ci:
-        sizes = sizes[2:-1]
+        sizes = sizes[-3:-2]
 
     # Generate experiment list
     experiments = []
@@ -163,6 +177,30 @@ def gen_experiments(ci=False):
                                 'cmd': [sim_bin, "${elf}"],
                                 'roi': Path("roi/pi_estimation.json.tpl")
                             })
+                if cfg == HARDWARE_ALIASES['GP-L']:
+                    for app in DNN_SIMPLE_APPS:
+                        verify = MK_DIR / f"sw/kernels/dnn/{app}/scripts/verify.py"
+                        cmd = ([str(verify), sim_bin, "${elf}"] if verify.exists()
+                               else [sim_bin, "${elf}"])
+                        experiments.append({
+                            'app': app,
+                            'hw': cfg,
+                            'mode': mode,
+                            'data_cfg': {'size': size},
+                            'cmd': cmd,
+                            'roi': Path("roi/dnn.json.tpl"),
+                        })
+                    for op in DNN_ELTWISE_OPS:
+                        verify = MK_DIR / "sw/kernels/dnn/eltwise/scripts/verify.py"
+                        experiments.append({
+                            'app': 'eltwise',
+                            'op': op,
+                            'hw': cfg,
+                            'mode': mode,
+                            'data_cfg': {'size': size, 'op': op},
+                            'cmd': [str(verify), sim_bin, "${elf}"],
+                            'roi': Path("roi/dnn.json.tpl"),
+                        })
 
     # Filter by apps
     if app_filter is not None:

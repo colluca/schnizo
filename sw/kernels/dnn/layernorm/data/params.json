@@ -4,12 +4,11 @@
 
 {
     input_dim: {
-        batch_size: 2,
-        seq_len: 64,
-        embeddings: 32
+        batch_size: 1,
+        seq_len: 1,
+        embeddings: 1024
     },
     eps: 1e-5,
-    prec: "FP32",
-    n_tiles: 2,
-    implementation: "OPT"
+    n_tiles: 1,
+    funcptr: "layernorm_fp32_schnizo"
 }

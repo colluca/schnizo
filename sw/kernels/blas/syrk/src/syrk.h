@@ -175,7 +175,7 @@ void syrk_opt(uint32_t m, uint32_t n, double alpha, double *a, double *at,
 #endif
 }
 
-void syrk_job(syrk_args_t *args) {
+void syrk_job(const syrk_args_t *args) {
     uint32_t m_frac, a_tile_size, a_tile_bytes, c_tile_size, c_tile_bytes;
     uint64_t local_a0_addr, local_at0_addr, local_c0_addr, local_a1_addr,
         local_at1_addr, local_c1_addr;
@@ -191,7 +191,7 @@ void syrk_job(syrk_args_t *args) {
 
     // Copy job arguments to TCDM
     if (snrt_is_dm_core()) {
-        snrt_dma_start_1d(local_args, args, sizeof(syrk_args_t));
+        snrt_dma_start_1d(local_args, (syrk_args_t *)args, sizeof(syrk_args_t));
         snrt_dma_wait_all();
     }
     snrt_cluster_hw_barrier();

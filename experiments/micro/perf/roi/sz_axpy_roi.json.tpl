@@ -9,10 +9,8 @@
         offset = 2 + n_tiles * 2
     %>
 
-    // Compute cores
-    % for j in range(8):
     {
-        "thread": "${f'hart_{j}'}",
+        "thread": "hart_0",
         // specify which perf.json region we are interested in.
         // For AXPY the perf regions are:
         // 0: from startup to axpy_job()
@@ -33,6 +31,5 @@
         "roi": [
             {"idx": ${offset + 2}, "label": "compute"},
         ]
-    },
-    % endfor
+    }
 ]

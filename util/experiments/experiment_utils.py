@@ -9,6 +9,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
+import json
 import json5
 import mako
 import pandas as pd
@@ -181,6 +182,7 @@ class ExperimentManager:
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
                 hw_cfg = self.derive_hw_cfg(experiment)
+                env = self.derive_env(experiment)
                 if 'sw' in self.callbacks:
                     func = self.callbacks['sw']
                 else:
@@ -191,7 +193,7 @@ class ExperimentManager:
                       colored(build_dir, 'cyan', attrs=['bold']))
                 process = func(
                     target=target, build_dir=build_dir, defines=defines,
-                    data_cfg=data_cfg, hw_cfg=hw_cfg, dry_run=dry_run,
+                    data_cfg=data_cfg, hw_cfg=hw_cfg, env=env, dry_run=dry_run,
                     # TODO(colluca): can't run in parallel if we're overriding the data_cfg since
                     # we would have a race condition on cfg/lru.json. This would be fixed by using
                     # SN_CFG instead of CFG_OVERRIDE, but this doesn't work atm (see above).
@@ -466,4 +468,31 @@ def derive_data_cfg_from_template(experiment, template_path=Path("cfg.json.tpl")
         f.write(cfg)
 
     # Return the path to the rendered configuration file
+    return cfg_path
+
+
+def derive_data_cfg_from_overrides(experiment, default_cfg_path,
+                                   overrides, root_cfg_dir=Path('data').absolute()):
+    """Derive a per-experiment data config by loading a default and applying overrides.
+
+    Loads the default params from default_cfg_path (json5), applies the
+    caller-supplied overrides dict, and writes the result as JSON to
+    root_cfg_dir / experiment['name'] / params.json.
+
+    Args:
+        experiment: Experiment dictionary.
+        default_cfg_path: Path to the default params file (json5 format).
+        overrides: Dict of fields to set/override in the loaded params.
+        root_cfg_dir: Root data configuration directory.
+
+    Returns:
+        Path to the written configuration file.
+    """
+    with open(default_cfg_path) as f:
+        params = json5.loads(f.read())
+    params.update(overrides)
+    cfg_path = root_cfg_dir / experiment['name'] / 'params.json'
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cfg_path, 'w') as f:
+        json.dump(params, f, indent=4)
     return cfg_path

@@ -81,7 +81,7 @@ def main():
     if args.bank_width % 8 != 0:
         raise ValueError("Bank width must be a multiple of 8 (to align with byte addressing).")
 
-    bank_index, offset = decode_bank_offset(
+    bank_index, offset, _ = decode_bank_offset(
         address=args.address,
         base_address=args.base_address,
         num_banks=args.num_banks,

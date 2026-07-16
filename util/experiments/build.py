@@ -60,8 +60,8 @@ def parser():
 
 
 # Build software target with a specific data configuration
-def build(target=None, build_dir=None, data_cfg=None, defines=None, hw_cfg=None, sync=True,
-          dry_run=False):
+def build(target=None, build_dir=None, data_cfg=None, defines=None, hw_cfg=None, env=None,
+          sync=True, dry_run=False):
     # Define variables for build system
     vars = {
         'DEBUG': 'ON',
@@ -75,7 +75,7 @@ def build(target=None, build_dir=None, data_cfg=None, defines=None, hw_cfg=None,
     if hw_cfg is not None:
         vars['CFG_OVERRIDE'] = hw_cfg
 
-    env = common.extend_environment(vars)
+    env = common.extend_environment(vars, env=env)
     return common.make(target, env=env, sync=sync, dry_run=dry_run)
 
 

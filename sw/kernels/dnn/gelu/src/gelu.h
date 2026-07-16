@@ -1,4 +1,4 @@
-// Copyright 2020 ETH Zurich and University of Bologna.
+// Copyright 2026 ETH Zurich and University of Bologna.
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -7,91 +7,62 @@
 #include "math.h"
 #include "snrt.h"
 
-/**
- * @struct gelu_layer_struct
- * @brief This structure contains all parameters necessary
- *        for computing the GELU activation function
- * @var gelu_layer_struct::size
- * Size of the feature map
- * @var gelu_layer_struct::ifmap
- * Pointer to input feature map
- * @var gelu_layer_struct::ofmap
- * Pointer to output feature map
- */
-typedef struct gelu_layer_struct {
+#include "gelu_fp32.h"
+
+typedef void (*gelu_fp_t)(float *in, float *out, uint32_t size);
+
+typedef struct {
     uint32_t size;
-    double *ifmap;
-    double *ofmap;
+    uint32_t n_tiles;
+    void *ifmap;
+    void *ofmap;
     precision_t dtype;
+    gelu_fp_t funcptr;
 } gelu_layer_t;
 
-// tanh based approximation of the GeLU activation function
-static inline double gelu_activation_fp64(double x) {
-    return 0.5 * x *
-           (1.0 + tanh(sqrt(2.0 / M_PI) * (x + 0.044715 * x * x * x)));
-}
+// Tiles the flat size axis across clusters.
+// Requires size % n_tiles == 0 and n_tiles % num_clusters == 0.
+static inline void gelu_layer(gelu_layer_t l) {
+    uint32_t data_type_size = l.dtype;
 
-// Sigmoid based approximation of the GeLU activation function
-// adapted from i-BERT (https://arxiv.org/pdf/2101.01321.pdf)
-static inline double sigmoid_gelu_fp64(double x, float a, float b) {
-    // L(x) = sgn(x) [a(clip(|x|, max = −b) + b)^2 + 1]
-    // a = -0.2888, b = -1.769
-    double sign = x > 0.0 ? 1.0 : -1.0;
-    // double arg = clip(fabs(x), -b);
-    double sqrt2_inv = 1 / 1.4142135623730951;
-    double x_scaled = sqrt2_inv * x;
-    double arg = fabs(x_scaled) > -b ? -b : fabs(x_scaled);
-    double l = sign * (a * arg * arg + 1.0);
-    return x * 0.5 * (1 + l);
-}
+    uint32_t n_tiles_per_cluster = l.n_tiles / snrt_cluster_num();
+    uint32_t tile_size = l.size / l.n_tiles;
+    uint32_t tile_bytes = tile_size * data_type_size;
 
-// Single-cluster GeLU
-static inline void gelu_fp64(double *input, double *output, uint32_t size) {
-    if (snrt_is_compute_core()) {
-        for (uint32_t i = 0; i < size; i++) {
+    char *local_in = (char *)snrt_l1_next();
+    char *local_out = local_in + tile_bytes;
+
+    char *remote_in = (char *)l.ifmap;
+    char *remote_out = (char *)l.ofmap;
+
+    for (uint32_t ct = 0; ct < n_tiles_per_cluster; ct++) {
+        uint32_t tile_idx = snrt_cluster_idx() * n_tiles_per_cluster + ct;
+        uint32_t byte_offset = tile_idx * tile_bytes;
+
+        if (snrt_is_dm_core()) {
+            snrt_dma_start_1d(local_in, remote_in + byte_offset, tile_bytes);
+            snrt_dma_wait_all();
+        }
+
+        snrt_cluster_hw_barrier();
+
+        if (snrt_is_compute_core()) {
+            uint32_t num_cores = snrt_cluster_compute_core_num();
+            uint32_t core_idx = snrt_cluster_core_idx();
+            uint32_t per_core = tile_size / num_cores;
             snrt_mcycle();
-            // output[i] = sigmoid_gelu_fp64(input[i], -0.2888, -1.769);
-            output[i] = gelu_activation_fp64(input[i]);
+            l.funcptr((float *)local_in + core_idx * per_core,
+                      (float *)local_out + core_idx * per_core, per_core);
+            snrt_mcycle();
+        }
+
+        snrt_cluster_hw_barrier();
+
+        if (snrt_is_dm_core()) {
+            snrt_dma_start_1d(remote_out + byte_offset, local_out, tile_bytes);
+            snrt_dma_wait_all();
         }
     }
-}
 
-// Parallel GeLU layer with DMA transfers
-static inline void gelu_layer(const gelu_layer_t l) {
-    // Parallelize the computation over clusters
-    uint32_t cluster_fmap_size = l.size / snrt_cluster_num();
-    uint32_t cluster_fmap_bytes = cluster_fmap_size * sizeof(double);
-
-    // Allocate memory in TCDM
-    double *ptr = (double *)snrt_l1_next();
-    double *l1_ifmap = ptr;
-    ptr += cluster_fmap_size;
-    double *l1_ofmap = ptr;
-    ptr += cluster_fmap_size;
-
-    // Get pointer to feature maps in L3
-    uint32_t cluster_offset = cluster_fmap_size * snrt_cluster_idx();
-    double *l3_ifmap = l.ifmap + cluster_offset;
-    double *l3_ofmap = l.ofmap + cluster_offset;
-
-    // DMA transfer the ifmap into the cluster TCDM
-    if (snrt_is_dm_core()) {
-        snrt_dma_start_1d(l1_ifmap, l3_ifmap, cluster_fmap_bytes);
-        snrt_dma_wait_all();
-    }
-
-    snrt_cluster_hw_barrier();
-
-    // Cluster computation
-    gelu_fp64(l1_ifmap, l1_ofmap, cluster_fmap_size);
-
-    snrt_cluster_hw_barrier();
-
-    // DMA transfer the ofmap to DRAM
-    if (snrt_is_dm_core()) {
-        snrt_dma_start_1d(l3_ofmap, l1_ofmap, cluster_fmap_bytes);
-        snrt_dma_wait_all();
-    }
-
-    snrt_cluster_hw_barrier();
+    snrt_global_barrier();
 }

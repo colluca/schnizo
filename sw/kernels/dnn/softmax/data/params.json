@@ -4,10 +4,10 @@
 
 {
     input_dim: {
-        batch_size: 3,
-        seq_len: 16,
-        input_samples: 4
+        batch_size: 1,
+        seq_len: 1,
+        input_samples: 1024
     },
     reduce_dim: -1,
-    prec: "FP32"
+    funcptr: "softmax_fp32_schnizo"
 }

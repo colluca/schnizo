@@ -1,0 +1,13 @@
+/build
+/data
+/power
+/results
+/runs
+/pls
+/power.yaml
+/hw
+/results.csv
+/power.csv
+/area
+results_*
+layers.csv

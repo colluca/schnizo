@@ -1,128 +1,112 @@
 #!/usr/bin/env python3
-# Copyright 2023 ETH Zurich and University of Bologna.
+# Copyright 2026 ETH Zurich and University of Bologna.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Tim Fischer <fischeti@iis.ee.ethz.ch>
-# Viviane Potocnik <vivianep@iis.ee.ethz.ch>
 # Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-import argparse
-import pathlib
-import json5
+import re
+import sys
 import torch
 
-from snitch.util.sim import data_utils
-from snitch.util.sim.data_utils import emit_license, format_struct_definition, \
-    format_array_definition, format_array_declaration, format_ifdef_wrapper
+import snitch.util.sim.data_utils as du
 
 torch.manual_seed(42)
 
-# AXI splits bursts crossing 4KB address boundaries. To minimize
-# the occurrence of these splits the data should be aligned to 4KB
 BURST_ALIGNMENT = 4096
 
 
-def golden_model(ifmap):
-    n, ci, ih, iw = ifmap.shape
-    bn = torch.nn.BatchNorm2d(ci)
-    bn.weight.requires_grad = False
-    bn.bias.requires_grad = False
-    running_mean = torch.randn_like(bn.running_mean, requires_grad=False)
-    running_var = torch.rand_like(bn.running_var, requires_grad=False)
-    gamma = bn.weight / torch.sqrt(running_var + bn.eps)
-    beta = bn.bias - running_mean * bn.weight / torch.sqrt(running_var + bn.eps)
-    ofmap = ifmap * gamma.unsqueeze(-1).unsqueeze(-1) + beta.unsqueeze(-1).unsqueeze(-1)
-    return ofmap, gamma, beta
+class BatchnormDataGen(du.DataGen):
 
+    def golden_model(self, ifmap, gamma, beta):
+        # ifmap: [CI, n_pixels], gamma/beta: [CI]
+        # Kernel computes y = gamma * x + beta (affine-only, pre-normalized input).
+        # Equivalent to batch_norm with running_mean=0, running_var=1, eps=0.
+        CI = ifmap.shape[0]
+        return torch.nn.functional.batch_norm(
+            ifmap.unsqueeze(0),
+            running_mean=torch.zeros(CI, dtype=ifmap.dtype),
+            running_var=torch.ones(CI, dtype=ifmap.dtype),
+            weight=gamma,
+            bias=beta,
+            training=False,
+            eps=0
+        ).squeeze(0)
 
-def emit_header(**kwargs):
+    def infer_prec(self, funcptr):
+        bits = re.search(r'fp(\d+)', funcptr).group(1)
+        return f'FP{bits}'
 
-    in_channels = kwargs['input_dim']['channels']
-    in_height = kwargs['input_dim']['height']
-    in_width = kwargs['input_dim']['width']
-    tile_ci = kwargs['tile_ci']
-    prec = str(kwargs['prec'])
+    def validate(self, **kwargs):
+        CI = kwargs['CI']
+        IH = kwargs['IH']
+        IW = kwargs['IW']
+        prec_bytes = du.size_from_precision_t(self.infer_prec(kwargs['funcptr']))
+        n_pixels = IH * IW
+        du.validate_tcdm_footprint(2 * CI * n_pixels * prec_bytes + 2 * CI * prec_bytes)
 
-    torch_type = data_utils.torch_type_from_precision_t(prec)
-    ctype = data_utils.ctype_from_precision_t(prec)
+    def emit_header(self, **kwargs):
+        header = [super().emit_header()]
 
-    ifmap = torch.randn(1, in_channels, in_height, in_width, requires_grad=False, dtype=torch_type)
-    ofmap, gamma, beta = golden_model(ifmap)
+        self.validate(**kwargs)
 
-    # convert from CHW to HWC format
-    ifmap = ifmap.permute(0, 2, 3, 1)
-    ofmap = ofmap.permute(0, 2, 3, 1)
+        CI = kwargs['CI']
+        IH = kwargs['IH']
+        IW = kwargs['IW']
+        funcptr = kwargs['funcptr']
+        prec = self.infer_prec(funcptr)
+        n_pixels = IH * IW
 
-    n, ih, iw, ci = ifmap.shape
-    ifmap = data_utils.flatten(ifmap)
-    ofmap = data_utils.flatten(ofmap)
+        ctype = du.ctype_from_precision_t(prec)
+        torch_type = du.torch_type_from_precision_t(prec)
 
-    ifmap_uid = 'ifmap'
-    ofmap_uid = 'ofmap'
-    beta_uid = 'beta'
-    # Underscore is used to disambiguate between this and the gamma function from "math.h"
-    gamma_uid = 'gamma_'
+        ifmap = torch.randn(CI, n_pixels, dtype=torch_type)
+        gamma = torch.randn(CI, dtype=torch_type)
+        beta = torch.randn(CI, dtype=torch_type)
+        ofmap = self.golden_model(ifmap, gamma, beta).detach()
 
-    layer_cfg = {
-        'CI': ci,
-        'IH': ih,
-        'IW': iw,
-        'TILE_CI': tile_ci,
-        'ifmap': ifmap_uid,
-        'ofmap': ofmap_uid,
-        'beta': beta_uid,
-        'gamma': gamma_uid
-    }
+        ifmap_uid = 'ifmap'
+        ofmap_uid = 'ofmap'
+        gamma_uid = 'gamma_'
+        beta_uid = 'beta'
 
-    data_str = [emit_license()]
-    # Array forward declarations
-    data_str += [format_array_declaration(f'extern {ctype}', ifmap_uid, ifmap.shape)]
-    data_str += [format_array_declaration(f'extern {ctype}', beta_uid, beta.shape)]
-    data_str += [format_array_declaration(f'extern {ctype}', gamma_uid, gamma.shape)]
-    data_str += [format_array_declaration(ctype, ofmap_uid, ofmap.shape)]
-    # Layer struct
-    data_str += [format_struct_definition('batchnorm_layer_t', 'layer', layer_cfg)]
-    # Array definitions
-    data_str += [format_array_definition(ctype, ifmap_uid, ifmap)]
-    data_str += [format_array_definition(ctype, beta_uid, beta)]
-    data_str += [format_array_definition(ctype, gamma_uid, gamma)]
-    # Golden results for BIST
-    result_def = format_array_definition(ctype, 'golden', ofmap)
-    data_str += [format_ifdef_wrapper('BIST', result_def)]
-    data_str = '\n\n'.join(data_str)
+        layer_cfg = {
+            'CI':      CI,
+            'IH':      IH,
+            'IW':      IW,
+            'funcptr': funcptr,
+            'ifmap':   ifmap_uid,
+            'gamma':   gamma_uid,
+            'beta':    beta_uid,
+            'ofmap':   ofmap_uid,
+            'dtype':   prec,
+        }
 
-    return data_str
+        header += [du.format_array_declaration(f'extern {ctype}', ifmap_uid,
+                   ifmap.shape, alignment=BURST_ALIGNMENT)]
+        header += [du.format_array_declaration(ctype, ofmap_uid,
+                   ofmap.shape, alignment=BURST_ALIGNMENT)]
+        header += [du.format_array_declaration(f'extern {ctype}', gamma_uid,
+                   gamma.shape, alignment=BURST_ALIGNMENT)]
+        header += [du.format_array_declaration(f'extern {ctype}', beta_uid,
+                   beta.shape, alignment=BURST_ALIGNMENT)]
+        header += [du.format_struct_definition('extern const batchnorm_layer_t',
+                   'layer', layer_cfg)]
+        header += [du.format_array_definition(ctype, ifmap_uid,
+                   ifmap, alignment=BURST_ALIGNMENT,
+                   section=kwargs.get('section'))]
+        header += [du.format_array_definition(ctype, gamma_uid,
+                   gamma, alignment=BURST_ALIGNMENT,
+                   section=kwargs.get('section'))]
+        header += [du.format_array_definition(ctype, beta_uid,
+                   beta, alignment=BURST_ALIGNMENT,
+                   section=kwargs.get('section'))]
+        result_def = du.format_array_definition(
+            ctype, 'golden', du.flatten(ofmap), alignment=BURST_ALIGNMENT)
+        header += [du.format_ifdef_wrapper('BIST', result_def)]
 
-
-def main():
-
-    parser = argparse.ArgumentParser(description='Generate data for layernorm kernel')
-    parser.add_argument(
-        "-c", "--cfg",
-        type=pathlib.Path,
-        required=True,
-        help='Select param config file kernel'
-    )
-    parser.add_argument(
-        '--section',
-        type=str,
-        help='Section to store matrices in')
-    parser.add_argument(
-        'output',
-        type=pathlib.Path,
-        help='Path of the output header file')
-    args = parser.parse_args()
-
-    # Load param config file
-    with args.cfg.open() as f:
-        param = json5.loads(f.read())
-    param['section'] = args.section
-
-    # Emit header file
-    with open(args.output, 'w') as f:
-        f.write(emit_header(**param))
+        return '\n\n'.join(header)
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(BatchnormDataGen().main())
