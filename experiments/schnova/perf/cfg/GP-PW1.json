@@ -81,13 +81,6 @@
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
-                    { $ref: "#/compute_core_template" },
                     { $ref: "#/dma_core_template" },
                 ]
             }
@@ -123,19 +116,19 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 1,
-        num_alu_slots: 32,
-        num_alu_buf_slots: 128,
+        num_alu_slots: 1,
+        num_alu_buf_slots: 4,
         num_lsus: 1,
-        num_lsu_slots: 32,
-        num_lsu_buf_slots: 128,
+        num_lsu_slots: 1,
+        num_lsu_buf_slots: 2,
         num_fpus: 1,
-        num_fpu_slots: 32,
-        num_fpu_buf_slots: 128,
+        num_fpu_slots: 1,
+        num_fpu_buf_slots: 6,
         use_freelist: false,
         // Number of physical general purpose registers
-        num_phy_gpr: 128,
+        num_phy_gpr: 38,
         // Number of physical floating point registers
-        num_phy_fpr: 128,
+        num_phy_fpr: 38,
         num_rob_entries: 1,
     },
     dma_core_template: {

@@ -42,7 +42,7 @@ def results(dir=None):
     df['StdCellArea'] = df['synth_results'].str['qor_summary'].str['StdCellArea']
     df['StdCellArea'] = df['StdCellArea'].map(to_kge).round(0).astype('int')
     # ---- Add AreaIncrease column ----
-    baseline = 106
+    baseline = 128
 
     df['AreaIncrease'] = (
         df['StdCellArea'] / baseline

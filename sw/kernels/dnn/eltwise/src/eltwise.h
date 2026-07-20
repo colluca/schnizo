@@ -431,8 +431,6 @@ static inline void eltwise_div_fp32_schnova(float *a, float *b, float *out,
         "nop                                \n"
         "nop                                \n"
         "nop                                \n"
-        "nop                                \n"
-        "nop                                \n"
         FREP  " %[n], 7, 0, 0               \n"
         "flw    fa0,  0(%[a])               \n"
         "flw    fa1,  0(%[b])               \n"

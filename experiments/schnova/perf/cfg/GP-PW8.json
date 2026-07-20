@@ -116,19 +116,19 @@
         num_int_outstanding_mem: 4,
         // Superscalar configuration
         num_alus: 3,
-        num_alu_slots: 128,
-        num_alu_buf_slots: 128,
+        num_alu_slots: 1,
+        num_alu_buf_slots: 16,
         num_lsus: 3,
-        num_lsu_slots: 128,
-        num_lsu_buf_slots: 128,
+        num_lsu_slots: 8,
+        num_lsu_buf_slots: 8,
         num_fpus: 1,
-        num_fpu_slots: 128,
-        num_fpu_buf_slots: 128,
+        num_fpu_slots: 1,
+        num_fpu_buf_slots: 28,
         use_freelist: false,
         // Number of physical general purpose registers
-        num_phy_gpr: 128,
+        num_phy_gpr: 52,
         // Number of physical floating point registers
-        num_phy_fpr: 128,
+        num_phy_fpr: 54,
         num_rob_entries: 1,
     },
     dma_core_template: {

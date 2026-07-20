@@ -32,10 +32,36 @@ METRIC_LABELS = {
 }
 
 APP_LABELS = {
-    'sz_axpy': 'AXPY',
-    'sz_dot': 'DOT',
-    'exp': 'EXP',
-    'log': 'LOG',
+    'sz_axpy': 'axpy',
+    'sz_dot': 'dot',
+    'exp': 'exp',
+    'log': 'log',
+}
+
+SCHNIZO_HW = '3x32_3x32_1x64'
+SCHNOVA_ZOL_HW = 'schnova_zol'
+
+SCHNOVA_PIPELINE_CONFIGS = {
+    'GP-PW1': {
+        'label': 'Schnova FW1',
+        'cfg': model.SCHNOVA_S,
+        'pipe_width': 1,
+    },
+    'GP-PW2': {
+        'label': 'Schnova FW2',
+        'cfg': model.SCHNOVA_M,
+        'pipe_width': 2,
+    },
+    'GP-PW4': {
+        'label': 'Schnova FW4',
+        'cfg': model.SCHNOVA_XL,
+        'pipe_width': 4,
+    },
+    'GP-PW8': {
+        'label': 'Schnova FW8',
+        'cfg': model.SCHNOVA_XL,
+        'pipe_width': 8,
+    },
 }
 
 
@@ -48,105 +74,309 @@ def format_metric(val, metric):
         raise ValueError(f'Unsupported metric {metric}')
 
 
-def fit_inverse_function(n_vals, y_vals, x_lim):
-    """Fit a function of the form y = (a * n) / (b * n + c)"""
-    # Linearize the model to use least squares
-    # 1/y = (b/a) + (c/a) * (1/n)
-    # with inv_y = 1/y and inv_n = 1/n, model becomes inv_y = k0 + k1 * inv_n
-    inv_y = 1.0 / y_vals
-    inv_n = 1.0 / n_vals
-    A = np.column_stack([np.ones_like(inv_n), inv_n])
-    params, _, _, _ = np.linalg.lstsq(A, inv_y, rcond=None)
-    k0, k1 = params  # k0=b/a, k1=c/a
-    a = 1.0  # this parameter could be simplified away
-    b = k0
-    c = k1
-    n_fit = np.linspace(n_vals.min(), x_lim, 200)
-    return n_fit, (a * n_fit) / (b * n_fit + c), a, b, c
+def _largest_size_pivot(plot_data, metric):
+    """Keep the largest input size per application/config and pivot for plotting."""
+    if plot_data.empty:
+        raise ValueError('No rows match the requested plot configurations.')
+
+    idx_max_size = plot_data.groupby(['app', 'config'])['size'].idxmax()
+    return plot_data.loc[idx_max_size].pivot(
+        index='app', columns='config', values=metric
+    )
 
 
-def superscalar_comparison_plot(df, metric='fpu_util', show=True):
-    """ Compare Schnizo (Scalar/Superscalar) vs. Schnova Core """
+def _print_plot_geomeans(plot_df, metric):
+    """Print a geometric mean for every displayed configuration."""
+    print(f"\n--- Geomean {metric} Performance ---")
+    for config in plot_df.columns:
+        values = plot_df[config].dropna()
+        values = values[values > 0]
+        if values.empty:
+            print(f"{config:22}: N/A")
+        else:
+            print(f"{config:22}: {format_metric(gmean(values), metric)}")
 
-    # Define the configs that are used for the comparison
-    schnizo_cfg = '3x32_3x32_1x64'
-    schnova_cfgs = ['GP-PW8',
-                    'GP-PW8',
-                    'GP-PW8',
-                    'GP-PW8',]
 
-    schnizo_df = (df['hw'] == schnizo_cfg)
-    schnova_df = (df['hw'].isin(schnova_cfgs)) & (df['mode'] == 'superscalar')
-    plot_df = df[schnizo_df | schnova_df].copy()
+def _add_ideal_ipc_lines(ax, plot_df, ideal_models):
+    """
+    Add per-bar ideal IPC markers using the model assigned to each config.
 
-    def identify_config(row):
-        if row['hw'] == schnizo_cfg:
-            return f"Schnizo {row['mode'].capitalize()}"
-        width = row['hw'].split('-')[1]
-        return f"Schnova {width}"
+    Optional ideal-model fields:
+        line_color: marker color
+        ideal_label: legend label
+    """
+    for container, config in zip(ax.containers, plot_df.columns):
+        ideal_model = ideal_models.get(config)
+        if ideal_model is None:
+            continue
 
-    plot_df['config'] = plot_df.apply(identify_config, axis=1)
+        theoretical_data = model.theoretical_metrics(
+            cfg=ideal_model['cfg'],
+            pipe_width=ideal_model.get('pipe_width'),
+        )['ipc']['superscalar']
 
-    idx_max_size = plot_df.groupby(['app', 'config'])['size'].idxmax()
-    plot_df = plot_df.loc[idx_max_size].pivot(index='app', columns='config', values=metric)
+        line_color = ideal_model.get('line_color', 'tab:red')
+        ideal_label = ideal_model.get('ideal_label', 'Ideal IPC')
+        label_used = False
 
-    ordered_cols = [
-        'Schnizo Scalar', 'Schnizo Superscalar',
-        'Schnova PW1', 'Schnova PW2', 'Schnova PW4', 'Schnova PW8'
-    ]
-    plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
-
-    fig, ax = plt.subplots(figsize=(14, 7))
-    plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.85)
-
-    # Add Ideal IPC lines (using Schnizo XL theoreticals for all superscalar)
-    if metric == 'ipc':
-        labeled = False
-        theoretical_data = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']
-
-        for i, col_name in enumerate(plot_df.columns):
-            if 'Scalar' in col_name:
+        for bar, app in zip(container, plot_df.index):
+            ideal = theoretical_data.get(app)
+            if ideal is None or np.isnan(bar.get_height()):
                 continue
 
-            container = ax.containers[i]
-            for bar, app in zip(container, plot_df.index):
-                if app in theoretical_data:
-                    ideal = theoretical_data[app]
-                    ax.plot([bar.get_x(), bar.get_x() + bar.get_width()],
-                            [ideal, ideal],
-                            color='tab:red', linewidth=2.0, zorder=5,
-                            label='Ideal IPC' if not labeled else '')
-                    labeled = True
+            ax.plot(
+                [bar.get_x(), bar.get_x() + bar.get_width()],
+                [ideal, ideal],
+                color=line_color,
+                linewidth=2.2,
+                zorder=5,
+                label=ideal_label if not label_used else None,
+            )
+            label_used = True
 
+
+def _finish_bar_plot(
+    fig,
+    ax,
+    plot_df,
+    metric,
+    filename,
+    show,
+):
+    """Apply common formatting, save the plot, and print geomeans."""
     ax.axhline(y=1, color='black', linewidth=0.8, zorder=2.5)
     ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
     ax.set_xlabel('')
 
-    clean_labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
+    clean_labels = [
+        APP_LABELS.get(app, app.replace('xoshiro128p', 'xoshiro'))
+        for app in plot_df.index
+    ]
     ax.set_xticklabels(clean_labels, rotation=15, ha='right')
 
-    ax.legend(title="Core Architecture", loc='upper left', bbox_to_anchor=(1, 1))
+    ax.legend(
+        loc='upper right',
+        ncol=2,
+        columnspacing=1.0,
+        handletextpad=0.5,
+    )
     ax.grid(True, axis='y', color='gray', linewidth=0.5, alpha=1.0)
 
     if metric == 'ipc':
-        ax.set_ylim(bottom=0, top=max(plot_df.max().max() * 1.15, 8.5))
+        measured_max = plot_df.max().max()
+        ax.set_ylim(bottom=0, top=max(measured_max * 1.15, 8.5))
     elif metric == 'fpu_util':
         ax.set_ylim(bottom=0, top=1.3)
 
     fig.tight_layout()
-
-    print(f"\n--- Geomean {metric} Performance ---")
-    for col in plot_df.columns:
-        gm = gmean(plot_df[col].dropna())
-        print(f"{col:18}: {format_metric(gm, metric)}")
+    fig.savefig(filename, dpi=300, bbox_inches='tight')
+    _print_plot_geomeans(plot_df, metric)
 
     if show:
         plt.show()
+    else:
+        plt.close(fig)
 
-    plt.savefig("test.png")
 
+def architecture_comparison_plot(
+    df,
+    metric='ipc',
+    show=True,
+    filename='architecture_comparison.png',
+):
+    """
+    Compare Schnova ZOL, Schnizo scalar/superscalar, and Schnova PW8.
+
+    Ideal IPC markers are shown for the superscalar configurations. Schnova
+    PW8 uses SCHNOVA_XL with an explicit pipeline width of eight.
+    """
+    schnizo_mask = df['hw'].eq(SCHNIZO_HW)
+    schnova_pw8_mask = df['hw'].eq('GP-PW8') & df['mode'].eq('superscalar')
+    schnova_zol_mask = df['hw'].eq(SCHNOVA_ZOL_HW)
+
+    plot_data = df[
+        schnizo_mask | schnova_pw8_mask | schnova_zol_mask
+    ].copy()
+
+    def identify_config(row):
+        if row['hw'] == SCHNOVA_ZOL_HW:
+            return 'Schnova Scalar'
+        if row['hw'] == SCHNIZO_HW:
+            return 'Schnizo GP-L' if row['mode'] == 'superscalar' else 'Schnizo Scalar'
+        return 'Schnova Superscalar'
+
+    plot_data['config'] = plot_data.apply(identify_config, axis=1)
+    plot_df = _largest_size_pivot(plot_data, metric)
+
+    ordered_cols = [
+        'Schnova Scalar',
+        'Schnova Superscalar',
+        'Schnizo GP-L',
+    ]
+    plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
+
+    # Match the fetch-width plot style: light measured bars and darker
+    # ideal-IPC markers from the same color family.
+    color_pairs = {
+        # Use the same first three color pairs as the fetch-width plot.
+        'Schnova Scalar': {
+            'bar': '#a8ddb5',
+            'line': '#006d2c',
+        },
+        'Schnova Superscalar': {
+            'bar': '#9ecae1',
+            'line': '#08519c',
+        },
+        'Schnizo GP-L': {
+            'bar': '#fdd0a2',
+            'line': '#a63603',
+        },
+    }
+
+    bar_colors = [
+        color_pairs[config]['bar']
+        for config in plot_df.columns
+    ]
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    plot_df.plot(
+        kind='bar',
+        ax=ax,
+        zorder=3,
+        width=0.85,
+        color=bar_colors,
+        edgecolor='black',
+        linewidth=0.35,
+    )
+
+    if metric == 'ipc':
+        _add_ideal_ipc_lines(
+            ax,
+            plot_df,
+            {
+                'Schnizo GP-L': {
+                    'cfg': model.SCHNOVA_XL,
+                    'pipe_width': None,
+                    'line_color': color_pairs['Schnizo GP-L']['line'],
+                    'ideal_label': 'Ideal Schnizo GP-L',
+                },
+                'Schnova Superscalar': {
+                    'cfg': model.SCHNOVA_XL,
+                    'pipe_width': 8,
+                    'line_color': color_pairs['Schnova Superscalar']['line'],
+                    'ideal_label': 'Ideal Schnova FW8',
+                },
+            },
+        )
+
+    _finish_bar_plot(
+        fig,
+        ax,
+        plot_df,
+        metric,
+        filename,
+        show,
+    )
     return plot_df
 
+
+def fetch_width_comparison_plot(
+    df,
+    metric='ipc',
+    show=True,
+    filename='fetch_width_comparison.png',
+):
+    """Compare Schnova FW1, FW2, FW4, and FW8."""
+    plot_data = df[
+        df['hw'].isin(SCHNOVA_PIPELINE_CONFIGS)
+        & df['mode'].eq('superscalar')
+    ].copy()
+
+    plot_data['config'] = plot_data['hw'].map(
+        {
+            hw: properties['label']
+            for hw, properties in SCHNOVA_PIPELINE_CONFIGS.items()
+        }
+    )
+
+    plot_df = _largest_size_pivot(plot_data, metric)
+    ordered_cols = [
+        'Schnova FW1',
+        'Schnova FW2',
+        'Schnova FW4',
+        'Schnova FW8',
+    ]
+    plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
+
+    color_pairs = {
+        'Schnova FW1': {'bar': '#a8ddb5', 'line': '#006d2c'},
+        'Schnova FW2': {'bar': '#9ecae1', 'line': '#08519c'},
+        'Schnova FW4': {'bar': '#fdd0a2', 'line': '#a63603'},
+        'Schnova FW8': {'bar': '#dadaeb', 'line': '#54278f'},
+    }
+
+    bar_colors = [
+        color_pairs[config]['bar']
+        for config in plot_df.columns
+    ]
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    plot_df.plot(
+        kind='bar',
+        ax=ax,
+        zorder=3,
+        width=0.85,
+        color=bar_colors,
+        edgecolor='black',
+        linewidth=0.35,
+    )
+
+    if metric == 'ipc':
+        ideal_models = {
+            properties['label']: {
+                'cfg': properties['cfg'],
+                'pipe_width': properties['pipe_width'],
+                'line_color': color_pairs[properties['label']]['line'],
+                'ideal_label': f"Ideal {properties['label'].split()[-1]}",
+            }
+            for properties in SCHNOVA_PIPELINE_CONFIGS.values()
+        }
+        _add_ideal_ipc_lines(ax, plot_df, ideal_models)
+
+    _finish_bar_plot(
+        fig,
+        ax,
+        plot_df,
+        metric,
+        filename,
+        show,
+    )
+    return plot_df
+
+
+def pipeline_width_comparison_plot(
+    df,
+    metric='ipc',
+    show=True,
+    filename='fetch_width_comparison.png',
+):
+    """Backward-compatible alias."""
+    return fetch_width_comparison_plot(
+        df,
+        metric=metric,
+        show=show,
+        filename=filename,
+    )
+
+
+def superscalar_comparison_plot(df, metric='fpu_util', show=True):
+    """Backward-compatible alias for the focused architecture comparison."""
+    return architecture_comparison_plot(
+        df,
+        metric=metric,
+        show=show,
+        filename=f'architecture_comparison_{metric}.png',
+    )
 
 def print_all_geomeans(df, metric='fpu_util'):
     """
@@ -434,7 +664,7 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
     # you can uncomment this block and replace 'your_cfg_name' with your actual hardware config.
     if metric == 'ipc':
         labeled = False
-        theoretical_data = model.theoretical_metrics(cfg=model.SCHNIZO_XL)['ipc']['superscalar']
+        theoretical_data = model.theoretical_metrics(cfg=model.SCHNOVA_XL)['ipc']['superscalar']
 
         for i, col_name in enumerate(plot_df.columns):
             container = ax.containers[i]
@@ -487,7 +717,31 @@ def plot1(show=True, dir=None):
 
 def plot2(show=True, dir=None):
     df = experiments.results(dir=dir)
-    return superscalar_comparison_plot(df, 'ipc', show=show)
+    return architecture_comparison_plot(
+        df, 'ipc', show=show, filename='architecture_comparison_ipc.png'
+    )
+
+
+def plot7(show=True, dir=None):
+    """Fetch-width comparison for IPC."""
+    df = experiments.results(dir=dir)
+    return fetch_width_comparison_plot(
+        df,
+        metric='ipc',
+        show=show,
+        filename='fetch_width_comparison_ipc.png',
+    )
+
+
+def plot8(show=True, dir=None):
+    """Fetch-width comparison for FPU utilization."""
+    df = experiments.results(dir=dir)
+    return fetch_width_comparison_plot(
+        df,
+        metric='fpu_util',
+        show=show,
+        filename='fetch_width_comparison_fpu_util.png',
+    )
 
 
 def plot3(show=True, dir=None, width=1, vary_by='slots', use_rob=False, use_bal=False,metric='ipc'):
@@ -508,9 +762,9 @@ def plot4(width=1):
     elif width == 2:
         print_geomean_ipc("Schnova SV2", model.SCHNOVA_M, True, None, width)
     elif width == 4:
-        print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
+        print_geomean_ipc("Schnova SV4", model.SCHNOVA_XL, False, None, width)
     elif width == 8:
-        print_geomean_ipc("Schnova SV1", model.SCHNIZO_XL, False, None, width)
+        print_geomean_ipc("Schnova SV8", model.SCHNOVA_XL, False, None, width)
 
 
 def plot5(show=True, dir=None):
@@ -526,7 +780,7 @@ def plot6(dir=None):
 def main():
     """Load results from CSV and generate plots"""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot7, plot8]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
