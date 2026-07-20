@@ -5,13 +5,12 @@
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
 
-// The dispatcher module.
+// The reservation station dispatcher module.
 //
 // Accesses the RMT to augment the dispatch requests with the relevant data and routes the
 // dispatch requests to the different functional units. It selects the FU type based on the
 // decoded instruction. If more than one FU of the same type is available, it further selects the
 // specific FU of that type to dispatch the instruction to.
-// It itself instantiates the RMT and updates it based on the dispatch and write back information.
 module schnova_rs_dispatcher import schnova_pkg::*; #(
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.

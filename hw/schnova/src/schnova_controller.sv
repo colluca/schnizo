@@ -6,9 +6,9 @@
 
 // The Schnova controller.
 //
-// The controller handles instruction dependencies, keeping track of busy registers in a
-// scoreboard. It controls the program flow by updating the PC and stalling instruction fetch and
-// dispatch when necessary, handling exceptions, HW barriers, control flow instructions.
+// The controller handles exceptions, stalls and also houses the zero over head loop
+// logic in the form of a loop controller. It also controls the execution modes of the core
+// and calculates how many valid instructions are currently being processed.
 module schnova_controller import schnova_pkg::*; #(
   parameter int unsigned PipeWidth       = 1,
   parameter bit          XFREPI          = 1,
@@ -192,7 +192,7 @@ module schnova_controller import schnova_pkg::*; #(
       end
     end
 
-    // Counting the numger of instructions that have to be renamed
+    // Counting the number of instructions that have to be renamed
     popcount #(
       .INPUT_WIDTH(PipeWidth)
     ) i_gpr_rename_count (

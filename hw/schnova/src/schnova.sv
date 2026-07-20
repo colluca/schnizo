@@ -871,7 +871,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
   ) i_decoder (
     .clk_i,
     .rst_i,
-    .en_superscalar_i        (en_superscalar),
     // From Dispatcher
     .instr_fetch_data_i      (instr_fetch_data),
     .instr_fetch_data_valid_i(instr_fetch_data_valid),
@@ -931,7 +930,7 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .PipeWidth          (PipeWidth),
     .XLEN               (XLEN),
     .XFREPI             (XFREPI),
-    .XFREPO             (XFREPO), 
+    .XFREPO             (XFREPO),
     .NrIntWritePorts    (NrIntWritePorts),
     .NrFpWritePorts     (NrFpWritePorts),
     .RegAddrSize        (RegAddrSize),

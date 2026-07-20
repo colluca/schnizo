@@ -4,6 +4,19 @@
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
 
+// The frontend of the schnova core is used to fetch instructions from the L0 instruction cache
+
+// Instruction fetching for the superscalar pipeline happens roughly in three steps:
+// 1) The next PC is calculated to which the fetch request is sent. This happens at
+//    a fetch block granularity, i.e. one fetch request will fetch multiple instructions
+//    in a block. If the PC is not alligned the cache will automatically allign it down,
+//    and the frontend will have to select the correct instruction from the fetch block.
+// 2) A new fetch request is sent if the fetching is not stalled.
+// 3) The fetch block has to be extracted and realigned to be sent to the decoder. The fetch block
+//    is valid when the handshake with the L0 cache is successful and it is not one of the
+//    instructions before the current PC that were fetched purely since we fetch in a
+//    block granualrity.
+
 `include "common_cells/registers.svh"
 `include "common_cells/assertions.svh"
 
@@ -69,29 +82,15 @@ module schnova_frontend # (
   logic [31:0]     pc_d, pc_q; // PC is fixed to 32 bits in RV32
   logic            stall_fetch; // Whether instruction fetch should be stalled
 
-  `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i);
+  `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i)
 
-  ///////////////////////
-  // Instruction Fetch //
-  ///////////////////////
-
-  // Instruction fetching for the superscalar pipeline happens roughly in three steps:
-  // 1) The next PC is calculated to which the fetch request is sent. This happens at
-  //    a fetch block granularity, i.e. one fetch request will fetch multiple instructions
-  //    in a block. If the PC is not alligned the cache will automatically allign it down,
-  //    and the frontend will have to select the correct instruction from the fetch block.
-  // 2) A new fetch request is sent if the fetching is not stalled.
-  // 3) The fetch block has to be extracted and realigned to be sent to the decoder. The fetch block
-  //    is valid when the handshake with the L0 cache is successful and it is not one of the
-  //    instructions before the current PC that were fetched purely since we fetch in a
-  //    block granualrity.
 
   ///////////////
   // PC update //
   ///////////////
 
-  // We now have to handle the PC update. In particular, we have to "execute" any branch / jump
-  // instruction. Any control flow instruction is performed using an ALU which is designed to be
+  // The PC update has to "execute" any branch / jump
+  // instruction. Any control flow instruction is performed using an ALU0 which is designed to be
   // combinatorial only. Thus the result is immediately available.
   //
   // To retire an instruction we must make sure:
@@ -112,9 +111,8 @@ module schnova_frontend # (
   //   PC value using the ALU result (value & comparison).
   //   The write back of JAL and JALR is directly handled in the write back part.
   //   To simplify the implementation, the Dispatcher may only dispatch control flow instructions
-  //   to one specific ALU.
+  //   to one specific ALU (ALU0).
   //
-  // TODO(colluca): is debug implemented?
   // The next PC is selected as either (in priority order, first is most important):
   // - Debug
   // - Exception: go to trap handler
@@ -124,7 +122,6 @@ module schnova_frontend # (
   // - Branched & Consecutive PC: for all regular instructions & branches if taken
 
   // Program counter
-  // TODO(soderma): Is instr misalignment handled correctly for JAL and JALR instructions?
   assign consecutive_pc_o = consecutive_pc;
   assign next_pc_o        = pc_d;
   assign pc_o             = pc_q;

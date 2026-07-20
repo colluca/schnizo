@@ -27,7 +27,6 @@ module schnova_decoder import schnova_pkg::*; #(
   // For assertions only.
   input logic                          clk_i,
   input logic                          rst_i,
-  input logic                          en_superscalar_i,
   input  logic [PipeWidth-1:0][31:0]   instr_fetch_data_i,
   input  logic [PipeWidth-1:0]         instr_fetch_data_valid_i,
   input  fpnew_pkg::roundmode_e        fpu_round_mode_i,

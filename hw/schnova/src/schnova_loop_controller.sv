@@ -6,8 +6,7 @@
 
 // The Schnova loop controller.
 //
-// Manages control flow for sequential HW loop execution, i.e. LCP and naive HW loop modes.
-// Superscalar (LEP) mode is handled directly in the reservation stations.
+// Manages control flow for sequential HW loop execution, i.e. DEP and naive HW loop modes.
 module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   parameter int unsigned PipeWidth          = 1,
   parameter int unsigned AddrWidth          = 32,
@@ -182,8 +181,6 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
         end
       end
       LoopHwLoop: begin
-        // TODO(colluca): I believe here in place of current_loop_finish we should only check that
-        //                we are not in the last iteration
         loop_jump_o  = is_at_loop_end && !current_loop_finish;
         if (dispatch_loop_end_instr) begin
           decrement_loop_iterations = 1'b1;
