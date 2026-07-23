@@ -87,8 +87,6 @@ BENCHMARK_INSNS['scalar']['add'] = { 'alu': 3, 'fpu': 4, 'fdiv': 0, 'lsu': 12 }
 BENCHMARK_INSNS['scalar']['mul'] = { 'alu': 3, 'fpu': 4, 'fdiv': 0, 'lsu': 12 }
 BENCHMARK_INSNS['scalar']['neg'] = { 'alu': 2, 'fpu': 4, 'fdiv': 0, 'lsu': 8 }
 # Composite DNN kernels.
-BENCHMARK_INSNS['scalar']['silu'] = { 'alu': 27, 'fpu': 57, 'fdiv': 1, 'lsu': 47 }
-BENCHMARK_INSNS['scalar']['gelu'] = { 'alu': 27, 'fpu': 57, 'fdiv': 1, 'lsu': 47 }
 BENCHMARK_INSNS['scalar']['softmax'] = { 'alu': 34, 'fpu': 64, 'fdiv': 0, 'lsu': 52 }
 
 def validate_instruction_counts(insns):
@@ -214,27 +212,36 @@ def ideal_fpu_util(insns):
 
 
 def theoretical_metrics(cfg=None, pipe_width=None, fdiv_ii=12):
+    """
+    Calculate theoretical metrics for both scalar and superscalar
+    instruction count models.
+
+    The scalar instruction counts represent kernels whose loop bodies are
+    unrolled in software. The superscalar instruction counts represent
+    kernels that use the superscalar execution structure.
+    """
     metrics = {
         'fpu_util': {
-            'scalar': {
-                app: ideal_fpu_util(BENCHMARK_INSNS['scalar'][app])
-                for app in ['sz_axpy', 'sz_dot']
+            mode: {
+                app: ideal_fpu_util(insns)
+                for app, insns in benchmark_insns.items()
             }
+            for mode, benchmark_insns in BENCHMARK_INSNS.items()
         }
     }
 
     if cfg is not None:
         metrics['ipc'] = {
-            'superscalar': {
+            mode: {
                 app: ideal_ipc(
                     insns=insns,
                     cfg=cfg,
                     pipe_width=pipe_width,
                     fdiv_ii=fdiv_ii,
                 )
-                for app, insns
-                in BENCHMARK_INSNS['superscalar'].items()
+                for app, insns in benchmark_insns.items()
             }
+            for mode, benchmark_insns in BENCHMARK_INSNS.items()
         }
 
     return metrics
