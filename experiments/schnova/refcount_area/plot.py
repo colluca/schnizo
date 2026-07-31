@@ -3,6 +3,10 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
+import colorsys
+import matplotlib.colors as mc
+import matplotlib.pyplot as plt
+import numpy as np
 try:
     from . import experiments
 except ImportError:
@@ -17,6 +21,41 @@ def to_ge(area_um2):
 
 def to_kge(area_um2):
     return to_ge(area_um2) / 1e3
+
+
+def lighten(color, amount=0.4):
+    """Lightens a given color for the sequential area stacked components."""
+    try:
+        c = mc.cnames[color]
+    except KeyError:
+        c = color
+    c = mc.to_rgb(c)
+    h, l, s = colorsys.rgb_to_hls(*c)
+    return colorsys.hls_to_rgb(h, 1 - amount * (1 - l), s)
+
+
+def add_linear_fit(ax, x_values, y_values, plot_positions, label):
+    """Fit y = A*x + B, plot the fit, and print A, B, and R^2."""
+    x_values = np.asarray(x_values, dtype=float)
+    y_values = np.asarray(y_values, dtype=float)
+    plot_positions = np.asarray(plot_positions, dtype=float)
+
+    valid = np.isfinite(x_values) & np.isfinite(y_values)
+    x_fit = x_values[valid]
+    y_fit = y_values[valid]
+    pos_fit = plot_positions[valid]
+
+    if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
+        print(f"{label}: insufficient data for a linear fit")
+        return
+
+    A, B = np.polyfit(x_fit, y_fit, 1)
+    y_pred = A * x_fit + B
+    ss_res = np.sum((y_fit - y_pred) ** 2)
+    ss_tot = np.sum((y_fit - np.mean(y_fit)) ** 2)
+    r2 = 1.0 - ss_res / ss_tot if not np.isclose(ss_tot, 0.0) else 1.0
+
+    print(f"{label}: A = {A:.4f}, B = {B:.4f}, R^2 = {r2:.6f}")
 
 
 def results(dir=None):
@@ -43,129 +82,513 @@ def results(dir=None):
     return df
 
 
-def plot_operand_ifs(show=False, hide_x_axis=False):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import to_rgba
-    from matplotlib.patches import Patch
-    df = results()
-    # ---------------------------------------------------
-    # Prepare dataframe
-    # ---------------------------------------------------
-    grouped = (
-        df.groupby(["NumRegs", "NofOperandIfs"])[["CombArea", "SeqArea"]]
-        .sum()
-        .reset_index()
+def plot_pipeline_width(
+    df, baseline_num_regs=64, save_path="refcount_pipe_width_scalability.png"
+):
+    # Filter: Scale PipeWidth while keeping everything else at baseline
+    subset = df[
+          (df["NofPhysGpr"] == baseline_num_regs)
+        & (df["NofPhysFpr"] == baseline_num_regs)
+        & (df["NofAlus"] == 1)
+        & (df["NofLsus"] == 1)
+        & (df["NofFpus"] == 1)
+        & (df["AluNofRss"] == 1)
+        & (df["LsuNofRss"] == 1)
+        & (df["FpuNofRss"] == 1)   
+        & (df["NofAluBufEntries"] == 1)   
+        & (df["NofLsuBufEntries"] == 1) 
+        & (df["NofFpuBufEntries"] == 1) 
+    ]
+
+    pipe_widths = sorted(subset["PipeWidth"].unique())
+    x = np.arange(len(pipe_widths))
+    bar_width = 0.35
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    color_gpr = prop_cycle[0]
+    color_fpr = prop_cycle[1]
+
+    # Isolate data frames mapped exactly onto the axis positions
+    data = (
+        subset
+        .drop_duplicates(subset=["PipeWidth"])
+        .set_index("PipeWidth")
+        .reindex(pipe_widths)
     )
 
-    num_regs = sorted(grouped["NumRegs"].unique())
-    operand_ifs = sorted(grouped["NofOperandIfs"].unique())
+    comb = data["CombArea"].fillna(0).values
+    seq = data["SeqArea"].fillna(0).values
 
-    x = np.arange(len(num_regs))
+    # Plot GPR (Shifted Left)
+    ax.bar(
+        x,
+        comb,
+        bar_width,
+        color=color_gpr,
+        zorder=3,
+        label="Combinational",
+    )
+    ax.bar(
+        x,
+        seq,
+        bar_width,
+        bottom=comb,
+        color=lighten(color_gpr),
+        zorder=3,
+        label="Sequential",
+    )
 
-    # total width occupied by all bars at one x-position
-    total_width = 0.8
-    bar_width = total_width / len(operand_ifs)
+    add_linear_fit(
+        ax,
+        pipe_widths,
+        comb + seq,
+        x,
+        "Total area vs fetch width",
+    )
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-
-    prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-
-    # ---------------------------------------------------
-    # Helper for lighter seq color
-    # ---------------------------------------------------
-    def lighten(color, factor=0.5):
-        rgba = to_rgba(color)
-        return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
-
-    legend_handles = []
-
-    # ---------------------------------------------------
-    # Plot grouped stacked bars
-    # ---------------------------------------------------
-    for j, nof_if in enumerate(operand_ifs):
-
-        color = prop_cycle[j % len(prop_cycle)]
-        seq_color = lighten(color)
-
-        subset = grouped[grouped["NofOperandIfs"] == nof_if]
-
-        comb = []
-        seq = []
-
-        for nr in num_regs:
-            row = subset[subset["NumRegs"] == nr]
-
-            if len(row) == 0:
-                comb.append(0)
-                seq.append(0)
-            else:
-                comb.append(row["CombArea"].values[0])
-                seq.append(row["SeqArea"].values[0])
-
-        # center grouped bars around x-position
-        offset = (
-            -total_width / 2
-            + j * bar_width
-            + bar_width / 2
-        )
-
-        xpos = x + offset
-
-        # combinational
-        ax.bar(
-            xpos,
-            comb,
-            bar_width,
-            color=color,
-            zorder=3
-        )
-
-        # sequential stacked on top
-        ax.bar(
-            xpos,
-            seq,
-            bar_width,
-            bottom=comb,
-            color=seq_color,
-            zorder=3
-        )
-
-        # legend
-        legend_handles.extend([
-            Patch(facecolor=color,
-                  label=f"{nof_if} op ports (comb)"),
-            Patch(facecolor=seq_color,
-                  label=f"{nof_if} op ports (seq)")
-        ])
-
-    # ---------------------------------------------------
-    # Axes styling
-    # ---------------------------------------------------
     ax.set_ylabel("Area [kGE]")
+    ax.set_xlabel("Fetch Width")
     ax.set_xticks(x)
-
-    if hide_x_axis:
-        ax.tick_params(axis='x', which='both',
-                       bottom=False, labelbottom=False)
-    else:
-        ax.set_xlabel("Number of GPR")
-        ax.set_xticklabels(num_regs)
-
-    ax.grid(True, axis='y', zorder=0)
-
-    ax.legend(
-        handles=legend_handles,
-        ncol=3,
-        fontsize=8
-    )
+    ax.set_xticklabels(pipe_widths)
+    ax.grid(True, axis="y", zorder=0)
+    ax.legend(loc="upper left")
 
     fig.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
-    if show:
-        plt.show()
 
-    return grouped
+# -----------------------------------------------------------------------------
+# Plot 2: Varying Number of Registers (GPR vs FPR Side-by-Side)
+# -----------------------------------------------------------------------------
+def plot_num_registers(
+    df, baseline_pipe_width=1, save_path="refcount_depth_scalability.png"
+):
+    # Filter: Scale NumRegs while keeping everything else at baseline
+    subset = df[
+          (df["PipeWidth"] == 1)
+        & (df["NofAlus"] == 1)
+        & (df["NofLsus"] == 1)
+        & (df["NofFpus"] == 1)
+        & (df["AluNofRss"] == 1)
+        & (df["LsuNofRss"] == 1)
+        & (df["FpuNofRss"] == 1)   
+        & (df["NofAluBufEntries"] == 1)   
+        & (df["NofLsuBufEntries"] == 1) 
+        & (df["NofFpuBufEntries"] == 1) 
+    ]
+
+    num_regs_axis = [32, 48, 64, 80 ]
+    x = np.arange(len(num_regs_axis))
+    bar_width = 0.35
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    color_gpr = prop_cycle[0]
+    color_fpr = prop_cycle[1]
+
+    # Isolate data frames mapped exactly onto the axis positions
+    gpr_data = (
+        subset[subset["NofPhysFpr"] == 1]
+        .drop_duplicates(subset=["NofPhysGpr"])
+        .set_index("NofPhysGpr")
+        .reindex(num_regs_axis)
+    )
+
+    gpr_comb = gpr_data["CombArea"].fillna(0).values
+    gpr_seq = gpr_data["SeqArea"].fillna(0).values
+
+    # Plot GPR (Shifted Left)
+    ax.bar(
+        x,
+        gpr_comb,
+        bar_width,
+        color=color_gpr,
+        zorder=3,
+        label= "Combinational",
+    )
+    ax.bar(
+        x,
+        gpr_seq,
+        bar_width,
+        bottom=gpr_comb,
+        color=lighten(color_gpr),
+        zorder=3,
+        label="Sequential",
+    )
+
+    add_linear_fit(
+        ax,
+        num_regs_axis,
+        gpr_comb + gpr_seq,
+        x,
+        "NofPhysrEG total area vs number of registers",
+    )
+
+    ax.set_ylabel("Area [kGE]")
+    ax.set_xlabel("Number of Physical Registers")
+    ax.set_xticks(x)
+    ax.set_xticklabels(num_regs_axis)
+    ax.grid(True, axis="y", zorder=0)
+    ax.legend(loc="upper left")
+
+    fig.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+
+# -----------------------------------------------------------------------------
+# Plot 3: Varying Functional Units (Separated Plots, 3 Bars per Point)
+# -----------------------------------------------------------------------------
+def plot_functional_units(
+    df,
+    is_gpr=1,
+    baseline_num_regs=64,
+    baseline_pipe_width=1,
+    save_path="refcount_fu_scalability.png",
+):
+    # Filter data for specific regfile type and structural baselines
+    subset = df[
+          (df["NofPhysGpr"] == baseline_num_regs)
+        & (df["NofPhysFpr"] == baseline_num_regs)
+        & (df["PipeWidth"] == 1)
+        & (df["AluNofRss"] == 1)
+        & (df["LsuNofRss"] == 1)
+        & (df["FpuNofRss"] == 1)   
+        & (df["NofAluBufEntries"] == 1)   
+        & (df["NofLsuBufEntries"] == 1) 
+        & (df["NofFpuBufEntries"] == 1) 
+    ]
+
+    # Grab the unique port scaling counts (1, 2, 3, 4)
+    fu_counts = sorted(
+        list(
+            set(subset["NofAlus"])
+            .union(subset["NofLsus"])
+            .union(subset["NofFpus"])
+        )
+    )
+
+    x = np.arange(len(fu_counts))
+    bar_width = 0.25
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    color_alu = prop_cycle[0]
+    color_lsu = prop_cycle[1]  # Explicitly different color indices
+    color_fpu = prop_cycle[2]
+
+    alu_comb, alu_seq = [], []
+    lsu_comb, lsu_seq = [], []
+    fpu_comb, fpu_seq = [], []
+
+    # Map the unique execution port points manually based on sweep structures
+    for k in fu_counts:
+        # ALU Scales
+        row_alu = subset[
+            (subset["NofAlus"] == k)
+            & (subset["NofLsus"] == 1)
+            & (subset["NofFpus"] == 1)
+        ]
+        alu_comb.append(
+            row_alu["CombArea"].values[0] if not row_alu.empty else 0
+        )
+        alu_seq.append(row_alu["SeqArea"].values[0] if not row_alu.empty else 0)
+
+        # LSU Scales
+        row_lsu = subset[
+            (subset["NofAlus"] == 1)
+            & (subset["NofLsus"] == k)
+            & (subset["NofFpus"] == 1)
+        ]
+        lsu_comb.append(
+            row_lsu["CombArea"].values[0] if not row_lsu.empty else 0
+        )
+        lsu_seq.append(row_lsu["SeqArea"].values[0] if not row_lsu.empty else 0)
+
+        # FPU Scales
+        row_fpu = subset[
+            (subset["NofAlus"] == 1)
+            & (subset["NofLsus"] == 1)
+            & (subset["NofFpus"] == k)
+        ]
+        fpu_comb.append(
+            row_fpu["CombArea"].values[0] if not row_fpu.empty else 0
+        )
+        fpu_seq.append(row_fpu["SeqArea"].values[0] if not row_fpu.empty else 0)
+
+    # Convert lists to NumPy arrays for safe additions/manipulation
+    alu_comb, alu_seq = np.array(alu_comb), np.array(alu_seq)
+    lsu_comb, lsu_seq = np.array(lsu_comb), np.array(lsu_seq)
+    fpu_comb, fpu_seq = np.array(fpu_comb), np.array(fpu_seq)
+
+    # Plot ALU Bars (Shifted Left)
+    ax.bar(
+        x - bar_width,
+        alu_comb,
+        bar_width,
+        color=color_alu,
+        zorder=3,
+        label="ALU Combinational",
+    )
+    ax.bar(
+        x - bar_width,
+        alu_seq,
+        bar_width,
+        bottom=alu_comb,
+        color=lighten(color_alu),
+        zorder=3,
+        label="ALU Sequential",
+    )
+
+    # Plot LSU Bars (Centered)
+    ax.bar(
+        x,
+        lsu_comb,
+        bar_width,
+        color=color_lsu,
+        zorder=3,
+        label="LSU Combinational",
+    )
+    ax.bar(
+        x,
+        lsu_seq,
+        bar_width,
+        bottom=lsu_comb,
+        color=lighten(color_lsu),
+        zorder=3,
+        label="LSU Sequential",
+    )
+
+    # Plot FPU Bars (Shifted Right)
+    ax.bar(
+        x + bar_width,
+        fpu_comb,
+        bar_width,
+        color=color_fpu,
+        zorder=3,
+        label="FPU Combinational",
+    )
+    ax.bar(
+        x + bar_width,
+        fpu_seq,
+        bar_width,
+        bottom=fpu_comb,
+        color=lighten(color_fpu),
+        zorder=3,
+        label="FPU Sequential",
+    )
+
+    add_linear_fit(
+        ax,
+        fu_counts,
+        alu_comb + alu_seq,
+        x - bar_width,
+        "ALU-port total area",
+    )
+    add_linear_fit(
+        ax,
+        fu_counts,
+        lsu_comb + lsu_seq,
+        x,
+        "LSU-port total area",
+    )
+    add_linear_fit(
+        ax,
+        fu_counts,
+        fpu_comb + fpu_seq,
+        x + bar_width,
+        "FPU-port total area",
+    )
+
+    ax.set_ylabel("Area [kGE]")
+    ax.set_xlabel("Number of Functional Units")
+    ax.set_xticks(x)
+    ax.set_xticklabels(fu_counts)
+    ax.grid(True, axis="y", zorder=0)
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+# -----------------------------------------------------------------------------
+# Plot 3: Varying Functional Units (Separated Plots, 3 Bars per Point)
+# -----------------------------------------------------------------------------
+def plot_rss(
+    df,
+    is_gpr=1,
+    baseline_num_regs=64,
+    baseline_pipe_width=1,
+    save_path="refcount_rss_scalability.png",
+):
+    # Filter data for specific regfile type and structural baselines
+    subset = df[
+          (df["NofPhysGpr"] == baseline_num_regs)
+        & (df["NofPhysFpr"] == baseline_num_regs)
+        & (df["PipeWidth"] == 1)
+        & (df["NofAlus"] == 1)
+        & (df["NofLsus"] == 1)
+        & (df["NofFpus"] == 1)
+        & (df["NofAluBufEntries"] == 1)   
+        & (df["NofLsuBufEntries"] == 1) 
+        & (df["NofFpuBufEntries"] == 1) 
+    ]
+
+    rss_counts = sorted(
+        list(
+            set(subset["AluNofRss"])
+            .union(subset["LsuNofRss"])
+            .union(subset["FpuNofRss"])
+        )
+    )
+
+    x = np.arange(len(rss_counts))
+    bar_width = 0.25
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    color_alu = prop_cycle[0]
+    color_lsu = prop_cycle[1]  # Explicitly different color indices
+    color_fpu = prop_cycle[2]
+
+    alu_comb, alu_seq = [], []
+    lsu_comb, lsu_seq = [], []
+    fpu_comb, fpu_seq = [], []
+
+    # Map the unique execution port points manually based on sweep structures
+    for k in rss_counts:
+        # ALU Scales
+        row_alu = subset[
+            (subset["AluNofRss"] == k)
+            & (subset["LsuNofRss"] == 1)
+            & (subset["FpuNofRss"] == 1)
+        ]
+        alu_comb.append(
+            row_alu["CombArea"].values[0] if not row_alu.empty else 0
+        )
+        alu_seq.append(row_alu["SeqArea"].values[0] if not row_alu.empty else 0)
+
+        # LSU Scales
+        row_lsu = subset[
+            (subset["AluNofRss"] == 1)
+            & (subset["LsuNofRss"] == k)
+            & (subset["FpuNofRss"] == 1)
+        ]
+        lsu_comb.append(
+            row_lsu["CombArea"].values[0] if not row_lsu.empty else 0
+        )
+        lsu_seq.append(row_lsu["SeqArea"].values[0] if not row_lsu.empty else 0)
+
+        # FPU Scales
+        row_fpu = subset[
+            (subset["AluNofRss"] == 1)
+            & (subset["LsuNofRss"] == 1)
+            & (subset["FpuNofRss"] == k)
+        ]
+        fpu_comb.append(
+            row_fpu["CombArea"].values[0] if not row_fpu.empty else 0
+        )
+        fpu_seq.append(row_fpu["SeqArea"].values[0] if not row_fpu.empty else 0)
+
+    # Convert lists to NumPy arrays for safe additions/manipulation
+    alu_comb, alu_seq = np.array(alu_comb), np.array(alu_seq)
+    lsu_comb, lsu_seq = np.array(lsu_comb), np.array(lsu_seq)
+    fpu_comb, fpu_seq = np.array(fpu_comb), np.array(fpu_seq)
+
+    # Plot ALU Bars (Shifted Left)
+    ax.bar(
+        x - bar_width,
+        alu_comb,
+        bar_width,
+        color=color_alu,
+        zorder=3,
+        label="ALU Combinational",
+    )
+    ax.bar(
+        x - bar_width,
+        alu_seq,
+        bar_width,
+        bottom=alu_comb,
+        color=lighten(color_alu),
+        zorder=3,
+        label="ALU Sequential",
+    )
+
+    # Plot LSU Bars (Centered)
+    ax.bar(
+        x,
+        lsu_comb,
+        bar_width,
+        color=color_lsu,
+        zorder=3,
+        label="LSU Combinational",
+    )
+    ax.bar(
+        x,
+        lsu_seq,
+        bar_width,
+        bottom=lsu_comb,
+        color=lighten(color_lsu),
+        zorder=3,
+        label="LSU Sequential",
+    )
+
+    # Plot FPU Bars (Shifted Right)
+    ax.bar(
+        x + bar_width,
+        fpu_comb,
+        bar_width,
+        color=color_fpu,
+        zorder=3,
+        label="FPU Combinational",
+    )
+    ax.bar(
+        x + bar_width,
+        fpu_seq,
+        bar_width,
+        bottom=fpu_comb,
+        color=lighten(color_fpu),
+        zorder=3,
+        label="FPU Sequential",
+    )
+
+    add_linear_fit(
+        ax,
+        rss_counts,
+        alu_comb + alu_seq,
+        x - bar_width,
+        "ALU-port total area",
+    )
+    add_linear_fit(
+        ax,
+        rss_counts,
+        lsu_comb + lsu_seq,
+        x,
+        "LSU-port total area",
+    )
+    add_linear_fit(
+        ax,
+        rss_counts,
+        fpu_comb + fpu_seq,
+        x + bar_width,
+        "FPU-port total area",
+    )
+
+    ax.set_ylabel("Area [kGE]")
+    ax.set_xlabel("Number of Functional Units")
+    ax.set_xticks(x)
+    ax.set_xticklabels(rss_counts)
+    ax.grid(True, axis="y", zorder=0)
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
 
 
 def linear_regression(dir=None):
@@ -215,11 +638,23 @@ def plot1():
 
 
 def plot2():
-    plot_operand_ifs(show=True)
+    plot_pipeline_width(results())
+
+
+def plot3():
+    plot_num_registers(results())
+
+
+def plot4():
+    plot_functional_units(results())
+
+
+def plot5():
+    plot_rss(results())
 
 
 def main():
-    plots = [plot1, plot2]
+    plots = [plot1, plot2, plot3, plot4, plot5]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments

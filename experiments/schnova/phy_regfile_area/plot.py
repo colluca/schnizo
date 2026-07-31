@@ -34,6 +34,30 @@ def lighten(color, amount=0.4):
     return colorsys.hls_to_rgb(h, 1 - amount * (1 - l), s)
 
 
+def add_linear_fit(ax, x_values, y_values, plot_positions, label):
+    """Fit y = A*x + B, plot the fit, and print A, B, and R^2."""
+    x_values = np.asarray(x_values, dtype=float)
+    y_values = np.asarray(y_values, dtype=float)
+    plot_positions = np.asarray(plot_positions, dtype=float)
+
+    valid = np.isfinite(x_values) & np.isfinite(y_values)
+    x_fit = x_values[valid]
+    y_fit = y_values[valid]
+    pos_fit = plot_positions[valid]
+
+    if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
+        print(f"{label}: insufficient data for a linear fit")
+        return
+
+    A, B = np.polyfit(x_fit, y_fit, 1)
+    y_pred = A * x_fit + B
+    ss_res = np.sum((y_fit - y_pred) ** 2)
+    ss_tot = np.sum((y_fit - np.mean(y_fit)) ** 2)
+    r2 = 1.0 - ss_res / ss_tot if not np.isclose(ss_tot, 0.0) else 1.0
+
+    print(f"{label}: A = {A:.4f}, B = {B:.4f}, R^2 = {r2:.6f}")
+
+
 def results(dir=None):
     df = experiments.results(dir=dir)
 
@@ -68,8 +92,6 @@ def plot_pipeline_width(
         & (df["NofLsus"] == 1)
         & (df["NofFpus"] == 1)
     ]
-
-    print(subset)
 
     pipe_widths = sorted(subset["PipeWidth"].unique())
     x = np.arange(len(pipe_widths))
@@ -138,15 +160,27 @@ def plot_pipeline_width(
         label="FPR Sequential",
     )
 
+    add_linear_fit(
+        ax,
+        pipe_widths,
+        gpr_comb + gpr_seq,
+        x - bar_width / 2,
+        "GPR total area vs fetch width",
+    )
+    add_linear_fit(
+        ax,
+        pipe_widths,
+        fpr_comb + fpr_seq,
+        x + bar_width / 2,
+        "FPR total area vs fetch width",
+    )
+
     ax.set_ylabel("Area [kGE]")
-    ax.set_xlabel("Pipeline Width")
+    ax.set_xlabel("Fetch Width")
     ax.set_xticks(x)
     ax.set_xticklabels(pipe_widths)
     ax.grid(True, axis="y", zorder=0)
     ax.legend(loc="upper left")
-    ax.set_title(
-        f"Physical Register File Scalability over Pipeline Width (NumRegs={baseline_num_regs})"
-    )
 
     fig.tight_layout()
     plt.savefig(save_path)
@@ -234,15 +268,27 @@ def plot_num_registers(
         label="FPR Sequential",
     )
 
+    add_linear_fit(
+        ax,
+        num_regs_axis,
+        gpr_comb + gpr_seq,
+        x - bar_width / 2,
+        "GPR total area vs number of registers",
+    )
+    add_linear_fit(
+        ax,
+        num_regs_axis,
+        fpr_comb + fpr_seq,
+        x + bar_width / 2,
+        "FPR total area vs number of registers",
+    )
+
     ax.set_ylabel("Area [kGE]")
     ax.set_xlabel("Number of Physical Registers")
     ax.set_xticks(x)
     ax.set_xticklabels(num_regs_axis)
     ax.grid(True, axis="y", zorder=0)
     ax.legend(loc="upper left")
-    ax.set_title(
-        f"Physical Register File Scalability over Register Depth (PipeWidth={baseline_pipe_width})"
-    )
 
     fig.tight_layout()
     plt.savefig(save_path)
@@ -386,16 +432,34 @@ def plot_functional_units(
         label="FPU Sequential",
     )
 
+    add_linear_fit(
+        ax,
+        fu_counts,
+        alu_comb + alu_seq,
+        x - bar_width,
+        "ALU-port total area",
+    )
+    add_linear_fit(
+        ax,
+        fu_counts,
+        lsu_comb + lsu_seq,
+        x,
+        "LSU-port total area",
+    )
+    add_linear_fit(
+        ax,
+        fu_counts,
+        fpu_comb + fpu_seq,
+        x + bar_width,
+        "FPU-port total area",
+    )
+
     ax.set_ylabel("Area [kGE]")
-    ax.set_xlabel("Number of Functional Units / Ports")
+    ax.set_xlabel("Number of Functional Units")
     ax.set_xticks(x)
     ax.set_xticklabels(fu_counts)
     ax.grid(True, axis="y", zorder=0)
     ax.legend(loc="upper left")
-    ax.set_title(
-        "Functional Unit Port Scaling"
-    )
-
     fig.tight_layout()
     plt.savefig(save_path)
     plt.close()

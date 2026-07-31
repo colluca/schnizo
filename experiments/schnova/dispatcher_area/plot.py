@@ -54,11 +54,33 @@ def lighten(color, factor=0.5):
     rgba = to_rgba(color)
     return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
 
+def add_linear_fit(ax, x_values, y_values, plot_positions, label):
+    """Fit y = A*x + B, plot the fit, and print A, B, and R^2."""
+    x_values = np.asarray(x_values, dtype=float)
+    y_values = np.asarray(y_values, dtype=float)
+    plot_positions = np.asarray(plot_positions, dtype=float)
+
+    valid = np.isfinite(x_values) & np.isfinite(y_values)
+    x_fit = x_values[valid]
+    y_fit = y_values[valid]
+    pos_fit = plot_positions[valid]
+
+    if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
+        print(f"{label}: insufficient data for a linear fit")
+        return
+
+    A, B = np.polyfit(x_fit, y_fit, 1)
+    y_pred = A * x_fit + B
+    ss_res = np.sum((y_fit - y_pred) ** 2)
+    ss_tot = np.sum((y_fit - np.mean(y_fit)) ** 2)
+    r2 = 1.0 - ss_res / ss_tot if not np.isclose(ss_tot, 0.0) else 1.0
+
+    print(f"{label}: A = {A:.4f}, B = {B:.4f}, R^2 = {r2:.6f}")
 
 # ---------------------------------------------------
 # Plot 1: Varying Pipeline Width
 # ---------------------------------------------------
-def plot_pipeline_width(df, save_path="pipe_width_scalability.png"):
+def plot_pipeline_width(df, save_path="disp_pipe_width_scalability.png"):
     # Filter for rows where PipeWidth scales and buffers track PipeWidth
     subset = df[
         (df["NofAlus"] == 1) &
@@ -85,13 +107,19 @@ def plot_pipeline_width(df, save_path="pipe_width_scalability.png"):
     ax.bar(x, comb, bar_width, color=color, zorder=3, label="Combinational")
     ax.bar(x, seq, bar_width, bottom=comb, color=seq_color, zorder=3, label="Sequential")
 
+    add_linear_fit(ax,
+                   pipe_widths,
+                   comb+seq,
+                   x,
+                   "Total area vs fetch width"
+                   )
+
     ax.set_ylabel("Area [kGE]")
-    ax.set_xlabel("Pipeline Width")
+    ax.set_xlabel("Fetch Width")
     ax.set_xticks(x)
     ax.set_xticklabels(pipe_widths)
     ax.grid(True, axis='y', zorder=0)
     ax.legend(loc='upper left')
-    ax.set_title("Dispatcher Scalability over Pipeline Width")
 
     fig.tight_layout()
     plt.savefig(save_path)
@@ -177,13 +205,12 @@ def plot_functional_units(df, save_path="fu_scalability.png"):
 # ---------------------------------------------------
 # Plot 3: Varying Buffer Slots
 # ---------------------------------------------------
-def plot_buffer_slots(df, save_path="buffer_scalability.png"):
+def plot_buffer_slots(df, save_path="disp_buffer_scalability.png"):
     df = df[(df["PipeWidth"] == 1) &
             (df["NofAlus"] == 1) &
             (df["NofLsus"] == 1) &
             (df["NofFpus"] == 1)]
 
-    print(df)
     buf_values = [1, 2, 4, 8, 16, 32]
     types = ["ALU Buffer", "LSU Buffer", "FPU Buffer"]
 
@@ -206,38 +233,63 @@ def plot_buffer_slots(df, save_path="buffer_scalability.png"):
 
         for buf in buf_values:
             if buf == 1:
-                # Baseline where all buffer entries are 1
-                row = df[(df["NofAluBufEntries"] == 1) &
-                         (df["NofLsuBufEntries"] == 1) &
-                         (df["NofFpuBufEntries"] == 1)].iloc[0]
+                row = df[
+                    (df["NofAluBufEntries"] == 1)
+                    & (df["NofLsuBufEntries"] == 1)
+                    & (df["NofFpuBufEntries"] == 1)
+                ].iloc[0]
+            elif t == "ALU Buffer":
+                row = df[
+                    (df["NofAluBufEntries"] == buf)
+                    & (df["NofLsuBufEntries"] == 1)
+                    & (df["NofFpuBufEntries"] == 1)
+                ].iloc[0]
+            elif t == "LSU Buffer":
+                row = df[
+                    (df["NofAluBufEntries"] == 1)
+                    & (df["NofLsuBufEntries"] == buf)
+                    & (df["NofFpuBufEntries"] == 1)
+                ].iloc[0]
             else:
-                # Find the row where only the specific Buffer type is scaled
-                if t == "ALU Buffer":
-                    row = df[(df["NofAluBufEntries"] == buf) &
-                             (df["NofLsuBufEntries"] == 1) &
-                             (df["NofFpuBufEntries"] == 1)].iloc[0]
-                elif t == "LSU Buffer":
-                    row = df[(df["NofAluBufEntries"] == 1) &
-                             (df["NofLsuBufEntries"] == buf) &
-                             (df["NofFpuBufEntries"] == 1)].iloc[0]
-                elif t == "FPU Buffer":
-                    row = df[(df["NofAluBufEntries"] == 1) &
-                             (df["NofLsuBufEntries"] == 1) &
-                             (df["NofFpuBufEntries"] == buf)].iloc[0]
+                row = df[
+                    (df["NofAluBufEntries"] == 1)
+                    & (df["NofLsuBufEntries"] == 1)
+                    & (df["NofFpuBufEntries"] == buf)
+                ].iloc[0]
 
             comb.append(row["CombArea"])
             seq.append(row["SeqArea"])
+
+        comb = np.asarray(comb, dtype=float)
+        seq = np.asarray(seq, dtype=float)
 
         offset = -total_width / 2 + j * bar_width + bar_width / 2
         xpos = x + offset
 
         ax.bar(xpos, comb, bar_width, color=color, zorder=3)
-        ax.bar(xpos, seq, bar_width, bottom=comb, color=seq_color, zorder=3)
+        ax.bar(
+            xpos,
+            seq,
+            bar_width,
+            bottom=comb,
+            color=seq_color,
+            zorder=3,
+        )
+
+        add_linear_fit(
+            ax,
+            buf_values,
+            comb + seq,
+            xpos,
+            f"Total area vs {t}",
+        )
+
 
         legend_handles.extend([
             Patch(facecolor=color, label=f"{t} (comb)"),
             Patch(facecolor=seq_color, label=f"{t} (seq)")
         ])
+        
 
     ax.set_ylabel("Area [kGE]")
     ax.set_xlabel("Number of Buffer Entries")
@@ -245,7 +297,6 @@ def plot_buffer_slots(df, save_path="buffer_scalability.png"):
     ax.set_xticklabels(buf_values)
     ax.grid(True, axis='y', zorder=0)
     ax.legend(handles=legend_handles, ncol=3, fontsize=8, loc='upper left')
-    ax.set_title("Dispatcher Scalability over Buffer Slots")
 
     fig.tight_layout()
     plt.savefig(save_path)

@@ -5,14 +5,17 @@
 
 import argparse
 import matplotlib.patches as patches
+from matplotlib.lines import Line2D
 from area_row import AreaRow
 from plot_util import PULP_COLORS_BASE, smooth_polygon
 import matplotlib.pyplot as plt
 import pandas as pd
 try:
     from . import experiments
+    from . import grouped_experiments
 except ImportError:
     import experiments
+    import grouped_experiments
 
 
 GE = 0.121
@@ -57,78 +60,199 @@ def results(dir=None):
     return df
 
 
-def gp_area_efficiency_plot():
+def gp_area_efficiency_plot(cluster=False):
     designs = {
         "Schnova-ZOL": {
-            "IPC": 0.95,
-            "CLK": 1.00,
-            "area": 106
+            "IPC": 0.85,
+            "CLK": 1.022,
+            "area": 129
         },
-        "GP-PW1": {
-            "IPC": 1.00,
-            "CLK": 1.00,
-            "area": 169
-        },
-        "GP-PW2": {
-            "IPC": 1.74,
-            "CLK": 1.00,
-            "area": 300
-        },
-        "GP-PW4": {
-            "IPC": 2.33,
-            "CLK": 1.00,
-            "area": 436
-        },
-        "GP-PW8": {
+        "Schnizo-GP-L": {
             "IPC": 2.52,
-            "CLK": 1.00,
-            "area": 556
+            "CLK": 2.003,
+            "area": 1311
         },
-        "GP-PW1-Bal": {
+        "Schnizo-LA": {
+            "IPC": 4.834,
+            "CLK": 1.108,
+            "area": 304
+        },
+        "CVA6S+": {
+            "IPC": 2,
+            "CLK": 1.164,
+            "area": 851
+        },
+        "C910": {
+            "IPC": 3,
+            "CLK": 0.757,
+            "area": 2674
+        },
+        "GP-FW1": {
+            "IPC": 0.91,
+            "CLK": 1.011,
+            "area": 194
+        },
+        "GP-FW2": {
+            "IPC": 1.64,
+            "CLK": 1.051,
+            "area": 345
+        },
+        "GP-FW4": {
+            "IPC": 2.13,
+            "CLK": 1.065,
+            "area": 464
+        },
+        "GP-FW8": {
+            "IPC": 2.52,
+            "CLK": 1.219,
+            "area": 589
+        },
+        "GP-FW1-ROB": {
+            "IPC": 0.91,
+            "CLK": 1.015,
+            "area": 330
+        },
+        "GP-FW2-ROB": {
+            "IPC": 1.64,
+            "CLK": 1.051,
+            "area": 439
+        },
+        "GP-FW4-ROB": {
+            "IPC": 2.13,
+            "CLK": 1.199,
+            "area": 674
+        },
+        "GP-FW8-ROB": {
+            "IPC": 2.52,
+            "CLK": 1.246,
+            "area": 815
+        },
+        "LA-FW1": {
             "IPC": 1.00,
-            "CLK": 1.00,
-            "area": 162
+            "CLK": 1.005,
+            "area": 182
         },
-        "GP-PW2-Bal": {
-            "IPC": 1.74,
-            "CLK": 1.00,
-            "area": 234
+        "LA-FW2": {
+            "IPC": 1.77,
+            "CLK": 1.004,
+            "area": 245
         },
-        "GP-PW4-Bal": {
-            "IPC": 2.33,
-            "CLK": 1.00,
-            "area": 354
+        "LA-FW4": {
+            "IPC": 3.479,
+            "CLK": 1.092,
+            "area": 342
         },
-        "GP-PW8-Bal": {
-            "IPC": 2.53,
+        "LA-FW8": {
+            "IPC": 4.915,
+            "CLK": 1.171,
+            "area": 543
+        },
+        "Spatz-LA": {
+            "IPC": 2.14,
             "CLK": 1.00,
-            "area": 485
+            "area": 583
         },
     }
 
+    excluded_from_area_scaling = {"CVA6S+", "C910", "Spatz-LA"}
+
+    # Scale the IPC and area to a cluster with 8 cores or in the case of spatz 8 lanes
+    if cluster:
+        for name, values in designs.items():
+            if name not in excluded_from_area_scaling:
+                values["area"] = values["area"] * 8 + 1965
+
+        # The area of the spatz vector prozessor with 8 lanes is reported in the TROOP paper
+        designs["Spatz-LA"]["area"] = 4377
+
+        # For CVA6S+ and C910 we just ignore all the cluster overhead of the cheshires system
+        # And just use the core area * nof of cores with the data and instruction cache
+        # included
+        designs["CVA6S+"]["area"] = 2408*8
+        designs["C910"]["area"] = 3992*8
     # ----------------------------------------
     # Performance calculation
     # GIPS = IPC / CLK(ns)
     # ----------------------------------------
 
     for d in designs.values():
+
         d["performance_gips"] = d["IPC"] / d["CLK"]
-        d["area_efficiency"] = 1000 * d["performance_gips"] / d["area"]
+        if cluster:
+            # Increase the cluster level performance linear to the number of
+            # cores in the cluster
+            d["area_efficiency"] = 1000 * 8 * d["performance_gips"] / d["area"]
+        else:
+            d["area_efficiency"] = 1000 * d["performance_gips"] / d["area"] 
 
     # ----------------------------------------
     # Same color per family, different markers
     # ----------------------------------------
 
+        baseline_name = "Schnova-ZOL"
+
+    if baseline_name not in designs:
+        raise KeyError(f"Baseline configuration '{baseline_name}' is missing")
+
+    baseline_performance = designs[baseline_name]["performance_gips"]
+    baseline_efficiency = designs[baseline_name]["area_efficiency"]
+
+    print()
+    print(
+        f"{'Configuration':<18}"
+        f"{'Area [kGE]':>12}"
+        f"{'Perf. [GIPS]':>15}"
+        f"{'Perf. Increase':>17}"
+        f"{'Eff. [MIPS/kGE]':>19}"
+        f"{'Eff. Increase':>16}"
+    )
+    print("-" * 97)
+
+    for name, values in designs.items():
+        performance = values["performance_gips"]
+        efficiency = values["area_efficiency"]
+
+        performance_increase = (
+            100.0 * (performance / baseline_performance - 1.0)
+        )
+        efficiency_increase = (
+            100.0 * (efficiency / baseline_efficiency - 1.0)
+        )
+
+        values["performance_increase_percent"] = performance_increase
+        values["area_efficiency_increase_percent"] = efficiency_increase
+
+        print(
+            f"{name:<18}"
+            f"{values['area']:>12.0f}"
+            f"{performance:>15.3f}"
+            f"{performance_increase:>16.1f}%"
+            f"{efficiency:>19.3f}"
+            f"{efficiency_increase:>15.1f}%"
+        )
+
+    print()
+    print(f"Baseline: {baseline_name}")
+
     marker_map = {
-        "Schnova-ZOL":      ("tab:orange", "o"),
-        "GP-PW1":           ("tab:blue",   "o"),
-        "GP-PW1-Bal":       ("tab:blue",   "*"),
-        "GP-PW2":           ("tab:green",   "o"),
-        "GP-PW2-Bal":       ("tab:green",   "*"),
-        "GP-PW4":           ("tab:purple",   "o"),
-        "GP-PW4-Bal":       ("tab:purple",   "*"),
-        "GP-PW8":           ("tab:red",   "o"),
-        "GP-PW8-Bal":       ("tab:red",   "*"),
+        "Schnova-ZOL":      ("tab:blue", "o"),
+        "Schnizo-LA":       ("tab:red", 'd'),
+        "Schnizo-GP-L":     ("tab:cyan", 'd'),
+        "Spatz-LA":         ("tab:gray", '+'),
+        "CVA6S+":           ("tab:pink", 's'),
+        "C910":             ("tab:olive", 's'),
+        "GP-FW1-ROB":       ("tab:orange", "o"),
+        "GP-FW2-ROB":       ("tab:orange", "*"),
+        "GP-FW4-ROB":       ("tab:orange", "^"),
+        "GP-FW8-ROB":       ("tab:orange", "D"),
+        "GP-FW1":           ("tab:green", "o"),
+        "GP-FW2":           ("tab:green", "*"),
+        "GP-FW4":           ("tab:green", "^"),
+        "GP-FW8":           ("tab:green", "D"),
+        "LA-FW1":           ("tab:purple", "o"),
+        "LA-FW2":           ("tab:purple", "*"),
+        "LA-FW4":           ("tab:purple", "^"),
+        "LA-FW8":           ("tab:purple", "D"),
     }
 
     plt.figure(figsize=(10, 4.2))
@@ -151,106 +275,21 @@ def gp_area_efficiency_plot():
     plt.xlabel("Performance [GIPS]", fontsize=12)
     plt.ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
 
-    plt.xlim(left=0, right=3)
-    plt.ylim(bottom=0, top=10)
+    #plt.xlim(left=0, right=3)
+    #plt.ylim(bottom=0, top=10)
 
     plt.grid(True, alpha=0.35)
 
     plt.legend(
-        loc="upper right",
-        ncol=3,
+        loc="upper left",
+        ncol=4,
         frameon=True
     )
 
     plt.tight_layout()
     # plt.show()
     plt.savefig(
-        "plot.png",
-        bbox_inches="tight",
-        pad_inches=0.1,
-        dpi=300
-    )
-
-
-def spec_area_efficiency_plot():
-    designs = {
-        "Schnova-ZOL": {
-            "IPC": 0.95,
-            "CLK": 1.00,
-            "area": 106
-        },
-        "PW2-EXP": {
-            "IPC": 2.00,
-            "CLK": 1.00,
-            "area": 217
-        },
-        "PW4-AXPY": {
-            "IPC": 3.44,
-            "CLK": 1.00,
-            "area": 310
-        },
-        "PW8-AXPY": {
-            "IPC": 6.75,
-            "CLK": 1.00,
-            "area": 489
-        },
-    }
-
-    # ----------------------------------------
-    # Performance calculation
-    # GIPS = IPC / CLK(ns)
-    # ----------------------------------------
-
-    for d in designs.values():
-        d["performance_gips"] = d["IPC"] / d["CLK"]
-        d["area_efficiency"] = 1000 * d["performance_gips"] / d["area"]
-
-    # ----------------------------------------
-    # Same color per family, different markers
-    # ----------------------------------------
-
-    marker_map = {
-        "Schnova-ZOL":      ("tab:orange", "o"),
-        "PW2-EXP":          ("tab:green",  "o"),
-        "PW4-AXPY":         ("tab:purple", "o"),
-        "PW8-AXPY":         ("tab:red",    "o"),
-    }
-
-    plt.figure(figsize=(10, 4.2))
-
-    for name, d in designs.items():
-        perf = d["performance_gips"]
-        eff = d["area_efficiency"]
-
-        color, marker = marker_map[name]
-
-        plt.scatter(
-            perf,
-            eff,
-            s=130,
-            color=color,
-            marker=marker,
-            label=name
-        )
-
-    plt.xlabel("Performance [GIPS]", fontsize=12)
-    plt.ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
-
-    plt.xlim(left=0, right=7)
-    plt.ylim(bottom=0, top=16)
-
-    plt.grid(True, alpha=0.35)
-
-    plt.legend(
-        loc="lower right",
-        ncol=2,
-        frameon=True
-    )
-
-    plt.tight_layout()
-    # plt.show()
-    plt.savefig(
-        "plot.png",
+        "tradeoff_cluster.png" if cluster else "tradeoff_core.png",
         bbox_inches="tight",
         pad_inches=0.1,
         dpi=300
@@ -302,210 +341,1084 @@ def connect(ax, gA, idxA, gB, idxB, bar_h, color="gray", alpha=0.2):
     )
 
 
-def plot_core_breakdown(dir=None, name='gp_sv1'):
-    df = experiments.results(dir=dir)
-    df['hierarchy_details'] = df['synth_results'].str['hierarchy_details']
-    # Extract the smallest and biggest general purpose configuration
-    obj = df['hierarchy_details'].loc[name]
+def plot_rfcnt_core_breakdown(dir=None):
+    name = "GP-SV8-GRP"
 
-    df = extract_hierarchy(obj.tree)
-    df['CombArea'] = df['CombArea'].map(to_kge)
-    df['SeqArea'] = df['SeqArea'].map(to_kge)
-    df['StdCellArea'] = df['StdCellArea'].map(to_kge)
-    df['area'] = df['StdCellArea']
+    results_df = grouped_experiments.results(dir=dir)
+    results_df["hierarchy_details"] = (
+        results_df["synth_results"].str["hierarchy_details"]
+    )
 
-    # -----------------------------
-    # Helper
-    # -----------------------------
+    hierarchy = results_df["hierarchy_details"].loc[name]
+
+    area_df = extract_hierarchy(hierarchy.tree)
+    area_df["CombArea"] = area_df["CombArea"].map(to_kge)
+    area_df["SeqArea"] = area_df["SeqArea"].map(to_kge)
+    area_df["StdCellArea"] = area_df["StdCellArea"].map(to_kge)
+    area_df["area"] = area_df["StdCellArea"]
+
     def get_area(path):
-        row = df[df['path'] == path]
-        return row['area'].values[0] if len(row) else 0.0
+        rows = area_df[area_df["path"] == path]
 
-    # -----------------------------
-    # Build synthetic rows
-    # -----------------------------
-    root_area = get_area('.')
-    schnova_area = get_area('./i_schnova')
-    fu_stage_area = get_area('./i_schnova/i_fu_stage')
+        if rows.empty:
+            print(f"Warning: hierarchy path not found: {path}")
+            return 0.0
 
-    # ---- Row 1
-    row1_names = ["Schnova", "Rest"]
+        return rows["area"].iloc[0]
 
-    # ---- Row 2
-    blocks_lvl2 = {
+    # ------------------------------------------------------------------
+    # Relevant parent areas
+    # ------------------------------------------------------------------
+
+    schnova_area = get_area("./i_schnova")
+    fu_stage_area = get_area("./i_schnova/i_fu_stage")
+
+    if schnova_area <= 0:
+        raise ValueError("Could not determine the Schnova area.")
+
+    if fu_stage_area <= 0:
+        raise ValueError("Could not determine the FU-stage area.")
+
+    # ------------------------------------------------------------------
+    # Row 1: breakdown of the complete Schnova core
+    # ------------------------------------------------------------------
+
+    schnova_blocks = {
         "FU Stage": "./i_schnova/i_fu_stage",
-        "FP RF": "./i_schnova/gen_fp_rf_i_fp_phy_regfile",
-        "Int RF": "./i_schnova/i_int_phy_regfile",
+        "Refcnt": (
+            "./i_schnova/"
+            "gen_phys_reg_manage_gen_refcount_reg_manage_i_refcount"
+        ),
+        "Dispatcher": "./i_schnova/i_dispatcher",
+        "FPR": "./i_schnova/gen_fp_rf_i_fp_phy_regfile",
+        "GPR": "./i_schnova/i_int_phy_regfile",
+        "Rename": "./i_schnova/gen_rename_i_rename",
     }
 
-    blocks_rename = {
-        "Rename": "./i_schnova/i_rename",
-        "ROB": "./i_schnova/i_rob",
-        "Scoreboard": "./i_schnova/i_scoreboard",
-    }
+    row1_names = list(schnova_blocks.keys())
+    row1_vals = [
+        get_area(path)
+        for path in schnova_blocks.values()
+    ]
 
-    row2_names = list(blocks_lvl2.keys())
-    row2_vals = [get_area(p) for p in blocks_lvl2.values()]
+    row1_rest = schnova_area - sum(row1_vals)
 
-    rename_vals = [get_area(p) for p in blocks_rename.values()]
+    # Protect against tiny negative values caused by rounding.
+    if row1_rest < 0 and abs(row1_rest) < 1e-6:
+        row1_rest = 0.0
 
-    row2_names.append("Rename")
-    row2_vals.append(sum(rename_vals))
+    if row1_rest < 0:
+        raise ValueError(
+            "The explicitly selected Schnova blocks exceed the total "
+            f"Schnova area by {-row1_rest:.2f} kGE."
+        )
+
+    row1_names.append("Rest")
+    row1_vals.append(row1_rest)
+
+    # ------------------------------------------------------------------
+    # Row 2: breakdown of the FU stage
+    # ------------------------------------------------------------------
+
+    alu_area = area_df[
+        area_df["path"].str.contains("gen_alus_", na=False)
+        & area_df["path"].str.endswith("i_alu", na=False)
+    ]["area"].sum()
+
+    fpu_area = area_df[
+        area_df["path"].str.contains("gen_fpus_", na=False)
+        & area_df["path"].str.endswith("_i_fpu", na=False)
+    ]["area"].sum()
+
+    lsu_area = area_df[
+        area_df["path"].str.contains("gen_lsus_", na=False)
+        & area_df["path"].str.endswith("i_lsu", na=False)
+    ]["area"].sum()
+
+    rs_area = area_df[
+        area_df["path"].str.endswith("gen_rs_i_res_stat", na=False)
+    ]["area"].sum()
+
+    row2_names = [
+        "FPU",
+        "RSs",
+        "3 ALUs",
+        "3 LSUs",
+    ]
+
+    row2_vals = [
+        fpu_area,
+        rs_area,
+        alu_area,
+        lsu_area,
+    ]
+    
+    print(fpu_area)
+    row2_rest = fu_stage_area - sum(row2_vals)
+
+    if row2_rest < 0 and abs(row2_rest) < 1e-6:
+        row2_rest = 0.0
+
+    if row2_rest < 0:
+        raise ValueError(
+            "The explicitly selected FU-stage blocks exceed the total "
+            f"FU-stage area by {-row2_rest:.2f} kGE."
+        )
 
     row2_names.append("Rest")
-    row2_vals.append(schnova_area - sum(row2_vals))
+    row2_vals.append(row2_rest)
 
-    # ---- Row 3 (FU stage)
-    alu_area = df[
-        df['path'].str.contains('gen_alus_') &
-        df['path'].str.endswith('i_alu')
-    ]['area'].sum()
+    # ------------------------------------------------------------------
+    # Build the AreaRow objects
+    # ------------------------------------------------------------------
 
-    fpu_area = df[
-        df['path'].str.contains('gen_fpus_0__i_fpu/i_fpu')
-    ]['area'].sum()
+    row1 = AreaRow(
+        row1_names,
+        total_area=schnova_area,
+        threshold=0.0,
+        color_source=PULP_COLORS_BASE,
+    )
 
-    lsu_area = df[
-        df['path'].str.contains('gen_lsus_') &
-        df['path'].str.endswith('i_lsu')
-    ]['area'].sum()
+    row2 = AreaRow(
+        row2_names,
+        total_area=fu_stage_area,
+        threshold=0.0,
+        color_source=PULP_COLORS_BASE,
+    )
 
-    fu_block_area = df[
-        df['path'].str.endswith('i_fu_block')
-    ]['area'].sum()
+    row1.build(row1_vals, row1_names)
+    row2.build(row2_vals, row2_names)
 
-    row3_names = ["FPU", "FU Blocks", "3 ALUs", "3 LSUs"]
-    row3_vals = [fpu_area, fu_block_area, alu_area,  lsu_area]
+    rows = [row1, row2]
 
-    row3_names.append("Rest")
-    row3_vals.append(fu_stage_area - sum(row3_vals))
-
-    # -----------------------------
-    # Build AreaRow objects
-    # -----------------------------
-    rows = [
-        AreaRow(row1_names, total_area=root_area, threshold=0.0, color_source=PULP_COLORS_BASE),
-        AreaRow(row2_names, total_area=schnova_area, threshold=0.0, color_source=PULP_COLORS_BASE),
-        AreaRow(row3_names, total_area=fu_stage_area, threshold=0.0, color_source=PULP_COLORS_BASE),
-    ]
+    # ------------------------------------------------------------------
+    # Draw the two rows
+    # ------------------------------------------------------------------
 
     fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
 
-    BAR_H = 0.3
-    Y_OFF = 1.0
-    POS1_OFF = 0.65
-    POS2_OFF = 0.95
+    bar_height = 0.3
+    row_spacing = 1.0
+    label_position = 0.65
+    percent_position = 0.95
 
-    if name == 'gp_sv1':
-        specs = [
-            (rows[0], 0, None),
-            (rows[1], Y_OFF, [4]),
-            (rows[2], 2 * Y_OFF, [4]),
-        ]
-    else:
-        specs = [
-            (rows[0], 0, None),
-            (rows[1], Y_OFF, [4]),
-            (rows[2], 2 * Y_OFF, [2, 4]),
-        ]
+    specs = [
+        (rows[0], 0.0, None),
+        (rows[1], row_spacing, None),
+    ]
 
     ax.set_xlim(0, 1)
     ax.invert_yaxis()
-    ax.axis('off')
+    ax.axis("off")
 
-    geom = []
+    geometry = []
 
-    for i, (row_obj, y, off) in enumerate(specs):
-        labels, widths, lefts, y_out = row_obj.plot(
+    for row, y_position, offset_indices in specs:
+        labels, widths, lefts, plotted_y = row.plot(
             ax,
-            y,
-            offset_indices=off,
-            bar_height=BAR_H,
-            pos1=POS1_OFF,
-            pos2=POS2_OFF
+            y_position,
+            offset_indices=offset_indices,
+            bar_height=bar_height,
+            pos1=label_position,
+            pos2=percent_position,
         )
-        geom.append({
-            "labels": labels,
-            "widths": widths,
-            "lefts": lefts,
-            "y": y_out
-        })
 
-    g0 = geom[0]
-    g1 = geom[1]
-    g2 = geom[2]
+        geometry.append(
+            {
+                "labels": list(labels),
+                "widths": list(widths),
+                "lefts": list(lefts),
+                "y": plotted_y,
+            }
+        )
 
-    bar2_idx = [g1["labels"].index(i) for i in row2_names]
-    bar3_idx = [g2["labels"].index(i) for i in row3_names]
+    # ------------------------------------------------------------------
+    # Connect FU Stage in row 1 to the complete row-2 breakdown
+    # ------------------------------------------------------------------
 
-    schnova_idx = g0["labels"].index("Schnova")
-    schnova_left = g0["lefts"][schnova_idx]
-    schnova_right = schnova_left + g0["widths"][schnova_idx]
-    fu_idx = g1["labels"].index("FU Stage")
-    fu_left = g1["lefts"][fu_idx]
-    fu_right = fu_left + g1["widths"][fu_idx]
+    upper = geometry[0]
+    lower = geometry[1]
 
-    bar2_left = min(g1["lefts"][i] for i in bar2_idx)
-    bar2_right = max(
-        g1["lefts"][i] + g1["widths"][i] for i in bar2_idx
+    fu_index = upper["labels"].index("FU Stage")
+    fu_left = upper["lefts"][fu_index]
+    fu_right = fu_left + upper["widths"][fu_index]
+
+    lower_left = min(lower["lefts"])
+    lower_right = max(
+        left + width
+        for left, width in zip(
+            lower["lefts"],
+            lower["widths"],
+        )
     )
-    bar3_left = min(g2["lefts"][i] for i in bar3_idx)
-    bar3_right = max(
-        g2["lefts"][i] + g2["widths"][i] for i in bar3_idx
+
+    upper_left_point = (
+        fu_left,
+        upper["y"] + bar_height / 2,
+    )
+    upper_right_point = (
+        fu_right,
+        upper["y"] + bar_height / 2,
+    )
+    lower_right_point = (
+        lower_right,
+        lower["y"] - bar_height / 2,
+    )
+    lower_left_point = (
+        lower_left,
+        lower["y"] - bar_height / 2,
     )
 
-    p1 = (schnova_left, g0["y"] + BAR_H/2)
-    p2 = (schnova_right, g0["y"] + BAR_H/2)
-    p3 = (bar2_right, g1["y"] - BAR_H/2)
-    p4 = (bar2_left,  g1["y"] - BAR_H/2)
+    connector_path = smooth_polygon(
+        upper_left_point,
+        upper_right_point,
+        lower_right_point,
+        lower_left_point,
+    )
 
-    path = smooth_polygon(p1, p2, p3, p4)
     ax.add_patch(
-        patches.PathPatch(path, facecolor="gray", edgecolor="none", alpha=0.2)
+        patches.PathPatch(
+            connector_path,
+            facecolor="gray",
+            edgecolor="none",
+            alpha=0.2,
+            zorder=0,
+        )
     )
 
-    p1 = (fu_left,  g1["y"] + BAR_H/2)
-    p2 = (fu_right, g1["y"] + BAR_H/2)
-    p3 = (bar3_right, g2["y"] - BAR_H/2)
-    p4 = (bar3_left,  g2["y"] - BAR_H/2)
+    fig.tight_layout()
 
-    path = smooth_polygon(p1, p2, p3, p4)
-    ax.add_patch(
-        patches.PathPatch(path, facecolor="gray", edgecolor="none", alpha=0.2)
-    )
-
-    plt.tight_layout()
-    plt.savefig(
-        "plot.png",
+    fig.savefig(
+        "rfcnt_core_breakdown.png",
         bbox_inches="tight",
         pad_inches=0.1,
-        dpi=300
+        dpi=300,
     )
+
     plt.show()
+
+    return {
+        "schnova": dict(zip(row1_names, row1_vals)),
+        "fu_stage": dict(zip(row2_names, row2_vals)),
+    }
+
+def plot_rob_core_breakdown(dir=None):
+    name = "GP-SV8-rob-GRP"
+
+    results_df = grouped_experiments.results(dir=dir)
+    results_df["hierarchy_details"] = (
+        results_df["synth_results"].str["hierarchy_details"]
+    )
+
+    hierarchy = results_df["hierarchy_details"].loc[name]
+
+    area_df = extract_hierarchy(hierarchy.tree)
+    area_df["CombArea"] = area_df["CombArea"].map(to_kge)
+    area_df["SeqArea"] = area_df["SeqArea"].map(to_kge)
+    area_df["StdCellArea"] = area_df["StdCellArea"].map(to_kge)
+    area_df["area"] = area_df["StdCellArea"]
+
+    def get_area(path):
+        rows = area_df[area_df["path"] == path]
+
+        if rows.empty:
+            print(f"Warning: hierarchy path not found: {path}")
+            return 0.0
+
+        return rows["area"].iloc[0]
+
+    # ------------------------------------------------------------------
+    # Relevant parent areas
+    # ------------------------------------------------------------------
+
+    schnova_area = get_area("./i_schnova")
+    fu_stage_area = get_area("./i_schnova/i_fu_stage")
+
+    if schnova_area <= 0:
+        raise ValueError("Could not determine the Schnova area.")
+
+    if fu_stage_area <= 0:
+        raise ValueError("Could not determine the FU-stage area.")
+
+    # ------------------------------------------------------------------
+    # Row 1: breakdown of the complete Schnova core
+    # ------------------------------------------------------------------
+
+    schnova_blocks = {
+        "FU Stage": "./i_schnova/i_fu_stage",
+        "Dispatcher": "./i_schnova/i_dispatcher",
+        "FPR": "./i_schnova/gen_fp_rf_i_fp_phy_regfile",
+        "GPR": "./i_schnova/i_int_phy_regfile",
+        "Rename": "./i_schnova/gen_rename_i_rename",
+    }
+
+    
+
+    
+
+    
+
+    row1_names = list(schnova_blocks.keys())
+    row1_vals = [
+        get_area(path)
+        for path in schnova_blocks.values()
+    ]
+
+    rob_paths = [
+        "./i_schnova/gen_phys_reg_manage_gen_freelist_reg_manage_i_fpr_free_list",
+        "./i_schnova/gen_phys_reg_manage_gen_freelist_reg_manage_i_gpr_free_list",
+        "./i_schnova/gen_phys_reg_manage_gen_freelist_reg_manage_i_rob"
+    ]
+
+    rob_areas = [ get_area(path) for path in rob_paths ]
+
+    rob_area = sum(rob_areas)
+
+    row1_names.insert(1,"Rob")
+    row1_vals.insert(1,rob_area)
+
+    row1_rest = schnova_area - sum(row1_vals)
+
+    # Protect against tiny negative values caused by rounding.
+    if row1_rest < 0 and abs(row1_rest) < 1e-6:
+        row1_rest = 0.0
+
+    if row1_rest < 0:
+        raise ValueError(
+            "The explicitly selected Schnova blocks exceed the total "
+            f"Schnova area by {-row1_rest:.2f} kGE."
+        )
+
+    # Set the rob as the second element to have the same order as
+    # the refcnt breakdown
+    row1_names.append("Rest")
+    row1_vals.append(row1_rest)
+    
+
+    # ------------------------------------------------------------------
+    # Row 2: breakdown of the FU stage
+    # ------------------------------------------------------------------
+
+    alu_area = area_df[
+        area_df["path"].str.contains("gen_alus_", na=False)
+        & area_df["path"].str.endswith("i_alu", na=False)
+    ]["area"].sum()
+
+    fpu_area = area_df[
+        area_df["path"].str.contains("gen_fpus_", na=False)
+        & area_df["path"].str.endswith("_i_fpu", na=False)
+    ]["area"].sum()
+
+    lsu_area = area_df[
+        area_df["path"].str.contains("gen_lsus_", na=False)
+        & area_df["path"].str.endswith("i_lsu", na=False)
+    ]["area"].sum()
+
+    rs_area = area_df[
+        area_df["path"].str.endswith("gen_rs_i_res_stat", na=False)
+    ]["area"].sum()
+
+    row2_names = [
+        "FPU",
+        "RSs",
+        "3 ALUs",
+        "3 LSUs",
+    ]
+
+    row2_vals = [
+        fpu_area,
+        rs_area,
+        alu_area,
+        lsu_area,
+    ]
+    
+    print(fpu_area)
+    row2_rest = fu_stage_area - sum(row2_vals)
+
+    if row2_rest < 0 and abs(row2_rest) < 1e-6:
+        row2_rest = 0.0
+
+    if row2_rest < 0:
+        raise ValueError(
+            "The explicitly selected FU-stage blocks exceed the total "
+            f"FU-stage area by {-row2_rest:.2f} kGE."
+        )
+
+    row2_names.append("Rest")
+    row2_vals.append(row2_rest)
+
+    # ------------------------------------------------------------------
+    # Build the AreaRow objects
+    # ------------------------------------------------------------------
+
+    row1 = AreaRow(
+        row1_names,
+        total_area=schnova_area,
+        threshold=0.0,
+        color_source=PULP_COLORS_BASE,
+    )
+
+    row2 = AreaRow(
+        row2_names,
+        total_area=fu_stage_area,
+        threshold=0.0,
+        color_source=PULP_COLORS_BASE,
+    )
+
+    row1.build(row1_vals, row1_names)
+    row2.build(row2_vals, row2_names)
+
+    rows = [row1, row2]
+
+    # ------------------------------------------------------------------
+    # Draw the two rows
+    # ------------------------------------------------------------------
+
+    fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
+
+    bar_height = 0.3
+    row_spacing = 1.0
+    label_position = 0.65
+    percent_position = 0.95
+
+    specs = [
+        (rows[0], 0.0, None),
+        (rows[1], row_spacing, None),
+    ]
+
+    ax.set_xlim(0, 1)
+    ax.invert_yaxis()
+    ax.axis("off")
+
+    geometry = []
+
+    for row, y_position, offset_indices in specs:
+        labels, widths, lefts, plotted_y = row.plot(
+            ax,
+            y_position,
+            offset_indices=offset_indices,
+            bar_height=bar_height,
+            pos1=label_position,
+            pos2=percent_position,
+        )
+
+        geometry.append(
+            {
+                "labels": list(labels),
+                "widths": list(widths),
+                "lefts": list(lefts),
+                "y": plotted_y,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Connect FU Stage in row 1 to the complete row-2 breakdown
+    # ------------------------------------------------------------------
+
+    upper = geometry[0]
+    lower = geometry[1]
+
+    fu_index = upper["labels"].index("FU Stage")
+    fu_left = upper["lefts"][fu_index]
+    fu_right = fu_left + upper["widths"][fu_index]
+
+    lower_left = min(lower["lefts"])
+    lower_right = max(
+        left + width
+        for left, width in zip(
+            lower["lefts"],
+            lower["widths"],
+        )
+    )
+
+    upper_left_point = (
+        fu_left,
+        upper["y"] + bar_height / 2,
+    )
+    upper_right_point = (
+        fu_right,
+        upper["y"] + bar_height / 2,
+    )
+    lower_right_point = (
+        lower_right,
+        lower["y"] - bar_height / 2,
+    )
+    lower_left_point = (
+        lower_left,
+        lower["y"] - bar_height / 2,
+    )
+
+    connector_path = smooth_polygon(
+        upper_left_point,
+        upper_right_point,
+        lower_right_point,
+        lower_left_point,
+    )
+
+    ax.add_patch(
+        patches.PathPatch(
+            connector_path,
+            facecolor="gray",
+            edgecolor="none",
+            alpha=0.2,
+            zorder=0,
+        )
+    )
+
+    fig.tight_layout()
+
+    fig.savefig(
+        "rob_core_breakdown.png",
+        bbox_inches="tight",
+        pad_inches=0.1,
+        dpi=300,
+    )
+
+    plt.show()
+
+    return {
+        "schnova": dict(zip(row1_names, row1_vals)),
+        "fu_stage": dict(zip(row2_names, row2_vals)),
+    }
+
+def plot_schnizo_core_breakdown(dir=None):
+    name = "Schnizo-GP-L-GRP"
+
+    results_df = grouped_experiments.results(dir=dir)
+    results_df["hierarchy_details"] = (
+        results_df["synth_results"].str["hierarchy_details"]
+    )
+
+    hierarchy = results_df["hierarchy_details"].loc[name]
+
+    area_df = extract_hierarchy(hierarchy.tree)
+    area_df["CombArea"] = area_df["CombArea"].map(to_kge)
+    area_df["SeqArea"] = area_df["SeqArea"].map(to_kge)
+    area_df["StdCellArea"] = area_df["StdCellArea"].map(to_kge)
+    area_df["area"] = area_df["StdCellArea"]
+
+    def get_area(path):
+        rows = area_df[area_df["path"] == path]
+
+        if rows.empty:
+            print(f"Warning: hierarchy path not found: {path}")
+            return 0.0
+
+        return rows["area"].iloc[0]
+
+    # ------------------------------------------------------------------
+    # Relevant parent areas
+    # ------------------------------------------------------------------
+
+    schnova_area = get_area("./i_schnizo")
+    fu_stage_area = get_area("./i_schnizo/i_fu_stage")
+
+    if schnova_area <= 0:
+        raise ValueError("Could not determine the Schnova area.")
+
+    if fu_stage_area <= 0:
+        raise ValueError("Could not determine the FU-stage area.")
+
+    # ------------------------------------------------------------------
+    # Row 1: breakdown of the complete Schnova core
+    # ------------------------------------------------------------------
+
+    schnova_blocks = {
+        "FU Stage": "./i_schnizo/i_fu_stage",
+    }
+
+    row1_names = list(schnova_blocks.keys())
+    row1_vals = [
+        get_area(path)
+        for path in schnova_blocks.values()
+    ]
+
+    rf_paths = [
+        "./i_schnizo/gen_fp_rf_i_fp_regfile",
+        "./i_schnizo/i_int_regfile",
+    ]
+
+    rf_areas = [ get_area(path) for path in rf_paths ]
+
+    rf_area = sum(rf_areas)
+
+    row1_names.insert(1,"RF")
+    row1_vals.insert(1,rf_area)
+
+    row1_rest = schnova_area - sum(row1_vals)
+
+    # Protect against tiny negative values caused by rounding.
+    if row1_rest < 0 and abs(row1_rest) < 1e-6:
+        row1_rest = 0.0
+
+    if row1_rest < 0:
+        raise ValueError(
+            "The explicitly selected Schnizo blocks exceed the total "
+            f"Schnizo area by {-row1_rest:.2f} kGE."
+        )
+
+    # Set the rob as the second element to have the same order as
+    # the refcnt breakdown
+    row1_names.append("Rest")
+    row1_vals.append(row1_rest)
+    
+
+    # ------------------------------------------------------------------
+    # Row 2: breakdown of the FU stage
+    # ------------------------------------------------------------------
+
+    odn_area = area_df[
+        area_df["path"].str.contains("gen_odn_", na=False)
+        & area_df["path"].str.endswith("xbar", na=False)
+    ]["area"].sum()
+
+    alu_area = area_df[
+        area_df["path"].str.contains("gen_alus_", na=False)
+        & area_df["path"].str.endswith("i_alu", na=False)
+    ]["area"].sum()
+
+    fpu_area = area_df[
+        area_df["path"].str.contains("gen_fpus_", na=False)
+        & area_df["path"].str.endswith("_i_fpu", na=False)
+    ]["area"].sum()
+
+    lsu_area = area_df[
+        area_df["path"].str.contains("gen_lsus_", na=False)
+        & area_df["path"].str.endswith("i_lsu", na=False)
+    ]["area"].sum()
+
+    rs_area = area_df[
+        area_df["path"].str.endswith("i_fu_block", na=False)
+    ]["area"].sum()
+
+    row2_names = [
+        "ODN",
+        "3 ALUs",
+        "FPU",
+        "3 LSUs",
+        "RSs",
+    ]
+
+    row2_vals = [
+        odn_area,
+        alu_area,
+        fpu_area,
+        lsu_area,
+        rs_area,
+    ]
+    
+    print(fpu_area)
+    row2_rest = fu_stage_area - sum(row2_vals)
+
+    if row2_rest < 0 and abs(row2_rest) < 1e-6:
+        row2_rest = 0.0
+
+    if row2_rest < 0:
+        raise ValueError(
+            "The explicitly selected FU-stage blocks exceed the total "
+            f"FU-stage area by {-row2_rest:.2f} kGE."
+        )
+
+    row2_names.append("Rest")
+    row2_vals.append(row2_rest)
+
+    # ------------------------------------------------------------------
+    # Build the AreaRow objects
+    # ------------------------------------------------------------------
+
+    row1 = AreaRow(
+        row1_names,
+        total_area=schnova_area,
+        threshold=0.0,
+        color_source=PULP_COLORS_BASE,
+    )
+
+    row2 = AreaRow(
+        row2_names,
+        total_area=fu_stage_area,
+        threshold=0.0,
+        color_source=PULP_COLORS_BASE,
+    )
+
+    row1.build(row1_vals, row1_names)
+    row2.build(row2_vals, row2_names)
+
+    rows = [row1, row2]
+
+    # ------------------------------------------------------------------
+    # Draw the two rows
+    # ------------------------------------------------------------------
+
+    fig, ax = plt.subplots(figsize=(10, 4), dpi=300)
+
+    bar_height = 0.3
+    row_spacing = 1.0
+    label_position = 0.7
+    percent_position = 1.1
+
+    specs = [
+        (rows[0], 0.0, [2]),
+        (rows[1], row_spacing, [1,3]),
+    ]
+
+    ax.set_xlim(0, 1)
+    ax.invert_yaxis()
+    ax.axis("off")
+
+    geometry = []
+
+    for row, y_position, offset_indices in specs:
+        labels, widths, lefts, plotted_y = row.plot(
+            ax,
+            y_position,
+            offset_indices=offset_indices,
+            bar_height=bar_height,
+            pos1=label_position,
+            pos2=percent_position,
+        )
+
+        geometry.append(
+            {
+                "labels": list(labels),
+                "widths": list(widths),
+                "lefts": list(lefts),
+                "y": plotted_y,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Connect FU Stage in row 1 to the complete row-2 breakdown
+    # ------------------------------------------------------------------
+
+    upper = geometry[0]
+    lower = geometry[1]
+
+    fu_index = upper["labels"].index("FU Stage")
+    fu_left = upper["lefts"][fu_index]
+    fu_right = fu_left + upper["widths"][fu_index]
+
+    lower_left = min(lower["lefts"])
+    lower_right = max(
+        left + width
+        for left, width in zip(
+            lower["lefts"],
+            lower["widths"],
+        )
+    )
+
+    upper_left_point = (
+        fu_left,
+        upper["y"] + bar_height / 2,
+    )
+    upper_right_point = (
+        fu_right,
+        upper["y"] + bar_height / 2,
+    )
+    lower_right_point = (
+        lower_right,
+        lower["y"] - bar_height / 2,
+    )
+    lower_left_point = (
+        lower_left,
+        lower["y"] - bar_height / 2,
+    )
+
+    connector_path = smooth_polygon(
+        upper_left_point,
+        upper_right_point,
+        lower_right_point,
+        lower_left_point,
+    )
+
+    ax.add_patch(
+        patches.PathPatch(
+            connector_path,
+            facecolor="gray",
+            edgecolor="none",
+            alpha=0.2,
+            zorder=0,
+        )
+    )
+
+    fig.tight_layout()
+
+    fig.savefig(
+        "schnizo_core_breakdown.png",
+        bbox_inches="tight",
+        pad_inches=0.1,
+        dpi=300,
+    )
+
+    plt.show()
+
+    return {
+        "schnova": dict(zip(row1_names, row1_vals)),
+        "fu_stage": dict(zip(row2_names, row2_vals)),
+    }
+
+
+
+def area_timing_plot(reveal_step=None, save_path=None):
+    """Plot core area against achievable clock period.
+
+    Parameters
+    ----------
+    reveal_step : int or None
+        Number of configuration families to show. ``None`` shows all
+        families. The ordered reveal is baseline, GP-ROB, GP reference
+        counting, conventional OoO cores, Schnizo-GP, Schnova-LA,
+        Schnizo-LA, and Spatz-LA.
+    save_path : str or None
+        Output path. A suitable file name is generated when omitted.
+    """
+
+    designs = {
+        "Schnova-ZOL": {"CLK": 1.00, "area": 129},
+        "Schnizo-GP-L": {"CLK": 2.003, "area": 1311},
+        "Schnizo-LA": {"CLK": 1.108, "area": 304},
+        "CVA6S+": {"CLK": 1.164, "area": 851},
+        "C910": {"CLK": 0.757, "area": 2674},
+        "GP-FW1": {"CLK": 1.011, "area": 194},
+        "GP-FW2": {"CLK": 1.051, "area": 345},
+        "GP-FW4": {"CLK": 1.065, "area": 464},
+        "GP-FW8": {"CLK": 1.219, "area": 589},
+        "GP-FW1-ROB": {"CLK": 1.015, "area": 330},
+        "GP-FW2-ROB": {"CLK": 1.051, "area": 439},
+        "GP-FW4-ROB": {"CLK": 1.199, "area": 674},
+        "GP-FW8-ROB": {"CLK": 1.246, "area": 815},
+        "LA-FW1": {"CLK": 1.005, "area": 182},
+        "LA-FW2": {"CLK": 1.004, "area": 245},
+        "LA-FW4": {"CLK": 1.092, "area": 342},
+        "LA-FW8": {"CLK": 1.171, "area": 543},
+        "Spatz-LA": {"CLK": 1.000, "area": 583},
+    }
+
+    families = [
+        {
+            "label": "Schnova scalar",
+            "names": ["Schnova-ZOL"],
+            "color": "tab:blue",
+            "marker": "o",
+            "connect": False,
+        },
+        {
+            "label": "Schnova superscalar, ROB",
+            "names": ["GP-FW1-ROB", "GP-FW2-ROB",
+                      "GP-FW4-ROB", "GP-FW8-ROB"],
+            "color": "tab:orange",
+            "marker": "o",
+            "connect": True,
+        },
+        {
+            "label": "Schnova superscalar, reference counting",
+            "names": ["GP-FW1", "GP-FW2", "GP-FW4", "GP-FW8"],
+            "color": "tab:green",
+            "marker": "o",
+            "connect": True,
+        },
+        {
+            "label": "Conventional OoO cores",
+            "names": ["CVA6S+", "C910"],
+            "color": "tab:pink",
+            "marker": "o",
+            "connect": False,
+        },
+        {
+            "label": "Schnizo GP",
+            "names": ["Schnizo-GP-L"],
+            "color": "tab:cyan",
+            "marker": "D",
+            "connect": False,
+        },
+        {
+            "label": "Schnova LA",
+            "names": ["LA-FW1", "LA-FW2", "LA-FW4", "LA-FW8"],
+            "color": "tab:purple",
+            "marker": "^",
+            "connect": True,
+        },
+        {
+            "label": "Schnizo LA",
+            "names": ["Schnizo-LA"],
+            "color": "tab:red",
+            "marker": "D",
+            "connect": False,
+        },
+        {
+            "label": "Spatz LA",
+            "names": ["Spatz-LA"],
+            "color": "tab:gray",
+            "marker": "P",
+            "connect": False,
+        },
+    ]
+
+
+    if reveal_step is None:
+        active_families = families
+    else:
+        if not 1 <= reveal_step <= len(families):
+            raise ValueError(
+                f"reveal_step must be between 1 and {len(families)}"
+            )
+        active_families = families[:reveal_step]
+
+    fig, ax = plt.subplots(figsize=(10, 5.2))
+    legend_handles = []
+
+    for family in active_families:
+        names = family["names"]
+        x = [designs[name]["CLK"] for name in names]
+        y = [designs[name]["area"] for name in names]
+
+        if family["connect"]:
+            ax.plot(
+                x, y,
+                color=family["color"],
+                linewidth=1.6,
+                alpha=0.8,
+                zorder=2,
+            )
+
+        ax.scatter(
+            x, y,
+            s=120,
+            color=family["color"],
+            marker=family["marker"],
+            zorder=3,
+        )
+
+        # Mark the fetch width directly beside each Schnova family point.
+        for name, x_pos, y_pos in zip(names, x, y):
+            if "FW" in name:
+                fw = name.split("FW", 1)[1].split("-", 1)[0]
+                ax.annotate(
+                    f"FW{fw}",
+                    (x_pos, y_pos),
+                    xytext=(5, 5),
+                    textcoords="offset points",
+                    fontsize=8,
+                )
+
+        legend_handles.append(
+            Line2D(
+                [0], [0],
+                color=(family["color"] if family["connect"] else "none"),
+                marker=family["marker"],
+                markerfacecolor=family["color"],
+                markeredgecolor=family["color"],
+                linewidth=(1.6 if family["connect"] else 0),
+                markersize=8,
+                label=family["label"],
+            )
+        )
+
+    ax.set_xlim(left=0.7, right=2.1)
+    ax.set_xlabel("Achievable Clock Period [ns]", fontsize=12)
+    ax.set_ylabel("Area [kGE]", fontsize=12)
+    ax.grid(True, alpha=0.35, zorder=0)
+    ax.legend(
+        handles=legend_handles,
+        loc="upper right",
+        ncol=2,
+        frameon=True,
+        fontsize=9,
+    )
+
+    fig.tight_layout()
+
+    if save_path is None:
+        suffix = "" if reveal_step is None else f"_step{reveal_step}"
+        save_path = f"area_timing{suffix}.png"
+
+
+
+
+
+    fig.savefig(
+        save_path,
+        bbox_inches="tight",
+        pad_inches=0.1,
+        dpi=300,
+    )
+    plt.close(fig)
+    print(f"Saved {save_path}")
+
+
+def area_timing_plot_all_steps():
+    """Generate all incremental reveal plots for presentation slides."""
+    for step in range(1, 9):
+        area_timing_plot(reveal_step=step)
 
 
 def plot1():
-    gp_area_efficiency_plot()
+    gp_area_efficiency_plot(False)
 
 
 def plot2():
-    spec_area_efficiency_plot()
+    gp_area_efficiency_plot(True)
 
 
 def plot3():
-    plot_core_breakdown(name='gp_sv1_s')
-
+    plot_rfcnt_core_breakdown()
 
 def plot4():
-    plot_core_breakdown(name='gp_sv8')
-
+    plot_rob_core_breakdown()
 
 def plot5():
+    plot_schnizo_core_breakdown()
+
+def plot6():
     print(results())
 
 
+def plot7():
+    area_timing_plot()
+
+
+def plot7_step1():
+    area_timing_plot(reveal_step=1)
+
+
+def plot7_step2():
+    area_timing_plot(reveal_step=2)
+
+
+def plot7_step3():
+    area_timing_plot(reveal_step=3)
+
+
+def plot7_step4():
+    area_timing_plot(reveal_step=4)
+
+
+def plot7_step5():
+    area_timing_plot(reveal_step=5)
+
+
+def plot7_step6():
+    area_timing_plot(reveal_step=6)
+
+
+def plot7_step7():
+    area_timing_plot(reveal_step=7)
+
+
+def plot7_step8():
+    area_timing_plot(reveal_step=8)
+
+
+def plot7_all_steps():
+    area_timing_plot_all_steps()
+
+
 def main():
-    plots = [plot1, plot2, plot3, plot4, plot5]
+    plots = [
+        plot1, plot2, plot3, plot4, plot5, plot6, plot7,
+        plot7_step1, plot7_step2, plot7_step3, plot7_step4,
+        plot7_step5, plot7_step6, plot7_step7, plot7_step8,
+        plot7_all_steps,
+    ]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments

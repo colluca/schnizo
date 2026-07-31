@@ -64,7 +64,7 @@ class ExperimentManager(eu.ExperimentManager):
             env['SN_HW_FDIV'] = '1'
         return env
 
-def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
+def gen_experiments(vary_by=None, use_rob=False, use_bal=False, spec=False):
     # Define experiment axes
     cfgs = []
 
@@ -100,11 +100,6 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
         'sv_1_1x1_1x1_1x1_10_128_128_128_128_0',
         'sv_1_1x1_1x1_1x1_12_128_128_128_128_0',
         'sv_1_1x1_1x1_1x1_14_128_128_128_128_0',
-        'sv_1_1x1_1x1_1x1_16_128_128_128_128_0',
-        'sv_1_1x1_1x1_1x1_18_128_128_128_128_0',
-        'sv_1_1x1_1x1_1x1_20_128_128_128_128_0',
-        'sv_1_1x1_1x1_1x1_22_128_128_128_128_0',
-        'sv_1_1x1_1x1_1x1_24_128_128_128_128_0',
     ]
 
     alu_buf_slots_bal_cfgs = [
@@ -189,6 +184,14 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
        'sv_1_1x1_1x1_1x1_2_2_4_40_128_0',
 
     ]
+    
+    rfcnt_gpr_cfgs_spec = [
+       'sv_1_1x1_1x1_1x1_2_2_2_34_128_0',
+       'sv_1_1x1_1x1_1x1_2_2_2_36_128_0',
+       'sv_1_1x1_1x1_1x1_2_2_2_38_128_0',
+       'sv_1_1x1_1x1_1x1_2_2_2_40_128_0',
+
+    ]
 
     rfcnt_fpr_cfgs = [
        'sv_1_1x1_1x1_1x1_4_2_6_38_36_0',
@@ -214,6 +217,13 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
 
     ]
 
+    rfcnt_fpr_cfgs_spec = [
+    'sv_1_1x1_1x1_1x1_2_2_2_34_34_0',
+    'sv_1_1x1_1x1_1x1_2_2_2_34_36_0',
+    'sv_1_1x1_1x1_1x1_2_2_2_34_38_0',
+    'sv_1_1x1_1x1_1x1_2_2_2_34_40_0',
+
+    ]
 
     rob_gpr_cfgs = [
        'sv_1_1x1_1x1_1x1_4_2_6_96_128_256',
@@ -256,7 +266,7 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
     ]
 
     large_cfg = [
-        'sv_8_3x128_3x128_1x128_128_128_128_128_128_0'
+        'sv_1_1x128_1x128_1x128_128_128_128_128_128_0'
     ]
 
     if (vary_by == 'alu_slots'):
@@ -271,12 +281,12 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
         else:
             cfgs = alu_buf_slots_cfgs
     elif (vary_by == 'lsu_buf_slots'):
-        if use_bal:
+        if use_bal or spec:
             cfgs = lsu_buf_slots_bal_cfgs
         else:
             cfgs = lsu_buf_slots_cfgs
     elif (vary_by == 'fpu_buf_slots'):
-        if use_bal:
+        if use_bal or spec:
             cfgs = fpu_buf_slots_bal_cfgs
         else:
             cfgs = fpu_buf_slots_cfgs
@@ -286,14 +296,18 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
         else:
             if use_bal:
                 cfgs = rfcnt_gpr_cfgs_bal
+            elif spec:
+                cfgs = rfcnt_gpr_cfgs_spec
             else: 
                 cfgs = rfcnt_gpr_cfgs
     elif (vary_by == 'fpr'):
         if use_rob:
             cfgs = rob_fpr_cfgs
         else:
-            if use_bal:
+            if use_bal or spec:
                 cfgs = rfcnt_fpr_cfgs_bal
+            elif spec:
+                cfgs = rfcnt_fpr_cfgs_spec
             else: 
                 cfgs = rfcnt_fpr_cfgs
     elif (vary_by == 'rob_entries'):
@@ -305,7 +319,7 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
              'superscalar'
              ]
     sizes = [4096]
-    app_filter = None
+    app_filter = 'sz_dot' if spec else None
     core = 'schnova'
 
     # Generate experiment list
@@ -397,19 +411,111 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
                                     sim_bin, "${elf}"],
                             'roi': Path("roi/pi_estimation.json.tpl")
                         })
-                for app in DNN_SIMPLE_APPS:
-                    verify = MK_DIR / f"sw/kernels/dnn/{app}/scripts/verify.py"
-                    cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
-                    experiments.append({
-                        'app': app,
+                verify = MK_DIR / f"sw/kernels/dnn/relu/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'relu',
                         'hw': cfg,
                         'mode': mode,
                         'core': core,
                         'bal': bal,
-                        'data_cfg': {'size': size},
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'relu_fp32_schnova'
+                            },
                         'cmd': cmd,
                         'roi': Path("roi/dnn.json.tpl"),
-                    })
+                })
+                verify = MK_DIR / f"sw/kernels/dnn/gelu/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'gelu',
+                        'hw': cfg,
+                        'mode': mode,
+                        'core': core,
+                        'bal': bal,
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'gelu_fp32_sigmoid_schnova'
+                            },
+                        'cmd': cmd,
+                        'roi': Path("roi/dnn.json.tpl"),
+                })
+                verify = MK_DIR / f"sw/kernels/dnn/silu/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'silu',
+                        'hw': cfg,
+                        'mode': mode,
+                        'core': core,
+                        'bal': bal,
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'silu_fp32_schnova'
+                            },
+                        'cmd': cmd,
+                        'roi': Path("roi/dnn.json.tpl"),
+                })
+                verify = MK_DIR / f"sw/kernels/dnn/layernorm/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'layernorm',
+                        'hw': cfg,
+                        'mode': mode,
+                        'core': core,
+                        'bal': bal,
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'layernorm_fp32_schnova'
+                            },
+                        'cmd': cmd,
+                        'roi': Path("roi/dnn.json.tpl"),
+                })
+                verify = MK_DIR / f"sw/kernels/dnn/rms_norm/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'rms_norm',
+                        'hw': cfg,
+                        'mode': mode,
+                        'core': core,
+                        'bal': bal,
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'rms_norm_fp32_schnova'
+                            },
+                        'cmd': cmd,
+                        'roi': Path("roi/dnn.json.tpl"),
+                })
+                verify = MK_DIR / f"sw/kernels/dnn/batchnorm/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'batchnorm',
+                        'hw': cfg,
+                        'mode': mode,
+                        'core': core,
+                        'bal': bal,
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'batchnorm_fp32_schnova'
+                            },
+                        'cmd': cmd,
+                        'roi': Path("roi/dnn.json.tpl"),
+                })
+                verify = MK_DIR / f"sw/kernels/dnn/softmax/scripts/verify.py"
+                cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
+                experiments.append({
+                        'app': 'softmax',
+                        'hw': cfg,
+                        'mode': mode,
+                        'core': core,
+                        'bal': bal,
+                        'data_cfg': {
+                            'size': size,
+                            'funcptr': 'softmax_fp32_schnova'
+                            },
+                        'cmd': cmd,
+                        'roi': Path("roi/dnn.json.tpl"),
+                })
                 for op in DNN_ELTWISE_OPS:
                     verify = MK_DIR / "sw/kernels/dnn/eltwise/scripts/verify.py"
                     experiments.append({
@@ -433,8 +539,8 @@ def gen_experiments(vary_by=None, use_rob=False, use_bal=False):
     return experiments
 
 
-def results(vary_by, use_rob=False, use_bal=False, dir=None):
-    df = ExperimentManager(gen_experiments(vary_by, use_rob, use_bal), dir=dir, parse_args=False).get_results()
+def results(vary_by, use_rob=False, use_bal=False, spec=False, dir=None):
+    df = ExperimentManager(gen_experiments(vary_by, use_rob, use_bal, spec), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
     df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
@@ -470,11 +576,17 @@ def main():
         action="store_true",  # Sets to True if present, False if absent
         help="Use a balanced instruction mix for the software kernels."
     )
+    parser.add_argument(
+        "--spec",
+        action="store_true",  # Sets to True if present, False if absent
+        help="Wether the specialized configuration should be evaluated."
+    )
     args = parser.parse_args()
     vary_by = vars(args).pop('vary', None)
-    use_rob  = vars(args).pop('use_rob', 0)
-    use_bal  = vars(args).pop('use_bal', 0)
-    experiments = gen_experiments(vary_by, use_rob, use_bal)
+    use_rob = vars(args).pop('use_rob', 0)
+    use_bal = vars(args).pop('use_bal', 0)
+    spec = vars(args).pop('spec', 0)
+    experiments = gen_experiments(vary_by, use_rob, use_bal, spec)
     
     manager = ExperimentManager(experiments=experiments, args=args, parse_args=False)
 

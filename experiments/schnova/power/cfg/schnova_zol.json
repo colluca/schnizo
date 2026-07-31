@@ -76,8 +76,7 @@
                     size: 16, // total instruction cache size in kByte
                     ways: 2, // number of ways
                     cacheline: 512, // word size in bits
-                    l0_cacheline_count: 16, // Number of cache lines in L0 ICache
-                    fetch_data_width: 64, // number of bits that get fetched per request (has to be a multiple of 32)
+                    fetch_data_width: 32, // number of bits that get fetched per request (has to be a multiple of 32)
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -103,7 +102,7 @@
     compute_core_template: {
         isa: "rv32imafd",
         xfrepi: true,
-        xfrepo: true,
+        xfrepo: false,
         Xdiv_sqrt: true,
         xdma: false,
         xf16: false,
@@ -115,20 +114,20 @@
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         // Superscalar configuration
-        num_alus: 2,
+        num_alus: 1,
         num_alu_slots: 1,
-        num_alu_buf_slots: 18,
-        num_lsus: 2,
-        num_lsu_slots: 4,
-        num_lsu_buf_slots: 12,
+        num_alu_buf_slots: 1,
+        num_lsus: 1,
+        num_lsu_slots: 1,
+        num_lsu_buf_slots: 1,
         num_fpus: 1,
         num_fpu_slots: 1,
-        num_fpu_buf_slots: 24,
+        num_fpu_buf_slots: 1,
         use_freelist: false,
         // Number of physical general purpose registers
-        num_phy_gpr: 52,
+        num_phy_gpr: 32,
         // Number of physical floating point registers
-        num_phy_fpr: 54,
+        num_phy_fpr: 32,
         num_rob_entries: 1,
     },
     dma_core_template: {

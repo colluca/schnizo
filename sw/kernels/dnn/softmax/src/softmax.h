@@ -44,33 +44,37 @@ typedef struct softmax_layer_struct {
 /**
  * Implementation of the SoftMax layer.
  */
-static inline void softmax_fp32(float *input, float *output, int32_t ldI,
-                                int32_t batch_offset, int32_t batch_size,
-                                int32_t seq_len, int32_t input_samples) {
-    float max_core = 0.0;  // max value of the current core
-    float sum = 0.0;       // sum of the exp values of the current core
+static inline void softmax_fp32(float *input, float *output,
+                                int32_t batch_size, int32_t seq_len,
+                                int32_t input_samples,
+                                uint32_t core_id, uint32_t core_num) {
+    const int32_t batch_offset = seq_len * input_samples;
 
     for (int32_t b = 0; b < batch_size; b++) {
-        for (int32_t s = 0; s < seq_len; s++) {
-            max_core = -INFINITY;
-            sum = 0.0;
+        // Match the optimized implementations: distribute rows across cores.
+        for (int32_t s = (int32_t)core_id; s < seq_len;
+             s += (int32_t)core_num) {
+            float *row_in = &input[b * batch_offset + s * input_samples];
+            float *row_out = &output[b * batch_offset + s * input_samples];
+            float max_core = -INFINITY;
+            float sum = 0.0f;
 
             for (int32_t i = 0; i < input_samples; i++) {
-                if (input[b * batch_offset + s * ldI + i] > max_core) {
-                    max_core = input[b * batch_offset + s * ldI + i];
+                if (row_in[i] > max_core) {
+                    max_core = row_in[i];
                 }
             }
 
-            // compute the shifted value of the current row
+            // Compute exp(x - max) and its sum.
             for (int32_t i = 0; i < input_samples; i++) {
-                output[b * batch_offset + s * ldI + i] =
-                    expf(input[b * batch_offset + s * ldI + i] - max_core);
-                sum += output[b * batch_offset + s * ldI + i];
+                row_out[i] = expf(row_in[i] - max_core);
+                sum += row_out[i];
             }
 
-            // compute the softmax value of the current row
+            // Normalize the row.
+            const float inv_sum = 1.0f / sum;
             for (int32_t i = 0; i < input_samples; i++) {
-                output[b * batch_offset + s * ldI + i] /= sum;
+                row_out[i] *= inv_sum;
             }
         }
     }

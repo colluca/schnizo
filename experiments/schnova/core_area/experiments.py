@@ -20,6 +20,10 @@ def gen_experiments(designs=None):
     # IMPORTANT: HDL parameters should be listed in the same order they appear in the RTL
     experiments = [
         {
+            'design': 'snitch_synth',
+            'name': 'snitch'
+        },
+        {
             'design': 'schnizo_synth',
             'name': 'Schnizo',
             'hdl_params': {
@@ -196,50 +200,6 @@ def gen_experiments(designs=None):
         },
         {
             'design':   'schnova_synth',
-            'name':     'GP-SV1-Bal',
-            'hdl_params': {
-                'XFREPI': 1,
-                'XFREPO': 1,
-                'NofAlus': 1,
-                'NofLsus': 1,
-                'NofFpus': 1,
-                'NofAluBufEntries': 2,
-                'NofLsuBufEntries': 2,
-                'NofFpuBufEntries': 4,
-                'AluNofRss': 1,
-                'LsuNofRss': 1,
-                'FpuNofRss': 1,
-                'ICacheFetchDataWidth': 32,
-                'NofPhysGpr': 34,
-                'NofPhysFpr': 38,
-                'NofRobEntries': 1,
-                'UseFreeList': 0,
-            }
-        },
-        {
-            'design':   'schnova_synth',
-            'name':     'GP-SV2-Bal',
-            'hdl_params': {
-                'XFREPI': 1,
-                'XFREPO': 1,
-                'NofAlus': 2,
-                'NofLsus': 2,
-                'NofFpus': 1,
-                'NofAluBufEntries': 10,
-                'NofLsuBufEntries': 6,
-                'NofFpuBufEntries': 8,
-                'AluNofRss': 1,
-                'LsuNofRss': 1,
-                'FpuNofRss': 1,
-                'ICacheFetchDataWidth': 64,
-                'NofPhysGpr': 44,
-                'NofPhysFpr': 40,
-                'NofRobEntries': 1,
-                'UseFreeList': 0,
-            }
-        },
-        {
-            'design':   'schnova_synth',
             'name':     'GP-SV1-rob',
             'hdl_params': {
                 'XFREPI': 1,
@@ -324,6 +284,126 @@ def gen_experiments(designs=None):
                 'NofPhysFpr': 66,
                 'NofRobEntries': 128,
                 'UseFreeList': 1,
+            }
+        },
+        {
+            'design':   'schnova_synth',
+            'name':     'DOT-SV1',
+            'hdl_params': {
+                'XFREPI': 1,
+                'XFREPO': 1,
+                'NofAlus': 1,
+                'NofLsus': 1,
+                'NofFpus': 1,
+                'NofAluBufEntries': 2,
+                'NofLsuBufEntries': 2,
+                'NofFpuBufEntries': 2,
+                'AluNofRss': 1,
+                'LsuNofRss': 1,
+                'FpuNofRss': 1,
+                'ICacheFetchDataWidth': 32,
+                'NofPhysGpr': 34,
+                'NofPhysFpr': 34,
+                'NofRobEntries': 1,
+                'UseFreeList': 0,
+            }
+        },
+        {
+            'design':   'schnova_synth',
+            'name':     'DOT-SV2',
+            'hdl_params': {
+                'XFREPI': 1,
+                'XFREPO': 1,
+                'NofAlus': 2,
+                'NofLsus': 2, 
+                'NofFpus': 1,
+                'NofAluBufEntries': 2,
+                'NofLsuBufEntries': 4,
+                'NofFpuBufEntries': 4,
+                'AluNofRss': 1,
+                'LsuNofRss': 1,
+                'FpuNofRss': 1,
+                'ICacheFetchDataWidth': 64,
+                'NofPhysGpr': 34,
+                'NofPhysFpr': 38,
+                'NofRobEntries': 1,
+                'UseFreeList': 0,
+            }
+        },
+        {
+            'design':   'schnova_synth',
+            'name':     'AXPY-SV4',
+            'hdl_params': {
+                'XFREPI': 1,
+                'XFREPO': 1,
+                'NofAlus': 3,
+                'NofLsus': 3,
+                'NofFpus': 1,
+                'NofAluBufEntries': 4,
+                'NofLsuBufEntries': 4,
+                'NofFpuBufEntries': 4,
+                'AluNofRss': 1,
+                'LsuNofRss': 3,
+                'FpuNofRss': 1,
+                'ICacheFetchDataWidth': 128,
+                'NofPhysGpr': 40,
+                'NofPhysFpr': 42,
+                'NofRobEntries': 1,
+                'UseFreeList': 0,
+            }
+        },
+        {
+            'design':   'schnova_synth',
+            'name':     'AXPY-SV8',
+            'hdl_params': {
+                'XFREPI': 1,
+                'XFREPO': 1,
+                'NofAlus': 3,
+                'NofLsus': 3,
+                'NofFpus': 1,
+                'NofAluBufEntries': 8,
+                'NofLsuBufEntries': 8,
+                'NofFpuBufEntries': 8,
+                'AluNofRss': 1,
+                'LsuNofRss': 8,
+                'FpuNofRss': 1,
+                'ICacheFetchDataWidth': 256,
+                'NofPhysGpr': 48,
+                'NofPhysFpr': 54,
+                'NofRobEntries': 1,
+                'UseFreeList': 0,
+            }
+        },
+        {
+            'design': 'schnizo_synth',
+            'name': 'Schnizo-LA',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 3,
+                'NofLsus': 3,
+                'NofFpus': 1,
+                'AluNofRss': 4,
+                'LsuNofRss': 4,
+                'FpuNofRss': 4,
+                'AluNofConstants': 4,
+                'LsuNofConstants': 4,
+                'FpuNofConstants': 4,
+            }
+        },
+        {
+            'design': 'schnizo_synth',
+            'name': 'Schnizo-GP-L',
+            'hdl_params': {
+                'Xfrep': 1,
+                'NofAlus': 3,
+                'NofLsus': 3,
+                'NofFpus': 1,
+                'AluNofRss': 32,
+                'LsuNofRss': 32,
+                'FpuNofRss': 64,
+                'AluNofConstants': 16,
+                'LsuNofConstants': 64,
+                'FpuNofConstants': 32,
             }
         },
     ]

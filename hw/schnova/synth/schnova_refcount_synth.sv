@@ -38,7 +38,10 @@ module schnova_refcount_synth import schnova_synth_pkg::*; #(
     input  logic [$clog2(PipeWidth):0]   rename_fpr_count_i,
     output phy_id_t [PipeWidth-1:0]      allocated_gpr_regs_o,
     output phy_id_t [PipeWidth-1:0]      allocated_fpr_regs_o,
-    output logic                         phy_reg_alloc_ready_o
+    output logic                         phy_reg_alloc_ready_o,
+    // From Scoreboard
+    input logic [NofPhysGpr-1:0]         sbi_q_i,
+    input logic [NofPhysFpr-1:0]         sbf_q_i
 );
 
   schnova_refcount #(
@@ -76,7 +79,9 @@ module schnova_refcount_synth import schnova_synth_pkg::*; #(
     .rename_fpr_count_i,
     .allocated_gpr_regs_o,
     .allocated_fpr_regs_o,
-    .phy_reg_alloc_ready_o
+    .phy_reg_alloc_ready_o,
+    .sbi_q_i,
+    .sbf_q_i
 );
 
 endmodule
