@@ -91,16 +91,16 @@ static inline void layernorm_fp16_opt(__fp16 *input, __fp16 *output,
                     "fdiv.s %[mean_tot], %[mean_tot], %[embeddings] \n"
                     "vfcpka.h.s %[mean_reg], %[mean_tot], %[mean_tot] \n"
                     "vfcpkb.h.s %[mean_reg], %[mean_tot], %[mean_tot] \n"
-                    : [ mean_reg ] "+f"(mean_reg.f64), 
-                      [ mean0 ] "+f"(mean[0].f64), [ mean1 ] "+f"(mean[1].f64), 
-                      [ mean2 ] "+f"(mean[2].f64), [ mean3 ] "+f"(mean[3].f64), 
+                    : [ mean_reg ] "+f"(mean_reg.f64),
+                      [ mean0 ] "+f"(mean[0].f64), [ mean1 ] "+f"(mean[1].f64),
+                      [ mean2 ] "+f"(mean[2].f64), [ mean3 ] "+f"(mean[3].f64),
                       [ mean_tot ] "+f"(mean_tot),
                       [ mean_reduce0 ] "+f"(mean_reduce[0]),
                       [ mean_reduce1 ] "+f"(mean_reduce[1]),
                       [ mean_reduce2 ] "+f"(mean_reduce[2]),
                       [ mean_reduce3 ] "+f"(mean_reduce[3])
                     : [ n_frep ] "r"(n_frep - 1), [ zero ] "f"(0.0f),
-                      [ embeddings ] "f"((float)embeddings), 
+                      [ embeddings ] "f"((float)embeddings),
                       [ op1 ] "f"(-0.875f), [ op2 ] "f"(-1.9163818f)
                     : "ft0", "ft1", "ft2");
 
@@ -150,10 +150,10 @@ static inline void layernorm_fp16_opt(__fp16 *input, __fp16 *output,
                       [ var_reg0 ] "+f"(var_reg[0].f64),
                       [ var_reg1 ] "+f"(var_reg[1].f64),
                       [ var_reg2 ] "+f"(var_reg[2].f64),
-                      [ var_reg3 ] "+f"(var_reg[3].f64), 
-                      [pow0] "+f"(pow[0].f64), [ pow1 ] "+f"(pow[1].f64), 
-                      [pow2] "+f"(pow[2].f64), [ pow3 ] "+f"(pow[3].f64), 
-                      [mean0] "+f"(mean[0].f64), [ mean1 ] "+f"(mean[1].f64), 
+                      [ var_reg3 ] "+f"(var_reg[3].f64),
+                      [pow0] "+f"(pow[0].f64), [ pow1 ] "+f"(pow[1].f64),
+                      [pow2] "+f"(pow[2].f64), [ pow3 ] "+f"(pow[3].f64),
+                      [mean0] "+f"(mean[0].f64), [ mean1 ] "+f"(mean[1].f64),
                       [mean2] "+f"(mean[2].f64), [ mean3 ] "+f"(mean[3].f64),
                       [ var_reduce0 ] "+f"(var_reduce[0]),
                       [ var_reduce1 ] "+f"(var_reduce[1]),
@@ -162,7 +162,7 @@ static inline void layernorm_fp16_opt(__fp16 *input, __fp16 *output,
                       [ mean_reduce0 ] "+f"(mean_reduce[0])
                     : [ var_tot ] "f"(var_tot), [ n_frep ] "r"(n_frep - 1),
                       [ zero ] "f"(0.0), [ one ] "f"(1.0f),
-                      [ embeddings ] "f"((float)embeddings), 
+                      [ embeddings ] "f"((float)embeddings),
                       [ eps ] "f"((float)eps)
                     : "ft0", "ft1", "ft2", "ft10");
 

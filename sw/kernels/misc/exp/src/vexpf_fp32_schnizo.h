@@ -229,8 +229,8 @@ static inline void vexpf_fp32_schnizo(float *a, float *b, uint32_t len) {
         // clang-format on
         : [ in_addr ] "+r"(a), [ out_addr ] "+r"(b)
         : [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
-          [ inc ] "i"(4 * sizeof(float)), [ n_frep ] "r"(n_frep), 
-          [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]), [ C2 ] "f"(C[2]), 
+          [ inc ] "i"(4 * sizeof(float)), [ n_frep ] "r"(n_frep),
+          [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]), [ C2 ] "f"(C[2]),
           [ C3 ] "f"(C[3]), [ t ] "r"(t), [ T ] "r"(T)
         : "memory", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "t0", "t1",
           "t2", "t3", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",

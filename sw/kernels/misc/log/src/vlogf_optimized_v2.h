@@ -230,8 +230,8 @@ static inline void vlogf_optimized_v2(float *a, double *b) {
                     "csrci    copift, 0x1                \n" // Disable COPIFT queues
                     // clang-format on
                     : [ input ] "+r"(comp_a_ptr), [ n_iter ] "+r"(n_inner_iter_m2)
-                    : [ n_frep ] "r"(n_frep_m1), [ Ln2 ] "f"(Ln2), 
-                      [ OFF ] "r"(OFF), [ T ] "r"(T), [ A0 ] "f"(A[0]), 
+                    : [ n_frep ] "r"(n_frep_m1), [ Ln2 ] "f"(Ln2),
+                      [ OFF ] "r"(OFF), [ T ] "r"(T), [ A0 ] "f"(A[0]),
                       [ A1 ] "f"(A[1]), [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3])
                     : "memory", "a0", "a1", "a3", "a4", "a5", "a6", "a7", "t0",
                       "t1", "t5", "t6", "x0", "s0", "s1", "fa0", "fa1", "fa2",

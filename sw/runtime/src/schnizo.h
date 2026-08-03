@@ -160,7 +160,7 @@ inline void szrt_set_frep_mem_consistency(frep_mem_consistency_e mode) {
  * @brief Reads out the current LSU Load Enable capability mask.
  */
 inline uint32_t szrt_frep_lsu_load_en() {
-    return (szrt_frep_config() >> FREP_LSU_LOAD_EN_OFFSET) & 
+    return (szrt_frep_config() >> FREP_LSU_LOAD_EN_OFFSET) &
            FREP_LSU_LOAD_EN_MASK;
 }
 
@@ -181,7 +181,7 @@ inline void szrt_set_frep_lsu_load_en(uint32_t load_en) {
  * @brief Reads out the current LSU Store Enable capability mask.
  */
 inline uint32_t szrt_frep_lsu_store_en() {
-    return (szrt_frep_config() >> FREP_LSU_STORE_EN_OFFSET) & 
+    return (szrt_frep_config() >> FREP_LSU_STORE_EN_OFFSET) &
            FREP_LSU_STORE_EN_MASK;
 }
 

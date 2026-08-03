@@ -38,9 +38,9 @@ static inline void vexpf_naive(double *a, double *b, uint32_t len,
                 "fmul.d  %[output], fa4, fa0       \n" // y = y * s
                 // clang-format on
                 : [ output ] "=f"(b[i])
-                : [ input ] "f"(a[i]), [ InvLn2N ] "f"(InvLn2N), 
-                  [ SHIFT ] "f"(SHIFT), [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]), 
-                  [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3]), [ ki ] "r"(&ki), 
+                : [ input ] "f"(a[i]), [ InvLn2N ] "f"(InvLn2N),
+                  [ SHIFT ] "f"(SHIFT), [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
+                  [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3]), [ ki ] "r"(&ki),
                   [ t ] "r"(&t), [ T ] "r"(T)
                 : "memory", "a0", "a1", "a2", "fa0", "fa1", "fa2", "fa3",
                   "fa4");

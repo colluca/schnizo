@@ -118,10 +118,10 @@ static inline void axpy_baseline(uint32_t n, double a, double *x, double *y,
         "add     %[x_base], %[x_base], %[stride_4x] \n"
         "add     %[y_base], %[y_base], %[stride_4x] \n"
         "add     %[z_base], %[z_base], %[stride_4x] \n"
-        : [ x_base ] "+r"(x_base), [ y_base ] "+r"(y_base), 
+        : [ x_base ] "+r"(x_base), [ y_base ] "+r"(y_base),
           [ z_base ] "+r"(z_base)
-        : [ a ] "f"(a), [loop_count] "r"(loop_count), 
-          [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride), 
+        : [ a ] "f"(a), [loop_count] "r"(loop_count),
+          [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
           [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
         : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
           "fs2", "fs3", "memory");
@@ -188,33 +188,33 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
     // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
     // in a single cycle for maximum performance
     asm volatile(FREP
-                " %[loop_count], 19, 0, 0              \n"
-                "fld     ft0, 0(%[x_addr])                  \n"
-                "fld     ft1, 0(%[y_addr])                  \n"
-                "fld     ft2, %[stride](%[x_addr])          \n"
-                "fld     ft3, %[stride](%[y_addr])          \n"
-                "fld     ft4, %[stride_2x](%[x_addr])       \n"
-                "fld     ft5, %[stride_2x](%[y_addr])       \n"
-                "fld     ft6, %[stride_3x](%[x_addr])       \n"
-                "fld     ft7, %[stride_3x](%[y_addr])       \n"
-                "add     %[x_addr], %[x_addr], %[stride_4x] \n"
-                "add     %[y_addr], %[y_addr], %[stride_4x] \n"
-                "fmadd.d fs0, %[a], ft0, ft1                \n"
-                "fmadd.d fs1, %[a], ft2, ft3                \n"
-                "fmadd.d fs2, %[a], ft4, ft5                \n"
-                "fmadd.d fs3, %[a], ft6, ft7                \n"
-                "fsd     fs0, 0(%[z_addr])                  \n"
-                "fsd     fs1, %[stride](%[z_addr])          \n"
-                "fsd     fs2, %[stride_2x](%[z_addr])       \n"
-                "fsd     fs3, %[stride_3x](%[z_addr])       \n"
-                "add     %[z_addr], %[z_addr], %[stride_4x] \n"
-                : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr), 
-                  [ z_addr ] "+r"(z_addr)
-                : [ a ] "f"(a), [ loop_count ] "r"(loop_count), 
-                  [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride), 
-                  [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
-                : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
-                  "fs2", "fs3", "memory");
+                 " %[loop_count], 19, 0, 0              \n"
+                 "fld     ft0, 0(%[x_addr])                  \n"
+                 "fld     ft1, 0(%[y_addr])                  \n"
+                 "fld     ft2, %[stride](%[x_addr])          \n"
+                 "fld     ft3, %[stride](%[y_addr])          \n"
+                 "fld     ft4, %[stride_2x](%[x_addr])       \n"
+                 "fld     ft5, %[stride_2x](%[y_addr])       \n"
+                 "fld     ft6, %[stride_3x](%[x_addr])       \n"
+                 "fld     ft7, %[stride_3x](%[y_addr])       \n"
+                 "add     %[x_addr], %[x_addr], %[stride_4x] \n"
+                 "add     %[y_addr], %[y_addr], %[stride_4x] \n"
+                 "fmadd.d fs0, %[a], ft0, ft1                \n"
+                 "fmadd.d fs1, %[a], ft2, ft3                \n"
+                 "fmadd.d fs2, %[a], ft4, ft5                \n"
+                 "fmadd.d fs3, %[a], ft6, ft7                \n"
+                 "fsd     fs0, 0(%[z_addr])                  \n"
+                 "fsd     fs1, %[stride](%[z_addr])          \n"
+                 "fsd     fs2, %[stride_2x](%[z_addr])       \n"
+                 "fsd     fs3, %[stride_3x](%[z_addr])       \n"
+                 "add     %[z_addr], %[z_addr], %[stride_4x] \n"
+                 : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr), 
+                   [ z_addr ] "+r"(z_addr)
+                 : [ a ] "f"(a), [ loop_count ] "r"(loop_count), 
+                   [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride), 
+                   [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
+                 : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
+                   "fs2", "fs3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     uint32_t stride = num_cores * sizeof(double);
     uint32_t stride_4x = 4 * stride;
@@ -243,10 +243,10 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
         "add     %[x_addr], %[x_addr], %[stride_4x] \n"
         "add     %[y_addr], %[y_addr], %[stride_4x] \n"
         "add     %[z_addr], %[z_addr], %[stride_4x] \n"
-        : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr), 
+        : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr),
           [ z_addr ] "+r"(z_addr)
-        : [ a ] "f"(a), [ loop_count ] "r"(loop_count), 
-          [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride), 
+        : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
+          [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
           [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
         : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
           "fs2", "fs3", "memory");

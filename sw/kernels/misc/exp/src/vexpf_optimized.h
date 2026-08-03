@@ -131,7 +131,7 @@ static inline void vexpf_optimized(double *a, double *b, uint32_t len,
                              :
                              : [ n_frep ] "r"(batch_size / unroll_factor - 1),
                                [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
-                               [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]), 
+                               [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
                                [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3])
                              : "memory", "ft0", "ft1", "ft2", "fa3", "ft3",
                                "ft4", "ft5", "fa1", "fa2", "fa3", "fa4", "fa5",
@@ -175,7 +175,7 @@ static inline void vexpf_optimized(double *a, double *b, uint32_t len,
                              :
                              : [ n_frep ] "r"(batch_size / unroll_factor - 1),
                                [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
-                               [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]), 
+                               [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
                                [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3])
                              : "memory", "ft0", "ft1", "ft2", "fa1", "fa2",
                                "fa3", "fa4", "fa5", "fa6", "fa7", "ft3", "ft4",
