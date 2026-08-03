@@ -2,9 +2,10 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// Combines initial slot update, operand request generation, operand response handling,
-// and issue logic into a single module.
-module schnova_rss_dispatch_pipeline import schnova_pkg::*; #(
+// Handles slot allocation, slot selection.
+// For the slot that should be issued it also requests the operands from the reigster file
+// Once ready this module issues the instructions.
+module schnova_rss_issue_pipeline import schnova_pkg::*; #(
   parameter bit          UseFreeList      = 1'b1,
   parameter int unsigned NofOperands      = 2,
   parameter int unsigned NofConsts        = 3,

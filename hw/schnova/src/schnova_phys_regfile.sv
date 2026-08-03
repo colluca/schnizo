@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: SHL-0.51
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
-// Description: Variable Register File
 // verilog_lint: waive module-filename
+
+// Physical register file
+// Has normal read and write ports and also operand request/response ports.
 module schnova_phys_regfile #(
   parameter bit          XFREPO       = 1'b1,
   parameter int unsigned DataWidth    = 32,
@@ -37,6 +39,7 @@ module schnova_phys_regfile #(
   // operand response port
   output logic [NofOperandIfs-1:0][OpLen-1:0]     op_rsps_data_o
 );
+
 
   if (XFREPO) begin : gen_phys_regfile
     // We have to have a read port for every read port and every operand interface

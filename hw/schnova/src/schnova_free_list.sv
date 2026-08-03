@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: SHL-0.51
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
+
+// The FIFO free list. Used if a reorder buffer is used
+// to reclaim physical registers.
+// Can pop PipeWidth physical registers per cycle and push PipeWidth physical registers per cycle.
 module schnova_free_list import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned NumPhysRegs = 64,
@@ -78,6 +82,7 @@ module schnova_free_list import schnova_pkg::*; #(
       tail_ptr   <= (NumPhysRegs - NumArchRegs);
       free_count <= (NumPhysRegs - NumArchRegs);
 
+      // All registers not mapped to architectural registers are initially free
       for (int unsigned i = 0; i < NumPhysRegs; i++) begin
         if (i < (NumPhysRegs - NumArchRegs)) begin
           free_list[i] <= phy_id_t'(i + NumArchRegs);

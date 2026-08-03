@@ -5,6 +5,7 @@
 // Note: The physical register size has to be a power of two, for the math to work
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
+// Reorder buffer, used to track the physical registers that should be released
 module schnova_reorder_buffer import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned NofEntries  = 64,
@@ -15,32 +16,32 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   parameter type         phy_id_t = logic,
   localparam int unsigned TagWidth = $clog2(NofEntries)
 ) (
-  input  logic         clk_i,
-  input  logic         rst_i,
+  input  logic                                     clk_i,
+  input  logic                                     rst_i,
   // Allocation Interface (Rename Stage)
   // Which instruction of the block to push into the ROB
-  input logic                                rob_push_i,
-  input logic [$clog2(PipeWidth):0]          rob_push_count_i,
-  input phy_id_t [PipeWidth-1:0]             rob_phy_reg_rd_old_i,
-  input logic [PipeWidth-1:0]                rob_phy_reg_rd_old_is_fp_i,
-  output logic [PipeWidth-1:0][TagWidth-1:0] rob_idx_o,
-  output logic                               rob_ready_o,
+  input logic                                      rob_push_i,
+  input logic [$clog2(PipeWidth):0]                rob_push_count_i,
+  input phy_id_t [PipeWidth-1:0]                   rob_phy_reg_rd_old_i,
+  input logic [PipeWidth-1:0]                      rob_phy_reg_rd_old_is_fp_i,
+  output logic [PipeWidth-1:0][TagWidth-1:0]       rob_idx_o,
+  output logic                                     rob_ready_o,
   // Writeback Interface
   input logic [NrRobWritePorts-1:0]                wb_valid_i,
   input logic [NrRobWritePorts-1:0][TagWidth-1:0]  wb_rob_idx_i,
   // Freelist interface
-  output logic freelist_push_o,
-  output [$clog2(PipeWidth):0] gpr_push_count_o,
-  output phy_id_t [PipeWidth-1:0] gpr_retired_regs_o,
-  output [$clog2(PipeWidth):0] fpr_push_count_o,
-  output phy_id_t [PipeWidth-1:0] fpr_retired_regs_o,
+  output logic                                     freelist_push_o,
+  output [$clog2(PipeWidth):0]                     gpr_push_count_o,
+  output phy_id_t [PipeWidth-1:0]                  gpr_retired_regs_o,
+  output [$clog2(PipeWidth):0]                     fpr_push_count_o,
+  output phy_id_t [PipeWidth-1:0]                  fpr_retired_regs_o,
   // Store writeback snooping for reorder buffer
-  input logic [NofAlus-1:0]               alu_rob_z_wb_valid_i,
-  input logic [NofAlus-1:0][TagWidth-1:0] alu_rob_z_tag_i,
-  input logic [NofLsus-1:0]               lsu_rob_z_wb_valid_i,
-  input logic [NofLsus-1:0][TagWidth-1:0] lsu_rob_z_tag_i,
-  input logic [NofFpus-1:0]               fpu_rob_z_wb_valid_i,
-  input logic [NofFpus-1:0][TagWidth-1:0] fpu_rob_z_tag_i
+  input logic [NofAlus-1:0]                        alu_rob_z_wb_valid_i,
+  input logic [NofAlus-1:0][TagWidth-1:0]          alu_rob_z_tag_i,
+  input logic [NofLsus-1:0]                        lsu_rob_z_wb_valid_i,
+  input logic [NofLsus-1:0][TagWidth-1:0]          lsu_rob_z_tag_i,
+  input logic [NofFpus-1:0]                        fpu_rob_z_wb_valid_i,
+  input logic [NofFpus-1:0][TagWidth-1:0]          fpu_rob_z_tag_i
 );
 
   typedef struct packed {
@@ -69,6 +70,10 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   logic [PipeWidth-1:0] pop_valid;
   logic [$clog2(PipeWidth):0] pop_count;
 
+
+  //----------------------
+  // Rob address decoders
+  //----------------------
   always_comb begin : wb_decoder
     for (int unsigned j = 0; j < NrRobWritePorts; j++) begin
       for (int unsigned i = 0; i < NofEntries; i++) begin
@@ -113,6 +118,9 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
     end
   end
 
+  //------------------
+  // Rob status logic
+  //------------------
   // Calculate the current number of free rob entries
   assign allocated_entries = tail_ptr_raw - head_ptr_raw;
   assign free_count = NofEntries - allocated_entries;
@@ -126,7 +134,9 @@ module schnova_reorder_buffer import schnova_pkg::*; #(
   // requested entries
   assign rob_ready_o = (free_count >= rob_push_count_i);
 
-  // ROB commit
+  //------------------------
+  // ROB commit (pop logic)
+  //------------------------
   always_comb begin
     pop_valid = 1'b0;
     for (int unsigned i = 0; i < PipeWidth; i++) begin

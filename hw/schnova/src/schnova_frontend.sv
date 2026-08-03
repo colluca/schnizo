@@ -72,8 +72,8 @@ module schnova_frontend # (
   /// From decoder
   input  block_ctrl_info_t                  blk_ctrl_info_i,
   /// To decoder and dispatcher
-  output logic [PipeWidth-1:0][31:0]   instr_fetch_data_o,
-  output logic [PipeWidth-1:0]         instr_fetch_data_valid_o
+  output logic [PipeWidth-1:0][31:0]        instr_fetch_data_o,
+  output logic [PipeWidth-1:0]              instr_fetch_data_valid_o
 );
 
   logic            valid_fetch_block; // Whether the current fetch block is valid
@@ -85,9 +85,9 @@ module schnova_frontend # (
   `FFAR(pc_q, pc_d, BootAddr, clk_i, rst_i)
 
 
-  ///////////////
-  // PC update //
-  ///////////////
+  //-----------
+  // PC update
+  //-----------
 
   // The PC update has to "execute" any branch / jump
   // instruction. Any control flow instruction is performed using an ALU0 which is designed to be
@@ -189,9 +189,9 @@ module schnova_frontend # (
     end
   end
 
-  ////////////////////////////
-  // Fetch Request Handling //
-  ////////////////////////////
+  //------------------------
+  // Fetch Request Handling
+  //------------------------
 
   // Request the next instruction if we don't stall the fetching
   assign instr_fetch_valid_o = !stall_fetch;
@@ -207,9 +207,9 @@ module schnova_frontend # (
   assign instr_fetch_cacheable_o =
       snitch_pma_pkg::is_inside_cacheable_regions(SnitchPMACfg, instr_fetch_addr_o);
 
-  /////////////////////////////
-  // Instruction realignment //
-  /////////////////////////////
+  //-------------------------
+  // Instruction realignment
+  //------------------------
 
   // 1) Valid instruction extraction: We have to extract the first valid instruction from the fetch block.
   // This is determined by the PC. In our case every instruction is 4 bytes,

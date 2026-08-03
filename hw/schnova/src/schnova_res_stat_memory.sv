@@ -4,11 +4,9 @@
 
 `include "common_cells/registers.svh"
 
-// TODO(colluca): generalize and upstream to tech cells as a module that can switch
-// between memory or FFs
+// Based on schnizo_res_stat_memory
 module schnova_res_stat_memory #(
   parameter  int unsigned NofRss          = 4,
-  parameter  bit          UseSram         = 1'b0,
   parameter  type         rs_slot_issue_t = logic,
   localparam type         addr_t          = logic [cf_math_pkg::idx_width(NofRss)-1:0]
 ) (

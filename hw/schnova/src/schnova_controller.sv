@@ -10,106 +10,102 @@
 // logic in the form of a loop controller. It also controls the execution modes of the core
 // and calculates how many valid instructions are currently being processed.
 module schnova_controller import schnova_pkg::*; #(
-  parameter int unsigned PipeWidth       = 1,
-  parameter bit          XFREPI          = 1,
-  parameter bit          XFREPO          = 1,
-  parameter int unsigned XLEN            = 32,
-  parameter int unsigned NrIntWritePorts = 1,
-  parameter int unsigned NrFpWritePorts  = 1,
-  parameter int unsigned RegAddrSize     = 5,
-  parameter int unsigned MaxIterationsWidth  = 6,
-  parameter type         instr_dec_t     = logic,
-  parameter type         block_ctrl_info_t = logic,
-  parameter type         priv_lvl_t      = logic
+  parameter int unsigned PipeWidth          = 1,
+  parameter bit          XFREPI             = 1,
+  parameter bit          XFREPO             = 1,
+  parameter int unsigned XLEN               = 32,
+  parameter int unsigned NrIntWritePorts    = 1,
+  parameter int unsigned NrFpWritePorts     = 1,
+  parameter int unsigned RegAddrSize        = 5,
+  parameter int unsigned MaxIterationsWidth = 6,
+  parameter type         instr_dec_t        = logic,
+  parameter type         block_ctrl_info_t  = logic,
+  parameter type         priv_lvl_t         = logic
 ) (
-  input  logic clk_i,
-  input  logic rst_i,
-
+  input  logic                          clk_i,
+  input  logic                          rst_i,
   // Frontend interface
-  input  logic            flush_i_ready_i,
-  output logic            flush_i_valid_o,
-  input  logic [31:0]     pc_i,
-  input  logic [XLEN-1:0] next_pc_i,
-  output logic            loop_jump_o,
-  output logic [31:0]     loop_jump_addr_o,
+  input  logic                          flush_i_ready_i,
+  output logic                          flush_i_valid_o,
+  input  logic [31:0]                   pc_i,
+  input  logic [XLEN-1:0]               next_pc_i,
+  output logic                          loop_jump_o,
+  output logic [31:0]                   loop_jump_addr_o,
   // Decoder interface
-  input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
-  input  logic       [PipeWidth-1:0] instr_valid_i,
-  output logic       [PipeWidth-1:0] instr_valid_o,
-  input  logic       [PipeWidth-1:0] instr_decoded_illegal_i,
-  input  block_ctrl_info_t           blk_ctrl_info_i,
-  output block_ctrl_info_t           blk_ctrl_info_masked_o,
+  input  instr_dec_t [PipeWidth-1:0]    instr_decoded_i,
+  input  logic       [PipeWidth-1:0]    instr_valid_i,
+  output logic       [PipeWidth-1:0]    instr_valid_o,
+  input  logic       [PipeWidth-1:0]    instr_decoded_illegal_i,
+  input  block_ctrl_info_t              blk_ctrl_info_i,
+  output block_ctrl_info_t              blk_ctrl_info_masked_o,
   // How many instructions are valid from the fetch block
   // after the decoder
-  output logic [$clog2(PipeWidth):0]   instr_valid_count_o,
+  output logic [$clog2(PipeWidth):0]    instr_valid_count_o,
   // Per instruction signal, whether this instruction has to be renamed
-  output logic [PipeWidth-1:0]         instr_rename_gpr_valid_o,
-  output logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_o,
-  output logic [PipeWidth-1:0]         instr_rename_fpr_valid_o,
-  output logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_o,
+  output logic [PipeWidth-1:0]          instr_rename_gpr_valid_o,
+  output logic [$clog2(PipeWidth):0]    instr_rename_gpr_count_o,
+  output logic [PipeWidth-1:0]          instr_rename_fpr_valid_o,
+  output logic [$clog2(PipeWidth):0]    instr_rename_fpr_count_o,
   // Special FREP data
   input  logic [MaxIterationsWidth-1:0] frep_iterations_i,
   // To backend
-  output logic                      dispatched_o,
+  output logic                          dispatched_o,
   // Writeback interface
-  input logic ctrl_instr_retired_i,
+  input logic                           ctrl_instr_retired_i,
   // Interface to dispatcher & RS
-  output logic dispatch_instr_valid_o,
-  input  logic dispatch_instr_ready_i,
-  output logic instr_exec_commit_o,
+  output logic                          dispatch_instr_valid_o,
+  input  logic                          dispatch_instr_ready_i,
+  output logic                          instr_exec_commit_o,
   // Commit signal for FPU in regular mode: same as instr_exec_commit but exclued
   // instr_addr_misaligned_o, which is always 0 for FP instructions (they are never branches).
   // This breaks the false timing path: ALU adder -> branch compare -> consecutive_pc ->
   // instr_addr_misaligned_o -> exception_o -> instr_exec_commit -> fpu_exec_commit.
-  output logic fpu_instr_exec_commit_o,
-  output logic stall_o,
+  output logic                          fpu_instr_exec_commit_o,
+  output logic                          stall_o,
   // From rename
-  input logic phy_reg_alloc_ready_i,
+  input logic                           phy_reg_alloc_ready_i,
   // From ROB
-  input logic rob_ready_i,
+  input logic                           rob_ready_i,
   // Asserted if there are no instructions targeting reservation stations inflight
-  input  logic rs_idle_i,
-  output logic rs_restart_o,
-
+  input  logic                          rs_idle_i,
+  // Assert when an exception occurs
+  output logic                          rs_restart_o,
   // Exception source interface
-  input  logic        interrupt_i,
-  input  logic        csr_exception_raw_i,
-  input  logic        lsu_empty_i,
-  input  logic        lsu_addr_misaligned_i,
-  input  priv_lvl_t   priv_lvl_i,
-
+  input  logic                          interrupt_i,
+  input  logic                          csr_exception_raw_i,
+  input  logic                          lsu_empty_i,
+  input  logic                          lsu_addr_misaligned_i,
+  input  priv_lvl_t                     priv_lvl_i,
   // Interface to CSR & write back for handling an exception
-  output logic            exception_o,
-  output logic            instr_illegal_o,
-  output logic            instr_addr_misaligned_o,
-  output logic [0:0]      load_addr_misaligned_o,
-  output logic [0:0]      store_addr_misaligned_o,
-  output logic            enter_wfi_o,
-  output logic            ecall_o,
-  output logic            ebreak_o,
-  output logic            mret_o,
-  output logic            sret_o,
-
-  // Superscalar features enabled
-  output logic en_superscalar_o,
-  output loop_state_e loop_state_o,
+  output logic                          exception_o,
+  output logic                          instr_illegal_o,
+  output logic                          instr_addr_misaligned_o,
+  output logic                          load_addr_misaligned_o,
+  output logic                          store_addr_misaligned_o,
+  output logic                          enter_wfi_o,
+  output logic                          ecall_o,
+  output logic                          ebreak_o,
+  output logic                          mret_o,
+  output logic                          sret_o,
+  // State of the core
+  output logic                          en_superscalar_o,
+  output loop_state_e                   loop_state_o,
 
   // From scoreboard
-  input logic             registers_ready_i,
-  input logic             sb_busy_i
+  input logic                           registers_ready_i,
+  input logic                           sb_busy_i
 );
 
-  logic instr_dispatched;
-  logic csr_exception;
+  logic                 instr_dispatched;
+  logic                 csr_exception;
   logic [PipeWidth-1:0] instr_valid;
-  logic frep_exception;
-  logic frep_exec_commit;
+  logic                 frep_exception;
+  logic                 frep_exec_commit;
+  block_ctrl_info_t     blk_ctrl_info_masked;
 
-  block_ctrl_info_t blk_ctrl_info_masked;
-
-    ////////////////////////
-  // Loop control logic //
-  ////////////////////////
+  //---------------------
+  // Loop control logic 
+  //---------------------
 
   logic        frep_sw_error;
   logic        loop_stall;
@@ -138,41 +134,37 @@ module schnova_controller import schnova_pkg::*; #(
     ) i_loop_ctrl (
       .clk_i,
       .rst_i,
-      .instr_valid_i    (instr_valid_i),
-      .instr_decoded_i  (instr_decoded_i),
-      .valid_mask_o     (valid_mask),
-      .instr_addr_i     (pc_i),
-      .blk_ctrl_info_i  (blk_ctrl_info_masked),
-      .dispatched_i     (dispatched_o),
+      .instr_valid_i      (instr_valid_i),
+      .instr_decoded_i    (instr_decoded_i),
+      .valid_mask_o       (valid_mask),
+      .instr_addr_i       (pc_i),
+      .blk_ctrl_info_i    (blk_ctrl_info_masked),
+      .dispatched_i       (dispatched_o),
       // The next instruction after an FREP can only be the immediately next instruction.
-      // Hardcode this to avoid a timing loop in case we would use pc_d. Reason is that pc_d depends
-      // on the loop_jump signal. TODO: check address overflow..
-      .next_instr_addr_i(pc_i + 'd4),
-      .stall_i          (stall_o),
-      .exception_i      (exception_o),
+      .next_instr_addr_i  (pc_i + 'd4),
+      .stall_i            (stall_o),
+      .exception_i        (exception_o),
       // Only in scalar execution mode is it legal to observe an frep instruction
       // hence we can take the first instruction
-      .loop_start_req_i      (instr_decoded_i[0].is_frep & instr_valid_i[0]),
-      .loop_start_commit_i   (instr_decoded_i[0].is_frep & frep_exec_commit),
-      .loop_bodysize_i       (loop_bodysize),
-      .loop_iterations_i     (loop_iterations),
-      .frep_mode_i           (instr_decoded_i[0].frep_mode),
-      .loop_jump_o           (loop_jump_o),
-      .loop_jump_addr_o      (loop_jump_addr_o),
-      .sw_err_o              (frep_sw_error),
-      .loop_state_o          (loop_state_o),
-      .en_superscalar_o      (en_superscalar_o),
-      .rs_idle_i             (rs_idle_i),
-      .loop_stall_o          (loop_stall)
+      .loop_start_req_i   (instr_decoded_i[0].is_frep & instr_valid_i[0]),
+      .loop_start_commit_i(instr_decoded_i[0].is_frep & frep_exec_commit),
+      .loop_bodysize_i    (loop_bodysize),
+      .loop_iterations_i  (loop_iterations),
+      .frep_mode_i        (instr_decoded_i[0].frep_mode),
+      .loop_jump_o        (loop_jump_o),
+      .loop_jump_addr_o   (loop_jump_addr_o),
+      .sw_err_o           (frep_sw_error),
+      .loop_state_o       (loop_state_o),
+      .en_superscalar_o   (en_superscalar_o),
+      .rs_idle_i          (rs_idle_i),
+      .loop_stall_o       (loop_stall)
     );
 
     // After the loop controller we maks the valid bits
     // It could be that some instruction have to be invalidated since they are out of the loop body
     assign instr_valid = instr_valid_i & valid_mask;
-
     assign instr_valid_o = instr_valid;
 
-      // Counting the number of valid instructions
     popcount #(
       .INPUT_WIDTH(PipeWidth)
     ) i_valid_count (
@@ -180,6 +172,7 @@ module schnova_controller import schnova_pkg::*; #(
       .popcount_o(instr_valid_count_o)
     );
 
+    // Decide whether a register has to be renamed
     always_comb begin
       for (int unsigned i = 0; i < PipeWidth; i++) begin
         // We have to rename the instruction if it is valid
@@ -229,17 +222,17 @@ module schnova_controller import schnova_pkg::*; #(
     assign blk_ctrl_info_masked     = blk_ctrl_info_i;
     assign blk_ctrl_info_masked_o   = blk_ctrl_info_masked;
   end
-  ////////////////
-  // Exceptions //
-  ////////////////
+
+  //--------------
+  // Exceptions 
+  //--------------
 
   // CSR instructions can only be processed in scalar mode, hence the core only has to check the first
   // instruction for the following exceptions
   assign ecall_o  = instr_decoded_i[0].is_ecall  && instr_valid[0];
   assign ebreak_o = instr_decoded_i[0].is_ebreak && instr_valid[0];
   // Signal to CSR when entering WFI state.
-  // TODO(colluca): what to do with debug signal?
-  assign enter_wfi_o = instr_decoded_i[0].is_wfi && instr_valid[0]; // && !debug_q;
+  assign enter_wfi_o = instr_decoded_i[0].is_wfi && instr_valid[0];
   assign csr_exception = (instr_decoded_i[0].fu == CSR) &&
                           csr_exception_raw_i           &&
                           instr_valid[0];
@@ -298,7 +291,6 @@ module schnova_controller import schnova_pkg::*; #(
   // if one of the instructions of the block was illegal
   assign instr_illegal_o = (|instr_decoded_illegal_i) | privileges_violated;
 
-  // TODO(colluca): what to do with TLB signals?
   assign exception_o = instr_illegal_o
                    | ecall_o
                    | ebreak_o
@@ -308,8 +300,6 @@ module schnova_controller import schnova_pkg::*; #(
                    | store_addr_misaligned_o
                    | interrupt_i
                    | frep_sw_error;
-                   //  | (dtlb_page_fault & dtlb_trans_valid)
-                   //  | (itlb_page_fault & itlb_trans_valid);
 
   // For FREP, only interrupts and FREP-specific software errors can block commit. All other
   // exceptions in exception_o are structurally impossible when the current instruction is FREP
@@ -342,9 +332,9 @@ module schnova_controller import schnova_pkg::*; #(
     assign rs_restart_o = (exception_o || !en_superscalar_o);
   end
 
-  ////////////
-  // Stalls //
-  ////////////
+  //---------
+  // Stalls 
+  //---------
 
   // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
   // FENCE is only allowed in scalar mode, we can thus only consider the first
@@ -377,8 +367,6 @@ module schnova_controller import schnova_pkg::*; #(
                          && (instr_decoded_i[0].fu == CSR);
   // We must stall on both register file scoreboards as certain FPU instructions (FEQ etc.) do also
   // write back into the integer register file.
-  // TODO(colluca): we should probably use a separate register in the scoreboard to track if there
-  // are any ongoing FPU instructions instead of checking both scoreboards indiscriminately.
   assign fcsr_stall = sb_busy_i & is_fcsr_instr & instr_valid[0];
 
   // Before toggling between scalar and superscalar mode all writebacks must be completed.
@@ -398,11 +386,11 @@ module schnova_controller import schnova_pkg::*; #(
     IDLE,
     WAIT_CTRL
   } ctrl_state_t;
+
   ctrl_state_t ctrl_state_q, ctrl_state_d;
 
   if (XFREPO) begin : gen_ctrl_stall
     `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
-
     always_comb begin : ctrl_next_state_logic
       ctrl_state_d = ctrl_state_q;
       unique case (ctrl_state_q)
@@ -454,7 +442,6 @@ module schnova_controller import schnova_pkg::*; #(
   end else begin : gen_no_backend_stall
     assign backend_stall = 1'b0;
   end
-  // TODO: Synchronize all LSUs with the Consistency Address Queue (CAQ)
 
   ////////////////////
   // Dispatch logic //
@@ -463,11 +450,10 @@ module schnova_controller import schnova_pkg::*; #(
   // We can dispatch the current instruction if:
   // - it is valid
   // - all registers are ready
-  // - free list is ready to pop enough physical registers
+  // - enough physical registers are available for renaming
   // - no stall due to a FENCE or FCSR
   // - no stall due to unsuported instructions
   // - no exception occured
-  // - TODO: the Consistency Address Queue (CAQ) between all LSUs are ready
   //
   // TODO(colluca): is this the case also in Snitch?
   // Note: the cluster HW barrier only disables fetching new instructions.
@@ -519,7 +505,6 @@ module schnova_controller import schnova_pkg::*; #(
 
 
   // The instruction may only execute if there are no errors/exceptions.
-  // TODO(colluca): clarify "multi-cycle issues" in following comment
   // This signal controls all stateful updates like RF writes or multi-cycle issues.
   logic instr_exec_commit;
   assign instr_exec_commit = dispatch_instr_valid_o & !exception_o;
@@ -543,9 +528,9 @@ module schnova_controller import schnova_pkg::*; #(
   // that way it can restart the renaming process
   assign dispatched_o = instr_dispatched;
 
-  ///////////////////////
-  // Fetch stall logic //
-  ///////////////////////
+  //-------------------
+  // Fetch stall logic
+  //-------------------
 
   // We have to stall fetching due to the following reasons
   // 1) We were not yet able to dispatch the instruction

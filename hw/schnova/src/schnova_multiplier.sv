@@ -9,6 +9,7 @@
 
 `include "common_cells/registers.svh"
 
+// Based on schnizo_multiplier, only type changes
 module schnova_multiplier import schnova_pkg::*; #(
   parameter int unsigned Width   = 64,
   parameter int unsigned IdWidth = 5

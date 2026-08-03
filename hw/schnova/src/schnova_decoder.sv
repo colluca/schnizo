@@ -42,9 +42,9 @@ module schnova_decoder import schnova_pkg::*; #(
   // 1) Decode all the instructions of the fetch block
   // 2) Mask (invalidate) all the speculative instructions after the first control instruction
 
-  //////////////////////////
-  // Instruction Decoding //
-  //////////////////////////
+  //----------------------
+  // Instruction Decoding
+  //----------------------
 
   // Generate all the decoder needed for the superscalar pipeline
   for (genvar dec_idx = 0; dec_idx < PipeWidth; dec_idx++) begin: gen_decoders
@@ -73,9 +73,9 @@ module schnova_decoder import schnova_pkg::*; #(
     );
   end
 
-  ///////////////////////////////
-  // Instruction valid masking //
-  ///////////////////////////////
+  //---------------------------
+  // Instruction valid masking
+  //---------------------------
 
   if (PipeWidth == 1) begin
     // In a scalar core, we can directly forward the decoded instruction without any valid bit masking

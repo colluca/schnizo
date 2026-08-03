@@ -30,30 +30,25 @@ module schnova_fpu import schnova_pkg::*, schnova_tracer_pkg::*; #(
 ) (
   input  logic               clk_i,
   input  logic               rst_ni,
-
   // Trace output
   // pragma translate_off
-  output issue_fpu_trace_t trace_o,
+  output issue_fpu_trace_t   trace_o,
   // pragma translate_on
-
   input  logic [31:0]        hart_id_i,
   // Input Handshake
   input  issue_req_t         issue_req_i,
   input  logic               issue_req_valid_i,
   input  logic               issue_commit_i,
   output logic               issue_req_ready_o,
-
   // Output signals
   output logic [FLEN-1:0]    result_o,
   output logic               result_valid_o,
   input  logic               result_ready_i,
   output instr_tag_t         tag_o,
   output fpnew_pkg::status_t status_o,
-
   // Asynchronous busy signal. Asserted when any instruction is in flight.
   output logic               busy_o,
-
-  // Rob zero Register Snooping
+  // Rob zero register commit snooping
   output logic                   rob_z_wb_valid_o,
   output logic [RobTagWidth-1:0] rob_z_tag_o
 );

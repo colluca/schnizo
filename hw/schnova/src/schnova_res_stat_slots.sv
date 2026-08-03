@@ -5,14 +5,13 @@
 `include "common_cells/registers.svh"
 
 // Datapath of the Reservation Station.
-// Contains the slot registers, dispatch pipeline, result capture, and RF writeback path.
+// Contains the slot registers, and issue pipeline.
 module schnova_res_stat_slots import schnova_pkg::*; #(
   parameter  bit              UseFreeList = 1'b1,
   parameter  int unsigned     NofRss           = 4,
   parameter  int unsigned     NofOperands      = 3,
   parameter  int unsigned     NofConsts        = 1,
   parameter  int unsigned     RegAddrWidth     = 5,
-  parameter  bit              UseSram          = 1'b0,
   parameter  rs_type_e        RsType           = ALU_RS,
   parameter  type             rs_slot_issue_t  = logic,
   parameter  type             rss_operand_t    = logic,
@@ -30,14 +29,12 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
 ) (
   input  logic clk_i,
   input  logic rst_i,
-
   // Control
   input  producer_id_t producer_id_i,
   input  logic         restart_i,
   input  rss_idx_t     disp_idx_i,
   input  rss_idx_t     issue_idx_i,
   output logic         retiring_o,
-
   // Dispatch
   input  disp_req_t    disp_req_i,
   input  logic         disp_req_valid_i,
@@ -46,16 +43,13 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   output producer_id_t disp_rsp_o,
   output logic         disp_hs_o,
   input logic          rs_full_i,
-
   // Issue
   output issue_req_t issue_req_o,
   output logic       issue_req_valid_o,
   input  logic       issue_req_ready_i,
   output logic       instr_exec_commit_o,
-
   // Operand request
   output operand_req_t [NofOperands-1:0] op_reqs_o,
-
   // Operand response
   input  operand_t [NofOperands-1:0] op_rsps_i,
   input  logic     [NofOperands-1:0] op_rsps_valid_i,
@@ -67,11 +61,9 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   /////////////////
   // Connections //
   /////////////////
-
-
-  rs_slot_issue_t               slot_issue_rdata;      // registered issue state for the selected slot
-  rs_slot_issue_t               slot_disp_wdata;      // post-dispatch-pipeline issue state for the selected slot
-  logic                         issue_hs;          // issue handshake from the dispatch pipeline
+  rs_slot_issue_t               slot_issue_rdata; // registered issue state for the selected slot
+  rs_slot_issue_t               slot_disp_wdata;  // post-dispatch-pipeline issue state for the selected slot
+  logic                         issue_hs;         // issue handshake from the dispatch pipeline
 
   // We retire the current slot, as soon as we successfully
   // issue the instruction from it.
@@ -89,10 +81,9 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
   // Only clear the entry if it is not an inplace overwrite
   assign clear_entry = issue_hs && !(disp_hs_o && rs_full_i);
 
-  // Issue slots
+  // Reservation station slots
   schnova_res_stat_memory #(
     .NofRss         (NofRss),
-    .UseSram        (UseSram),
     .rs_slot_issue_t(rs_slot_issue_t)
   ) i_issue_slots (
     .clk_i,
@@ -115,14 +106,14 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     };
   end
 
-  ///////////////////////
-  // Dispatch pipeline //
-  ///////////////////////
+  //----------------
+  // Issue pipeline
+  //----------------
 
   logic       issue_req_valid_raw;
   issue_req_t issue_req_raw;
 
-  schnova_rss_dispatch_pipeline #(
+  schnova_rss_issue_pipeline #(
     .UseFreeList     (UseFreeList),
     .NofOperands     (NofOperands),
     .NofConsts       (NofConsts),
@@ -137,7 +128,7 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .issue_req_t     (issue_req_t),
     .rss_idx_t       (rss_idx_t),
     .refcnt_req_t    (refcnt_req_t)
-  ) i_dispatch_pipeline (
+  ) i_issue_pipeline (
     .disp_producer_id_i     (rss_ids[disp_idx_i]),
     .issue_producer_id_i    (rss_ids[issue_idx_i]),
     .disp_idx_i             (disp_idx_i),
@@ -160,7 +151,7 @@ module schnova_res_stat_slots import schnova_pkg::*; #(
     .issue_hs_o             (issue_hs)
   );
 
-  // TODO(colluca): use rss_ids
+
   assign disp_rsp_o = producer_id_t'{
     slot_id: slot_ids[disp_idx_i],
     rs_id:   producer_id_i.rs_id

@@ -2,7 +2,7 @@
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
 
-// The decoder for the schnova Core. Based on CVA6.
+// The decoder for the schnova Core. Based on the Schnizo decoder
 module schnova_instr_decoder import schnova_pkg::*; #(
   parameter int unsigned XLEN        = 32,
   parameter bit          Xdma        = 0,

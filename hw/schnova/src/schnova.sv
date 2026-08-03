@@ -1062,7 +1062,6 @@ module schnova import schnova_pkg::*, schnova_tracer_pkg::*; #(
     .PipeWidth        (PipeWidth),
     .XLEN             (XLEN),
     .RobTagWidth      (RobTagWidth),
-    .RegAddrSize      (RegAddrSize),
     .NofAlus          (NofAlus),
     .NofLsus          (NofLsus),
     .NofFpus          (NofFpus),

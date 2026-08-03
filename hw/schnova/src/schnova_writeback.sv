@@ -359,6 +359,12 @@ module schnova_writeback import schnova_pkg::*; #(
     end
   end
 
+  //--------------------------------
+  // Control instruction retirement
+  //--------------------------------
+
+  // Have to catch the retirement of control instructions to inform the controller
+  // in case the core works in superscalar execution mode. As it has to be stalled until the control instruction has been retired.
   if (XFREPO) begin : gen_ctr_instr_retirement
   // Only ALU0 can retire control instructions
   always_comb begin

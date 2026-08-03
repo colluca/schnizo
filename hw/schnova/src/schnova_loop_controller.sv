@@ -12,42 +12,42 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   parameter int unsigned AddrWidth          = 32,
   parameter int unsigned MaxBodysizeWidth   = 12,
   parameter int unsigned MaxIterationsWidth = 6,
-  parameter type block_ctrl_info_t      = logic,
-  parameter type         instr_dec_t    = logic
+  parameter type         block_ctrl_info_t  = logic,
+  parameter type         instr_dec_t        = logic
 ) (
-  input logic clk_i,
-  input logic rst_i,
-  input  logic [PipeWidth-1:0] instr_valid_i,
-  input  instr_dec_t [PipeWidth-1:0] instr_decoded_i,
-  output logic [PipeWidth-1:0] valid_mask_o,
-  input  logic [AddrWidth-1:0] instr_addr_i,
-  input  block_ctrl_info_t     blk_ctrl_info_i,
-  input  logic                 dispatched_i,
+  input logic                           clk_i,
+  input logic                           rst_i,
+  input  logic [PipeWidth-1:0]          instr_valid_i,
+  input  instr_dec_t [PipeWidth-1:0]    instr_decoded_i,
+  output logic [PipeWidth-1:0]          valid_mask_o,
+  input  logic [AddrWidth-1:0]          instr_addr_i,
+  input  block_ctrl_info_t              blk_ctrl_info_i,
+  input  logic                          dispatched_i,
   // The instruction address following the current instruction (i.e., the first loop instruction)
-  input  logic [AddrWidth-1:0] next_instr_addr_i,
+  input  logic [AddrWidth-1:0]          next_instr_addr_i,
   // If we stall, do not update state / step in loop body.
-  input  logic stall_i,
+  input  logic                          stall_i,
   // If there is an exception abort the loop
-  input  logic exception_i,
+  input  logic                          exception_i,
   // Request a loop start at the current instruction address. Any errors will be checked by the
   // controller which then asserts the commit signal if no errors arose.
-  input  logic                      loop_start_req_i,
-  input  logic                      loop_start_commit_i,
+  input  logic                          loop_start_req_i,
+  input  logic                          loop_start_commit_i,
   input  logic [MaxBodysizeWidth-1:0]   loop_bodysize_i,
   input  logic [MaxIterationsWidth-1:0] loop_iterations_i,
-  input  frep_mode_e                frep_mode_i,
+  input  frep_mode_e                    frep_mode_i,
   // Request to jump to the loop start address
-  output logic                      loop_jump_o,
-  output logic [AddrWidth-1:0]      loop_jump_addr_o,
+  output logic                          loop_jump_o,
+  output logic [AddrWidth-1:0]          loop_jump_addr_o,
   // Asserted when a wrong config is supplied at loop start or end.
-  output logic                      sw_err_o,
+  output logic                          sw_err_o,
   // The current state of the loop
-  output loop_state_e               loop_state_o,
-  output logic                      en_superscalar_o,
+  output loop_state_e                   loop_state_o,
+  output logic                          en_superscalar_o,
 
   // Asserted if all reservation stations have no instructions in flight.
-  input  logic                      rs_idle_i,
-  output logic                      loop_stall_o
+  input  logic                          rs_idle_i,
+  output logic                          loop_stall_o
 );
 
   typedef struct packed {
@@ -71,6 +71,9 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
   logic [PipeWidth-1:0] is_unsupported_instr;
   logic                 exit_dep;
 
+  //-------------------
+  // Loop preparatiaon
+  //-------------------
   assign new_loop_end_addr = AddrWidth'(instr_addr_i) + AddrWidth'({loop_bodysize_i, 2'b00});
 
   assign new_loop = '{
@@ -149,18 +152,18 @@ module schnova_loop_controller import schnova_pkg::*, schnova_pkg::*; #(
 
   // We are at the end of the loop if one instruction of the block is at the end
   assign is_at_loop_end = |(at_loop_end_instr & valid_mask_o);
-
   assign exit_dep = |(is_unsupported_instr & inside_loop_mask);
 
   logic dispatch_loop_end_instr;
   assign dispatch_loop_end_instr = is_at_loop_end && !stall_i;
-
   assign current_loop_finish = dispatch_loop_end_instr && (loop_info_q.loop_iterations == 1);
-
   assign loop_jump_addr_o = loop_info_q.loop_addr_info.loop_start;
 
   logic decrement_loop_iterations;
 
+  //----------------------
+  // Core next state logic
+  //----------------------
   always_comb begin
     loop_info_d  = loop_info_q;
     loop_valid_d = loop_valid_q;

@@ -6,6 +6,8 @@
 `include "common_cells/assertions.svh"
 
 // Single Issue Dispatcher
+// Dispatches instructions to the first functional unit of a type.
+// Is used in single-issue mode.
 module schnova_si_dispatcher import schnova_pkg::*; #(
   parameter int unsigned XLEN        = 1,
   parameter int unsigned NofAlus     = 1,

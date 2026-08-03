@@ -14,6 +14,7 @@
 // RSS: Reservation Station Slot. A slot can hold one instruction with all the required
 //      information for the superscalar execution.
 // RF:  Register File
+// Implements instruction specific reservation station slots.
 module schnova_res_stat import schnova_pkg::*; #(
   parameter bit          UseFreeList = 1'b1,
   parameter int unsigned NofRss         = 4,
@@ -24,7 +25,6 @@ module schnova_res_stat import schnova_pkg::*; #(
   parameter int unsigned MaxIterationsW = 5,
   parameter int unsigned XLEN           = 32,
   parameter int unsigned FLEN           = 64,
-  parameter bit          UseSram        = 1'b0,
   parameter type         disp_req_t     = logic,
   parameter type         disp_rsp_t     = logic,
   parameter type         issue_req_t    = logic,
@@ -39,40 +39,35 @@ module schnova_res_stat import schnova_pkg::*; #(
   localparam integer unsigned NofConsts = (RsType == ALU_RS) ? 2 : 1,
   localparam integer unsigned CNSTLEN = ((RsType == ALU_RS) || (RsType == LSU_RS)) ? XLEN : FLEN
 ) (
-  input  logic clk_i,
-  input  logic rst_i,
-
+  input  logic                           clk_i,
+  input  logic                           rst_i,
   // The producer id of the RS and thus the first RSS. Must be static.
-  input  producer_id_t              producer_id_i,
+  input  producer_id_t                   producer_id_i,
   // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
   // handling logic. THERE MAY NOT BE ANY instruction in flight!
-  input  logic                      restart_i,
-  input  logic                      en_superscalar_i,
+  input  logic                           restart_i,
+  input  logic                           en_superscalar_i,
   // Whether the RS if full or empty
-  output logic                      rs_empty_o,
-  output logic                      rs_full_o,
-
+  output logic                           rs_empty_o,
+  output logic                           rs_full_o,
   // The dispatched instruction - from Dispatcher
-  input  disp_req_t disp_req_i,
-  input  logic      disp_req_valid_i,
-  output logic      disp_req_ready_o,
-  output disp_rsp_t disp_rsp_o,
-
+  input  disp_req_t                      disp_req_i,
+  input  logic                           disp_req_valid_i,
+  output logic                           disp_req_ready_o,
+  output disp_rsp_t                      disp_rsp_o,
   // The issued instruction - to FU
-  output issue_req_t issue_req_o,
-  output logic       issue_req_valid_o,
-  input  logic       issue_req_ready_i,
-  output logic       instr_exec_commit_o,
-
+  output issue_req_t                     issue_req_o,
+  output logic                           issue_req_valid_o,
+  input  logic                           issue_req_ready_i,
+  output logic                           instr_exec_commit_o,
   // Operand request interface - outgoing - request a result as operand
   output operand_req_t [NofOperands-1:0] op_reqs_o,
-
   // Operand response interface - incoming - returning result as operand
-  input  operand_t [NofOperands-1:0] op_rsps_i,
-  input  logic     [NofOperands-1:0] op_rsps_valid_i,
+  input  operand_t [NofOperands-1:0]     op_rsps_i,
+  input  logic     [NofOperands-1:0]     op_rsps_valid_i,
   // Refcounte issue request intefrace
-  output logic        issue_clr_req_valid_o,
-  output refcnt_req_t issue_clr_req_o
+  output logic                           issue_clr_req_valid_o,
+  output refcnt_req_t                    issue_clr_req_o
 );
 
   /////////////////////////////////////
@@ -151,9 +146,9 @@ module schnova_res_stat import schnova_pkg::*; #(
   } rs_fpu_slot_issue_t;
 
 
-  //////////////////////////////
-  // RS allocation controller //
-  //////////////////////////////
+  //-----------------------
+  // RS allocation counter
+  //-----------------------
 
   // Generates the instruction dispatch, issue, retire & writeback control signals and handles
   // the LEP iterations.
@@ -188,9 +183,9 @@ module schnova_res_stat import schnova_pkg::*; #(
   assign rs_full_o = (num_allocated_rss_q == rss_cnt_t'(NofRss));
   assign rs_empty_o = (num_allocated_rss_q == '0);
 
-  //////////////////////////////
-  // Slots datapath           //
-  //////////////////////////////
+  //----------------
+  // Slots datapath
+  //----------------
   generate
     if (RsType == ALU_RS) begin : gen_alu_rs
       schnova_res_stat_slots #(
@@ -199,7 +194,6 @@ module schnova_res_stat import schnova_pkg::*; #(
         .NofOperands     (NofOperands),
         .NofConsts       (NofConsts),
         .RegAddrWidth    (RegAddrWidth),
-        .UseSram         (UseSram),
         .RsType          (RsType),
         .rs_slot_issue_t (rs_alu_slot_issue_t),
         .rss_operand_t   (rss_operand_t),
@@ -242,7 +236,6 @@ module schnova_res_stat import schnova_pkg::*; #(
         .NofOperands     (NofOperands),
         .NofConsts       (NofConsts),
         .RegAddrWidth    (RegAddrWidth),
-        .UseSram         (UseSram),
         .RsType          (RsType),
         .rs_slot_issue_t (rs_lsu_slot_issue_t),
         .rss_operand_t   (rss_operand_t),
@@ -285,7 +278,6 @@ module schnova_res_stat import schnova_pkg::*; #(
         .NofOperands     (NofOperands),
         .NofConsts       (NofConsts),
         .RegAddrWidth    (RegAddrWidth),
-        .UseSram         (UseSram),
         .RsType          (RsType),
         .rs_slot_issue_t (rs_fpu_slot_issue_t),
         .rss_operand_t   (rss_operand_t),

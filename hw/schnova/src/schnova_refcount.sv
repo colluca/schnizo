@@ -3,6 +3,11 @@
 // SPDX-License-Identifier: SHL-0.51
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
+
+// Reference counting hardware
+// Contains a counter for every physical register
+// Also contains the adder trees that update these counters
+// and finally the priority encoder that determines free registers.
 module schnova_refcount import schnova_pkg::*; #(
     parameter int unsigned PipeWidth    = 1,
     parameter int unsigned NofPhysGpr   = 64,
@@ -25,7 +30,7 @@ module schnova_refcount import schnova_pkg::*; #(
     input  logic                         instr_exec_commit_superscalar_i,
     input  logic      [PipeWidth-1:0]    instr_valid_i,
     input  logic                         dispatched_i,
-    input  refcnt_req_t [PipeWidth-1:0]    refcnt_disp_req_i,
+    input  refcnt_req_t [PipeWidth-1:0]  refcnt_disp_req_i,
     input  phy_id_t   [PipeWidth-1:0]    phy_reg_rd_i,
     input  phy_id_t   [PipeWidth-1:0]    phy_reg_rd_old_i,
     input  logic      [PipeWidth-1:0]    is_rd_fp_i,
@@ -133,6 +138,10 @@ module schnova_refcount import schnova_pkg::*; #(
     logic [NofPhysGpr-1:0][GprDecWidth-1:0] gpr_dec;
     logic [NofPhysFpr-1:0][FprDecWidth-1:0] fpr_dec;
 
+    
+    //--------------------------------
+    // Reference counter update logic
+    //--------------------------------
 
     // We have to update the counters for every dispatched instructions to track:
     // 1) The RAT reference, to make sure the logical register is not overwritten
@@ -297,7 +306,10 @@ module schnova_refcount import schnova_pkg::*; #(
     end
 
 
-    // Counter next state logic
+    //------------------------------------
+    // Reference counter next state logic
+    //------------------------------------
+
     always_comb begin : next_state_logic
         gpr_allocated_d = gpr_allocated_q;
         fpr_allocated_d = fpr_allocated_q;
@@ -354,7 +366,9 @@ module schnova_refcount import schnova_pkg::*; #(
         end
     end
 
-    // Free vector calculation and allocation ready signaling
+    // ------------------------
+    // Free vector calculation
+    // ------------------------
     // The free vector contains a bit for every physical register
     // This bit is set when the counter of the physical register is zero (no active references to it)
     logic [NofPhysGpr-1:0] gpr_free_vector;

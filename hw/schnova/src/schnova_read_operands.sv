@@ -4,8 +4,7 @@
 
 // The read operand module which accesses the RF.
 //
-// Produces addresses to access the RFs and packs the received data into the fu_data_t struct
-// for the FUs.
+// Used to access the RF in single-issue execution mode.
 // All read values are stored in OpLen bits (defined by fu_data_t) and are
 // NOT sign extended! When computing values with the operands, make sure to use
 // only the relevant bits!
@@ -21,17 +20,17 @@ module schnova_read_operands import schnova_pkg::*; #(
   parameter type         reg_map_t   = logic,
   parameter type         fu_data_t = logic
 ) (
-  input  logic            en_superscalar_i,
-  input  logic [XLEN-1:0] jump_pc_i,
+  input  logic                                        en_superscalar_i,
+  input  logic [XLEN-1:0]                             jump_pc_i,
   /// From decoder
-  input  instr_dec_t [PipeWidth-1:0]                 instr_dec_i,
+  input  instr_dec_t [PipeWidth-1:0]                  instr_dec_i,
   /// From rename
-  input  reg_map_t                                   reg_map_i,
+  input  reg_map_t                                    reg_map_i,
   output logic [NrIntReadPorts-1:0][GprAddrWidth-1:0] gpr_raddr_o,
-  input  logic [NrIntReadPorts-1:0][XLEN-1:0]        gpr_rdata_i,
+  input  logic [NrIntReadPorts-1:0][XLEN-1:0]         gpr_rdata_i,
   output logic [NrFpReadPorts-1:0][FprAddrWidth-1:0]  fpr_raddr_o,
-  input  logic [NrFpReadPorts-1:0][FLEN-1:0]         fpr_rdata_i,
-  output fu_data_t [PipeWidth-1:0] fu_data_o
+  input  logic [NrFpReadPorts-1:0][FLEN-1:0]          fpr_rdata_i,
+  output fu_data_t [PipeWidth-1:0]                    fu_data_o
 );
 
   always_comb begin

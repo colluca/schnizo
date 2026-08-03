@@ -1,9 +1,6 @@
 // Copyright 2025 ETH Zurich and University of Bologna.
 // Solderpad Hardware License, Version 0.51, see LICENSE for details.
 // SPDX-License-Identifier: SHL-0.51
-
-// TODO(colluca): review differences with Snitch LSU, in particular w.r.t. AWUSER field.
-
 `include "common_cells/assertions.svh"
 
 // An adapted Snitch LSU which supports dynamic NaN boxing.
@@ -11,6 +8,7 @@
 // Can handle `NumOutstandingLoads` outstanding loads and `NumOutstandingMem` requests in total
 // and optionally NaNBox if used in a floating-point setting. It expects its memory subsystem to
 // keep order (as if issued with a single ID).
+// Based on schnizo_lsu, added a zero register commit snoop signal
 module schnova_lsu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned XLEN                = 32,
   parameter type         issue_req_t         = logic,

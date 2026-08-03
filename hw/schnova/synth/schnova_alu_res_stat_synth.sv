@@ -41,7 +41,6 @@ module schnova_alu_res_stat_synth import schnova_synth_pkg::*;  #(
     .MaxIterationsW (MaxIterationsW),
     .XLEN           (XLEN),
     .FLEN           (FLEN),
-    .UseSram        (1'b0),
     .disp_req_t     (disp_req_t),
     .disp_rsp_t     (disp_rsp_t),
     .issue_req_t    (issue_req_t),

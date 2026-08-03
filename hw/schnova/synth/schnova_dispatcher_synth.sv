@@ -85,7 +85,6 @@ module schnova_dispatcher_synth import schnova_synth_pkg::*; #(
     .PipeWidth          (PipeWidth),
     .XLEN               (XLEN),
     .XFREPO             (1'b1),
-    .RegAddrSize        (RegAddrSize),
     .NofAlus            (NofAlus),
     .NofLsus            (NofLsus),
     .NofFpus            (NofFpus),

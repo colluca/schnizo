@@ -23,28 +23,28 @@ module schnova_scoreboard #(
   parameter type         sb_disp_data_t = logic
 ) (
   // clock and reset
-  input  logic                                    clk_i,
-  input  logic                                    rst_i,
-  input  logic                                    en_superscalar_i,
+  input  logic                                         clk_i,
+  input  logic                                         rst_i,
+  input  logic                                         en_superscalar_i,
   // Dispatched instruction
-  input  logic                                    dispatched_i,
-  input  logic [PipeWidth-1:0]                    instr_valid_i,
-  input  sb_disp_data_t [PipeWidth-1:0]           disp_data_i,
+  input  logic                                         dispatched_i,
+  input  logic [PipeWidth-1:0]                         instr_valid_i,
+  input  sb_disp_data_t [PipeWidth-1:0]                disp_data_i,
   // Read port for the physical register file
-  input  logic [NrReadPorts-1:0][PhysAddrWidth-1:0] raddr_i,
-  input  logic [NrReadPorts-1:0]                    read_fp_i,
-  output logic [NrReadPorts-1:0]                    rdata_o,
+  input  logic [NrReadPorts-1:0][PhysAddrWidth-1:0]    raddr_i,
+  input  logic [NrReadPorts-1:0]                       read_fp_i,
+  output logic [NrReadPorts-1:0]                       rdata_o,
   // Register writeback snooping
   input  logic [NrIntWritePorts-1:0][GprAddrWidth-1:0] wb_gpr_addr_i,
   input  logic [NrIntWritePorts-1:0]                   wb_gpr_en_i,
   input  logic [NrFpWritePorts-1:0][FprAddrWidth-1:0]  wb_fpr_addr_i,
   input  logic [NrFpWritePorts-1:0]                    wb_fpr_en_i,
   // To controller
-  output logic                                    registers_ready_o,
-  output logic                                    sb_busy_o,
+  output logic                                         registers_ready_o,
+  output logic                                         sb_busy_o,
   // To Refcount
-  output logic [NofPhysGpr-1:0]                   sbi_q_o,
-  output logic [NofPhysFpr-1:0]                   sbf_q_o
+  output logic [NofPhysGpr-1:0]                        sbi_q_o,
+  output logic [NofPhysFpr-1:0]                        sbf_q_o
 );
 
   logic [NofPhysGpr-1:0] sbi_d, sbi_q;

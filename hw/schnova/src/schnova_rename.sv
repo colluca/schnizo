@@ -6,7 +6,8 @@
 `include "common_cells/assertions.svh"
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
-// Description: Renaming stage
+// Renaming stage, contains the RMT and the forwarding logic
+// that resolves inter-instruction dependencies in superscalar mode.
 module schnova_rename import schnova_pkg::*; #(
   parameter int unsigned PipeWidth   = 1,
   parameter int unsigned RmtNrIntReadPorts = 3,
@@ -19,23 +20,24 @@ module schnova_rename import schnova_pkg::*; #(
   parameter type         phy_id_t = logic,
   parameter type         reg_map_t = logic
 ) (
-  input  logic         clk_i,
-  input  logic         rst_i,
-  input  instr_dec_t   [PipeWidth-1:0]  instr_dec_i,
+  input  logic                         clk_i,
+  input  logic                         rst_i,
+  input  instr_dec_t   [PipeWidth-1:0] instr_dec_i,
   input  logic [PipeWidth-1:0]         instr_rename_gpr_valid_i,
   input  logic [PipeWidth-1:0]         instr_rename_fpr_valid_i,
-  input  logic dispatched_i,
-  input  logic en_superscalar_i,
+  input  logic                         dispatched_i,
+  input  logic                         en_superscalar_i,
   // From dispatcher, contains the desination register mappings, that the dispatcher
   // was able to allocate.
-  output reg_map_t [PipeWidth-1:0]  reg_map_o,
+  output reg_map_t [PipeWidth-1:0]     reg_map_o,
   // From freelist
-  input phy_id_t    [PipeWidth-1:0] allocated_gpr_regs_i,
-  input phy_id_t    [PipeWidth-1:0] allocated_fpr_regs_i
+  input phy_id_t    [PipeWidth-1:0]    allocated_gpr_regs_i,
+  input phy_id_t    [PipeWidth-1:0]    allocated_fpr_regs_i
 );
 
-  logic       [RmtNrIntReadPorts-1:0][RegAddrSize-1:0] rmt_int_raddr;
-  logic       [RmtNrFpReadPorts-1:0][RegAddrSize-1:0]  rmt_fp_raddr;
+  // Global constants / wires
+  logic    [RmtNrIntReadPorts-1:0][RegAddrSize-1:0] rmt_int_raddr;
+  logic    [RmtNrFpReadPorts-1:0][RegAddrSize-1:0]  rmt_fp_raddr;
   phy_id_t [RmtNrIntReadPorts-1:0]                  rmt_int_rdata;
   phy_id_t [RmtNrFpReadPorts-1:0]                   rmt_fp_rdata;
 

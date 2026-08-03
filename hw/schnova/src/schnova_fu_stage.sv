@@ -28,7 +28,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // The following 3 NofIfs parameters depend directly on the previous FU specific Nof parameters
   // but they must be defined on the outer scope as they are needed there as well.
   // Make sure to match them!
-  // TODO(colluca): use a function or something to ensure the consistency of these parameters.
   parameter int unsigned NofOperandIfs   = 1,
   parameter int unsigned XLEN            = 32,
   parameter int unsigned FLEN            = 64,
@@ -61,7 +60,7 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Register the signals directly after the FPnew instance
   parameter bit          RegisterFPUOut = 0,
   // Reroder buffer tag width
-  parameter int unsigned RobTagWidth         = 5,
+  parameter int unsigned RobTagWidth    = 5,
   /// Others
   parameter type         producer_id_t  = logic,
   parameter type         slot_id_t      = logic,
@@ -91,7 +90,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   input  logic        clk_i,
   input  logic        rst_i,
   input  logic [31:0] hart_id_i,
-
   // Trace outputs
   // pragma translate_off
   output issue_alu_trace_t  alu_trace_o        [NofAlus-1:0],
@@ -102,7 +100,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output retire_fu_trace_t  lsu_store_retire_trace_o [NofLsus-1:0],
   output retire_fu_trace_t  fpu_retire_trace_o [NofFpus-1:0],
   // pragma translate_on
-
   /// RS control signals
   input  logic                      restart_i,
   input  logic                      en_superscalar_i,
@@ -154,14 +151,11 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // Combined status of all FPUs
   output fpnew_pkg::status_t fpu_status_o,
   output logic               fpu_status_valid_o,
-
   // Operand request interface
   output operand_req_t [NofOperandIfs-1:0] op_reqs_o,
-
   // Operand response interface
   input  operand_t [NofOperandIfs-1:0] op_rsps_i,
   input  logic     [NofOperandIfs-1:0] op_rsps_valid_i,
-
   // Reference counter interface
   output logic        [NofAlus-1:0]    issue_alu_clr_req_valid_o,
   output refcnt_req_t [NofAlus-1:0]    issue_alu_clr_req_o,
@@ -169,24 +163,20 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output refcnt_req_t [NofLsus-1:0]    issue_lsu_clr_req_o,
   output logic        [NofFpus-1:0]    issue_fpu_clr_req_valid_o,
   output refcnt_req_t [NofFpus-1:0]    issue_fpu_clr_req_o,
-
   // FU results
   output alu_result_t [NofAlus-1:0] alu_results_o,
   output instr_tag_t  [NofAlus-1:0] alu_results_tag_o,
   output logic        [NofAlus-1:0] alu_results_valid_o,
   input  logic        [NofAlus-1:0] alu_results_ready_i,
   output alu_result_t branch_result_o,
-
   output data_t      [NofLsus-1:0] lsu_results_o,
   output instr_tag_t [NofLsus-1:0] lsu_results_tag_o,
   output logic       [NofLsus-1:0] lsu_results_valid_o,
   input  logic       [NofLsus-1:0] lsu_results_ready_i,
-
   output fpu_result_t [NofFpus-1:0] fpu_results_o,
   output instr_tag_t  [NofFpus-1:0] fpu_results_tag_o,
   output logic        [NofFpus-1:0] fpu_results_valid_o,
   input  logic        [NofFpus-1:0] fpu_results_ready_i,
-  
   // Store writeback snooping for reorder buffer
   output logic [NofAlus-1:0]                  alu_rob_z_wb_valid_o,
   output logic [NofAlus-1:0][RobTagWidth-1:0] alu_rob_z_tag_o,
@@ -195,15 +185,11 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   output logic [NofFpus-1:0]                  fpu_rob_z_wb_valid_o,
   output logic [NofFpus-1:0][RobTagWidth-1:0] fpu_rob_z_tag_o
 );
+  // --------------------------------
+  // Parameters and type definitions
+  // --------------------------------
 
-  /////////////////////////////////////
-  // Parameters and type definitions //
-  /////////////////////////////////////
-
-  // ---------------------------
   // Operand distribution network
-  // ---------------------------
-
   localparam int unsigned NofRs = NofAlus + NofLsus + NofFpus;
   localparam int unsigned TotalNofRss = NofAlus * AluNofRss +
                                         NofLsus * LsuNofRss +
@@ -238,9 +224,8 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
   localparam rs_param_array_t NofRss = gen_rs_param_array(AluNofRss, LsuNofRss, FpuNofRss);
 
-  // ---------------------------
+
   // RS ID generation
-  // ---------------------------
 
   // Each RS needs a globally unique ID. We simply count all RS.
   localparam integer unsigned AluRsIdOffset = 0;
@@ -255,9 +240,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   localparam integer unsigned FpuOpIdOffset = LsuOpIdOffset +
                                               NofLsus * LsuNofOperands;
 
-  ////////////////////////////////////////
-  // Operand distribution network (ODN) //
-  ////////////////////////////////////////
+  //-------------------------------------
+  // Operand request response forwarding
+  //-------------------------------------
 
   operand_req_t [NofAlus-1:0][AluNofOperands-1:0]  alu_op_reqs;
   operand_t     [NofAlus-1:0][AluNofOperands-1:0]  alu_op_rsps;
@@ -276,7 +261,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
   // ---------------------------
   if (XFREPO) begin : gen_op_req_rsps
     // Pack the FUs' operand requests and responses into a linear array
-    // TODO(colluca): think if this code can be streamlined
     always_comb begin : fu_op_reqs_rsps
       automatic integer ope_if = 0;
 
@@ -329,9 +313,9 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
     assign fpu_op_rsps_valid = '0;
   end
 
-  //////////
-  // ALUs //
-  //////////
+  // ------
+  // ALUs
+  // ------
 
   logic [NofAlus-1:0] alu_rs_empty;
   logic [NofAlus-1:0] alu_rs_busy;
@@ -366,8 +350,6 @@ module schnova_fu_stage import schnova_pkg::*, schnova_tracer_pkg::*; #(
 
     if (XFREPO) begin : gen_rs
       // Signals connecting the FU block and the actual FU
-
-
       producer_id_t producer_start_id;
       assign producer_start_id = producer_id_t'{
         slot_id: '0, // does not matter

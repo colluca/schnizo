@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: SHL-0.51
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
-// Description: Variable Register Mapping Table
-// Forwarding logic for same cycle clear and read is done inside in order to avoid more read ports
-// since clearing the RMT is conditional.
+// Variable Register Mapping Table
+
 // verilog_lint: waive module-filename
 module schnova_rmt #(
   parameter int unsigned NrReadPorts  = 2,
@@ -15,14 +14,14 @@ module schnova_rmt #(
   parameter type         phy_id_t = logic
 ) (
   // clock and reset
-  input  logic                                        clk_i,
-  input  logic                                        rst_ni,
+  input  logic                                         clk_i,
+  input  logic                                         rst_ni,
   // read port
   input  logic       [NrReadPorts-1:0][AddrWidth-1:0]  raddr_i,
-  output phy_id_t [NrReadPorts-1:0]                 rdata_o,
+  output phy_id_t [NrReadPorts-1:0]                    rdata_o,
   // write port
   input  logic       [NrWritePorts-1:0][AddrWidth-1:0] waddr_i,
-  input  phy_id_t [NrWritePorts-1:0]                wdata_i,
+  input  phy_id_t [NrWritePorts-1:0]                   wdata_i,
   input  logic       [NrWritePorts-1:0]                we_i
 );
 

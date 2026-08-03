@@ -5,6 +5,10 @@
 `include "common_cells/assertions.svh"
 
 // Author: Stefan Odermatt <soderma@ethz.ch>
+
+// Stores the instructions and data to be dispatched to the functional units. 
+// The buffer is a FIFO with multiple push and pop ports.
+// Can push PipeWidth instructions per cycle into it and pop NumFus instructions per cycle from it.
 module schnova_disp_buffer import schnova_pkg::*; #(
   parameter int unsigned PipeWidth      = 1,
   parameter int unsigned NumEntries     = 1,
@@ -27,6 +31,7 @@ module schnova_disp_buffer import schnova_pkg::*; #(
   output logic                          empty_o
 );
 
+  // Width of the index used to index into the buffer
   localparam int unsigned IdxWidth = (NumEntries > 1) ? $clog2(NumEntries) : 1;
 
   typedef struct packed {

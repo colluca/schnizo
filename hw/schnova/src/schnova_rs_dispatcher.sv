@@ -7,10 +7,9 @@
 
 // The reservation station dispatcher module.
 //
-// Accesses the RMT to augment the dispatch requests with the relevant data and routes the
-// dispatch requests to the different functional units. It selects the FU type based on the
-// decoded instruction. If more than one FU of the same type is available, it further selects the
-// specific FU of that type to dispatch the instruction to.
+// Contains the instruction buffers for ALU, LSU and FPU instructions.
+// Also contains the crossbars that forward multiple instructions
+// per cycle in superscalar execution mode to the functional units.
 module schnova_rs_dispatcher import schnova_pkg::*; #(
   /// If a freelist based physical register reclamation strategy is used
   /// or a refernce counting based strategy.
@@ -46,16 +45,14 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   // in this cycle
   output logic                       dispatched_o,
   input  logic                       instr_exec_commit_i,
-
-  input  logic [PipeWidth-1:0]         instr_valid_i,
-  input  logic [PipeWidth-1:0]         instr_rename_gpr_valid_i,
-  input  logic [$clog2(PipeWidth):0]   instr_rename_gpr_count_i,
-  input  logic [PipeWidth-1:0]         instr_rename_fpr_valid_i,
-  input  logic [$clog2(PipeWidth):0]   instr_rename_fpr_count_i,
+  input  logic [PipeWidth-1:0]       instr_valid_i,
+  input  logic [PipeWidth-1:0]       instr_rename_gpr_valid_i,
+  input  logic [$clog2(PipeWidth):0] instr_rename_gpr_count_i,
+  input  logic [PipeWidth-1:0]       instr_rename_fpr_valid_i,
+  input  logic [$clog2(PipeWidth):0] instr_rename_fpr_count_i,
 
   // From rename stage
-  input  reg_map_t [PipeWidth-1:0]     reg_map_i,
-
+  input  reg_map_t [PipeWidth-1:0]   reg_map_i,
   // From/to ROB
   output logic                                 first_instr_dispatched_o,
   input logic [PipeWidth-1:0][RobTagWidth-1:0] rob_idx_i,
@@ -142,10 +139,9 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
 
   // The dispatch request contains
   // 1) The physical register mappings of the instruction
-  // 2) If the operands are constand and therefore don't have to be fetched from
+  // 2) If the operands are constant and therefore don't have to be fetched from
   // the physical register file
   // 3) The instruction as well as its tag
-
   always_comb begin : rs_dispatch_generation
     alu_rs_disp_reqs = '0;
     lsu_rs_disp_reqs = '0;
@@ -205,10 +201,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  // 1) FU selection
-
   // For every instruction in the pipe, determine which FU type with an RS it needs
-
   logic [PipeWidth-1:0] disp_to_alu;
   logic [PipeWidth-1:0] disp_to_alu0;
   logic [PipeWidth-1:0] disp_to_lsu;
@@ -242,8 +235,9 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  // 2) Hazard detection
-
+  //------------------
+  // Hazard detection
+  //------------------
   // Each instruction must dispatch in order in respect to the same functional unit type
   // This works without deadlock since before the dispatch request is valid the physical registers
   // and rob entries (if used) already are allocated.
@@ -324,7 +318,12 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  // Dispatch tracking
+  //-------------------------
+  // Dispatch tracking logic
+  //-------------------------
+
+  // For every instruction we have to track wether
+  // it was already dispatched in this or in a previuos cycle.
   always_comb begin
     instr_dispatched = '0;
     dispatched_d = dispatched_q;
@@ -344,7 +343,9 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  // 3) Dispatch Buffer Management
+  //----------------------------------
+  // Dispatch buffer allocation logic
+  //----------------------------------
   always_comb begin
     alu_disp_buf_push_data = '0;
     lsu_disp_buf_push_data = '0;
@@ -445,13 +446,17 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
 
   assign disp_buffers_empty_o = (alu_disp_buf_empty & lsu_disp_buf_empty & fpu_disp_buf_empty);
 
+
+  //---------------------------
+  // Dispatch buffer crossbars
+  //---------------------------
   logic [NofAlus-1:0]               alu_assigned;       // Whether this dispatch req was assigned an rs
   logic [NofAlus-1:0][NofAlusW-1:0] alu_port;           // The assigned alu port
   logic [NofAlus-1:0]               alu_claimed;        // Whether this rs was already claimed
   logic                             alu_older_stalled;  // Cascade flag for strict in-order blocking
   logic [NofAlusW-1:0]              alu_rot_idx;
 
-  always_comb begin : alu_buffer_pop_steering
+  always_comb begin : alu_crossbar
     alu_rs_disp_reqs_o      = '0;
     alu_rs_disp_req_valid_o = '0;
     alu_assigned            = '0;
@@ -518,7 +523,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  always_comb begin : lsu_buffer_pop_steering
+  always_comb begin : lsu_crossbar
     lsu_rs_disp_reqs_o      = '0;
     lsu_rs_disp_req_valid_o = '0;
     lsu_assigned            = '0;
@@ -579,7 +584,7 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   logic                             fpu_older_stalled;  // Cascade flag for strict in-order blocking
   logic [NofFpusW-1:0]              fpu_rot_idx;
 
-  always_comb begin : fpu_buffer_pop_steering
+  always_comb begin : fpu_crossbar
     fpu_rs_disp_reqs_o      = '0;
     fpu_rs_disp_req_valid_o = '0;
     fpu_assigned            = '0;
@@ -628,7 +633,12 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
   logic [$clog2(NofLsus):0] lsu_idx_inc;
   logic [$clog2(NofFpus):0] fpu_idx_inc;
 
+  //-------------------------------------------
+  // Round robin counter increment calculation
+  //-------------------------------------------
 
+  // Every crossbar uses a round robin counter to break ties or
+  // determine where to dispatch next into.
   always_comb begin
     // For the ALU it can be that some instructions are forced to ALU0, these we ignore for the round-robin
     // counter update
@@ -746,10 +756,15 @@ module schnova_rs_dispatcher import schnova_pkg::*; #(
     end
   end
 
-  ///////////////////////////////////////
-  // Reorder buffer tag state update   //
-  // and scorebored signal handling    //
-  ///////////////////////////////////////
+
+  //------------------------------------
+  // Physical regigster dispatch update
+  //------------------------------------
+  // For the roerder buffer implementation
+  // Have to remember the reroder buffer indexes as the reorder buffer entries
+  // are all allocated once in one go.
+  // For the reference counter we have to update it at dispatch
+  // here we pack the necesasry information into a signal
 
   // Tracks if any valid instruction has *already* been dispatched in a previous cycle
   logic valid_already_dispatched;

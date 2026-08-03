@@ -5,38 +5,35 @@
 // ALU of the Schnova Core.
 //
 // The ALU consists of an adder, a comparison part for branch resolving and an arithmetic
-// shifter unit. It is based on the CVA6 alu module.
-// TODO(colluca): is it possible that adding the multiplier here, with its longer latency,
-// breaks some corner-case in case of a "race condition" with a branch instruction?
+// shifter unit. It also contains a multiplier.
+// The ALU is based on the Schnizo ALU
 module schnova_alu import schnova_pkg::*, schnova_tracer_pkg::*; #(
   parameter int unsigned XLEN          = 32,
   parameter bit          HasBranch     = 1'b1,
   parameter bit          HasMultiplier = 1'b0,
   // Reroder buffer tag width
-  parameter int unsigned RobTagWidth         = 5,
-  parameter bit          UseFreeList         = 0,
+  parameter int unsigned RobTagWidth   = 5,
+  parameter bit          UseFreeList   = 0,
   parameter type         issue_req_t   = logic,
   parameter type         instr_tag_t   = logic
 ) (
-  input  logic            clk_i,
-  input  logic            rst_i,
-
+  input  logic                   clk_i,
+  input  logic                   rst_i,
   // Trace
   // pragma translate_off
-  output issue_alu_trace_t trace_o,
+  output issue_alu_trace_t       trace_o,
   // pragma translate_on
-
-  input  issue_req_t      issue_req_i,
-  input  logic            issue_req_valid_i,
-  output logic            issue_req_ready_o,
-  output logic [XLEN-1:0] result_o,
+  input  issue_req_t             issue_req_i,
+  input  logic                   issue_req_valid_i,
+  output logic                   issue_req_ready_o,
+  output logic [XLEN-1:0]        result_o,
   /// Set if the comparison is true
-  output logic            compare_res_o,
-  output instr_tag_t      tag_o,
-  output logic            result_valid_o,
-  input  logic            result_ready_i,
-  output logic            busy_o,
-  // Rob zero Register Snooping
+  output logic                   compare_res_o,
+  output instr_tag_t             tag_o,
+  output logic                   result_valid_o,
+  input  logic                   result_ready_i,
+  output logic                   busy_o,
+  // Rob zero register commit snooping
   output logic                   rob_z_wb_valid_o,
   output logic [RobTagWidth-1:0] rob_z_tag_o
 );
