@@ -30,14 +30,14 @@ class InterpolateVerifier(Verifier):
             'ofmap_ptr':  'I',
             'dtype':      'I'
         }
-        self.layer      = self.get_input_from_symbol('layer', self.layer_struct)
+        self.layer = self.get_input_from_symbol('layer', self.layer_struct)
         self.batch_size = self.layer['batch_size']
-        self.channels   = self.layer['channels']
-        self.in_height  = self.layer['in_height']
-        self.in_width   = self.layer['in_width']
+        self.channels = self.layer['channels']
+        self.in_height = self.layer['in_height']
+        self.in_width = self.layer['in_width']
         self.out_height = self.layer['out_height']
-        self.out_width  = self.layer['out_width']
-        self.prec       = self.layer['dtype']
+        self.out_width = self.layer['out_width']
+        self.prec = self.layer['dtype']
 
     def get_actual_results(self):
         return self.get_output_from_symbol('ofmap', ctype_from_precision_t(self.prec))

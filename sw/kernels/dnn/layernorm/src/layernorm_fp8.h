@@ -104,22 +104,22 @@ static inline void layernorm_fp8_opt(char *input, char *output,
                     "vfcpkb.b.s %[mean_reg], %[mean_tot], %[mean_tot] \n"
                     "vfcpkc.b.s %[mean_reg], %[mean_tot], %[mean_tot] \n"
                     "vfcpkd.b.s %[mean_reg], %[mean_tot], %[mean_tot] \n"
-                    : [mean_reg] "+f"(mean_reg.f64),
-                      [mean_v4_0] "+f"(mean_v4[0].f64),
-                      [mean_v4_1] "+f"(mean_v4[1].f64),
-                      [mean_v4_2] "+f"(mean_v4[2].f64),
-                      [mean_v4_3] "+f"(mean_v4[3].f64),
-                      [mean_v2_0] "+f"(mean_v2[0].f64),
-                      [mean_v2_1] "+f"(mean_v2[1].f64),
-                      [mean_v2_2] "+f"(mean_v2[2].f64),
-                      [mean_v2_3] "+f"(mean_v2[3].f64),
-                      [mean_tot] "+f"(mean_tot),
-                      [mean_reduce0] "+f"(mean_reduce[0]),
-                      [mean_reduce1] "+f"(mean_reduce[1]),
-                      [mean_reduce2] "+f"(mean_reduce[2]),
-                      [mean_reduce3] "+f"(mean_reduce[3])
-                    : [n_frep] "r"(n_frep - 1), [zero] "f"(0.0f),
-                      [embeddings] "f"((float)embeddings)
+                    : [ mean_reg ] "+f"(mean_reg.f64),
+                      [ mean_v4_0 ] "+f"(mean_v4[0].f64),
+                      [ mean_v4_1 ] "+f"(mean_v4[1].f64),
+                      [ mean_v4_2 ] "+f"(mean_v4[2].f64),
+                      [ mean_v4_3 ] "+f"(mean_v4[3].f64),
+                      [ mean_v2_0 ] "+f"(mean_v2[0].f64),
+                      [ mean_v2_1 ] "+f"(mean_v2[1].f64),
+                      [ mean_v2_2 ] "+f"(mean_v2[2].f64),
+                      [ mean_v2_3 ] "+f"(mean_v2[3].f64),
+                      [ mean_tot ] "+f"(mean_tot),
+                      [ mean_reduce0 ] "+f"(mean_reduce[0]),
+                      [ mean_reduce1 ] "+f"(mean_reduce[1]),
+                      [ mean_reduce2 ] "+f"(mean_reduce[2]),
+                      [ mean_reduce3 ] "+f"(mean_reduce[3])
+                    : [ n_frep ] "r"(n_frep - 1), [ zero ] "f"(0.0f),
+                      [ embeddings ] "f"((float)embeddings)
                     : "ft0", "ft1", "ft2");
 
                 snrt_fpu_fence();
@@ -169,30 +169,30 @@ static inline void layernorm_fp8_opt(char *input, char *output,
                     "vfcpkb.b.s %[mean_reg], %[var_v2_0], %[var_v2_0] \n"
                     "vfcpkc.b.s %[mean_reg], %[var_v2_0], %[var_v2_0] \n"
                     "vfcpkd.b.s %[mean_reg], %[var_v2_0], %[var_v2_0] \n"
-                    : [mean_v2_0] "+f"(mean_v2[0].f64),
-                      [mean_v2_1] "+f"(mean_v2[1].f64),
-                      [mean_v2_2] "+f"(mean_v2[2].f64),
-                      [mean_v2_3] "+f"(mean_v2[3].f64),
-                      [mean_v4_0] "+f"(mean_v4[0].f64),
-                      [mean_v4_1] "+f"(mean_v4[1].f64),
-                      [mean_v4_2] "+f"(mean_v4[2].f64),
-                      [mean_v4_3] "+f"(mean_v4[3].f64),
-                      [var_v8_0] "+f"(var_v8[0].f64),
-                      [var_v8_1] "+f"(var_v8[1].f64),
-                      [var_v8_2] "+f"(var_v8[2].f64),
-                      [var_v8_3] "+f"(var_v8[3].f64),
-                      [mean_reg] "+f"(mean_reg.f64),
-                      [pow_v8_0] "+f"(pow_v8[0].f64),
-                      [pow_v8_1] "+f"(pow_v8[1].f64),
-                      [pow_v8_2] "+f"(pow_v8[2].f64),
-                      [pow_v8_3] "+f"(pow_v8[3].f64),
-                      [var_v2_0] "+f"(var_v2[0].f64),
-                      [var_v2_1] "+f"(var_v2[1].f64),
-                      [var_v2_2] "+f"(var_v2[2].f64),
-                      [var_v2_3] "+f"(var_v2[3].f64)
-                    : [zero] "f"(0.0f), [n_frep] "r"(n_frep - 1),
-                      [embeddings] "f"((float)embeddings),
-                      [eps] "f"((float)eps), [one] "f"(1.0f)
+                    : [ mean_v2_0 ] "+f"(mean_v2[0].f64),
+                      [ mean_v2_1 ] "+f"(mean_v2[1].f64),
+                      [ mean_v2_2 ] "+f"(mean_v2[2].f64),
+                      [ mean_v2_3 ] "+f"(mean_v2[3].f64),
+                      [ mean_v4_0 ] "+f"(mean_v4[0].f64),
+                      [ mean_v4_1 ] "+f"(mean_v4[1].f64),
+                      [ mean_v4_2 ] "+f"(mean_v4[2].f64),
+                      [ mean_v4_3 ] "+f"(mean_v4[3].f64),
+                      [ var_v8_0 ] "+f"(var_v8[0].f64),
+                      [ var_v8_1 ] "+f"(var_v8[1].f64),
+                      [ var_v8_2 ] "+f"(var_v8[2].f64),
+                      [ var_v8_3 ] "+f"(var_v8[3].f64),
+                      [ mean_reg ] "+f"(mean_reg.f64),
+                      [ pow_v8_0 ] "+f"(pow_v8[0].f64),
+                      [ pow_v8_1 ] "+f"(pow_v8[1].f64),
+                      [ pow_v8_2 ] "+f"(pow_v8[2].f64),
+                      [ pow_v8_3 ] "+f"(pow_v8[3].f64),
+                      [ var_v2_0 ] "+f"(var_v2[0].f64),
+                      [ var_v2_1 ] "+f"(var_v2[1].f64),
+                      [ var_v2_2 ] "+f"(var_v2[2].f64),
+                      [ var_v2_3 ] "+f"(var_v2[3].f64)
+                    : [ zero ] "f"(0.0f), [ n_frep ] "r"(n_frep - 1),
+                      [ embeddings ] "f"((float)embeddings),
+                      [ eps ] "f"((float)eps), [ one ] "f"(1.0f)
                     : "ft0", "ft1", "ft2");
 
                 snrt_fpu_fence();
@@ -206,8 +206,8 @@ static inline void layernorm_fp8_opt(char *input, char *output,
                     "vfmul.b ft1, ft2, %[mean_reg] \n"
                     "vfmul.b ft1, ft2, %[mean_reg] \n"
                     "vfmul.b ft1, ft2, %[mean_reg] \n"
-                    : [mean_reg] "+f"(mean_reg.f64)
-                    : [n_frep] "r"(n_frep - 1)
+                    : [ mean_reg ] "+f"(mean_reg.f64)
+                    : [ n_frep ] "r"(n_frep - 1)
                     : "ft0", "ft1", "ft2");
                 snrt_ssr_disable();
             }

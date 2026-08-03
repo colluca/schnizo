@@ -368,12 +368,12 @@ static inline void vlogf_schnova(float *a, double *b) {
                     "fsd      ft3, 16(%[output])            \n"
                     "fsd      ft4, 24(%[output])            \n"
                     // clang-format on
-                    : [input] "+r"(comp_a_ptr), [output] "+r"(comp_b_ptr)
-                    : [n_frep] "r"(n_frep_m2), [Ln2] "f"(Ln2),
-                      [incf] "i"(4 * sizeof(float)),
-                      [incd] "i"(4 * sizeof(double)), [OFF] "r"(OFF),
-                      [T] "r"(T), [A0] "f"(A[0]), [A1] "f"(A[1]),
-                      [A2] "f"(A[2]), [A3] "f"(A[3])
+                    : [ input ] "+r"(comp_a_ptr), [ output ] "+r"(comp_b_ptr)
+                    : [ n_frep ] "r"(n_frep_m2), [ Ln2 ] "f"(Ln2),
+                      [ incf ] "i"(4 * sizeof(float)),
+                      [ incd ] "i"(4 * sizeof(double)), [ OFF ] "r"(OFF),
+                      [ T ] "r"(T), [ A0 ] "f"(A[0]), [ A1 ] "f"(A[1]),
+                      [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3])
                     : "memory", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
                       "t0", "t1", "t2", "t3", "t4", "t5", "t6", "s0", "fa0",
                       "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "ft3",

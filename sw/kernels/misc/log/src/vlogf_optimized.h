@@ -147,9 +147,9 @@ static inline void vlogf_optimized(float *a, double *b) {
                 // FP computation
                 asm volatile("frep.o %[n_frep], 36, 0, 0 \n" FP_ASM_BODY
                              :
-                             : [n_frep] "r"(batch_size / unroll_factor - 1),
-                               [A0] "f"(A[0]), [A1] "f"(A[1]), [A2] "f"(A[2]),
-                               [A3] "f"(A[3]), [Ln2] "f"(Ln2)
+                             : [ n_frep ] "r"(batch_size / unroll_factor - 1),
+                               [ A0 ] "f"(A[0]), [ A1 ] "f"(A[1]), [ A2 ] "f"(A[2]),
+                               [ A3 ] "f"(A[3]), [ Ln2 ] "f"(Ln2)
                              : "ft0", "ft1", "ft2", "fa0", "fa1", "fa2", "fa3",
                                "fa4", "fa5", "fa6", "fa7", "ft3", "ft4", "ft5",
                                "ft6", "ft7", "ft8", "ft9", "ft10", "memory");
@@ -178,13 +178,13 @@ static inline void vlogf_optimized(float *a, double *b) {
                     asm volatile(
                         INT_ASM_BODY
                         :
-                        : [a] "r"(int_a_ptr + i), [OFF] "r"(OFF), [T] "r"(T),
-                          [z] "r"(int_z_ptr + i), [k] "r"(int_k_ptr + i),
+                        : [ a ] "r"(int_a_ptr + i), [ OFF ] "r"(OFF), [ T ] "r"(T),
+                          [ z ] "r"(int_z_ptr + i), [ k ] "r"(int_k_ptr + i),
 #if IMPL == IMPL_ISSR
-                          [idx] "r"(int_idx_ptr + 2 * i)
+                          [ idx ] "r"(int_idx_ptr + 2 * i)
 #else
-                          [invc] "r"(int_invc_ptr + i),
-                          [logc] "r"(int_logc_ptr + i)
+                          [ invc ] "r"(int_invc_ptr + i),
+                          [ logc ] "r"(int_logc_ptr + i)
 #endif
                         : "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "t0",
                           "t1", "t2", "t3", "t4", "t5", "t6", "s0", "memory");

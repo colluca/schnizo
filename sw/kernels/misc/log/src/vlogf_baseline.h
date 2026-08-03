@@ -159,13 +159,13 @@ static inline void vlogf_baseline(float *a, double *b) {
                         "fmadd.d  %[output2], ft9, fa5, ft3  \n" // y = y * r2 + (y0 + r)
                         "fmadd.d  %[output3], ft10, fa6, ft4 \n" // y = y * r2 + (y0 + r)
                         // clang-format on
-                        : [output0] "=f"(comp_b_ptr[i + 0]),
-                          [output1] "=f"(comp_b_ptr[i + 1]),
-                          [output2] "=f"(comp_b_ptr[i + 2]),
-                          [output3] "=f"(comp_b_ptr[i + 3])
-                        : [input] "r"(comp_a_ptr + i), [Ln2] "f"(Ln2),
-                          [OFF] "r"(OFF), [T] "r"(T), [A0] "f"(A[0]),
-                          [A1] "f"(A[1]), [A2] "f"(A[2]), [A3] "f"(A[3])
+                        : [ output0 ] "=f"(comp_b_ptr[i + 0]),
+                          [ output1 ] "=f"(comp_b_ptr[i + 1]),
+                          [ output2 ] "=f"(comp_b_ptr[i + 2]),
+                          [ output3 ] "=f"(comp_b_ptr[i + 3])
+                        : [ input ] "r"(comp_a_ptr + i), [ Ln2 ] "f"(Ln2),
+                          [ OFF ] "r"(OFF), [ T ] "r"(T), [ A0 ] "f"(A[0]),
+                          [ A1] "f"(A[1]), [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3])
                         : "memory", "a0", "a1", "a2", "a3", "a4", "a5", "a6",
                           "a7", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "s0",
                           "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6",

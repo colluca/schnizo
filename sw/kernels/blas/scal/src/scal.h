@@ -26,7 +26,7 @@ static inline void scal_fp32_schnizo(float alpha, float *x, uint32_t n) {
                  "fsw    fa0,  0(%[x2])              \n"
                  "addi   %[x1], %[x1], 4             \n"
                  "addi   %[x2], %[x2], 4             \n"
-                 : [x1] "+r"(x), [x2] "+r"(x2)
-                 : [n] "r"(n_frep), [alpha] "f"(alpha)
+                 : [ x1 ] "+r"(x), [ x2 ] "+r"(x2)
+                 : [ n ] "r"(n_frep), [ alpha ] "f"(alpha)
                  : "fa0", "memory");
 }

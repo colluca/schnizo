@@ -31,9 +31,9 @@ class LayernormDataGen(du.DataGen):
 
     def validate(self, **kwargs):
         batch_size = kwargs['input_dim']['batch_size']
-        seq_len    = kwargs['input_dim']['seq_len']
+        seq_len = kwargs['input_dim']['seq_len']
         embeddings = kwargs['input_dim']['embeddings']
-        n_tiles    = kwargs['n_tiles']
+        n_tiles = kwargs['n_tiles']
         prec_bytes = du.size_from_precision_t(self.infer_prec(kwargs['funcptr']))
 
         assert seq_len % n_tiles == 0, 'seq_len must be an integer multiple of n_tiles'
@@ -47,14 +47,14 @@ class LayernormDataGen(du.DataGen):
         self.validate(**kwargs)
 
         batch_size = kwargs['input_dim']['batch_size']
-        seq_len    = kwargs['input_dim']['seq_len']
+        seq_len = kwargs['input_dim']['seq_len']
         embeddings = kwargs['input_dim']['embeddings']
-        eps        = kwargs['eps']
-        n_tiles    = kwargs['n_tiles']
-        funcptr    = kwargs['funcptr']
-        prec       = self.infer_prec(funcptr)
+        eps = kwargs['eps']
+        n_tiles = kwargs['n_tiles']
+        funcptr = kwargs['funcptr']
+        prec = self.infer_prec(funcptr)
 
-        ctype      = du.ctype_from_precision_t(prec)
+        ctype = du.ctype_from_precision_t(prec)
         torch_type = du.torch_type_from_precision_t(prec)
 
         ifmap = torch.randn(batch_size, seq_len, embeddings, dtype=torch_type)
@@ -83,7 +83,7 @@ class LayernormDataGen(du.DataGen):
                    ifmap, alignment=BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
         result_def = du.format_array_definition(ctype, 'golden',
-                     du.flatten(ofmap), alignment=BURST_ALIGNMENT)
+                                                du.flatten(ofmap), alignment=BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

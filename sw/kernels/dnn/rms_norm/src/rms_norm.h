@@ -105,9 +105,9 @@ static inline void rms_norm_fp32_schnizo(float *ifmap, float *weight,
                          "fmadd.s    %[s2], fa2, fa2, %[s2]      \n"
                          "fmadd.s    %[s3], fa3, fa3, %[s3]      \n"
                          "addi       %[xp], %[xp], 16           \n"
-                         : [s0] "+f"(s0), [s1] "+f"(s1), [s2] "+f"(s2),
-                           [s3] "+f"(s3), [xp] "+r"(xp)
-                         : [n] "r"(n_frep)
+                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
+                           [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
+                         : [ n ] "r"(n_frep)
                          : "fa0", "fa1", "fa2", "fa3");
             float inv_rms =
                 1.0f / sqrtf((s0 + s1 + s2 + s3) / hidden_dim + eps);
@@ -203,8 +203,8 @@ static inline void rms_norm_fp32_schnizo(float *ifmap, float *weight,
                 "fsw        fa5, 20(%[yp])               \n"
                 "fsw        fa6, 24(%[yp])               \n"
                 "fsw        fa7, 28(%[yp])               \n"
-                : [x2] "+r"(x2), [wp] "+r"(wp), [yp] "+r"(yp)
-                : [n] "r"(n_frep2 - 1), [irms] "f"(inv_rms)
+                : [ x2 ] "+r"(x2), [ wp ] "+r"(wp), [ yp ] "+r"(yp)
+                : [ n ] "r"(n_frep2 - 1), [ irms ] "f"(inv_rms)
                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "ft0",
                   "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "memory");
         }
@@ -251,9 +251,9 @@ static inline void rms_norm_fp32_schnova(float *ifmap, float *weight,
                          "fmadd.s    %[s3], fa3, fa3, %[s3]      \n"
                          "addi       %[xp], %[xp], 16            \n"
 #endif
-                         : [s0] "+f"(s0), [s1] "+f"(s1), [s2] "+f"(s2),
-                           [s3] "+f"(s3), [xp] "+r"(xp)
-                         : [n] "r"(n_frep)
+                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
+                           [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
+                         : [ n ] "r"(n_frep)
                          : "fa0", "fa1", "fa2", "fa3");
             float inv_rms =
                 1.0f / sqrtf((s0 + s1 + s2 + s3) / hidden_dim + eps);
@@ -349,8 +349,8 @@ static inline void rms_norm_fp32_schnova(float *ifmap, float *weight,
                 "fsw        fa5, 20(%[yp])               \n"
                 "fsw        fa6, 24(%[yp])               \n"
                 "fsw        fa7, 28(%[yp])               \n"
-                : [x2] "+r"(x2), [wp] "+r"(wp), [yp] "+r"(yp)
-                : [n] "r"(n_frep2 - 1), [irms] "f"(inv_rms)
+                : [ x2 ] "+r"(x2), [ wp ] "+r"(wp), [ yp ] "+r"(yp)
+                : [ n ] "r"(n_frep2 - 1), [ irms ] "f"(inv_rms)
                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "ft0",
                   "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "memory");
         }

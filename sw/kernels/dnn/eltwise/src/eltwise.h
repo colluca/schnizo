@@ -114,8 +114,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],   16         \n"
                 "addi   %[b],   %[b],   16         \n"
                 "addi   %[out], %[out], 16         \n"
-                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n] "r"(n_frep)
+                : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep)
                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
                   "memory");
         }
@@ -131,8 +131,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],    4          \n"
                 "addi   %[b],   %[b],    4          \n"
                 "addi   %[out], %[out],  4          \n"
-                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n] "r"(n_frep)
+                : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep)
                 : "fa0", "fa1", "memory");
         }
 #endif
@@ -162,8 +162,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],   16         \n"
                 "addi   %[b],   %[b],   16         \n"
                 "addi   %[out], %[out], 16         \n"
-                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n] "r"(n_frep)
+                : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep)
                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
                   "memory");
         }
@@ -179,8 +179,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],    4          \n"
                 "addi   %[b],   %[b],    4          \n"
                 "addi   %[out], %[out],  4          \n"
-                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n] "r"(n_frep)
+                : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep)
                 : "fa0", "fa1", "memory");
         }
 #endif
@@ -196,8 +196,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                          "addi   %[a],   %[a],    4          \n"
                          "addi   %[b],   %[b],    4          \n"
                          "addi   %[out], %[out],  4          \n"
-                         : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                         : [n] "r"(n_frep_div)
+                         : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                         : [ n ] "r"(n_frep_div)
                          : "fa0", "fa1", "memory");
             break;
         }
@@ -221,8 +221,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "fsw    fa3, 12(%[out])             \n"
                 "addi   %[a],   %[a],   16         \n"
                 "addi   %[out], %[out], 16         \n"
-                : [a] "+r"(a), [out] "+r"(out)
-                : [n] "r"(n_frep)
+                : [ a ] "+r"(a), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep)
                 : "fa0", "fa1", "fa2", "fa3", "memory");
         }
 #else
@@ -235,8 +235,8 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "fsw    fa0,  0(%[out])             \n"
                 "addi   %[a],   %[a],    4          \n"
                 "addi   %[out], %[out],  4          \n"
-                : [a] "+r"(a), [out] "+r"(out)
-                : [n] "r"(n_frep)
+                : [ a ] "+r"(a), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep)
                 : "fa0", "memory");
         }
 #endif
@@ -285,8 +285,8 @@ static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
                  "addi   %[a],   %[a],   16         \n"
                  "addi   %[b],   %[b],   16         \n"
                  "addi   %[out], %[out], 16         \n"
-                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
                    "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
@@ -312,8 +312,8 @@ static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
                  "addi   %[a],   %[a],   16         \n"
                  "addi   %[b],   %[b],   16         \n"
                  "addi   %[out], %[out], 16         \n"
-                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
                    "memory");
 #else
@@ -330,8 +330,8 @@ static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
         "addi   %[a],   %[a],    4          \n"
         "addi   %[b],   %[b],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n] "r"(n_frep)
+        : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
         : "fa0", "fa1", "memory");
 #endif
 }
@@ -370,8 +370,8 @@ static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
                  "addi   %[a],   %[a],   16         \n"
                  "addi   %[b],   %[b],   16         \n"
                  "addi   %[out], %[out], 16         \n"
-                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
                    "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
@@ -397,8 +397,8 @@ static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
                  "addi   %[a],   %[a],   16         \n"
                  "addi   %[b],   %[b],   16         \n"
                  "addi   %[out], %[out], 16         \n"
-                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
                    "memory");
 #else
@@ -417,8 +417,8 @@ static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
         "addi   %[a],   %[a],    4          \n"
         "addi   %[b],   %[b],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n] "r"(n_frep)
+        : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
         : "fa0", "fa1", "memory");
 #endif
 }
@@ -448,8 +448,8 @@ static inline void eltwise_div_fp32_schnova(float *a, float *b, float *out,
         "addi   %[a],   %[a],    4          \n"
         "addi   %[b],   %[b],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n] "r"(n_frep_div)
+        : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep_div)
         : "fa0", "fa1", "memory");
 }
 
@@ -482,8 +482,8 @@ static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
                  "fsw    fa3, 12(%[out])             \n"
                  "addi   %[a],   %[a],   16         \n"
                  "addi   %[out], %[out], 16         \n"
-                 : [a] "+r"(a), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ a ] "+r"(a), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     // LSU0 is dedicated for loads
@@ -512,8 +512,8 @@ static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
                  "fsw    fa3, 12(%[out])             \n"
                  "addi   %[a],   %[a],   16         \n"
                  "addi   %[out], %[out], 16         \n"
-                 : [a] "+r"(a), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ a ] "+r"(a), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
     int n_frep = size - 1;
@@ -539,8 +539,8 @@ static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
         "fsw    fa0,  0(%[out])             \n"
         "addi   %[a],   %[a],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a] "+r"(a), [out] "+r"(out)
-        : [n] "r"(n_frep)
+        : [ a ] "+r"(a), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
         : "fa0", "memory");
 #endif
 }

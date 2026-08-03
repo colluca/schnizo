@@ -38,11 +38,11 @@ class BatchnormDataGen(du.DataGen):
         return f'FP{bits}'
 
     def validate(self, **kwargs):
-        CI         = kwargs['CI']
-        IH         = kwargs['IH']
-        IW         = kwargs['IW']
+        CI = kwargs['CI']
+        IH = kwargs['IH']
+        IW = kwargs['IW']
         prec_bytes = du.size_from_precision_t(self.infer_prec(kwargs['funcptr']))
-        n_pixels   = IH * IW
+        n_pixels = IH * IW
         du.validate_tcdm_footprint(2 * CI * n_pixels * prec_bytes + 2 * CI * prec_bytes)
 
     def emit_header(self, **kwargs):
@@ -50,25 +50,25 @@ class BatchnormDataGen(du.DataGen):
 
         self.validate(**kwargs)
 
-        CI       = kwargs['CI']
-        IH       = kwargs['IH']
-        IW       = kwargs['IW']
-        funcptr  = kwargs['funcptr']
-        prec     = self.infer_prec(funcptr)
+        CI = kwargs['CI']
+        IH = kwargs['IH']
+        IW = kwargs['IW']
+        funcptr = kwargs['funcptr']
+        prec = self.infer_prec(funcptr)
         n_pixels = IH * IW
 
-        ctype      = du.ctype_from_precision_t(prec)
+        ctype = du.ctype_from_precision_t(prec)
         torch_type = du.torch_type_from_precision_t(prec)
 
         ifmap = torch.randn(CI, n_pixels, dtype=torch_type)
         gamma = torch.randn(CI, dtype=torch_type)
-        beta  = torch.randn(CI, dtype=torch_type)
+        beta = torch.randn(CI, dtype=torch_type)
         ofmap = self.golden_model(ifmap, gamma, beta).detach()
 
         ifmap_uid = 'ifmap'
         ofmap_uid = 'ofmap'
         gamma_uid = 'gamma_'
-        beta_uid  = 'beta'
+        beta_uid = 'beta'
 
         layer_cfg = {
             'CI':      CI,
@@ -102,7 +102,7 @@ class BatchnormDataGen(du.DataGen):
                    beta, alignment=BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
         result_def = du.format_array_definition(ctype, 'golden',
-                     du.flatten(ofmap), alignment=BURST_ALIGNMENT)
+                                                du.flatten(ofmap), alignment=BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

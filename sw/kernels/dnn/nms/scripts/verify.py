@@ -27,17 +27,17 @@ class NmsVerifier(Verifier):
             'keep_ptr':      'I',
             'dtype':         'I'
         }
-        self.layer         = self.get_input_from_symbol('layer', self.layer_struct)
-        self.num_boxes     = self.layer['num_boxes']
+        self.layer = self.get_input_from_symbol('layer', self.layer_struct)
+        self.num_boxes = self.layer['num_boxes']
         self.iou_threshold = self.layer['iou_threshold']
-        self.prec          = self.layer['dtype']
+        self.prec = self.layer['dtype']
 
     def get_actual_results(self):
         return self.get_output_from_symbol('keep', 'uint32_t')
 
     def get_expected_results(self):
-        ctype  = ctype_from_precision_t(self.prec)
-        boxes  = torch.from_numpy(
+        ctype = ctype_from_precision_t(self.prec)
+        boxes = torch.from_numpy(
             self.get_input_from_symbol('boxes', ctype).reshape(self.num_boxes, 4))
         scores = torch.from_numpy(
             self.get_input_from_symbol('scores', ctype))

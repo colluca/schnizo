@@ -83,8 +83,8 @@ static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
             "fsw     fa3, 12(%[out])          \n"
             "addi    %[in],  %[in],  16       \n"
             "addi    %[out], %[out], 16       \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+            : [ in ] "+r"(cin), [ out ] "+r"(cout)
+            : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
             : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = n_pixels - 1;
@@ -95,8 +95,8 @@ static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
             "fsw     fa0,  0(%[out])          \n"
             "addi    %[in],  %[in],  4        \n"
             "addi    %[out], %[out], 4        \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+            : [ in ] "+r"(cin), [ out ] "+r"(cout)
+            : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
             : "fa0", "memory");
 #endif
     }
@@ -144,8 +144,8 @@ static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
                      "fsw     fa3, 12(%[out])          \n"
                      "addi    %[in],  %[in],  16       \n"
                      "addi    %[out], %[out], 16       \n"
-                     : [in] "+r"(cin), [out] "+r"(cout)
-                     : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+                     : [ in ] "+r"(cin), [ out ] "+r"(cout)
+                     : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
                      : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
         int n_frep = n_pixels / 4 - 1;
@@ -165,8 +165,8 @@ static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
                      "fsw     fa3, 12(%[out])          \n"
                      "addi    %[in],  %[in],  16       \n"
                      "addi    %[out], %[out], 16       \n"
-                     : [in] "+r"(cin), [out] "+r"(cout)
-                     : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+                     : [ in ] "+r"(cin), [ out ] "+r"(cout)
+                     : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
                      : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = n_pixels - 1;
@@ -180,8 +180,8 @@ static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
             "fsw     fa0,  0(%[out])          \n"
             "addi    %[in],  %[in],  4        \n"
             "addi    %[out], %[out], 4        \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+            : [ in ] "+r"(cin), [ out ] "+r"(cout)
+            : [ n ] "r"(n_frep), [ g ] "f"(gc), [ b ] "f"(bc)
             : "fa0", "memory");
 #endif
     }

@@ -31,13 +31,13 @@ class SoftmaxDataGen(du.DataGen):
         header = [super().emit_header()]
 
         batch_size = kwargs['input_dim']['batch_size']
-        seq_len    = kwargs['input_dim']['seq_len']
+        seq_len = kwargs['input_dim']['seq_len']
         input_samples = kwargs['input_dim']['input_samples']
         reduce_dim = kwargs['reduce_dim']
-        prec       = self.infer_prec(kwargs['funcptr'])
+        prec = self.infer_prec(kwargs['funcptr'])
 
         torch_type = du.torch_type_from_precision_t(prec)
-        ctype      = du.ctype_from_precision_t(prec)
+        ctype = du.ctype_from_precision_t(prec)
 
         ifmap = torch.randn(batch_size, seq_len, input_samples, dtype=torch_type)
         ofmap = self.golden_model(ifmap, reduce_dim).detach()
@@ -66,7 +66,7 @@ class SoftmaxDataGen(du.DataGen):
                    ifmap_flat, alignment=BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
         result_def = du.format_array_definition(ctype, 'golden',
-                     ofmap_flat, alignment=BURST_ALIGNMENT)
+                                                ofmap_flat, alignment=BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

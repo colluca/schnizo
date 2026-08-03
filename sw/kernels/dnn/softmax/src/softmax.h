@@ -113,9 +113,9 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "fmax.s %[m3], %[m3], fa3          \n"
                     "addi   %[ptr], %[ptr], 16         \n"
                     // clang-format on
-                    : [m0] "+f"(m0), [m1] "+f"(m1), [m2] "+f"(m2),
-                      [m3] "+f"(m3), [ptr] "+r"(ptr)
-                    : [n] "r"(n_frep)
+                    : [ m0 ] "+f"(m0), [ m1 ] "+f"(m1), [ m2 ] "+f"(m2),
+                      [ m3 ] "+f"(m3), [ ptr ] "+r"(ptr)
+                    : [ n ] "r"(n_frep)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
                 m0 = fmaxf(m0, m1);
                 m2 = fmaxf(m2, m3);
@@ -145,8 +145,8 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "addi   %[in],  %[in],  16        \n"
                     "addi   %[out], %[out], 16        \n"
                     // clang-format on
-                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
-                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
+                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
                 int n_frep = input_samples - 1;
@@ -159,8 +159,8 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "addi   %[in],  %[in],  4          \n"
                     "addi   %[out], %[out], 4          \n"
                     // clang-format on
-                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
-                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
+                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
                     : "fa0", "memory");
 #endif
             }
@@ -186,9 +186,9 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "fadd.s %[s3], %[s3], fa3          \n"
                     "addi   %[ptr], %[ptr], 16         \n"
                     // clang-format on
-                    : [s0] "+f"(sum1), [s1] "+f"(sum2), [s2] "+f"(sum3),
-                      [s3] "+f"(sum4), [ptr] "+r"(ptr)
-                    : [n] "r"(n_frep)
+                    : [ s0 ] "+f"(sum1), [ s1 ] "+f"(sum2), [ s2 ] "+f"(sum3),
+                      [ s3 ] "+f"(sum4), [ ptr ] "+r"(ptr)
+                    : [ n ] "r"(n_frep)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
                 sum1 += sum2;
                 sum3 += sum4;
@@ -256,9 +256,9 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[ptr], %[ptr], 16         \n"
 #endif
                     // clang-format on
-                    : [m0] "+f"(m0), [m1] "+f"(m1), [m2] "+f"(m2),
-                      [m3] "+f"(m3), [ptr] "+r"(ptr)
-                    : [n] "r"(n_frep)
+                    : [ m0 ] "+f"(m0), [ m1 ] "+f"(m1), [ m2 ] "+f"(m2),
+                      [ m3 ] "+f"(m3), [ ptr ] "+r"(ptr)
+                    : [ n ] "r"(n_frep)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
                 m0 = fmaxf(m0, m1);
                 m2 = fmaxf(m2, m3);
@@ -288,8 +288,8 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[in],  %[in],  16        \n"
                     "addi   %[out], %[out], 16        \n"
                     // clang-format on
-                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
-                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
+                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
                 int n_frep = input_samples / 4 - 1;
@@ -311,8 +311,8 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[in],  %[in],  16        \n"
                     "addi   %[out], %[out], 16        \n"
                     // clang-format on
-                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
-                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
+                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
                 int n_frep = input_samples - 1;
@@ -325,8 +325,8 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[in],  %[in],  4          \n"
                     "addi   %[out], %[out], 4          \n"
                     // clang-format on
-                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
-                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
+                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
                     : "fa0", "memory");
 #endif
             }
@@ -364,9 +364,9 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[ptr], %[ptr], 16         \n"
 #endif
                     // clang-format on
-                    : [s0] "+f"(sum1), [s1] "+f"(sum2), [s2] "+f"(sum3),
-                      [s3] "+f"(sum4), [ptr] "+r"(ptr)
-                    : [n] "r"(n_frep)
+                    : [ s0 ] "+f"(sum1), [ s1 ] "+f"(sum2), [ s2 ] "+f"(sum3),
+                      [ s3 ] "+f"(sum4), [ ptr ] "+r"(ptr)
+                    : [ n ] "r"(n_frep)
                     : "fa0", "fa1", "fa2", "fa3", "memory");
                 sum1 += sum2;
                 sum3 += sum4;

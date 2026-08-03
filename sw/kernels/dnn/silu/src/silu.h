@@ -61,8 +61,8 @@ static inline void silu_fp32_schnizo(float *in, float *out, uint32_t size) {
             "addi   %[src], %[src], 16         \n"
             "addi   %[dst], %[dst], 16         \n"
             // clang-format on
-            : [src] "+r"(src), [dst] "+r"(dst)
-            : [n] "r"(n_frep), [one] "f"(one)
+            : [ src ] "+r"(src), [ dst ] "+r"(dst)
+            : [ n ] "r"(n_frep), [ one ] "f"(one)
             : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = size - 1;
@@ -75,8 +75,8 @@ static inline void silu_fp32_schnizo(float *in, float *out, uint32_t size) {
             "addi   %[src], %[src], 4          \n"
             "addi   %[dst], %[dst], 4          \n"
             // clang-format on
-            : [src] "+r"(src), [dst] "+r"(dst)
-            : [n] "r"(n_frep), [one] "f"(one)
+            : [ src ] "+r"(src), [ dst ] "+r"(dst)
+            : [ n ] "r"(n_frep), [ one ] "f"(one)
             : "fa0", "memory");
 #endif
     }
@@ -139,8 +139,8 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
             "addi   %[src], %[src], 16         \n"
             "addi   %[dst], %[dst], 16         \n"
             // clang-format on
-            : [src] "+r"(src), [dst] "+r"(dst)
-            : [n] "r"(n_frep), [one] "f"(one)
+            : [ src ] "+r"(src), [ dst ] "+r"(dst)
+            : [ n ] "r"(n_frep), [ one ] "f"(one)
             : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
         int n_frep = size / 4 - 1;
@@ -162,8 +162,8 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
             "addi   %[src], %[src], 16         \n"
             "addi   %[dst], %[dst], 16         \n"
             // clang-format on
-            : [src] "+r"(src), [dst] "+r"(dst)
-            : [n] "r"(n_frep), [one] "f"(one)
+            : [ src ] "+r"(src), [ dst ] "+r"(dst)
+            : [ n ] "r"(n_frep), [ one ] "f"(one)
             : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = size - 1;
@@ -180,8 +180,8 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
             "addi   %[src], %[src], 4          \n"
             "addi   %[dst], %[dst], 4          \n"
             // clang-format on
-            : [src] "+r"(src), [dst] "+r"(dst)
-            : [n] "r"(n_frep), [one] "f"(one)
+            : [ src ] "+r"(src), [ dst ] "+r"(dst)
+            : [ n ] "r"(n_frep), [ one ] "f"(one)
             : "fa0", "memory");
 #endif
     }

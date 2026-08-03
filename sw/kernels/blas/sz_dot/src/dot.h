@@ -70,7 +70,7 @@ inline void dot_opt(uint32_t n, double *x, double *y, double *output) {
         : "=f"(res_ssr_0), "=f"(res_ssr_1), "=f"(res_ssr_2),
           "=f"(res_ssr_3) /* output operands */
         : "f"(ft0), "f"(ft1), "0"(res_ssr_0), "1"(res_ssr_1), "2"(res_ssr_2),
-          "3"(res_ssr_3), [n_frep] "r"(Nm1) /* input operands */
+          "3"(res_ssr_3), [ n_frep ] "r"(Nm1) /* input operands */
         :);
 
     // End of SSR region.
@@ -81,9 +81,9 @@ inline void dot_opt(uint32_t n, double *x, double *y, double *output) {
         "fadd.d %[res_ssr_0], %[res_ssr_0], %[res_ssr_1] \n"
         "fadd.d %[res_ssr_2], %[res_ssr_2], %[res_ssr_3] \n"
         "fadd.d %[res_ssr_0], %[res_ssr_0], %[res_ssr_2]"
-        : [res_ssr_0] "=f"(res_ssr_0), [res_ssr_2] "=f"(
+        : [ res_ssr_0 ] "=f"(res_ssr_0), [ res_ssr_2 ] "=f"(
                                            res_ssr_2) /* output operands */
-        : [res_ssr_1] "f"(res_ssr_1), [res_ssr_3] "f"(
+        : [ res_ssr_1 ] "f"(res_ssr_1), [ res_ssr_3 ] "f"(
                                           res_ssr_3) /* input operands */
         :);
 
@@ -123,9 +123,9 @@ static inline void dot_schnizo(uint32_t n, double *x, double *y,
         "fmadd.d %[sum4], fa6, fa7, %[sum4]  \n"
         "addi    %[ya], %[ya], %[inc]        \n"
         // clang-format on
-        : [sum1] "+f"(sum1), [sum2] "+f"(sum2), [sum3] "+f"(sum3),
-          [sum4] "+f"(sum4), [xa] "+r"(x_addr), [ya] "+r"(y_addr)
-        : [n_frep] "r"(n_iter_m1), [inc] "i"(inc)
+        : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),
+          [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
+        : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
         : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
 
     // Reduce the 4 streams
@@ -170,9 +170,9 @@ static inline void dot_schnova(uint32_t n, double *x, double *y,
         "addi    %[xa], %[xa], %[inc]        \n"
         "addi    %[ya], %[ya], %[inc]        \n"
         // clang-format on
-        : [sum1] "+f"(sum1), [sum2] "+f"(sum2), [sum3] "+f"(sum3),
-          [sum4] "+f"(sum4), [xa] "+r"(x_addr), [ya] "+r"(y_addr)
-        : [n_frep] "r"(n_iter_m1), [inc] "i"(inc)
+        : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),
+          [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
+        : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
         : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
 #else
     asm volatile(
@@ -193,9 +193,9 @@ static inline void dot_schnova(uint32_t n, double *x, double *y,
         "fmadd.d %[sum4], fa6, fa7, %[sum4]  \n"
         "addi    %[ya], %[ya], %[inc]        \n"
         // clang-format on
-        : [sum1] "+f"(sum1), [sum2] "+f"(sum2), [sum3] "+f"(sum3),
-          [sum4] "+f"(sum4), [xa] "+r"(x_addr), [ya] "+r"(y_addr)
-        : [n_frep] "r"(n_iter_m1), [inc] "i"(inc)
+        : [ sum1 ] "+f"(sum1), [ sum2 ] "+f"(sum2), [ sum3 ] "+f"(sum3),
+          [ sum4 ] "+f"(sum4), [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr)
+        : [ n_frep ] "r"(n_iter_m1), [ inc ] "i"(inc)
         : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7");
 #endif
     // Reduce the 4 streams

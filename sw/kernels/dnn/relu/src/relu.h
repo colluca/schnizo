@@ -58,8 +58,8 @@ static inline void relu_fp32_schnizo(float *in, float *out, uint32_t size) {
         "fsw      fa3, 12(%[out])        \n"
         "addi     %[in],  %[in],  16    \n"
         "addi     %[out], %[out], 16    \n"
-        : [in] "+r"(in), [out] "+r"(out)
-        : [n] "r"(n_frep)
+        : [ in ] "+r"(in), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
         : "ft3", "fa0", "fa1", "fa2", "fa3", "memory");
 #else
     int n_frep = size - 1;
@@ -71,8 +71,8 @@ static inline void relu_fp32_schnizo(float *in, float *out, uint32_t size) {
         "fsw      fa0,  0(%[out])        \n"
         "addi     %[in],  %[in],   4    \n"
         "addi     %[out], %[out],  4    \n"
-        : [in] "+r"(in), [out] "+r"(out)
-        : [n] "r"(n_frep)
+        : [ in ] "+r"(in), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
         : "ft3", "fa0", "memory");
 #endif
 }
@@ -109,8 +109,8 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
                  "fsw      fa3, 12(%[out])        \n"
                  "addi     %[in],  %[in],  16    \n"
                  "addi     %[out], %[out], 16    \n"
-                 : [in] "+r"(in), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ in ] "+r"(in), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "ft3", "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     // LSU0 is dedicated for loads
@@ -139,8 +139,8 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
                  "fsw      fa3, 12(%[out])        \n"
                  "addi     %[in],  %[in],  16    \n"
                  "addi     %[out], %[out], 16    \n"
-                 : [in] "+r"(in), [out] "+r"(out)
-                 : [n] "r"(n_frep)
+                 : [ in ] "+r"(in), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
                  : "ft3", "fa0", "fa1", "fa2", "fa3", "memory");
 #else
     // LSU0 and LSU1 are dedicated for loads
@@ -166,8 +166,8 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
         "fsw      fa0,  0(%[out])        \n"
         "addi     %[in],  %[in],   4    \n"
         "addi     %[out], %[out],  4    \n"
-        : [in] "+r"(in), [out] "+r"(out)
-        : [n] "r"(n_frep)
+        : [ in ] "+r"(in), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
         : "ft3", "fa0", "memory");
 #endif
 }
