@@ -762,7 +762,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                               [ sum6 ] "+f"(sum[6])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 6:
@@ -779,7 +779,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                               [ sum4 ] "+f"(sum[4]), [ sum5 ] "+f"(sum[5])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 5:
@@ -795,7 +795,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                               [ sum4 ] "+f"(sum[4])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 4:
@@ -809,7 +809,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                               [ sum2 ] "+f"(sum[2]), [ sum3 ] "+f"(sum[3])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 3:
@@ -822,7 +822,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                               [ sum2 ] "+f"(sum[2])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 2:
@@ -833,7 +833,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 1:
@@ -843,7 +843,7 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             : [ sum0 ] "+f"(sum[0])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                 }
@@ -1171,7 +1171,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg6 ] "+f"(reduce_reg[6])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in / 2 -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 6:
@@ -1205,7 +1205,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg5 ] "+f"(reduce_reg[5])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in / 2 -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 5:
@@ -1235,7 +1235,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg4 ] "+f"(reduce_reg[4])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in / 2 -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 4:
@@ -1261,7 +1261,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg3 ] "+f"(reduce_reg[3])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in / 2 -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 3:
@@ -1283,7 +1283,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg2 ] "+f"(reduce_reg[2])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in / 2 -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 2:
@@ -1300,7 +1300,8 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg0 ] "+f"(reduce_reg[0]),
                               [ reduce_reg1 ] "+f"(reduce_reg[1])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                               k->ch_in / 2 - 1)
+                                               k->ch_in / 2 -
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 1:
@@ -1314,7 +1315,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg0 ] "+f"(reduce_reg[0])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
                                                 k->ch_in / 2 -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                 }
@@ -1554,7 +1555,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                               [ sum5 ] "+f"(sum[5].f64),
                               [ sum6 ] "+f"(sum[6].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 6:
@@ -1574,7 +1575,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                               [ sum4 ] "+f"(sum[4].f64),
                               [ sum5 ] "+f"(sum[5].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 5:
@@ -1592,7 +1593,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                               [ sum3 ] "+f"(sum[3].f64),
                               [ sum4 ] "+f"(sum[4].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 4:
@@ -1608,7 +1609,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                               [ sum2 ] "+f"(sum[2].f64),
                               [ sum3 ] "+f"(sum[3].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 3:
@@ -1622,7 +1623,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                               [ sum1 ] "+f"(sum[1].f64),
                               [ sum2 ] "+f"(sum[2].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 2:
@@ -1634,7 +1635,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             : [ sum0 ] "+f"(sum[0].f64),
                               [ sum1 ] "+f"(sum[1].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 1:
@@ -1644,7 +1645,7 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum0], ft0, ft1 \n"
                             : [ sum0 ] "+f"(sum[0].f64)
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                            1)
+                                             1)
                             : "ft0", "ft1", "ft2");
                         break;
                 }
@@ -1852,7 +1853,7 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                           [ reduce_reg6 ] "+f"(reduce_reg[6]),
                           [ reduce_reg7 ] "+f"(reduce_reg[7])
                         : [ n_frep ] "r"(k->dim_kernel_x / 2 * k->dim_kernel_y -
-                                        1)
+                                         1)
                         : "ft0", "ft1", "ft2");
 
                     snrt_ssr_disable();

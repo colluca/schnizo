@@ -213,8 +213,8 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
                  : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
                    [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
                    [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
-                 : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
-                   "fs2", "fs3", "memory");
+                 : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7",
+                   "fs0", "fs1", "fs2", "fs3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     uint32_t stride = num_cores * sizeof(double);
     uint32_t stride_4x = 4 * stride;

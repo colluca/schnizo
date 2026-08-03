@@ -279,7 +279,7 @@ static inline void vexpf_schnizo(double *a, double *b, uint32_t len,
                     // clang-format on
                     :
                     [ in_addr ] "+r"(comp_a_ptr), [ out_addr ] "+r"(comp_b_ptr)
-                    : [ InvLn2N ] "f"(InvLn2N), [SHIFT] "f"(SHIFT),
+                    : [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
                       [ inc ] "i"(4 * sizeof(double)),
                       [ n_frep ] "r"(n_frep_m2), [ C0 ] "f"(C[0]),
                       [ C1 ] "f"(C[1]), [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3]),

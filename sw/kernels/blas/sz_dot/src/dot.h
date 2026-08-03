@@ -81,9 +81,9 @@ inline void dot_opt(uint32_t n, double *x, double *y, double *output) {
         "fadd.d %[res_ssr_0], %[res_ssr_0], %[res_ssr_1] \n"
         "fadd.d %[res_ssr_2], %[res_ssr_2], %[res_ssr_3] \n"
         "fadd.d %[res_ssr_0], %[res_ssr_0], %[res_ssr_2]"
-        : [ res_ssr_0 ] "=f"(res_ssr_0), 
+        : [ res_ssr_0 ] "=f"(res_ssr_0),
           [ res_ssr_2 ] "=f"(res_ssr_2) /* output operands */
-        : [ res_ssr_1 ] "f"(res_ssr_1), 
+        : [ res_ssr_1 ] "f"(res_ssr_1),
           [ res_ssr_3 ] "f"(res_ssr_3) /* input operands */
         :);
 
