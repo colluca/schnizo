@@ -12,9 +12,9 @@
 #include "layernorm_fp32.h"
 #include "layernorm_fp8.h"
 
-typedef void (*layernorm_fp_t)(void *ifmap, void *ofmap,
-                                uint32_t batch_size, uint32_t seq_len,
-                                uint32_t embeddings, float eps);
+typedef void (*layernorm_fp_t)(void *ifmap, void *ofmap, uint32_t batch_size,
+                               uint32_t seq_len, uint32_t embeddings,
+                               float eps);
 
 typedef struct layernorm_layer_struct {
     uint32_t batch_size;
@@ -52,14 +52,11 @@ static inline void layernorm_layer(layernorm_layer_t l) {
 
         if (snrt_is_dm_core()) {
             void *remote_itile = remote_ifmap + tile_idx * tile_offset;
-            snrt_dma_start_2d(
-                local_itile,
-                remote_itile,
-                tile_seq_len * l.embeddings * data_type_size,
-                tile_seq_len * l.embeddings * data_type_size,
-                l.seq_len * l.embeddings * data_type_size,
-                l.batch_size
-            );
+            snrt_dma_start_2d(local_itile, remote_itile,
+                              tile_seq_len * l.embeddings * data_type_size,
+                              tile_seq_len * l.embeddings * data_type_size,
+                              l.seq_len * l.embeddings * data_type_size,
+                              l.batch_size);
             snrt_dma_wait_all();
         }
 
@@ -67,8 +64,8 @@ static inline void layernorm_layer(layernorm_layer_t l) {
 
         if (snrt_is_compute_core()) {
             snrt_mcycle();
-            l.funcptr(local_itile, local_otile,
-                      l.batch_size, tile_seq_len, l.embeddings, l.eps);
+            l.funcptr(local_itile, local_otile, l.batch_size, tile_seq_len,
+                      l.embeddings, l.eps);
             snrt_mcycle();
         }
 
@@ -76,14 +73,11 @@ static inline void layernorm_layer(layernorm_layer_t l) {
 
         if (snrt_is_dm_core()) {
             void *remote_otile = remote_ofmap + tile_idx * tile_offset;
-            snrt_dma_start_2d(
-                remote_otile,
-                local_otile,
-                tile_seq_len * l.embeddings * data_type_size,
-                l.seq_len * l.embeddings * data_type_size,
-                tile_seq_len * l.embeddings * data_type_size,
-                l.batch_size
-            );
+            snrt_dma_start_2d(remote_otile, local_otile,
+                              tile_seq_len * l.embeddings * data_type_size,
+                              l.seq_len * l.embeddings * data_type_size,
+                              tile_seq_len * l.embeddings * data_type_size,
+                              l.batch_size);
             snrt_dma_wait_all();
         }
     }

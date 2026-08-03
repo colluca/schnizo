@@ -17,14 +17,14 @@
 // Cores take interleaved channels.
 
 static inline void batchnorm_fp32_naive(void *ifmap, void *gamma, void *beta,
-                                         void *ofmap, uint32_t CI,
-                                         uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                        void *ofmap, uint32_t CI,
+                                        uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
@@ -34,36 +34,36 @@ static inline void batchnorm_fp32_naive(void *ifmap, void *gamma, void *beta,
 }
 
 static inline void batchnorm_fp32_baseline(void *ifmap, void *gamma, void *beta,
-                                            void *ofmap, uint32_t CI,
-                                            uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                           void *ofmap, uint32_t CI,
+                                           uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
-        #pragma clang loop unroll_count(4)
+#pragma clang loop unroll_count(4)
         for (uint32_t p = 0; p < n_pixels; p++)
             out[c * n_pixels + p] = in[c * n_pixels + p] * gc + bc;
     }
 }
 
 static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
-                                           void *ofmap, uint32_t CI,
-                                           uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                          void *ofmap, uint32_t CI,
+                                          uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
-        float *cin  = in  + c * n_pixels;
+        float *cin = in + c * n_pixels;
         float *cout = out + c * n_pixels;
 #ifdef FORCE_HW_LOOP
         int n_frep = n_pixels / 4 - 1;
@@ -85,8 +85,7 @@ static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
             "addi    %[out], %[out], 16       \n"
             : [in] "+r"(cin), [out] "+r"(cout)
             : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+            : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = n_pixels - 1;
         asm volatile(
@@ -98,22 +97,20 @@ static inline void batchnorm_fp32_schnizo(void *ifmap, void *gamma, void *beta,
             "addi    %[out], %[out], 4        \n"
             : [in] "+r"(cin), [out] "+r"(cout)
             : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "memory"
-        );
+            : "fa0", "memory");
 #endif
     }
 }
 
-
 static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
-                                           void *ofmap, uint32_t CI,
-                                           uint32_t n_pixels) {
-    float *in  = (float *)ifmap;
-    float *g   = (float *)gamma;
-    float *b   = (float *)beta;
+                                          void *ofmap, uint32_t CI,
+                                          uint32_t n_pixels) {
+    float *in = (float *)ifmap;
+    float *g = (float *)gamma;
+    float *b = (float *)beta;
     float *out = (float *)ofmap;
     uint32_t num_cores = snrt_cluster_compute_core_num();
-    uint32_t core_idx  = snrt_cluster_core_idx();
+    uint32_t core_idx = snrt_cluster_core_idx();
 
     if (szrt_nof_lsus() >= 3) {
         // Fix some LSUs to only accept load or store instructions
@@ -122,57 +119,55 @@ static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
     } else if (szrt_nof_lsus() == 2) {
         // Fix some LSUs to only accept load or store instructions
         szrt_set_frep_lsu_load_en((1 << 0));
-        szrt_set_frep_lsu_store_en((1 << 1)); 
+        szrt_set_frep_lsu_store_en((1 << 1));
     }
     for (uint32_t c = core_idx; c < CI; c += num_cores) {
         float gc = g[c];
         float bc = b[c];
-        float *cin  = in  + c * n_pixels;
+        float *cin = in + c * n_pixels;
         float *cout = out + c * n_pixels;
 #ifdef UNROLL
         int n_frep = n_pixels / 4 - 1;
-        asm volatile(
-            FREP   " %[n], 14, 0, 0          \n"
-            "flw     fa0,  0(%[in])           \n"
-            "flw     fa1,  4(%[in])           \n"
-            "flw     fa2,  8(%[in])           \n"
-            "flw     fa3, 12(%[in])           \n"
-            "fmadd.s fa0, fa0, %[g], %[b]    \n"
-            "fmadd.s fa1, fa1, %[g], %[b]    \n"
-            "fmadd.s fa2, fa2, %[g], %[b]    \n"
-            "fmadd.s fa3, fa3, %[g], %[b]    \n"
-            "fsw     fa0,  0(%[out])          \n"
-            "fsw     fa1,  4(%[out])          \n"
-            "fsw     fa2,  8(%[out])          \n"
-            "fsw     fa3, 12(%[out])          \n"
-            "addi    %[in],  %[in],  16       \n"
-            "addi    %[out], %[out], 16       \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+        asm volatile(FREP
+                     " %[n], 14, 0, 0          \n"
+                     "flw     fa0,  0(%[in])           \n"
+                     "flw     fa1,  4(%[in])           \n"
+                     "flw     fa2,  8(%[in])           \n"
+                     "flw     fa3, 12(%[in])           \n"
+                     "fmadd.s fa0, fa0, %[g], %[b]    \n"
+                     "fmadd.s fa1, fa1, %[g], %[b]    \n"
+                     "fmadd.s fa2, fa2, %[g], %[b]    \n"
+                     "fmadd.s fa3, fa3, %[g], %[b]    \n"
+                     "fsw     fa0,  0(%[out])          \n"
+                     "fsw     fa1,  4(%[out])          \n"
+                     "fsw     fa2,  8(%[out])          \n"
+                     "fsw     fa3, 12(%[out])          \n"
+                     "addi    %[in],  %[in],  16       \n"
+                     "addi    %[out], %[out], 16       \n"
+                     : [in] "+r"(cin), [out] "+r"(cout)
+                     : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+                     : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
         int n_frep = n_pixels / 4 - 1;
-        asm volatile(
-            FREP   " %[n], 14, 0, 0          \n"
-            "flw     fa0,  0(%[in])           \n"
-            "fmadd.s fa0, fa0, %[g], %[b]    \n"
-            "fsw     fa0,  0(%[out])          \n"
-            "flw     fa1,  4(%[in])           \n"
-            "fmadd.s fa1, fa1, %[g], %[b]    \n"
-            "fsw     fa1,  4(%[out])          \n"
-            "flw     fa2,  8(%[in])           \n"
-            "fmadd.s fa2, fa2, %[g], %[b]    \n"
-            "fsw     fa2,  8(%[out])          \n"
-            "flw     fa3, 12(%[in])           \n"
-            "fmadd.s fa3, fa3, %[g], %[b]    \n"
-            "fsw     fa3, 12(%[out])          \n"
-            "addi    %[in],  %[in],  16       \n"
-            "addi    %[out], %[out], 16       \n"
-            : [in] "+r"(cin), [out] "+r"(cout)
-            : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "fa1", "fa2", "fa3", "memory"
-        );
+        asm volatile(FREP
+                     " %[n], 14, 0, 0          \n"
+                     "flw     fa0,  0(%[in])           \n"
+                     "fmadd.s fa0, fa0, %[g], %[b]    \n"
+                     "fsw     fa0,  0(%[out])          \n"
+                     "flw     fa1,  4(%[in])           \n"
+                     "fmadd.s fa1, fa1, %[g], %[b]    \n"
+                     "fsw     fa1,  4(%[out])          \n"
+                     "flw     fa2,  8(%[in])           \n"
+                     "fmadd.s fa2, fa2, %[g], %[b]    \n"
+                     "fsw     fa2,  8(%[out])          \n"
+                     "flw     fa3, 12(%[in])           \n"
+                     "fmadd.s fa3, fa3, %[g], %[b]    \n"
+                     "fsw     fa3, 12(%[out])          \n"
+                     "addi    %[in],  %[in],  16       \n"
+                     "addi    %[out], %[out], 16       \n"
+                     : [in] "+r"(cin), [out] "+r"(cout)
+                     : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
+                     : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
         int n_frep = n_pixels - 1;
         asm volatile(
@@ -187,8 +182,7 @@ static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
             "addi    %[out], %[out], 4        \n"
             : [in] "+r"(cin), [out] "+r"(cout)
             : [n] "r"(n_frep), [g] "f"(gc), [b] "f"(bc)
-            : "fa0", "memory"
-        );
+            : "fa0", "memory");
 #endif
     }
 }

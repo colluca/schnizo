@@ -31,10 +31,9 @@ static inline void vlogf_naive(float *a, float *b) {
             "fadd.d   fa1, fa1, fa2            \n" // y = y * r2 + (y0 + r)
             "fmadd.d  %[output], fa3, fa0, fa1 \n" // y = y * r2 + (y0 + r)
             // clang-format on
-            : [ output ] "=f"(b[i])
-            : [ input ] "f"(a[i]), [ Ln2 ] "f"(Ln2), [ OFF ] "r"(OFF),
-              [ A0 ] "f"(A[0]), [ A1 ] "f"(A[1]), [ A2 ] "f"(A[2]),
-              [ A3 ] "f"(A[3]), [ T ] "r"(T)
+            : [output] "=f"(b[i])
+            : [input] "f"(a[i]), [Ln2] "f"(Ln2), [OFF] "r"(OFF), [A0] "f"(A[0]),
+              [A1] "f"(A[1]), [A2] "f"(A[2]), [A3] "f"(A[3]), [T] "r"(T)
             : "memory", "a0", "a1", "a2", "a3", "fa0", "fa1", "fa2", "fa3");
     }
     snrt_fpu_fence();

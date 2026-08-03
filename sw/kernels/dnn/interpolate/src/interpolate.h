@@ -21,18 +21,17 @@ typedef struct {
 
 // Bilinear 2D upsampling, align_corners=False (PyTorch default).
 // Each compute core handles a subset of (batch, channel) planes.
-static inline void interpolate_bilinear_fp32(
-        float *in, float *out,
-        uint32_t batch_size, uint32_t channels,
-        uint32_t in_h, uint32_t in_w,
-        uint32_t out_h, uint32_t out_w) {
-
+static inline void interpolate_bilinear_fp32(float *in, float *out,
+                                             uint32_t batch_size,
+                                             uint32_t channels, uint32_t in_h,
+                                             uint32_t in_w, uint32_t out_h,
+                                             uint32_t out_w) {
     uint32_t num_cores = snrt_cluster_compute_core_num();
     uint32_t core_idx = snrt_cluster_core_idx();
     uint32_t num_planes = batch_size * channels;
 
     for (uint32_t p = core_idx; p < num_planes; p += num_cores) {
-        float *src = in  + p * in_h  * in_w;
+        float *src = in + p * in_h * in_w;
         float *dst = out + p * out_h * out_w;
 
         for (uint32_t oh = 0; oh < out_h; oh++) {
@@ -46,7 +45,8 @@ static inline void interpolate_bilinear_fp32(
             if (ih1 >= (int)in_h) ih1 = (int)in_h - 1;
 
             for (uint32_t ow = 0; ow < out_w; ow++) {
-                float iw_f = ((float)ow + 0.5f) * (float)in_w / (float)out_w - 0.5f;
+                float iw_f =
+                    ((float)ow + 0.5f) * (float)in_w / (float)out_w - 0.5f;
                 int iw0 = (int)floorf(iw_f);
                 int iw1 = iw0 + 1;
                 float dx = iw_f - (float)iw0;
@@ -60,7 +60,7 @@ static inline void interpolate_bilinear_fp32(
 
                 dst[oh * out_w + ow] =
                     (1.0f - dy) * ((1.0f - dx) * v00 + dx * v01) +
-                    dy          * ((1.0f - dx) * v10 + dx * v11);
+                    dy * ((1.0f - dx) * v10 + dx * v11);
             }
         }
     }
@@ -76,14 +76,14 @@ static inline void interpolate_layer(interpolate_layer_t l) {
 
     uint32_t num_planes = l.batch_size * l.channels;
     uint32_t planes_per_cluster = num_planes / snrt_cluster_num();
-    uint32_t in_plane_bytes  = l.in_height  * l.in_width  * data_type_size;
+    uint32_t in_plane_bytes = l.in_height * l.in_width * data_type_size;
     uint32_t out_plane_bytes = l.out_height * l.out_width * data_type_size;
 
-    char *local_in  = (char *)snrt_l1_next();
+    char *local_in = (char *)snrt_l1_next();
     char *local_out = local_in + planes_per_cluster * in_plane_bytes;
 
     uint32_t cluster_plane_offset = snrt_cluster_idx() * planes_per_cluster;
-    char *remote_in  = (char *)l.ifmap + cluster_plane_offset * in_plane_bytes;
+    char *remote_in = (char *)l.ifmap + cluster_plane_offset * in_plane_bytes;
     char *remote_out = (char *)l.ofmap + cluster_plane_offset * out_plane_bytes;
 
     if (snrt_is_dm_core()) {
@@ -99,11 +99,10 @@ static inline void interpolate_layer(interpolate_layer_t l) {
         snrt_mcycle();
         switch (l.dtype) {
             case FP32:
-                interpolate_bilinear_fp32(
-                    (float *)local_in, (float *)local_out,
-                    l.batch_size, planes_per_cluster,
-                    l.in_height, l.in_width,
-                    l.out_height, l.out_width);
+                interpolate_bilinear_fp32((float *)local_in, (float *)local_out,
+                                          l.batch_size, planes_per_cluster,
+                                          l.in_height, l.in_width, l.out_height,
+                                          l.out_width);
                 break;
             default:
                 break;

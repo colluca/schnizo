@@ -25,8 +25,8 @@ typedef enum {
     ELTWISE_NEG = 3
 } eltwise_op_t;
 
-typedef void (*eltwise_fp_t)(float *a, float *b, float *out,
-                              uint32_t size, eltwise_op_t op);
+typedef void (*eltwise_fp_t)(float *a, float *b, float *out, uint32_t size,
+                             eltwise_op_t op);
 
 typedef struct {
     uint32_t size;
@@ -40,34 +40,42 @@ typedef struct {
 } eltwise_layer_t;
 
 static inline void eltwise_fp32_naive(float *a, float *b, float *out,
-                                  uint32_t size, eltwise_op_t op) {
+                                      uint32_t size, eltwise_op_t op) {
     switch (op) {
         case ELTWISE_ADD:
-            for (uint32_t i = 0; i < size; i++) out[i] = a[i] + b[i]; break;
+            for (uint32_t i = 0; i < size; i++) out[i] = a[i] + b[i];
+            break;
         case ELTWISE_MUL:
-            for (uint32_t i = 0; i < size; i++) out[i] = a[i] * b[i]; break;
+            for (uint32_t i = 0; i < size; i++) out[i] = a[i] * b[i];
+            break;
         case ELTWISE_DIV:
-            for (uint32_t i = 0; i < size; i++) out[i] = a[i] / b[i]; break;
+            for (uint32_t i = 0; i < size; i++) out[i] = a[i] / b[i];
+            break;
         case ELTWISE_NEG:
-            for (uint32_t i = 0; i < size; i++) out[i] = -a[i];       break;
+            for (uint32_t i = 0; i < size; i++) out[i] = -a[i];
+            break;
     }
 }
 
 static inline void eltwise_fp32_baseline(float *a, float *b, float *out,
-                                     uint32_t size, eltwise_op_t op) {
+                                         uint32_t size, eltwise_op_t op) {
     switch (op) {
         case ELTWISE_ADD:
-            #pragma clang loop unroll_count(4)
-            for (uint32_t i = 0; i < size; i++) out[i] = a[i] + b[i]; break;
+#pragma clang loop unroll_count(4)
+            for (uint32_t i = 0; i < size; i++) out[i] = a[i] + b[i];
+            break;
         case ELTWISE_MUL:
-            #pragma clang loop unroll_count(4)
-            for (uint32_t i = 0; i < size; i++) out[i] = a[i] * b[i]; break;
+#pragma clang loop unroll_count(4)
+            for (uint32_t i = 0; i < size; i++) out[i] = a[i] * b[i];
+            break;
         case ELTWISE_DIV:
-            #pragma clang loop unroll_count(4)
-            for (uint32_t i = 0; i < size; i++) out[i] = a[i] / b[i]; break;
+#pragma clang loop unroll_count(4)
+            for (uint32_t i = 0; i < size; i++) out[i] = a[i] / b[i];
+            break;
         case ELTWISE_NEG:
-            #pragma clang loop unroll_count(4)
-            for (uint32_t i = 0; i < size; i++) out[i] = -a[i];       break;
+#pragma clang loop unroll_count(4)
+            for (uint32_t i = 0; i < size; i++) out[i] = -a[i];
+            break;
     }
 }
 
@@ -79,11 +87,12 @@ static inline void eltwise_fp32_baseline(float *a, float *b, float *out,
 // NEG scalar: flw + fneg + fsw + 2 addi = 5 insns, n_frep = size - 1.
 // DIV: scalar only (iterative divider stalls; no benefit in unrolling).
 static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
-                                    uint32_t size, eltwise_op_t op) {
+                                        uint32_t size, eltwise_op_t op) {
     switch (op) {
         case ELTWISE_ADD:
 #ifdef FORCE_HW_LOOP
-            { int n_frep = size / 4 - 1;
+        {
+            int n_frep = size / 4 - 1;
             asm volatile(
                 "frep.i %[n], 19, 0, 0              \n"
                 "flw    fa0,  0(%[a])               \n"
@@ -105,12 +114,14 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],   16         \n"
                 "addi   %[b],   %[b],   16         \n"
                 "addi   %[out], %[out], 16         \n"
-                : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n]  "r"(n_frep)
-                : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-            ); }
+                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                : [n] "r"(n_frep)
+                : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                  "memory");
+        }
 #else
-            { int n_frep = size - 1;
+        {
+            int n_frep = size - 1;
             asm volatile(
                 "frep.o %[n], 7, 0, 0               \n"
                 "flw    fa0,  0(%[a])               \n"
@@ -120,15 +131,16 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],    4          \n"
                 "addi   %[b],   %[b],    4          \n"
                 "addi   %[out], %[out],  4          \n"
-                : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n]  "r"(n_frep)
-                : "fa0","fa1","memory"
-            ); }
+                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                : [n] "r"(n_frep)
+                : "fa0", "fa1", "memory");
+        }
 #endif
-            break;
+        break;
         case ELTWISE_MUL:
 #ifdef FORCE_HW_LOOP
-            { int n_frep = size / 4 - 1;
+        {
+            int n_frep = size / 4 - 1;
             asm volatile(
                 "frep.i %[n], 19, 0, 0              \n"
                 "flw    fa0,  0(%[a])               \n"
@@ -150,12 +162,14 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],   16         \n"
                 "addi   %[b],   %[b],   16         \n"
                 "addi   %[out], %[out], 16         \n"
-                : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n]  "r"(n_frep)
-                : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-            ); }
+                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                : [n] "r"(n_frep)
+                : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                  "memory");
+        }
 #else
-            { int n_frep = size - 1;
+        {
+            int n_frep = size - 1;
             asm volatile(
                 "frep.o %[n], 7, 0, 0               \n"
                 "flw    fa0,  0(%[a])               \n"
@@ -165,32 +179,32 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "addi   %[a],   %[a],    4          \n"
                 "addi   %[b],   %[b],    4          \n"
                 "addi   %[out], %[out],  4          \n"
-                : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n]  "r"(n_frep)
-                : "fa0","fa1","memory"
-            ); }
+                : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                : [n] "r"(n_frep)
+                : "fa0", "fa1", "memory");
+        }
 #endif
-            break;
+        break;
         case ELTWISE_DIV: {
             int n_frep_div = size - 1;
-            asm volatile(
-                FREP  " %[n], 7, 0, 0               \n"
-                "flw    fa0,  0(%[a])               \n"
-                "flw    fa1,  0(%[b])               \n"
-                "fdiv.s fa0, fa0, fa1               \n"
-                "fsw    fa0,  0(%[out])             \n"
-                "addi   %[a],   %[a],    4          \n"
-                "addi   %[b],   %[b],    4          \n"
-                "addi   %[out], %[out],  4          \n"
-                : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-                : [n]  "r"(n_frep_div)
-                : "fa0","fa1","memory"
-            );
+            asm volatile(FREP
+                         " %[n], 7, 0, 0               \n"
+                         "flw    fa0,  0(%[a])               \n"
+                         "flw    fa1,  0(%[b])               \n"
+                         "fdiv.s fa0, fa0, fa1               \n"
+                         "fsw    fa0,  0(%[out])             \n"
+                         "addi   %[a],   %[a],    4          \n"
+                         "addi   %[b],   %[b],    4          \n"
+                         "addi   %[out], %[out],  4          \n"
+                         : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                         : [n] "r"(n_frep_div)
+                         : "fa0", "fa1", "memory");
             break;
         }
         case ELTWISE_NEG:
 #ifdef FORCE_HW_LOOP
-            { int n_frep = size / 4 - 1;
+        {
+            int n_frep = size / 4 - 1;
             asm volatile(
                 "frep.i %[n], 14, 0, 0              \n"
                 "flw    fa0,  0(%[a])               \n"
@@ -207,12 +221,13 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "fsw    fa3, 12(%[out])             \n"
                 "addi   %[a],   %[a],   16         \n"
                 "addi   %[out], %[out], 16         \n"
-                : [a]  "+r"(a), [out] "+r"(out)
-                : [n]  "r"(n_frep)
-                : "fa0","fa1","fa2","fa3","memory"
-            ); }
+                : [a] "+r"(a), [out] "+r"(out)
+                : [n] "r"(n_frep)
+                : "fa0", "fa1", "fa2", "fa3", "memory");
+        }
 #else
-            { int n_frep = size - 1;
+        {
+            int n_frep = size - 1;
             asm volatile(
                 "frep.o %[n], 5, 0, 0               \n"
                 "flw    fa0,  0(%[a])               \n"
@@ -220,12 +235,12 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
                 "fsw    fa0,  0(%[out])             \n"
                 "addi   %[a],   %[a],    4          \n"
                 "addi   %[out], %[out],  4          \n"
-                : [a]  "+r"(a), [out] "+r"(out)
-                : [n]  "r"(n_frep)
-                : "fa0", "memory"
-            ); }
+                : [a] "+r"(a), [out] "+r"(out)
+                : [n] "r"(n_frep)
+                : "fa0", "memory");
+        }
 #endif
-            break;
+        break;
     }
 }
 
@@ -237,8 +252,7 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
 // NEG scalar: flw + fneg + fsw + 2 addi = 5 insns, n_frep = size - 1.
 // DIV: scalar only (iterative divider stalls; no benefit in unrolling).
 static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
-                                    uint32_t size) {
-
+                                            uint32_t size) {
     // LSU0 and LSU1, are dedicated for loads
     uint32_t load_mask = (1 << 0) | (1 << 1);
     // LSU2 is dedicated for stores
@@ -250,58 +264,58 @@ static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
     }
 #ifdef UNROLL
     int n_frep = size / 4 - 1;
-    asm volatile(
-        FREP  " %[n], 19, 0, 0              \n"
-        "flw    fa0,  0(%[a])               \n"
-        "flw    fa4,  0(%[b])               \n"
-        "flw    fa1,  4(%[a])               \n"
-        "flw    fa5,  4(%[b])               \n"
-        "flw    fa2,  8(%[a])               \n"
-        "flw    fa6,  8(%[b])               \n"
-        "flw    fa3, 12(%[a])               \n"
-        "flw    fa7, 12(%[b])               \n"
-        "fadd.s fa0, fa0, fa4               \n"
-        "fadd.s fa1, fa1, fa5               \n"
-        "fadd.s fa2, fa2, fa6               \n"
-        "fadd.s fa3, fa3, fa7               \n"
-        "fsw    fa0,  0(%[out])             \n"
-        "fsw    fa1,  4(%[out])             \n"
-        "fsw    fa2,  8(%[out])             \n"
-        "fsw    fa3, 12(%[out])             \n"
-        "addi   %[a],   %[a],   16         \n"
-        "addi   %[b],   %[b],   16         \n"
-        "addi   %[out], %[out], 16         \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-    );
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fadd.s fa0, fa0, fa4               \n"
+                 "fadd.s fa1, fa1, fa5               \n"
+                 "fadd.s fa2, fa2, fa6               \n"
+                 "fadd.s fa3, fa3, fa7               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     int n_frep = size / 4 - 1;
-    asm volatile(
-        FREP  " %[n], 19, 0, 0              \n"
-        "flw    fa0,  0(%[a])               \n"
-        "flw    fa4,  0(%[b])               \n"
-        "fadd.s fa0, fa0, fa4               \n"
-        "fsw    fa0,  0(%[out])             \n"
-        "flw    fa1,  4(%[a])               \n"
-        "flw    fa5,  4(%[b])               \n"
-        "fadd.s fa1, fa1, fa5               \n"
-        "fsw    fa1,  4(%[out])             \n"
-        "flw    fa2,  8(%[a])               \n"
-        "flw    fa6,  8(%[b])               \n"
-        "fadd.s fa2, fa2, fa6               \n"
-        "fsw    fa2,  8(%[out])             \n"
-        "flw    fa3, 12(%[a])               \n"
-        "flw    fa7, 12(%[b])               \n"
-        "fadd.s fa3, fa3, fa7               \n"
-        "fsw    fa3, 12(%[out])             \n"
-        "addi   %[a],   %[a],   16         \n"
-        "addi   %[b],   %[b],   16         \n"
-        "addi   %[out], %[out], 16         \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-    );
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "fadd.s fa0, fa0, fa4               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "fadd.s fa1, fa1, fa5               \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "fadd.s fa2, fa2, fa6               \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fadd.s fa3, fa3, fa7               \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
 #else
     int n_frep = size - 1;
     // Add nops for schnova to align the fetch block address
@@ -316,17 +330,14 @@ static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
         "addi   %[a],   %[a],    4          \n"
         "addi   %[b],   %[b],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","memory"
-    ); 
+        : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+        : [n] "r"(n_frep)
+        : "fa0", "fa1", "memory");
 #endif
-
 }
 
 static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
-                                    uint32_t size) {
-
+                                            uint32_t size) {
     // LSU0 and LSU1, are dedicated for loads
     uint32_t load_mask = (1 << 0) | (1 << 1);
     // LSU2 is dedicated for stores
@@ -338,58 +349,58 @@ static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
     }
 #ifdef UNROLL
     int n_frep = size / 4 - 1;
-    asm volatile(
-        FREP  " %[n], 19, 0, 0              \n"
-        "flw    fa0,  0(%[a])               \n"
-        "flw    fa4,  0(%[b])               \n"
-        "flw    fa1,  4(%[a])               \n"
-        "flw    fa5,  4(%[b])               \n"
-        "flw    fa2,  8(%[a])               \n"
-        "flw    fa6,  8(%[b])               \n"
-        "flw    fa3, 12(%[a])               \n"
-        "flw    fa7, 12(%[b])               \n"
-        "fmul.s fa0, fa0, fa4               \n"
-        "fmul.s fa1, fa1, fa5               \n"
-        "fmul.s fa2, fa2, fa6               \n"
-        "fmul.s fa3, fa3, fa7               \n"
-        "fsw    fa0,  0(%[out])             \n"
-        "fsw    fa1,  4(%[out])             \n"
-        "fsw    fa2,  8(%[out])             \n"
-        "fsw    fa3, 12(%[out])             \n"
-        "addi   %[a],   %[a],   16         \n"
-        "addi   %[b],   %[b],   16         \n"
-        "addi   %[out], %[out], 16         \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-    );
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fmul.s fa0, fa0, fa4               \n"
+                 "fmul.s fa1, fa1, fa5               \n"
+                 "fmul.s fa2, fa2, fa6               \n"
+                 "fmul.s fa3, fa3, fa7               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     int n_frep = size / 4 - 1;
-    asm volatile(
-        FREP  " %[n], 19, 0, 0              \n"
-        "flw    fa0,  0(%[a])               \n"
-        "flw    fa4,  0(%[b])               \n"
-        "fmul.s fa0, fa0, fa4               \n"
-        "fsw    fa0,  0(%[out])             \n"
-        "flw    fa1,  4(%[a])               \n"
-        "flw    fa5,  4(%[b])               \n"
-        "fmul.s fa1, fa1, fa5               \n"
-        "fsw    fa1,  4(%[out])             \n"
-        "flw    fa2,  8(%[a])               \n"
-        "flw    fa6,  8(%[b])               \n"
-        "fmul.s fa2, fa2, fa6               \n"
-        "fsw    fa2,  8(%[out])             \n"
-        "flw    fa3, 12(%[a])               \n"
-        "flw    fa7, 12(%[b])               \n"
-        "fmul.s fa3, fa3, fa7               \n"
-        "fsw    fa3, 12(%[out])             \n"
-        "addi   %[a],   %[a],   16         \n"
-        "addi   %[b],   %[b],   16         \n"
-        "addi   %[out], %[out], 16         \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
-    );
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "fmul.s fa0, fa0, fa4               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "fmul.s fa1, fa1, fa5               \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "fmul.s fa2, fa2, fa6               \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fmul.s fa3, fa3, fa7               \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
 #else
     int n_frep = size - 1;
     asm volatile(
@@ -406,15 +417,13 @@ static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
         "addi   %[a],   %[a],    4          \n"
         "addi   %[b],   %[b],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","memory"
-    );
+        : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+        : [n] "r"(n_frep)
+        : "fa0", "fa1", "memory");
 #endif
 }
 static inline void eltwise_div_fp32_schnova(float *a, float *b, float *out,
-                                    uint32_t size) {
-
+                                            uint32_t size) {
     if (szrt_nof_lsus() >= 3) {
         // Fix some LSUs to only accept load or store instructions
         szrt_set_frep_lsu_load_en((1 << 0) | (1 << 1));
@@ -430,8 +439,8 @@ static inline void eltwise_div_fp32_schnova(float *a, float *b, float *out,
         "nop                                \n"
         "nop                                \n"
         "nop                                \n"
-        "nop                                \n"
-        FREP  " %[n], 7, 0, 0               \n"
+        "nop                                \n" FREP
+        " %[n], 7, 0, 0               \n"
         "flw    fa0,  0(%[a])               \n"
         "flw    fa1,  0(%[b])               \n"
         "fdiv.s fa0, fa0, fa1               \n"
@@ -439,15 +448,13 @@ static inline void eltwise_div_fp32_schnova(float *a, float *b, float *out,
         "addi   %[a],   %[a],    4          \n"
         "addi   %[b],   %[b],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a]  "+r"(a), [b] "+r"(b), [out] "+r"(out)
-        : [n]  "r"(n_frep_div)
-        : "fa0","fa1","memory"
-    );
+        : [a] "+r"(a), [b] "+r"(b), [out] "+r"(out)
+        : [n] "r"(n_frep_div)
+        : "fa0", "fa1", "memory");
 }
 
-
 static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
-                                    uint32_t size) {
+                                            uint32_t size) {
 #ifdef UNROLL
     // LSU0 is dedicated for loads
     uint32_t load_mask = (1 << 0);
@@ -459,26 +466,25 @@ static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
         szrt_set_frep_lsu_store_en(store_mask);
     }
     int n_frep = size / 4 - 1;
-    asm volatile(
-        FREP  " %[n], 14, 0, 0              \n"
-        "flw    fa0,  0(%[a])               \n"
-        "flw    fa1,  4(%[a])               \n"
-        "flw    fa2,  8(%[a])               \n"
-        "flw    fa3, 12(%[a])               \n"
-        "fneg.s fa0, fa0                    \n"
-        "fneg.s fa1, fa1                    \n"
-        "fneg.s fa2, fa2                    \n"
-        "fneg.s fa3, fa3                    \n"
-        "fsw    fa0,  0(%[out])             \n"
-        "fsw    fa1,  4(%[out])             \n"
-        "fsw    fa2,  8(%[out])             \n"
-        "fsw    fa3, 12(%[out])             \n"
-        "addi   %[a],   %[a],   16         \n"
-        "addi   %[out], %[out], 16         \n"
-        : [a]  "+r"(a), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","fa2","fa3","memory"
-    );
+    asm volatile(FREP
+                 " %[n], 14, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "fneg.s fa0, fa0                    \n"
+                 "fneg.s fa1, fa1                    \n"
+                 "fneg.s fa2, fa2                    \n"
+                 "fneg.s fa3, fa3                    \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [a] "+r"(a), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     // LSU0 is dedicated for loads
     uint32_t load_mask = (1 << 0);
@@ -490,26 +496,25 @@ static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
         szrt_set_frep_lsu_store_en(store_mask);
     }
     int n_frep = size / 4 - 1;
-    asm volatile(
-        FREP  " %[n], 14, 0, 0              \n"
-        "flw    fa0,  0(%[a])               \n"
-        "fneg.s fa0, fa0                    \n"
-        "fsw    fa0,  0(%[out])             \n"
-        "flw    fa1,  4(%[a])               \n"
-        "fneg.s fa1, fa1                    \n"
-        "fsw    fa1,  4(%[out])             \n"
-        "flw    fa2,  8(%[a])               \n"
-        "fneg.s fa2, fa2                    \n"
-        "fsw    fa2,  8(%[out])             \n"
-        "flw    fa3, 12(%[a])               \n"
-        "fneg.s fa3, fa3                    \n"
-        "fsw    fa3, 12(%[out])             \n"
-        "addi   %[a],   %[a],   16         \n"
-        "addi   %[out], %[out], 16         \n"
-        : [a]  "+r"(a), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0","fa1","fa2","fa3","memory"
-    );
+    asm volatile(FREP
+                 " %[n], 14, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "fneg.s fa0, fa0                    \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "fneg.s fa1, fa1                    \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "fneg.s fa2, fa2                    \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "fneg.s fa3, fa3                    \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [a] "+r"(a), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
     int n_frep = size - 1;
     // LSU0 and LSU1, are dedicated for loads
@@ -534,10 +539,9 @@ static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
         "fsw    fa0,  0(%[out])             \n"
         "addi   %[a],   %[a],    4          \n"
         "addi   %[out], %[out],  4          \n"
-        : [a]  "+r"(a), [out] "+r"(out)
-        : [n]  "r"(n_frep)
-        : "fa0", "memory"
-    ); 
+        : [a] "+r"(a), [out] "+r"(out)
+        : [n] "r"(n_frep)
+        : "fa0", "memory");
 #endif
 }
 
@@ -556,8 +560,8 @@ static inline void eltwise_layer(eltwise_layer_t l) {
     char *local_out = local_b + (is_unary ? 0 : tile_bytes + sizeof(double));
     if (is_unary) local_out = local_b;
 
-    char *remote_a   = (char *)l.ifmap0;
-    char *remote_b   = (char *)l.ifmap1;
+    char *remote_a = (char *)l.ifmap0;
+    char *remote_b = (char *)l.ifmap1;
     char *remote_out = (char *)l.ofmap;
 
     for (uint32_t ct = 0; ct < n_tiles_per_cluster; ct++) {
@@ -575,45 +579,40 @@ static inline void eltwise_layer(eltwise_layer_t l) {
 
         if (snrt_is_compute_core()) {
             uint32_t num_cores = snrt_cluster_compute_core_num();
-            uint32_t core_idx  = snrt_cluster_core_idx();
-            uint32_t per_core  = tile_size / num_cores;
+            uint32_t core_idx = snrt_cluster_core_idx();
+            uint32_t per_core = tile_size / num_cores;
             snrt_mcycle();
 #if SPLIT_ELTWISE_FNS == 1
             switch (l.op) {
                 case ELTWISE_ADD: {
-                    eltwise_add_fp32_schnova((float *)local_a   + core_idx * per_core,
-                      (float *)local_b   + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core);
-                    };
-                    break;
+                    eltwise_add_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
                 case ELTWISE_MUL: {
-                    eltwise_mul_fp32_schnova((float *)local_a   + core_idx * per_core,
-                      (float *)local_b   + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core);
-                    };
-                    break;
+                    eltwise_mul_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
                 case ELTWISE_DIV: {
-                    eltwise_div_fp32_schnova((float *)local_a   + core_idx * per_core,
-                      (float *)local_b   + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core);
-                    };
-                    break;
+                    eltwise_div_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
                 case ELTWISE_NEG: {
-                    eltwise_neg_fp32_schnova((float *)local_a   + core_idx * per_core,
-                      (float *)local_b   + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core);
-                    };
-                    break;
+                    eltwise_neg_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
             }
 #else
-            l.funcptr((float *)local_a   + core_idx * per_core,
-                      (float *)local_b   + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core, l.op);
+            l.funcptr((float *)local_a + core_idx * per_core,
+                      (float *)local_b + core_idx * per_core,
+                      (float *)local_out + core_idx * per_core, per_core, l.op);
 #endif
             snrt_mcycle();
         }

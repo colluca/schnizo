@@ -362,11 +362,11 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                     "vfmax.s ft1, %[tmp1], %[zero]\n"   // ReLU
                     "vfmax.s ft1, %[tmp2], %[zero]\n"   // ReLU
                     "vfmax.s ft1, %[tmp3], %[zero]\n"   // ReLU
-                    : [ tmp0 ] "+f"(tmp[0].vec), [ tmp1 ] "+f"(tmp[1].vec),
-                      [ tmp2 ] "+f"(tmp[2].vec), [ tmp3 ] "+f"(tmp[3].vec)
-                    : [ k ] "f"(current_kappa.vec),
-                      [ l ] "f"(current_lambda.vec), [ zero ] "f"(zero.vec),
-                      [ n_frep ] "r"(dim_x * (dim_y / n_unroll) - 1)
+                    : [tmp0] "+f"(tmp[0].vec), [tmp1] "+f"(tmp[1].vec),
+                      [tmp2] "+f"(tmp[2].vec), [tmp3] "+f"(tmp[3].vec)
+                    : [k] "f"(current_kappa.vec), [l] "f"(current_lambda.vec),
+                      [zero] "f"(zero.vec),
+                      [n_frep] "r"(dim_x * (dim_y / n_unroll) - 1)
                     : "ft0", "ft1", "ft2");
             } else if (flag_batch_norm && !flag_relu) {
                 asm volatile(
@@ -379,11 +379,10 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                     "vfadd.s ft1, %[tmp1], %[l]\n"  // BN lambda
                     "vfadd.s ft1, %[tmp2], %[l]\n"  // BN lambda
                     "vfadd.s ft1, %[tmp3], %[l]\n"  // BN lambda
-                    : [ tmp0 ] "+f"(tmp[0].f64), [ tmp1 ] "+f"(tmp[1].f64),
-                      [ tmp2 ] "+f"(tmp[2].f64), [ tmp3 ] "+f"(tmp[3].f64)
-                    : [ k ] "f"(current_kappa.f64),
-                      [ l ] "f"(current_lambda.f64),
-                      [ n_frep ] "r"(dim_x * (dim_y / n_unroll) - 1)
+                    : [tmp0] "+f"(tmp[0].f64), [tmp1] "+f"(tmp[1].f64),
+                      [tmp2] "+f"(tmp[2].f64), [tmp3] "+f"(tmp[3].f64)
+                    : [k] "f"(current_kappa.f64), [l] "f"(current_lambda.f64),
+                      [n_frep] "r"(dim_x * (dim_y / n_unroll) - 1)
                     : "ft0", "ft1", "ft2");
             } else if (!flag_batch_norm && flag_relu) {
                 asm volatile(
@@ -393,8 +392,8 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                     "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                     "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                     ::[k] "f"(current_kappa.f64),
-                    [ l ] "f"(current_lambda.f64), [ zero ] "f"(zero.f64),
-                    [ n_frep ] "r"(dim_x * (dim_y / n_unroll) - 1)
+                    [l] "f"(current_lambda.f64), [zero] "f"(zero.f64),
+                    [n_frep] "r"(dim_x * (dim_y / n_unroll) - 1)
                     : "ft0", "ft1", "ft2");
             }
             snrt_ssr_disable();
@@ -444,12 +443,11 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfmax.s ft1, %[tmp0], %[zero]\n"   // ReLU
                             "vfmax.s ft1, %[tmp1], %[zero]\n"   // ReLU
                             "vfmax.s ft1, %[tmp2], %[zero]\n"   // ReLU
-                            : [ tmp0 ] "+f"(tmp[0].vec),
-                              [ tmp1 ] "+f"(tmp[1].vec),
-                              [ tmp2 ] "+f"(tmp[2].vec)
-                            : [ k ] "f"(current_kappa.vec),
-                              [ l ] "f"(current_lambda.vec),
-                              [ zero ] "f"(zero.vec), [ n_frep ] "r"(dim_x - 1)
+                            : [tmp0] "+f"(tmp[0].vec), [tmp1] "+f"(tmp[1].vec),
+                              [tmp2] "+f"(tmp[2].vec)
+                            : [k] "f"(current_kappa.vec),
+                              [l] "f"(current_lambda.vec), [zero] "f"(zero.vec),
+                              [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     } else if (flag_batch_norm && !flag_relu) {
                         asm volatile(
@@ -460,12 +458,11 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfadd.s ft1, %[tmp0], %[l]\n"  // BN lambda
                             "vfadd.s ft1, %[tmp1], %[l]\n"  // BN lambda
                             "vfadd.s ft1, %[tmp2], %[l]\n"  // BN lambda
-                            : [ tmp0 ] "+f"(tmp[0].f64),
-                              [ tmp1 ] "+f"(tmp[1].f64),
-                              [ tmp2 ] "+f"(tmp[2].f64)
-                            : [ k ] "f"(current_kappa.f64),
-                              [ l ] "f"(current_lambda.f64),
-                              [ n_frep ] "r"(dim_x - 1)
+                            : [tmp0] "+f"(tmp[0].f64), [tmp1] "+f"(tmp[1].f64),
+                              [tmp2] "+f"(tmp[2].f64)
+                            : [k] "f"(current_kappa.f64),
+                              [l] "f"(current_lambda.f64),
+                              [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     } else if (!flag_batch_norm && flag_relu) {
                         asm volatile(
@@ -474,8 +471,8 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                             "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                             ::[k] "f"(current_kappa.f64),
-                            [ l ] "f"(current_lambda.f64),
-                            [ zero ] "f"(zero.f64), [ n_frep ] "r"(dim_x - 1)
+                            [l] "f"(current_lambda.f64), [zero] "f"(zero.f64),
+                            [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     }
                     break;
@@ -489,11 +486,10 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfadd.s %[tmp1], %[tmp1], %[l]\n"  // BN lambda
                             "vfmax.s ft1, %[tmp0], %[zero]\n"   // ReLU
                             "vfmax.s ft1, %[tmp1], %[zero]\n"   // ReLU
-                            :
-                            [ tmp0 ] "+f"(tmp[0].vec), [ tmp1 ] "+f"(tmp[1].vec)
-                            : [ k ] "f"(current_kappa.vec),
-                              [ l ] "f"(current_lambda.vec),
-                              [ zero ] "f"(zero.vec), [ n_frep ] "r"(dim_x - 1)
+                            : [tmp0] "+f"(tmp[0].vec), [tmp1] "+f"(tmp[1].vec)
+                            : [k] "f"(current_kappa.vec),
+                              [l] "f"(current_lambda.vec), [zero] "f"(zero.vec),
+                              [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     } else if (flag_batch_norm && !flag_relu) {
                         asm volatile(
@@ -502,11 +498,10 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfmul.s %[tmp1], ft0, %[k]\n"  // BN kappa
                             "vfadd.s ft1, %[tmp0], %[l]\n"  // BN lambda
                             "vfadd.s ft1, %[tmp1], %[l]\n"  // BN lambda
-                            :
-                            [ tmp0 ] "+f"(tmp[0].f64), [ tmp1 ] "+f"(tmp[1].f64)
-                            : [ k ] "f"(current_kappa.f64),
-                              [ l ] "f"(current_lambda.f64),
-                              [ n_frep ] "r"(dim_x - 1)
+                            : [tmp0] "+f"(tmp[0].f64), [tmp1] "+f"(tmp[1].f64)
+                            : [k] "f"(current_kappa.f64),
+                              [l] "f"(current_lambda.f64),
+                              [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     } else if (!flag_batch_norm && flag_relu) {
                         asm volatile(
@@ -514,8 +509,8 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                             "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                             ::[k] "f"(current_kappa.f64),
-                            [ l ] "f"(current_lambda.f64),
-                            [ zero ] "f"(zero.f64), [ n_frep ] "r"(dim_x - 1)
+                            [l] "f"(current_lambda.f64), [zero] "f"(zero.f64),
+                            [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     }
                     break;
@@ -526,28 +521,28 @@ void bn_relu(const float *pBuffer, const uint16_t dim_x, const uint16_t dim_y,
                             "vfmul.s %[tmp0], ft0, %[k]\n"      // BN kappa
                             "vfadd.s %[tmp0], %[tmp0], %[l]\n"  // BN lambda
                             "vfmax.s ft1, %[tmp0], %[zero]\n"   // ReLU
-                            : [ tmp0 ] "+f"(tmp[0].vec)
-                            : [ k ] "f"(current_kappa.vec),
-                              [ l ] "f"(current_lambda.vec),
-                              [ zero ] "f"(zero.vec), [ n_frep ] "r"(dim_x - 1)
+                            : [tmp0] "+f"(tmp[0].vec)
+                            : [k] "f"(current_kappa.vec),
+                              [l] "f"(current_lambda.vec), [zero] "f"(zero.vec),
+                              [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     } else if (flag_batch_norm && !flag_relu) {
                         asm volatile(
                             "frep.o %[n_frep], 2, 0, 0\n"
                             "vfmul.s %[tmp0], ft0, %[k]\n"  // BN kappa
                             "vfadd.s ft1, %[tmp0], %[l]\n"  // BN lambda
-                            : [ tmp0 ] "+f"(tmp[0].f64)
-                            : [ k ] "f"(current_kappa.f64),
-                              [ l ] "f"(current_lambda.f64),
-                              [ n_frep ] "r"(dim_x - 1)
+                            : [tmp0] "+f"(tmp[0].f64)
+                            : [k] "f"(current_kappa.f64),
+                              [l] "f"(current_lambda.f64),
+                              [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     } else if (!flag_batch_norm && flag_relu) {
                         asm volatile(
                             "frep.o %[n_frep], 1, 0, 0\n"
                             "vfmax.s ft1, ft0, %[zero]\n"  // ReLU
                             ::[k] "f"(current_kappa.f64),
-                            [ l ] "f"(current_lambda.f64),
-                            [ zero ] "f"(zero.f64), [ n_frep ] "r"(dim_x - 1)
+                            [l] "f"(current_lambda.f64), [zero] "f"(zero.f64),
+                            [n_frep] "r"(dim_x - 1)
                             : "ft0", "ft1", "ft2");
                     }
                     break;
@@ -690,11 +685,11 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                     "fmadd.d %[sum5], ft0, ft1, %[sum5] \n"
                     "fmadd.d %[sum6], ft0, ft1, %[sum6] \n"
                     "fmadd.d %[sum7], ft0, ft1, %[sum7] \n"
-                    : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1]),
-                      [ sum2 ] "+f"(sum[2]), [ sum3 ] "+f"(sum[3]),
-                      [ sum4 ] "+f"(sum[4]), [ sum5 ] "+f"(sum[5]),
-                      [ sum6 ] "+f"(sum[6]), [ sum7 ] "+f"(sum[7])
-                    : [ n_frep ] "r"(
+                    : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1]),
+                      [sum2] "+f"(sum[2]), [sum3] "+f"(sum[3]),
+                      [sum4] "+f"(sum[4]), [sum5] "+f"(sum[5]),
+                      [sum6] "+f"(sum[6]), [sum7] "+f"(sum[7])
+                    : [n_frep] "r"(
                         k->dim_kernel_y * k->dim_kernel_x * k->ch_in - 1)
                     : "ft0", "ft1", "ft2");
 
@@ -756,13 +751,13 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             "fmadd.d %[sum4], ft0, ft1, %[sum4] \n"
                             "fmadd.d %[sum5], ft0, ft1, %[sum5] \n"
                             "fmadd.d %[sum6], ft0, ft1, %[sum6] \n"
-                            : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1]),
-                              [ sum2 ] "+f"(sum[2]), [ sum3 ] "+f"(sum[3]),
-                              [ sum4 ] "+f"(sum[4]), [ sum5 ] "+f"(sum[5]),
-                              [ sum6 ] "+f"(sum[6])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1]),
+                              [sum2] "+f"(sum[2]), [sum3] "+f"(sum[3]),
+                              [sum4] "+f"(sum[4]), [sum5] "+f"(sum[5]),
+                              [sum6] "+f"(sum[6])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 6:
@@ -774,12 +769,12 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             "fmadd.d %[sum3], ft0, ft1, %[sum3] \n"
                             "fmadd.d %[sum4], ft0, ft1, %[sum4] \n"
                             "fmadd.d %[sum5], ft0, ft1, %[sum5] \n"
-                            : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1]),
-                              [ sum2 ] "+f"(sum[2]), [ sum3 ] "+f"(sum[3]),
-                              [ sum4 ] "+f"(sum[4]), [ sum5 ] "+f"(sum[5])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1]),
+                              [sum2] "+f"(sum[2]), [sum3] "+f"(sum[3]),
+                              [sum4] "+f"(sum[4]), [sum5] "+f"(sum[5])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 5:
@@ -790,12 +785,12 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             "fmadd.d %[sum2], ft0, ft1, %[sum2] \n"
                             "fmadd.d %[sum3], ft0, ft1, %[sum3] \n"
                             "fmadd.d %[sum4], ft0, ft1, %[sum4] \n"
-                            : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1]),
-                              [ sum2 ] "+f"(sum[2]), [ sum3 ] "+f"(sum[3]),
-                              [ sum4 ] "+f"(sum[4])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1]),
+                              [sum2] "+f"(sum[2]), [sum3] "+f"(sum[3]),
+                              [sum4] "+f"(sum[4])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 4:
@@ -805,11 +800,11 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             "fmadd.d %[sum1], ft0, ft1, %[sum1] \n"
                             "fmadd.d %[sum2], ft0, ft1, %[sum2] \n"
                             "fmadd.d %[sum3], ft0, ft1, %[sum3] \n"
-                            : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1]),
-                              [ sum2 ] "+f"(sum[2]), [ sum3 ] "+f"(sum[3])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1]),
+                              [sum2] "+f"(sum[2]), [sum3] "+f"(sum[3])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 3:
@@ -818,11 +813,11 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             "fmadd.d %[sum0], ft0, ft1, %[sum0] \n"
                             "fmadd.d %[sum1], ft0, ft1, %[sum1] \n"
                             "fmadd.d %[sum2], ft0, ft1, %[sum2] \n"
-                            : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1]),
-                              [ sum2 ] "+f"(sum[2])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1]),
+                              [sum2] "+f"(sum[2])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 2:
@@ -830,20 +825,20 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                             "frep.o %[n_frep], 2, 0, 0 \n"
                             "fmadd.d %[sum0], ft0, ft1, %[sum0] \n"
                             "fmadd.d %[sum1], ft0, ft1, %[sum1] \n"
-                            : [ sum0 ] "+f"(sum[0]), [ sum1 ] "+f"(sum[1])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0]), [sum1] "+f"(sum[1])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 1:
                         asm volatile(
                             "frep.o %[n_frep], 1, 0, 0 \n"
                             "fmadd.d %[sum0], ft0, ft1, %[sum0] \n"
-                            : [ sum0 ] "+f"(sum[0])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in -
-                                             1)
+                            : [sum0] "+f"(sum[0])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                 }
@@ -887,24 +882,24 @@ static inline void conv2d_fp64(kernel_fp64 *k) {
                     "frep.o %[n_frep], 2, 0, 0\n"
                     "fmadd.d %[tmp], ft0, %[k], %[l]\n"
                     "fmax.d ft1, %[tmp], %[zero]\n"
-                    : [ tmp ] "+f"(tmp)
-                    : [ k ] "f"(current_kappa), [ l ] "f"(current_lambda),
-                      [ zero ] "f"(zero),
-                      [ n_frep ] "r"(k->dim_out_x * k->dim_out_y - 1)
+                    : [tmp] "+f"(tmp)
+                    : [k] "f"(current_kappa), [l] "f"(current_lambda),
+                      [zero] "f"(zero),
+                      [n_frep] "r"(k->dim_out_x * k->dim_out_y - 1)
                     : "ft0", "ft1", "ft2");
             } else if (k->flag_batch_norm && !k->flag_relu) {
                 asm volatile(
                     "frep.o %[n_frep], 1, 0, 0\n"
                     "fmadd.d %[tmp], ft0, %[k], %[l]\n"
-                    : [ tmp ] "+f"(tmp), [ k ] "+f"(current_kappa),
-                      [ l ] "+f"(current_lambda)
-                    : [ n_frep ] "r"(k->dim_out_x * k->dim_out_y - 1)
+                    : [tmp] "+f"(tmp), [k] "+f"(current_kappa),
+                      [l] "+f"(current_lambda)
+                    : [n_frep] "r"(k->dim_out_x * k->dim_out_y - 1)
                     : "ft0", "ft1", "ft2");
             } else if (!k->flag_batch_norm && k->flag_relu) {
                 asm volatile(
                     "frep.o %[n_frep], 1, 0, 0 \n"
                     "fmax.d ft1, ft0, %[zero]\n" ::[zero] "f"(zero),
-                    [ n_frep ] "r"(k->dim_out_x * k->dim_out_y - 1)
+                    [n_frep] "r"(k->dim_out_x * k->dim_out_y - 1)
                     : "ft0", "ft1", "ft2");
             }
         }
@@ -1065,19 +1060,19 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                     "vfsum.s %[reduce_reg5], %[sum5] \n"
                     "vfsum.s %[reduce_reg6], %[sum6] \n"
                     "vfsum.s %[reduce_reg7], %[sum7] \n"
-                    : [ sum0 ] "+f"(sum[0].f64), [ sum1 ] "+f"(sum[1].f64),
-                      [ sum2 ] "+f"(sum[2].f64), [ sum3 ] "+f"(sum[3].f64),
-                      [ sum4 ] "+f"(sum[4].f64), [ sum5 ] "+f"(sum[5].f64),
-                      [ sum6 ] "+f"(sum[6].f64), [ sum7 ] "+f"(sum[7].f64),
-                      [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                      [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                      [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                      [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                      [ reduce_reg4 ] "+f"(reduce_reg[4]),
-                      [ reduce_reg5 ] "+f"(reduce_reg[5]),
-                      [ reduce_reg6 ] "+f"(reduce_reg[6]),
-                      [ reduce_reg7 ] "+f"(reduce_reg[7])
-                    : [ n_frep ] "r"(
+                    : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                      [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                      [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64),
+                      [sum6] "+f"(sum[6].f64), [sum7] "+f"(sum[7].f64),
+                      [reduce_reg0] "+f"(reduce_reg[0]),
+                      [reduce_reg1] "+f"(reduce_reg[1]),
+                      [reduce_reg2] "+f"(reduce_reg[2]),
+                      [reduce_reg3] "+f"(reduce_reg[3]),
+                      [reduce_reg4] "+f"(reduce_reg[4]),
+                      [reduce_reg5] "+f"(reduce_reg[5]),
+                      [reduce_reg6] "+f"(reduce_reg[6]),
+                      [reduce_reg7] "+f"(reduce_reg[7])
+                    : [n_frep] "r"(
                         k->dim_kernel_y * k->dim_kernel_x * k->ch_in / 2 - 1)
                     : "ft0", "ft1", "ft2");
 
@@ -1155,23 +1150,20 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             "vfsum.s %[reduce_reg4], %[sum4] \n"
                             "vfsum.s %[reduce_reg5], %[sum5] \n"
                             "vfsum.s %[reduce_reg6], %[sum6] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ sum4 ] "+f"(sum[4].f64),
-                              [ sum5 ] "+f"(sum[5].f64),
-                              [ sum6 ] "+f"(sum[6].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                              [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                              [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                              [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                              [ reduce_reg4 ] "+f"(reduce_reg[4]),
-                              [ reduce_reg5 ] "+f"(reduce_reg[5]),
-                              [ reduce_reg6 ] "+f"(reduce_reg[6])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64),
+                              [sum6] "+f"(sum[6].f64),
+                              [reduce_reg0] "+f"(reduce_reg[0]),
+                              [reduce_reg1] "+f"(reduce_reg[1]),
+                              [reduce_reg2] "+f"(reduce_reg[2]),
+                              [reduce_reg3] "+f"(reduce_reg[3]),
+                              [reduce_reg4] "+f"(reduce_reg[4]),
+                              [reduce_reg5] "+f"(reduce_reg[5]),
+                              [reduce_reg6] "+f"(reduce_reg[6])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 6:
@@ -1191,21 +1183,18 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             "vfsum.s %[reduce_reg3], %[sum3] \n"
                             "vfsum.s %[reduce_reg4], %[sum4] \n"
                             "vfsum.s %[reduce_reg5], %[sum5] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ sum4 ] "+f"(sum[4].f64),
-                              [ sum5 ] "+f"(sum[5].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                              [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                              [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                              [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                              [ reduce_reg4 ] "+f"(reduce_reg[4]),
-                              [ reduce_reg5 ] "+f"(reduce_reg[5])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64),
+                              [reduce_reg0] "+f"(reduce_reg[0]),
+                              [reduce_reg1] "+f"(reduce_reg[1]),
+                              [reduce_reg2] "+f"(reduce_reg[2]),
+                              [reduce_reg3] "+f"(reduce_reg[3]),
+                              [reduce_reg4] "+f"(reduce_reg[4]),
+                              [reduce_reg5] "+f"(reduce_reg[5])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 5:
@@ -1223,19 +1212,17 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             "vfsum.s %[reduce_reg2], %[sum2] \n"
                             "vfsum.s %[reduce_reg3], %[sum3] \n"
                             "vfsum.s %[reduce_reg4], %[sum4] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ sum4 ] "+f"(sum[4].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                              [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                              [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                              [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                              [ reduce_reg4 ] "+f"(reduce_reg[4])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [sum4] "+f"(sum[4].f64),
+                              [reduce_reg0] "+f"(reduce_reg[0]),
+                              [reduce_reg1] "+f"(reduce_reg[1]),
+                              [reduce_reg2] "+f"(reduce_reg[2]),
+                              [reduce_reg3] "+f"(reduce_reg[3]),
+                              [reduce_reg4] "+f"(reduce_reg[4])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 4:
@@ -1251,17 +1238,15 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             "vfsum.s %[reduce_reg1], %[sum1] \n"
                             "vfsum.s %[reduce_reg2], %[sum2] \n"
                             "vfsum.s %[reduce_reg3], %[sum3] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                              [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                              [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                              [ reduce_reg3 ] "+f"(reduce_reg[3])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [reduce_reg0] "+f"(reduce_reg[0]),
+                              [reduce_reg1] "+f"(reduce_reg[1]),
+                              [reduce_reg2] "+f"(reduce_reg[2]),
+                              [reduce_reg3] "+f"(reduce_reg[3])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 3:
@@ -1275,15 +1260,14 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             "vfsum.s %[reduce_reg0], %[sum0] \n"
                             "vfsum.s %[reduce_reg1], %[sum1] \n"
                             "vfsum.s %[reduce_reg2], %[sum2] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                              [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                              [ reduce_reg2 ] "+f"(reduce_reg[2])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64),
+                              [reduce_reg0] "+f"(reduce_reg[0]),
+                              [reduce_reg1] "+f"(reduce_reg[1]),
+                              [reduce_reg2] "+f"(reduce_reg[2])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 2:
@@ -1295,13 +1279,12 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             // Sum reduce vector
                             "vfsum.s %[reduce_reg0], %[sum0] \n"
                             "vfsum.s %[reduce_reg1], %[sum1] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                              [ reduce_reg1 ] "+f"(reduce_reg[1])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [reduce_reg0] "+f"(reduce_reg[0]),
+                              [reduce_reg1] "+f"(reduce_reg[1])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 1:
@@ -1311,11 +1294,11 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum0], ft0, ft1 \n"
                             // Sum reduce vector
                             "vfsum.s %[reduce_reg0], %[sum0] \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ reduce_reg0 ] "+f"(reduce_reg[0])
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                 k->ch_in / 2 -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [reduce_reg0] "+f"(
+                                                           reduce_reg[0])
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x *
+                                               k->ch_in / 2 -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                 }
@@ -1478,11 +1461,11 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                     "vfmac.s %[sum5], ft0, ft1 \n"
                     "vfmac.s %[sum6], ft0, ft1 \n"
                     "vfmac.s %[sum7], ft0, ft1 \n"
-                    : [ sum0 ] "+f"(sum[0].f64), [ sum1 ] "+f"(sum[1].f64),
-                      [ sum2 ] "+f"(sum[2].f64), [ sum3 ] "+f"(sum[3].f64),
-                      [ sum4 ] "+f"(sum[4].f64), [ sum5 ] "+f"(sum[5].f64),
-                      [ sum6 ] "+f"(sum[6].f64), [ sum7 ] "+f"(sum[7].f64)
-                    : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x - 1)
+                    : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                      [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                      [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64),
+                      [sum6] "+f"(sum[6].f64), [sum7] "+f"(sum[7].f64)
+                    : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x - 1)
                     : "ft0", "ft1", "ft2");
 
                 snrt_ssr_disable();
@@ -1547,15 +1530,12 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum4], ft0, ft1 \n"
                             "vfmac.s %[sum5], ft0, ft1 \n"
                             "vfmac.s %[sum6], ft0, ft1 \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ sum4 ] "+f"(sum[4].f64),
-                              [ sum5 ] "+f"(sum[5].f64),
-                              [ sum6 ] "+f"(sum[6].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64),
+                              [sum6] "+f"(sum[6].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 6:
@@ -1568,14 +1548,11 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum3], ft0, ft1 \n"
                             "vfmac.s %[sum4], ft0, ft1 \n"
                             "vfmac.s %[sum5], ft0, ft1 \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ sum4 ] "+f"(sum[4].f64),
-                              [ sum5 ] "+f"(sum[5].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 5:
@@ -1587,13 +1564,11 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum2], ft0, ft1 \n"
                             "vfmac.s %[sum3], ft0, ft1 \n"
                             "vfmac.s %[sum4], ft0, ft1 \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64),
-                              [ sum4 ] "+f"(sum[4].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                              [sum4] "+f"(sum[4].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 4:
@@ -1604,12 +1579,10 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum1], ft0, ft1 \n"
                             "vfmac.s %[sum2], ft0, ft1 \n"
                             "vfmac.s %[sum3], ft0, ft1 \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64),
-                              [ sum3 ] "+f"(sum[3].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 3:
@@ -1619,11 +1592,10 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "vfmac.s %[sum0], ft0, ft1 \n"
                             "vfmac.s %[sum1], ft0, ft1 \n"
                             "vfmac.s %[sum2], ft0, ft1 \n"
-                            : [ sum0 ] "+f"(sum[0].f64),
-                              [ sum1 ] "+f"(sum[1].f64),
-                              [ sum2 ] "+f"(sum[2].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                              [sum2] "+f"(sum[2].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 2:
@@ -1632,10 +1604,9 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             "frep.o %[n_frep], 2, 0, 0 \n"
                             "vfmac.s %[sum0], ft0, ft1 \n"
                             "vfmac.s %[sum1], ft0, ft1 \n"
-                            :
-                            [ sum0 ] "+f"(sum[0].f64), [ sum1 ] "+f"(sum[1].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                     case 1:
@@ -1643,9 +1614,9 @@ static inline void conv2d_dw_fp32(kernel_fp32 *k) {
                             // frep over vfMACs
                             "frep.o %[n_frep], 1, 0, 0 \n"
                             "vfmac.s %[sum0], ft0, ft1 \n"
-                            : [ sum0 ] "+f"(sum[0].f64)
-                            : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x -
-                                             1)
+                            : [sum0] "+f"(sum[0].f64)
+                            : [n_frep] "r"(k->dim_kernel_y * k->dim_kernel_x -
+                                           1)
                             : "ft0", "ft1", "ft2");
                         break;
                 }
@@ -1840,20 +1811,20 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                         "vfsum.s %[reduce_reg5], %[sum5] \n"
                         "vfsum.s %[reduce_reg6], %[sum6] \n"
                         "vfsum.s %[reduce_reg7], %[sum7] \n"
-                        : [ sum0 ] "+f"(sum[0].f64), [ sum1 ] "+f"(sum[1].f64),
-                          [ sum2 ] "+f"(sum[2].f64), [ sum3 ] "+f"(sum[3].f64),
-                          [ sum4 ] "+f"(sum[4].f64), [ sum5 ] "+f"(sum[5].f64),
-                          [ sum6 ] "+f"(sum[6].f64), [ sum7 ] "+f"(sum[7].f64),
-                          [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                          [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                          [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                          [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                          [ reduce_reg4 ] "+f"(reduce_reg[4]),
-                          [ reduce_reg5 ] "+f"(reduce_reg[5]),
-                          [ reduce_reg6 ] "+f"(reduce_reg[6]),
-                          [ reduce_reg7 ] "+f"(reduce_reg[7])
-                        : [ n_frep ] "r"(k->dim_kernel_x / 2 * k->dim_kernel_y -
-                                         1)
+                        : [sum0] "+f"(sum[0].f64), [sum1] "+f"(sum[1].f64),
+                          [sum2] "+f"(sum[2].f64), [sum3] "+f"(sum[3].f64),
+                          [sum4] "+f"(sum[4].f64), [sum5] "+f"(sum[5].f64),
+                          [sum6] "+f"(sum[6].f64), [sum7] "+f"(sum[7].f64),
+                          [reduce_reg0] "+f"(reduce_reg[0]),
+                          [reduce_reg1] "+f"(reduce_reg[1]),
+                          [reduce_reg2] "+f"(reduce_reg[2]),
+                          [reduce_reg3] "+f"(reduce_reg[3]),
+                          [reduce_reg4] "+f"(reduce_reg[4]),
+                          [reduce_reg5] "+f"(reduce_reg[5]),
+                          [reduce_reg6] "+f"(reduce_reg[6]),
+                          [reduce_reg7] "+f"(reduce_reg[7])
+                        : [n_frep] "r"(k->dim_kernel_x / 2 * k->dim_kernel_y -
+                                       1)
                         : "ft0", "ft1", "ft2");
 
                     snrt_ssr_disable();
@@ -1931,21 +1902,21 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 "vfsum.s %[reduce_reg4], %[sum4] \n"
                                 "vfsum.s %[reduce_reg5], %[sum5] \n"
                                 "vfsum.s %[reduce_reg6], %[sum6] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ sum1 ] "+f"(sum[1].f64),
-                                  [ sum2 ] "+f"(sum[2].f64),
-                                  [ sum3 ] "+f"(sum[3].f64),
-                                  [ sum4 ] "+f"(sum[4].f64),
-                                  [ sum5 ] "+f"(sum[5].f64),
-                                  [ sum6 ] "+f"(sum[6].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                                  [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                                  [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                                  [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                                  [ reduce_reg4 ] "+f"(reduce_reg[4]),
-                                  [ reduce_reg5 ] "+f"(reduce_reg[5]),
-                                  [ reduce_reg6 ] "+f"(reduce_reg[6])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64),
+                                  [sum1] "+f"(sum[1].f64),
+                                  [sum2] "+f"(sum[2].f64),
+                                  [sum3] "+f"(sum[3].f64),
+                                  [sum4] "+f"(sum[4].f64),
+                                  [sum5] "+f"(sum[5].f64),
+                                  [sum6] "+f"(sum[6].f64),
+                                  [reduce_reg0] "+f"(reduce_reg[0]),
+                                  [reduce_reg1] "+f"(reduce_reg[1]),
+                                  [reduce_reg2] "+f"(reduce_reg[2]),
+                                  [reduce_reg3] "+f"(reduce_reg[3]),
+                                  [reduce_reg4] "+f"(reduce_reg[4]),
+                                  [reduce_reg5] "+f"(reduce_reg[5]),
+                                  [reduce_reg6] "+f"(reduce_reg[6])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;
@@ -1966,19 +1937,19 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 "vfsum.s %[reduce_reg3], %[sum3] \n"
                                 "vfsum.s %[reduce_reg4], %[sum4] \n"
                                 "vfsum.s %[reduce_reg5], %[sum5] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ sum1 ] "+f"(sum[1].f64),
-                                  [ sum2 ] "+f"(sum[2].f64),
-                                  [ sum3 ] "+f"(sum[3].f64),
-                                  [ sum4 ] "+f"(sum[4].f64),
-                                  [ sum5 ] "+f"(sum[5].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                                  [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                                  [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                                  [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                                  [ reduce_reg4 ] "+f"(reduce_reg[4]),
-                                  [ reduce_reg5 ] "+f"(reduce_reg[5])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64),
+                                  [sum1] "+f"(sum[1].f64),
+                                  [sum2] "+f"(sum[2].f64),
+                                  [sum3] "+f"(sum[3].f64),
+                                  [sum4] "+f"(sum[4].f64),
+                                  [sum5] "+f"(sum[5].f64),
+                                  [reduce_reg0] "+f"(reduce_reg[0]),
+                                  [reduce_reg1] "+f"(reduce_reg[1]),
+                                  [reduce_reg2] "+f"(reduce_reg[2]),
+                                  [reduce_reg3] "+f"(reduce_reg[3]),
+                                  [reduce_reg4] "+f"(reduce_reg[4]),
+                                  [reduce_reg5] "+f"(reduce_reg[5])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;
@@ -1997,17 +1968,17 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 "vfsum.s %[reduce_reg2], %[sum2] \n"
                                 "vfsum.s %[reduce_reg3], %[sum3] \n"
                                 "vfsum.s %[reduce_reg4], %[sum4] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ sum1 ] "+f"(sum[1].f64),
-                                  [ sum2 ] "+f"(sum[2].f64),
-                                  [ sum3 ] "+f"(sum[3].f64),
-                                  [ sum4 ] "+f"(sum[4].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                                  [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                                  [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                                  [ reduce_reg3 ] "+f"(reduce_reg[3]),
-                                  [ reduce_reg4 ] "+f"(reduce_reg[4])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64),
+                                  [sum1] "+f"(sum[1].f64),
+                                  [sum2] "+f"(sum[2].f64),
+                                  [sum3] "+f"(sum[3].f64),
+                                  [sum4] "+f"(sum[4].f64),
+                                  [reduce_reg0] "+f"(reduce_reg[0]),
+                                  [reduce_reg1] "+f"(reduce_reg[1]),
+                                  [reduce_reg2] "+f"(reduce_reg[2]),
+                                  [reduce_reg3] "+f"(reduce_reg[3]),
+                                  [reduce_reg4] "+f"(reduce_reg[4])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;
@@ -2024,15 +1995,15 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 "vfsum.s %[reduce_reg1], %[sum1] \n"
                                 "vfsum.s %[reduce_reg2], %[sum2] \n"
                                 "vfsum.s %[reduce_reg3], %[sum3] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ sum1 ] "+f"(sum[1].f64),
-                                  [ sum2 ] "+f"(sum[2].f64),
-                                  [ sum3 ] "+f"(sum[3].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                                  [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                                  [ reduce_reg2 ] "+f"(reduce_reg[2]),
-                                  [ reduce_reg3 ] "+f"(reduce_reg[3])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64),
+                                  [sum1] "+f"(sum[1].f64),
+                                  [sum2] "+f"(sum[2].f64),
+                                  [sum3] "+f"(sum[3].f64),
+                                  [reduce_reg0] "+f"(reduce_reg[0]),
+                                  [reduce_reg1] "+f"(reduce_reg[1]),
+                                  [reduce_reg2] "+f"(reduce_reg[2]),
+                                  [reduce_reg3] "+f"(reduce_reg[3])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;
@@ -2047,13 +2018,13 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 "vfsum.s %[reduce_reg0], %[sum0] \n"
                                 "vfsum.s %[reduce_reg1], %[sum1] \n"
                                 "vfsum.s %[reduce_reg2], %[sum2] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ sum1 ] "+f"(sum[1].f64),
-                                  [ sum2 ] "+f"(sum[2].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                                  [ reduce_reg1 ] "+f"(reduce_reg[1]),
-                                  [ reduce_reg2 ] "+f"(reduce_reg[2])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64),
+                                  [sum1] "+f"(sum[1].f64),
+                                  [sum2] "+f"(sum[2].f64),
+                                  [reduce_reg0] "+f"(reduce_reg[0]),
+                                  [reduce_reg1] "+f"(reduce_reg[1]),
+                                  [reduce_reg2] "+f"(reduce_reg[2])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;
@@ -2066,11 +2037,11 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 // Sum reduce vector
                                 "vfsum.s %[reduce_reg0], %[sum0] \n"
                                 "vfsum.s %[reduce_reg1], %[sum1] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ sum1 ] "+f"(sum[1].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0]),
-                                  [ reduce_reg1 ] "+f"(reduce_reg[1])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64),
+                                  [sum1] "+f"(sum[1].f64),
+                                  [reduce_reg0] "+f"(reduce_reg[0]),
+                                  [reduce_reg1] "+f"(reduce_reg[1])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;
@@ -2081,9 +2052,9 @@ static inline void conv2d_chw_fp32(kernel_fp32 *k) {
                                 "vfmac.s %[sum0], ft0, ft1 \n"
                                 // Sum reduce vector
                                 "vfsum.s %[reduce_reg0], %[sum0] \n"
-                                : [ sum0 ] "+f"(sum[0].f64),
-                                  [ reduce_reg0 ] "+f"(reduce_reg[0])
-                                : [ n_frep ] "r"(
+                                : [sum0] "+f"(sum[0].f64), [reduce_reg0] "+f"(
+                                                               reduce_reg[0])
+                                : [n_frep] "r"(
                                     k->dim_kernel_x / 2 * k->dim_kernel_y - 1)
                                 : "ft0", "ft1", "ft2");
                             break;

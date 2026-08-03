@@ -12,7 +12,8 @@
 #define FREP "frep.o"
 #endif
 
-static inline void vexpf_schnova(double *a, double *b, uint32_t len, uint32_t batch_size) {
+static inline void vexpf_schnova(double *a, double *b, uint32_t len,
+                                 uint32_t batch_size) {
     int n_batches = len / batch_size;
     int n_iterations = n_batches + 2;
     int n_frep_m2 = batch_size / 4 - 2;
@@ -371,13 +372,11 @@ static inline void vexpf_schnova(double *a, double *b, uint32_t len, uint32_t ba
                     "fsd     fs1, 16(%[out_addr])             \n"
                     "fsd     fs2, 24(%[out_addr])             \n"
                     // clang-format on
-                    :
-                    [ in_addr ] "+r"(comp_a_ptr), [ out_addr ] "+r"(comp_b_ptr)
-                    : [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
-                      [ inc ] "i"(4 * sizeof(double)),
-                      [ n_frep ] "r"(n_frep_m2), [ C0 ] "f"(C[0]),
-                      [ C1 ] "f"(C[1]), [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3]),
-                      [ t ] "r"(t), [ T ] "r"(T)
+                    : [in_addr] "+r"(comp_a_ptr), [out_addr] "+r"(comp_b_ptr)
+                    : [InvLn2N] "f"(InvLn2N), [SHIFT] "f"(SHIFT),
+                      [inc] "i"(4 * sizeof(double)), [n_frep] "r"(n_frep_m2),
+                      [C0] "f"(C[0]), [C1] "f"(C[1]), [C2] "f"(C[2]),
+                      [C3] "f"(C[3]), [t] "r"(t), [T] "r"(T)
                     : "memory", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
                       "t0", "t1", "t2", "t3", "fa0", "fa1", "fa2", "fa3", "fa4",
                       "fa5", "fa6", "fa7", "ft3", "ft4", "ft5", "ft6", "ft7",

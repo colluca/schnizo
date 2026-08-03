@@ -1187,7 +1187,7 @@ def area_timing_plot(reveal_step=None, save_path=None):
         "GP-FW4-ROB": {"CLK": 1.199, "area": 674},
         "GP-FW8-ROB": {"CLK": 1.246, "area": 815},
         "LA-FW1": {"CLK": 1.005, "area": 182},
-        "LA-FW2": {"CLK": 1.004, "area": 245},
+        "LA-FW2": {"CLK": 1.006, "area": 245},
         "LA-FW4": {"CLK": 1.092, "area": 342},
         "LA-FW8": {"CLK": 1.171, "area": 543},
         "Spatz-LA": {"CLK": 1.000, "area": 583},
@@ -1195,14 +1195,14 @@ def area_timing_plot(reveal_step=None, save_path=None):
 
     families = [
         {
-            "label": "Schnova scalar",
+            "label": "Schnova, scalar",
             "names": ["Schnova-ZOL"],
             "color": "tab:blue",
             "marker": "o",
             "connect": False,
         },
         {
-            "label": "Schnova superscalar, ROB",
+            "label": "Schnova, GP, ROB",
             "names": ["GP-FW1-ROB", "GP-FW2-ROB",
                       "GP-FW4-ROB", "GP-FW8-ROB"],
             "color": "tab:orange",
@@ -1210,47 +1210,48 @@ def area_timing_plot(reveal_step=None, save_path=None):
             "connect": True,
         },
         {
-            "label": "Schnova superscalar, reference counting",
+            "label": "Schnova, GP, REF-CNT",
             "names": ["GP-FW1", "GP-FW2", "GP-FW4", "GP-FW8"],
             "color": "tab:green",
             "marker": "o",
             "connect": True,
         },
         {
-            "label": "Conventional OoO cores",
-            "names": ["CVA6S+", "C910"],
-            "color": "tab:pink",
-            "marker": "o",
-            "connect": False,
-        },
-        {
-            "label": "Schnizo GP",
-            "names": ["Schnizo-GP-L"],
-            "color": "tab:cyan",
-            "marker": "D",
-            "connect": False,
-        },
-        {
-            "label": "Schnova LA",
+            "label": "Schnova, LA",
             "names": ["LA-FW1", "LA-FW2", "LA-FW4", "LA-FW8"],
             "color": "tab:purple",
             "marker": "^",
             "connect": True,
         },
         {
-            "label": "Schnizo LA",
+            "label": "Schnizo, LA",
             "names": ["Schnizo-LA"],
             "color": "tab:red",
-            "marker": "D",
+            "marker": "^",
+            "connect": False,
+        },
+                {
+            "label": "Schnizo, GP",
+            "names": ["Schnizo-GP-L"],
+            "color": "tab:red",
+            "marker": "o",
             "connect": False,
         },
         {
-            "label": "Spatz LA",
-            "names": ["Spatz-LA"],
+            "label": "CVA6S+",
+            "names": ["CVA6S+"],
             "color": "tab:gray",
-            "marker": "P",
+            "marker": "o",
             "connect": False,
         },
+        {
+            "label": "C910",
+            "names": ["C910"],
+            "color": "tab:pink",
+            "marker": "o",
+            "connect": False,
+        },
+
     ]
 
 
@@ -1290,15 +1291,28 @@ def area_timing_plot(reveal_step=None, save_path=None):
 
         # Mark the fetch width directly beside each Schnova family point.
         for name, x_pos, y_pos in zip(names, x, y):
-            if "FW" in name:
+            if ("FW" in name):
                 fw = name.split("FW", 1)[1].split("-", 1)[0]
-                ax.annotate(
-                    f"FW{fw}",
-                    (x_pos, y_pos),
-                    xytext=(5, 5),
-                    textcoords="offset points",
-                    fontsize=8,
-                )
+                if ("LA" in name and int(fw) == 1):
+                    continue
+                if (reveal_step > 5 and name not in ["GP-FW1-ROB", "GP-FW2-ROB", "GP-FW4-ROB", "GP-FW8-ROB"]):
+                    continue
+                if ("GP-FW1" == name):
+                    ax.annotate(
+                        f"FW{fw}",
+                        (x_pos, y_pos),
+                        xytext=(0, -15),
+                        textcoords="offset points",
+                        fontsize=8,
+                    )
+                else:
+                    ax.annotate(
+                        f"FW{fw}",
+                        (x_pos, y_pos),
+                        xytext=(-10, 10),
+                        textcoords="offset points",
+                        fontsize=8,
+                    )
 
         legend_handles.append(
             Line2D(
@@ -1313,7 +1327,13 @@ def area_timing_plot(reveal_step=None, save_path=None):
             )
         )
 
-    ax.set_xlim(left=0.7, right=2.1)
+
+    if reveal_step < 6:
+        ax.set_xlim(left=0.9, right=1.3)
+        ax.set_ylim(bottom=0, top=1000)
+    else:    
+        ax.set_xlim(left=0.7, right=2.1)
+        ax.set_ylim(bottom=0, top=2800)
     ax.set_xlabel("Achievable Clock Period [ns]", fontsize=12)
     ax.set_ylabel("Area [kGE]", fontsize=12)
     ax.grid(True, alpha=0.35, zorder=0)
@@ -1350,6 +1370,138 @@ def area_timing_plot_all_steps():
     for step in range(1, 9):
         area_timing_plot(reveal_step=step)
 
+
+
+def area_efficiency_plot_stepwise(reveal_step=None, save_path=None):
+    """Plot performance against area efficiency with incremental reveals.
+
+    Uses the same family order, colors, markers, and legend style as
+    :func:`area_timing_plot`. Axis limits are left to Matplotlib.
+    """
+    designs = {
+        "Schnova-ZOL": {"IPC": 0.85, "CLK": 1.022, "area": 129},
+        "Schnizo-GP-L": {"IPC": 2.52, "CLK": 2.003, "area": 1311},
+        "Schnizo-LA": {"IPC": 4.834, "CLK": 1.108, "area": 304},
+        "CVA6S+": {"IPC": 2.0, "CLK": 1.164, "area": 851},
+        "C910": {"IPC": 3.0, "CLK": 0.757, "area": 2674},
+        "GP-FW1": {"IPC": 0.91, "CLK": 1.011, "area": 194},
+        "GP-FW2": {"IPC": 1.64, "CLK": 1.051, "area": 345},
+        "GP-FW4": {"IPC": 2.13, "CLK": 1.065, "area": 464},
+        "GP-FW8": {"IPC": 2.52, "CLK": 1.219, "area": 589},
+        "GP-FW1-ROB": {"IPC": 0.91, "CLK": 1.015, "area": 330},
+        "GP-FW2-ROB": {"IPC": 1.64, "CLK": 1.051, "area": 439},
+        "GP-FW4-ROB": {"IPC": 2.13, "CLK": 1.199, "area": 674},
+        "GP-FW8-ROB": {"IPC": 2.52, "CLK": 1.246, "area": 815},
+        "LA-FW1": {"IPC": 1.00, "CLK": 1.005, "area": 182},
+        "LA-FW2": {"IPC": 1.77, "CLK": 1.004, "area": 245},
+        "LA-FW4": {"IPC": 3.479, "CLK": 1.092, "area": 342},
+        "LA-FW8": {"IPC": 4.915, "CLK": 1.171, "area": 543},
+    }
+
+    families = [
+        {"label": "Schnova, scalar", "names": ["Schnova-ZOL"],
+         "color": "tab:blue", "marker": "o", "connect": False},
+        {"label": "Schnova, GP, ROB",
+         "names": ["GP-FW1-ROB", "GP-FW2-ROB", "GP-FW4-ROB", "GP-FW8-ROB"],
+         "color": "tab:orange", "marker": "o", "connect": True},
+        {"label": "Schnova, GP, REF-CNT",
+         "names": ["GP-FW1", "GP-FW2", "GP-FW4", "GP-FW8"],
+         "color": "tab:green", "marker": "o", "connect": True},
+        {"label": "Schnova, LA",
+         "names": ["LA-FW1", "LA-FW2", "LA-FW4", "LA-FW8"],
+         "color": "tab:purple", "marker": "^", "connect": True},
+        {"label": "Schnizo, LA", "names": ["Schnizo-LA"],
+         "color": "tab:red", "marker": "^", "connect": False},
+        {"label": "Schnizo, GP", "names": ["Schnizo-GP-L"],
+         "color": "tab:red", "marker": "o", "connect": False},
+        {"label": "CVA6S+", "names": ["CVA6S+"],
+         "color": "tab:gray", "marker": "o", "connect": False},
+        {"label": "C910", "names": ["C910"],
+         "color": "tab:pink", "marker": "o", "connect": False},
+    ]
+
+    for d in designs.values():
+        d["performance_gips"] = d["IPC"] / d["CLK"]
+        d["area_efficiency"] = 1000.0 * d["performance_gips"] / d["area"]
+
+    if reveal_step is None:
+        active_families = families
+    else:
+        if not 1 <= reveal_step <= len(families):
+            raise ValueError(f"reveal_step must be between 1 and {len(families)}")
+        active_families = families[:reveal_step]
+
+    fig, ax = plt.subplots(figsize=(10, 5.2))
+    legend_handles = []
+
+    for family in active_families:
+        names = family["names"]
+        x = [designs[name]["performance_gips"] for name in names]
+        y = [designs[name]["area_efficiency"] for name in names]
+
+        if family["connect"]:
+            ax.plot(x, y, color=family["color"], linewidth=1.6,
+                    alpha=0.8, zorder=2)
+
+        ax.scatter(x, y, s=120, color=family["color"],
+                   marker=family["marker"], zorder=3)
+
+        for name, x_pos, y_pos in zip(names, x, y):
+            if ("FW" in name):
+                fw = name.split("FW", 1)[1].split("-", 1)[0]
+                if ("LA" in name and int(fw) == 1):
+                    continue
+
+                if ("GP-FW1" == name):
+                    ax.annotate(
+                        f"FW{fw}",
+                        (x_pos, y_pos),
+                        xytext=(-9, 10),
+                        textcoords="offset points",
+                        fontsize=8,
+                    )
+                else:
+                    ax.annotate(
+                        f"FW{fw}",
+                        (x_pos, y_pos),
+                        xytext=(5, 5),
+                        textcoords="offset points",
+                        fontsize=8,
+                    )
+
+
+        legend_handles.append(
+            Line2D([0], [0],
+                   color=(family["color"] if family["connect"] else "none"),
+                   marker=family["marker"],
+                   markerfacecolor=family["color"],
+                   markeredgecolor=family["color"],
+                   linewidth=(1.6 if family["connect"] else 0),
+                   markersize=8, label=family["label"])
+        )
+
+    ax.set_xlabel("Performance [GIPS]", fontsize=12)
+    ax.set_ylabel("Area Efficiency [MIPS/kGE]", fontsize=12)
+    ax.set_xlim(left=0.5, right=4.5)
+    ax.set_ylim(bottom=0, top=16)
+    ax.grid(True, alpha=0.35, zorder=0)
+    ax.legend(handles=legend_handles, loc="upper left", ncol=2,
+              frameon=True, fontsize=9)
+    fig.tight_layout()
+
+    if save_path is None:
+        suffix = "" if reveal_step is None else f"_step{reveal_step}"
+        save_path = f"area_efficiency{suffix}.png"
+
+    fig.savefig(save_path, bbox_inches="tight", pad_inches=0.1, dpi=300)
+    plt.close(fig)
+    print(f"Saved {save_path}")
+
+
+def area_efficiency_plot_all_steps():
+    """Generate all incremental area-efficiency reveal plots."""
+    for step in range(1, 9):
+        area_efficiency_plot_stepwise(reveal_step=step)
 
 def plot1():
     gp_area_efficiency_plot(False)
@@ -1412,12 +1564,54 @@ def plot7_all_steps():
     area_timing_plot_all_steps()
 
 
+
+def plot8():
+    area_efficiency_plot_stepwise()
+
+
+def plot8_step1():
+    area_efficiency_plot_stepwise(reveal_step=1)
+
+
+def plot8_step2():
+    area_efficiency_plot_stepwise(reveal_step=2)
+
+
+def plot8_step3():
+    area_efficiency_plot_stepwise(reveal_step=3)
+
+
+def plot8_step4():
+    area_efficiency_plot_stepwise(reveal_step=4)
+
+
+def plot8_step5():
+    area_efficiency_plot_stepwise(reveal_step=5)
+
+
+def plot8_step6():
+    area_efficiency_plot_stepwise(reveal_step=6)
+
+
+def plot8_step7():
+    area_efficiency_plot_stepwise(reveal_step=7)
+
+
+def plot8_step8():
+    area_efficiency_plot_stepwise(reveal_step=8)
+
+
+def plot8_all_steps():
+    area_efficiency_plot_all_steps()
+
 def main():
     plots = [
         plot1, plot2, plot3, plot4, plot5, plot6, plot7,
         plot7_step1, plot7_step2, plot7_step3, plot7_step4,
         plot7_step5, plot7_step6, plot7_step7, plot7_step8,
-        plot7_all_steps,
+        plot7_all_steps, plot8, plot8_step1, plot8_step2,
+        plot8_step3, plot8_step4, plot8_step5, plot8_step6,
+        plot8_step7, plot8_step8, plot8_all_steps,
     ]
     plot_dict = {f.__name__: f for f in plots}
 
@@ -1439,3 +1633,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+ 

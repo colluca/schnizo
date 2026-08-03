@@ -26,14 +26,12 @@ typedef struct {
 } relu_layer_t;
 
 static inline void relu_fp32_naive(float *in, float *out, uint32_t size) {
-    for (uint32_t i = 0; i < size; i++)
-        out[i] = in[i] > 0.0f ? in[i] : 0.0f;
+    for (uint32_t i = 0; i < size; i++) out[i] = in[i] > 0.0f ? in[i] : 0.0f;
 }
 
 static inline void relu_fp32_baseline(float *in, float *out, uint32_t size) {
-    #pragma clang loop unroll_count(4)
-    for (uint32_t i = 0; i < size; i++)
-        out[i] = in[i] > 0.0f ? in[i] : 0.0f;
+#pragma clang loop unroll_count(4)
+    for (uint32_t i = 0; i < size; i++) out[i] = in[i] > 0.0f ? in[i] : 0.0f;
 }
 
 // Load-use-store kernel: frep.i → 4x unroll, frep.o → scalar.
@@ -60,10 +58,9 @@ static inline void relu_fp32_schnizo(float *in, float *out, uint32_t size) {
         "fsw      fa3, 12(%[out])        \n"
         "addi     %[in],  %[in],  16    \n"
         "addi     %[out], %[out], 16    \n"
-        : [in]  "+r"(in), [out] "+r"(out)
-        : [n]   "r"(n_frep)
-        : "ft3", "fa0", "fa1", "fa2", "fa3", "memory"
-    );
+        : [in] "+r"(in), [out] "+r"(out)
+        : [n] "r"(n_frep)
+        : "ft3", "fa0", "fa1", "fa2", "fa3", "memory");
 #else
     int n_frep = size - 1;
     asm volatile(
@@ -74,10 +71,9 @@ static inline void relu_fp32_schnizo(float *in, float *out, uint32_t size) {
         "fsw      fa0,  0(%[out])        \n"
         "addi     %[in],  %[in],   4    \n"
         "addi     %[out], %[out],  4    \n"
-        : [in]  "+r"(in), [out] "+r"(out)
-        : [n]   "r"(n_frep)
-        : "ft3", "fa0", "memory"
-    );
+        : [in] "+r"(in), [out] "+r"(out)
+        : [n] "r"(n_frep)
+        : "ft3", "fa0", "memory");
 #endif
 }
 
@@ -97,27 +93,25 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
         szrt_set_frep_lsu_store_en(store_mask);
     }
     int n_frep = size / 4 - 1;
-    asm volatile(
-        "fmv.w.x  ft3, zero              \n"
-        FREP    " %[n], 14, 0, 0         \n"
-        "flw      fa0,  0(%[in])         \n"
-        "flw      fa1,  4(%[in])         \n"
-        "flw      fa2,  8(%[in])         \n"
-        "flw      fa3, 12(%[in])         \n"
-        "fmax.s   fa0, fa0, ft3          \n"
-        "fmax.s   fa1, fa1, ft3          \n"
-        "fmax.s   fa2, fa2, ft3          \n"
-        "fmax.s   fa3, fa3, ft3          \n"
-        "fsw      fa0,  0(%[out])        \n"
-        "fsw      fa1,  4(%[out])        \n"
-        "fsw      fa2,  8(%[out])        \n"
-        "fsw      fa3, 12(%[out])        \n"
-        "addi     %[in],  %[in],  16    \n"
-        "addi     %[out], %[out], 16    \n"
-        : [in]  "+r"(in), [out] "+r"(out)
-        : [n]   "r"(n_frep)
-        : "ft3", "fa0", "fa1", "fa2", "fa3", "memory"
-    );
+    asm volatile("fmv.w.x  ft3, zero              \n" FREP
+                 " %[n], 14, 0, 0         \n"
+                 "flw      fa0,  0(%[in])         \n"
+                 "flw      fa1,  4(%[in])         \n"
+                 "flw      fa2,  8(%[in])         \n"
+                 "flw      fa3, 12(%[in])         \n"
+                 "fmax.s   fa0, fa0, ft3          \n"
+                 "fmax.s   fa1, fa1, ft3          \n"
+                 "fmax.s   fa2, fa2, ft3          \n"
+                 "fmax.s   fa3, fa3, ft3          \n"
+                 "fsw      fa0,  0(%[out])        \n"
+                 "fsw      fa1,  4(%[out])        \n"
+                 "fsw      fa2,  8(%[out])        \n"
+                 "fsw      fa3, 12(%[out])        \n"
+                 "addi     %[in],  %[in],  16    \n"
+                 "addi     %[out], %[out], 16    \n"
+                 : [in] "+r"(in), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "ft3", "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
     // LSU0 is dedicated for loads
     uint32_t load_mask = (1 << 0);
@@ -129,27 +123,25 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
         szrt_set_frep_lsu_store_en(store_mask);
     }
     int n_frep = size / 4 - 1;
-    asm volatile(
-        "fmv.w.x  ft3, zero              \n"
-        FREP    " %[n], 14, 0, 0         \n"
-        "flw      fa0,  0(%[in])         \n"
-        "fmax.s   fa0, fa0, ft3          \n"
-        "fsw      fa0,  0(%[out])        \n"
-        "flw      fa1,  4(%[in])         \n"
-        "fmax.s   fa1, fa1, ft3          \n"
-        "fsw      fa1,  4(%[out])        \n"
-        "flw      fa2,  8(%[in])         \n"
-        "fmax.s   fa2, fa2, ft3          \n"
-        "fsw      fa2,  8(%[out])        \n"
-        "flw      fa3, 12(%[in])         \n"
-        "fmax.s   fa3, fa3, ft3          \n"
-        "fsw      fa3, 12(%[out])        \n"
-        "addi     %[in],  %[in],  16    \n"
-        "addi     %[out], %[out], 16    \n"
-        : [in]  "+r"(in), [out] "+r"(out)
-        : [n]   "r"(n_frep)
-        : "ft3", "fa0", "fa1", "fa2", "fa3", "memory"
-    );
+    asm volatile("fmv.w.x  ft3, zero              \n" FREP
+                 " %[n], 14, 0, 0         \n"
+                 "flw      fa0,  0(%[in])         \n"
+                 "fmax.s   fa0, fa0, ft3          \n"
+                 "fsw      fa0,  0(%[out])        \n"
+                 "flw      fa1,  4(%[in])         \n"
+                 "fmax.s   fa1, fa1, ft3          \n"
+                 "fsw      fa1,  4(%[out])        \n"
+                 "flw      fa2,  8(%[in])         \n"
+                 "fmax.s   fa2, fa2, ft3          \n"
+                 "fsw      fa2,  8(%[out])        \n"
+                 "flw      fa3, 12(%[in])         \n"
+                 "fmax.s   fa3, fa3, ft3          \n"
+                 "fsw      fa3, 12(%[out])        \n"
+                 "addi     %[in],  %[in],  16    \n"
+                 "addi     %[out], %[out], 16    \n"
+                 : [in] "+r"(in), [out] "+r"(out)
+                 : [n] "r"(n_frep)
+                 : "ft3", "fa0", "fa1", "fa2", "fa3", "memory");
 #else
     // LSU0 and LSU1 are dedicated for loads
     uint32_t load_mask = (1 << 0) | (1 << 1);
@@ -174,10 +166,9 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
         "fsw      fa0,  0(%[out])        \n"
         "addi     %[in],  %[in],   4    \n"
         "addi     %[out], %[out],  4    \n"
-        : [in]  "+r"(in), [out] "+r"(out)
-        : [n]   "r"(n_frep)
-        : "ft3", "fa0", "memory"
-    );
+        : [in] "+r"(in), [out] "+r"(out)
+        : [n] "r"(n_frep)
+        : "ft3", "fa0", "memory");
 #endif
 }
 
@@ -190,10 +181,10 @@ static inline void relu_layer(relu_layer_t l) {
     uint32_t tile_size = l.size / l.n_tiles;
     uint32_t tile_bytes = tile_size * data_type_size;
 
-    char *local_in  = (char *)snrt_l1_next();
+    char *local_in = (char *)snrt_l1_next();
     char *local_out = local_in + tile_bytes;
 
-    char *remote_in  = (char *)l.ifmap;
+    char *remote_in = (char *)l.ifmap;
     char *remote_out = (char *)l.ofmap;
 
     for (uint32_t ct = 0; ct < n_tiles_per_cluster; ct++) {
@@ -209,12 +200,11 @@ static inline void relu_layer(relu_layer_t l) {
 
         if (snrt_is_compute_core()) {
             uint32_t num_cores = snrt_cluster_compute_core_num();
-            uint32_t core_idx  = snrt_cluster_core_idx();
-            uint32_t per_core  = tile_size / num_cores;
+            uint32_t core_idx = snrt_cluster_core_idx();
+            uint32_t per_core = tile_size / num_cores;
             snrt_mcycle();
-            l.funcptr((float *)local_in  + core_idx * per_core,
-                      (float *)local_out + core_idx * per_core,
-                      per_core);
+            l.funcptr((float *)local_in + core_idx * per_core,
+                      (float *)local_out + core_idx * per_core, per_core);
             snrt_mcycle();
         }
 

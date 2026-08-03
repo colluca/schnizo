@@ -53,11 +53,9 @@ int main() {
     // ---------------------------------------------------------
     // Set Load Enable to 0x15 (binary 0010101 -> LSU0, LSU2, LSU4)
     szrt_set_frep_lsu_load_en(0x15);
-    
     if (szrt_frep_lsu_load_en() != 0x15) {
         return 6;
     }
-    
     // ISOLATION CHECK: Ensure Store Enable was NOT corrupted by the load write
     if (szrt_frep_lsu_store_en() != 0x7F) {
         return 7;
@@ -68,16 +66,13 @@ int main() {
     // ---------------------------------------------------------
     // Set Store Enable to 0x2A (binary 0101010 -> LSU1, LSU3, LSU5)
     szrt_set_frep_lsu_store_en(0x2A);
-    
     if (szrt_frep_lsu_store_en() != 0x2A) {
         return 8;
     }
-
     // ISOLATION CHECK: Ensure Load Enable was NOT corrupted by the store write
     if (szrt_frep_lsu_load_en() != 0x15) {
         return 9;
     }
-
     // ISOLATION CHECK: Ensure Memory Consistency mode was NOT corrupted
     if (szrt_frep_mem_consistency() != FREP_MEM_NO_CONSISTENCY) {
         return 10;

@@ -9,7 +9,8 @@
 
 #include "vexpf_optimized_asm.h"
 
-static inline void vexpf_optimized(double *a, double *b, uint32_t len, uint32_t batch_size) {
+static inline void vexpf_optimized(double *a, double *b, uint32_t len,
+                                   uint32_t batch_size) {
 #ifdef SNRT_SUPPORTS_FREP
 
     // Derived parameters
@@ -128,10 +129,10 @@ static inline void vexpf_optimized(double *a, double *b, uint32_t len, uint32_t 
                 int unroll_factor = 4;
                 asm volatile("frep.o %[n_frep], 36, 0, 0 \n" FP0_ASM_BODY
                              :
-                             : [ n_frep ] "r"(batch_size / unroll_factor - 1),
-                               [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
-                               [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
-                               [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3])
+                             : [n_frep] "r"(batch_size / unroll_factor - 1),
+                               [InvLn2N] "f"(InvLn2N), [SHIFT] "f"(SHIFT),
+                               [C0] "f"(C[0]), [C1] "f"(C[1]), [C2] "f"(C[2]),
+                               [C3] "f"(C[3])
                              : "memory", "ft0", "ft1", "ft2", "fa3", "ft3",
                                "ft4", "ft5", "fa1", "fa2", "fa3", "fa4", "fa5",
                                "fa6", "fa7", "ft3", "ft4", "ft5", "ft6", "ft7",
@@ -172,10 +173,10 @@ static inline void vexpf_optimized(double *a, double *b, uint32_t len, uint32_t 
                 // FP0 and FP1 computation
                 asm volatile("frep.o %[n_frep], 40, 0, 0 \n" FP0_FP1_ASM_BODY
                              :
-                             : [ n_frep ] "r"(batch_size / unroll_factor - 1),
-                               [ InvLn2N ] "f"(InvLn2N), [ SHIFT ] "f"(SHIFT),
-                               [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
-                               [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3])
+                             : [n_frep] "r"(batch_size / unroll_factor - 1),
+                               [InvLn2N] "f"(InvLn2N), [SHIFT] "f"(SHIFT),
+                               [C0] "f"(C[0]), [C1] "f"(C[1]), [C2] "f"(C[2]),
+                               [C3] "f"(C[3])
                              : "memory", "ft0", "ft1", "ft2", "fa1", "fa2",
                                "fa3", "fa4", "fa5", "fa6", "fa7", "ft3", "ft4",
                                "ft5", "ft6", "ft7", "ft8", "fs0", "fs1", "fs2");
@@ -210,7 +211,7 @@ static inline void vexpf_optimized(double *a, double *b, uint32_t len, uint32_t 
                 // FP1 computation
                 asm volatile("frep.o %[n_frep], 4, 0, 0 \n" FP1_ASM_BODY
                              :
-                             : [ n_frep ] "r"(batch_size / unroll_factor - 1)
+                             : [n_frep] "r"(batch_size / unroll_factor - 1)
                              : "memory", "ft0", "ft1", "ft2");
 
                 // Increment buffer indices for next iteration
@@ -234,8 +235,8 @@ static inline void vexpf_optimized(double *a, double *b, uint32_t len, uint32_t 
                 for (int i = 0; i < batch_size; i += unroll_factor) {
                     asm volatile(INT_ASM_BODY
                                  :
-                                 : [ ki ] "r"(int_ki_ptr + i), [ T ] "r"(T),
-                                   [ t ] "r"(int_t_ptr + i)
+                                 : [ki] "r"(int_ki_ptr + i), [T] "r"(T),
+                                   [t] "r"(int_t_ptr + i)
                                  : "memory", "a0", "a1", "a2", "a3", "a4", "a5",
                                    "a6", "a7", "t0", "t1", "t2", "t3");
                 }

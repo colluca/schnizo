@@ -4,10 +4,10 @@
 
 #pragma once
 
+#include "../../misc/exp/src/vexpf.h"
+#include "blas.h"
 #include "math.h"
 #include "snrt.h"
-#include "blas.h"
-#include "../../misc/exp/src/vexpf.h"
 
 #ifndef SOFTMAX_FUNC_PTR
 #define SOFTMAX_FUNC_PTR softmax_fp32_schnizo
@@ -40,13 +40,11 @@ typedef struct softmax_layer_struct {
     precision_t dtype;
 } softmax_layer_t;
 
-
 /**
  * Implementation of the SoftMax layer.
  */
-static inline void softmax_fp32(float *input, float *output,
-                                int32_t batch_size, int32_t seq_len,
-                                int32_t input_samples,
+static inline void softmax_fp32(float *input, float *output, int32_t batch_size,
+                                int32_t seq_len, int32_t input_samples,
                                 uint32_t core_id, uint32_t core_num) {
     const int32_t batch_offset = seq_len * input_samples;
 
@@ -82,11 +80,10 @@ static inline void softmax_fp32(float *input, float *output,
     snrt_cluster_hw_barrier();
 }
 
-
 static inline void softmax_fp32_schnizo(float *input, float *output,
                                         int32_t batch_size, int32_t seq_len,
-                                        int32_t input_samples, 
-                                        uint32_t core_id, uint32_t core_num) {
+                                        int32_t input_samples, uint32_t core_id,
+                                        uint32_t core_num) {
     float max_core;
     float sum;
     int32_t batch_offset = seq_len * input_samples;
@@ -94,7 +91,7 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
     for (int32_t b = 0; b < batch_size; b++) {
         // Grid-stride loop: naturally handles non-multiples and seq_len < core_num
         for (int32_t s = core_id; s < seq_len; s += core_num) {
-            float *row_in  = &input [b * batch_offset + s * input_samples];
+            float *row_in = &input[b * batch_offset + s * input_samples];
             float *row_out = &output[b * batch_offset + s * input_samples];
 
             // find max (compute-bound, fmax.s: 4 accumulators for both frep.i/o)
@@ -116,11 +113,10 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "fmax.s %[m3], %[m3], fa3          \n"
                     "addi   %[ptr], %[ptr], 16         \n"
                     // clang-format on
-                    : [ m0 ] "+f"(m0), [ m1 ] "+f"(m1),
-                      [ m2 ] "+f"(m2), [ m3 ] "+f"(m3), [ ptr ] "+r"(ptr)
-                    : [ n ] "r"(n_frep)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [m0] "+f"(m0), [m1] "+f"(m1), [m2] "+f"(m2),
+                      [m3] "+f"(m3), [ptr] "+r"(ptr)
+                    : [n] "r"(n_frep)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
                 m0 = fmaxf(m0, m1);
                 m2 = fmaxf(m2, m3);
                 max_core = fmaxf(m0, m2);
@@ -149,10 +145,9 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "addi   %[in],  %[in],  16        \n"
                     "addi   %[out], %[out], 16        \n"
                     // clang-format on
-                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
-                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
+                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
                 int n_frep = input_samples - 1;
                 asm volatile(
@@ -164,10 +159,9 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "addi   %[in],  %[in],  4          \n"
                     "addi   %[out], %[out], 4          \n"
                     // clang-format on
-                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
-                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "memory"
-                );
+                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
+                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : "fa0", "memory");
 #endif
             }
 
@@ -192,11 +186,10 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
                     "fadd.s %[s3], %[s3], fa3          \n"
                     "addi   %[ptr], %[ptr], 16         \n"
                     // clang-format on
-                    : [ s0 ] "+f"(sum1), [ s1 ] "+f"(sum2),
-                      [ s2 ] "+f"(sum3), [ s3 ] "+f"(sum4), [ ptr ] "+r"(ptr)
-                    : [ n ] "r"(n_frep)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [s0] "+f"(sum1), [s1] "+f"(sum2), [s2] "+f"(sum3),
+                      [s3] "+f"(sum4), [ptr] "+r"(ptr)
+                    : [n] "r"(n_frep)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
                 sum1 += sum2;
                 sum3 += sum4;
                 sum = sum1 + sum3;
@@ -212,8 +205,8 @@ static inline void softmax_fp32_schnizo(float *input, float *output,
 
 static inline void softmax_fp32_schnova(float *input, float *output,
                                         int32_t batch_size, int32_t seq_len,
-                                        int32_t input_samples, 
-                                        uint32_t core_id, uint32_t core_num) {
+                                        int32_t input_samples, uint32_t core_id,
+                                        uint32_t core_num) {
     float max_core;
     float sum;
     int32_t batch_offset = seq_len * input_samples;
@@ -224,12 +217,12 @@ static inline void softmax_fp32_schnova(float *input, float *output,
     } else if (szrt_nof_lsus() == 2) {
         // Fix some LSUs to only accept load or store instructions
         szrt_set_frep_lsu_load_en((1 << 0));
-        szrt_set_frep_lsu_store_en((1 << 1)); 
+        szrt_set_frep_lsu_store_en((1 << 1));
     }
     for (int32_t b = 0; b < batch_size; b++) {
         // Grid-stride loop: naturally handles non-multiples and seq_len < core_num
         for (int32_t s = core_id; s < seq_len; s += core_num) {
-            float *row_in  = &input [b * batch_offset + s * input_samples];
+            float *row_in = &input[b * batch_offset + s * input_samples];
             float *row_out = &output[b * batch_offset + s * input_samples];
 
             // find max (compute-bound, fmax.s: 4 accumulators for both frep.i/o)
@@ -263,11 +256,10 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[ptr], %[ptr], 16         \n"
 #endif
                     // clang-format on
-                    : [ m0 ] "+f"(m0), [ m1 ] "+f"(m1),
-                      [ m2 ] "+f"(m2), [ m3 ] "+f"(m3), [ ptr ] "+r"(ptr)
-                    : [ n ] "r"(n_frep)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [m0] "+f"(m0), [m1] "+f"(m1), [m2] "+f"(m2),
+                      [m3] "+f"(m3), [ptr] "+r"(ptr)
+                    : [n] "r"(n_frep)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
                 m0 = fmaxf(m0, m1);
                 m2 = fmaxf(m2, m3);
                 max_core = fmaxf(m0, m2);
@@ -296,10 +288,9 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[in],  %[in],  16        \n"
                     "addi   %[out], %[out], 16        \n"
                     // clang-format on
-                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
-                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
+                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
 #elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
                 int n_frep = input_samples / 4 - 1;
                 asm volatile(
@@ -320,10 +311,9 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[in],  %[in],  16        \n"
                     "addi   %[out], %[out], 16        \n"
                     // clang-format on
-                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
-                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
+                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
 #else
                 int n_frep = input_samples - 1;
                 asm volatile(
@@ -335,10 +325,9 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[in],  %[in],  4          \n"
                     "addi   %[out], %[out], 4          \n"
                     // clang-format on
-                    : [ in ] "+r"(in_ptr), [ out ] "+r"(out_ptr)
-                    : [ n ] "r"(n_frep), [ max ] "f"(max_core)
-                    : "fa0", "memory"
-                );
+                    : [in] "+r"(in_ptr), [out] "+r"(out_ptr)
+                    : [n] "r"(n_frep), [max] "f"(max_core)
+                    : "fa0", "memory");
 #endif
             }
 
@@ -375,21 +364,19 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                     "addi   %[ptr], %[ptr], 16         \n"
 #endif
                     // clang-format on
-                    : [ s0 ] "+f"(sum1), [ s1 ] "+f"(sum2),
-                      [ s2 ] "+f"(sum3), [ s3 ] "+f"(sum4), [ ptr ] "+r"(ptr)
-                    : [ n ] "r"(n_frep)
-                    : "fa0", "fa1", "fa2", "fa3", "memory"
-                );
+                    : [s0] "+f"(sum1), [s1] "+f"(sum2), [s2] "+f"(sum3),
+                      [s3] "+f"(sum4), [ptr] "+r"(ptr)
+                    : [n] "r"(n_frep)
+                    : "fa0", "fa1", "fa2", "fa3", "memory");
                 sum1 += sum2;
                 sum3 += sum4;
                 sum = sum1 + sum3;
             }
-            asm volatile( 
+            asm volatile(
                 "nop            \n"
                 "nop            \n"
-                "nop            \n"
-                :::          
-            );
+                "nop            \n" ::
+                    :);
             // in-place normalization
             scal_fp32_schnizo(1.0f / sum, row_out, input_samples);
         }
@@ -400,7 +387,7 @@ static inline void softmax_fp32_schnova(float *input, float *output,
 
 static inline void softmax_layer(softmax_layer_t const l) {
     uint32_t compute_num = snrt_cluster_compute_core_num();
-    uint32_t compute_id  = snrt_cluster_core_idx(); 
+    uint32_t compute_id = snrt_cluster_core_idx();
 
     uint32_t ifmap_size = l.batch_size * l.seq_len * l.input_samples;
     uint32_t ofmap_size = ifmap_size;
@@ -430,8 +417,8 @@ static inline void softmax_layer(softmax_layer_t const l) {
     if (snrt_is_compute_core()) {
         snrt_mcycle();
         // Pass base pointers and let the inner grid-stride loop balance the work
-        SOFTMAX_FUNC_PTR(ifmap, ofmap, l.batch_size, l.seq_len, 
-                             l.input_samples, compute_id, compute_num);
+        SOFTMAX_FUNC_PTR(ifmap, ofmap, l.batch_size, l.seq_len, l.input_samples,
+                         compute_id, compute_num);
         snrt_mcycle();
     } else {
         snrt_cluster_hw_barrier();
