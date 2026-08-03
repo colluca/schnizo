@@ -1300,7 +1300,7 @@ static inline void conv2d_fp32(kernel_fp32 *k) {
                               [ reduce_reg0 ] "+f"(reduce_reg[0]),
                               [ reduce_reg1 ] "+f"(reduce_reg[1])
                             : [ n_frep ] "r"(k->dim_kernel_y * k->dim_kernel_x *
-                                                k->ch_in / 2 -
+                                                 k->ch_in / 2 -
                                              1)
                             : "ft0", "ft1", "ft2");
                         break;
