@@ -182,13 +182,15 @@ static inline void layernorm_fp32_opt(float *input, float *output,
                     "fdiv.s %[var_tot], %[one_reg], %[var_tot] \n"
                     "vfcpka.s.s %[mean_reg], %[var_tot], %[var_tot] \n"
 
-                    : [ var_reg0 ] "+f"(var_reg[0]), [ var_reg1 ] "+f"(var_reg[1]),
-                      [ var_reg2 ] "+f"(var_reg[2]), [ var_reg3 ] "+f"(var_reg[3]),
-                      [ pow0 ] "+f"(pow[0]), [ pow1 ] "+f"(pow[1]),
-                      [ pow2 ] "+f"(pow[2]), [ pow3 ] "+f"(pow[3]),
-                      [ var0 ] "+f"(var[0]), [ var1 ] "+f"(var[1]),
-                      [ var2 ] "+f"(var[2]), [ var3 ] "+f"(var[3]),
-                      [ var_tot ] "+f"(var_tot), [ mean_reg ] "+f"(mean_reg)
+                    : [ var_reg0 ] "+f"(var_reg[0]), 
+                      [ var_reg1 ] "+f"(var_reg[1]),
+                      [ var_reg2 ] "+f"(var_reg[2]), 
+                      [ var_reg3 ] "+f"(var_reg[3]), [ pow0 ] "+f"(pow[0]), 
+                      [ pow1 ] "+f"(pow[1]), [ pow2 ] "+f"(pow[2]), 
+                      [ pow3 ] "+f"(pow[3]), [ var0 ] "+f"(var[0]), 
+                      [ var1 ] "+f"(var[1]), [ var2 ] "+f"(var[2]), 
+                      [ var3 ] "+f"(var[3]), [ var_tot ] "+f"(var_tot), 
+                      [ mean_reg ] "+f"(mean_reg)
                     : [ n_frep ] "r"(n_frep - 1), [ mean_tot ] "f"(mean_tot),
                       [ embeddings ] "f"((float)embeddings),
                       [ eps ] "f"((float)eps), [ zero ] "f"(0.0),
@@ -324,7 +326,7 @@ static inline void layernorm_fp32_schnizo(void *ifmap_, void *ofmap_,
                          "fadd.s %[s2], %[s2], fa2            \n"
                          "fadd.s %[s3], %[s3], fa3            \n"
                          "addi   %[xp], %[xp], 16            \n"
-                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [s2] "+f"(s2),
+                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
                            [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
                          : [ n ] "r"(n_frep)
                          : "fa0", "fa1", "fa2", "fa3");
@@ -425,7 +427,7 @@ static inline void layernorm_fp32_schnizo(void *ifmap_, void *ofmap_,
     "fsw    fa5, 20(%[yp])               \n" \
     "fsw    fa6, 24(%[yp])               \n" \
     "fsw    fa7, 28(%[yp])               \n"
-#define _P3_OPERANDS                                                                   \
+#define _P3_OPERANDS                                                                         \
                 : [ xp ] "+r"(xp), [ yp ] "+r"(yp) \
                 : [ n ]  "r"(n_frep_pass3 - 1), [ mean ] "f"(mean), [ inv_std ] "f"(inv_std) \
                 : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"
@@ -483,20 +485,20 @@ static inline void layernorm_fp32_schnova(void *ifmap_, void *ofmap_,
                          "fadd.s %[s3], %[s3], fa3            \n"
                          "addi   %[xp], %[xp], 16             \n"
 #else
-                          "flw    fa0,  0(%[xp])               \n"
-                          "flw    fa1,  4(%[xp])               \n"
-                          "flw    fa2,  8(%[xp])               \n"
-                          "flw    fa3, 12(%[xp])               \n"
-                          "fadd.s %[s0], %[s0], fa0            \n"
-                          "fadd.s %[s1], %[s1], fa1            \n"
-                          "fadd.s %[s2], %[s2], fa2            \n"
-                          "fadd.s %[s3], %[s3], fa3            \n"
-                          "addi   %[xp], %[xp], 16             \n"
+                        "flw    fa0,  0(%[xp])               \n"
+                        "flw    fa1,  4(%[xp])               \n"
+                        "flw    fa2,  8(%[xp])               \n"
+                        "flw    fa3, 12(%[xp])               \n"
+                        "fadd.s %[s0], %[s0], fa0            \n"
+                        "fadd.s %[s1], %[s1], fa1            \n"
+                        "fadd.s %[s2], %[s2], fa2            \n"
+                        "fadd.s %[s3], %[s3], fa3            \n"
+                        "addi   %[xp], %[xp], 16             \n"
 #endif
-                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
-                           [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
-                         : [ n ] "r"(n_frep)
-                         : "fa0", "fa1", "fa2", "fa3");
+                        : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
+                          [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
+                        : [ n ] "r"(n_frep)
+                        : "fa0", "fa1", "fa2", "fa3");
             float mean = (s0 + s1 + s2 + s3) / (float)embeddings;
 
             // Pass 2: sum of squared deviations (4 accumulators, uses fmadd)
@@ -519,24 +521,24 @@ static inline void layernorm_fp32_schnova(void *ifmap_, void *ofmap_,
                          "fmadd.s %[v3], fa3, fa3, %[v3]      \n"
                          "addi   %[xp], %[xp], 16             \n"
 #else
-                          "flw    fa0,  0(%[xp])               \n"
-                          "fsub.s fa0, fa0, %[mean]            \n"
-                          "flw    fa1,  4(%[xp])               \n"
-                          "fsub.s fa1, fa1, %[mean]            \n"
-                          "flw    fa2,  8(%[xp])               \n"
-                          "fsub.s fa2, fa2, %[mean]            \n"
-                          "flw    fa3, 12(%[xp])               \n"
-                          "fsub.s fa3, fa3, %[mean]            \n"
-                          "fmadd.s %[v0], fa0, fa0, %[v0]      \n"
-                          "fmadd.s %[v1], fa1, fa1, %[v1]      \n"
-                          "fmadd.s %[v2], fa2, fa2, %[v2]      \n"
-                          "fmadd.s %[v3], fa3, fa3, %[v3]      \n"
-                          "addi   %[xp], %[xp], 16             \n"
+                        "flw    fa0,  0(%[xp])               \n"
+                        "fsub.s fa0, fa0, %[mean]            \n"
+                        "flw    fa1,  4(%[xp])               \n"
+                        "fsub.s fa1, fa1, %[mean]            \n"
+                        "flw    fa2,  8(%[xp])               \n"
+                        "fsub.s fa2, fa2, %[mean]            \n"
+                        "flw    fa3, 12(%[xp])               \n"
+                        "fsub.s fa3, fa3, %[mean]            \n"
+                        "fmadd.s %[v0], fa0, fa0, %[v0]      \n"
+                        "fmadd.s %[v1], fa1, fa1, %[v1]      \n"
+                        "fmadd.s %[v2], fa2, fa2, %[v2]      \n"
+                        "fmadd.s %[v3], fa3, fa3, %[v3]      \n"
+                        "addi   %[xp], %[xp], 16             \n"
 #endif
-                         : [ v0 ] "+f"(v0), [ v1 ] "+f"(v1), [ v2 ] "+f"(v2),
-                           [ v3 ] "+f"(v3), [ xp ] "+r"(xp)
-                         : [ n ] "r"(n_frep), [ mean ] "f"(mean)
-                         : "fa0", "fa1", "fa2", "fa3");
+                        : [ v0 ] "+f"(v0), [ v1 ] "+f"(v1), [ v2 ] "+f"(v2),
+                          [ v3 ] "+f"(v3), [ xp ] "+r"(xp)
+                        : [ n ] "r"(n_frep), [ mean ] "f"(mean)
+                        : "fa0", "fa1", "fa2", "fa3");
             float inv_std =
                 1.0f / sqrtf((v0 + v1 + v2 + v3) / (float)embeddings + eps);
 
@@ -655,7 +657,7 @@ static inline void layernorm_fp32_schnova(void *ifmap_, void *ofmap_,
     "fsw    fa6, 24(%[yp])               \n" \
     "fsw    fa7, 28(%[yp])               \n"
 
-#define _P3_OPERANDS                                                                   \
+#define _P3_OPERANDS                                                                         \
                 : [ xp ] "+r"(xp), [ yp ] "+r"(yp) \
                 : [ n ]  "r"(n_frep_pass3 - 1), [ mean ] "f"(mean), [ inv_std ] "f"(inv_std) \
                 : "fa0","fa1","fa2","fa3","fa4","fa5","fa6","fa7","memory"

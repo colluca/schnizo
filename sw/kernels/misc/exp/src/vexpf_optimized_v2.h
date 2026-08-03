@@ -277,7 +277,8 @@ static inline void vexpf_optimized_v2(double *a, double *b, uint32_t len,
                     : [ n_iter ] "+r"(n_inner_iter_m2)
                     : [ t ] "r"(t), [ T ] "r"(T), [ InvLn2N ] "f"(InvLn2N),
                       [ SHIFT ] "f"(SHIFT), [ C0 ] "f"(C[0]), [ C1 ] "f"(C[1]),
-                      [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3]), [ n_frep ] "r"(n_frep_m2)
+                      [ C2 ] "f"(C[2]), [ C3 ] "f"(C[3]), 
+                      [ n_frep ] "r"(n_frep_m2)
                     : "memory", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
                       "t0", "t1", "t2", "t3", "t6", "fa0", "fa1", "fa2", "fa3",
                       "fa4", "fa5", "fa6", "fa7", "ft3", "ft4", "ft5", "ft6",

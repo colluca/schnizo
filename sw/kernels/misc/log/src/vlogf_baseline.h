@@ -165,7 +165,7 @@ static inline void vlogf_baseline(float *a, double *b) {
                           [ output3 ] "=f"(comp_b_ptr[i + 3])
                         : [ input ] "r"(comp_a_ptr + i), [ Ln2 ] "f"(Ln2),
                           [ OFF ] "r"(OFF), [ T ] "r"(T), [ A0 ] "f"(A[0]),
-                          [ A1] "f"(A[1]), [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3])
+                          [ A1 ] "f"(A[1]), [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3])
                         : "memory", "a0", "a1", "a2", "a3", "a4", "a5", "a6",
                           "a7", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "s0",
                           "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6",

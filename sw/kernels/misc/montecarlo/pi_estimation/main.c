@@ -471,11 +471,11 @@ static inline uint32_t calculate_psum_optimized(PRNG_T *prngs,
                         "add %[temp5], %[temp5], a5 \n"
                         "add %[temp6], %[temp6], a6 \n"
                         "add %[temp7], %[temp7], a7 \n"
-                        : [temp0] "+r"(temp0), [temp1] "+r"(temp1),
-                          [temp2] "+r"(temp2), [temp3] "+r"(temp3),
-                          [temp4] "+r"(temp4), [temp5] "+r"(temp5),
-                          [temp6] "+r"(temp6), [temp7] "+r"(temp7)
-                        : [rng_z] "r"(&int_z_ptr[j])
+                        : [ temp0 ] "+r"(temp0), [ temp1 ] "+r"(temp1),
+                          [ temp2 ] "+r"(temp2), [ temp3 ] "+r"(temp3),
+                          [ temp4 ] "+r"(temp4), [ temp5 ] "+r"(temp5),
+                          [ temp6 ] "+r"(temp6), [ temp7 ] "+r"(temp7)
+                        : [ rng_z ] "r"(&int_z_ptr[j])
                         : "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
                           "memory");
                 }
