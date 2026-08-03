@@ -3,11 +3,18 @@
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
+"""Generate comparison and parameter-sweep plots for Schnova experiments.
+
+The module contains shared plotting helpers, architecture comparisons,
+parameter-sweep plots, and command-line entry points. Experimental data is
+loaded through the project-specific ``experiments`` modules.
+"""
+
 import argparse
-from turtle import width
+import re
+
 import matplotlib.pyplot as plt
 import numpy as np
-import re
 from scipy.stats import gmean
 
 try:
@@ -70,12 +77,12 @@ SCHNOVA_PIPELINE_CONFIGS = {
 
 
 def format_metric(val, metric):
+    """Format a metric value for human-readable console output."""
     if metric == 'fpu_util':
         return f'{round(100 * val, 1)}%'
-    elif metric == 'ipc':
+    if metric == 'ipc':
         return f'{round(val, 2)}'
-    else:
-        raise ValueError(f'Unsupported metric {metric}')
+    raise ValueError(f'Unsupported metric {metric}')
 
 
 def _largest_size_pivot(plot_data, metric):
@@ -189,7 +196,6 @@ def _finish_bar_plot(
         plt.close(fig)
 
 
-
 def _apply_schnizo_gpl_axpy_override(plot_df, metric):
     """Insert a manual Schnizo GP-L AXPY value."""
     if 'Schnizo Superscalar' not in plot_df.columns:
@@ -208,7 +214,10 @@ def _style_metric_axis(ax, plot_df, metric, show_xlabels):
     ax.set_ylabel(METRIC_LABELS.get(metric, metric.upper()))
     ax.set_xlabel('')
     ax.grid(True, axis='y', color='gray', linewidth=0.5, alpha=1.0)
-    clean_labels = [APP_LABELS.get(app, app.replace('xoshiro128p', 'xoshiro')) for app in plot_df.index]
+    clean_labels = [
+        APP_LABELS.get(app, app.replace('xoshiro128p', 'xoshiro'))
+        for app in plot_df.index
+    ]
     if show_xlabels:
         ax.set_xticklabels(clean_labels, rotation=15, ha='right')
     else:
@@ -220,7 +229,14 @@ def _style_metric_axis(ax, plot_df, metric, show_xlabels):
         ax.set_ylim(bottom=0, top=1.3)
 
 
-def _plot_metric_bars(ax, plot_df, color_pairs, metric, ideal_models=None, show_xlabels=True):
+def _plot_metric_bars(
+    ax,
+    plot_df,
+    color_pairs,
+    metric,
+    ideal_models=None,
+    show_xlabels=True,
+):
     """Draw one metric panel using light bars and dark ideal markers."""
     bar_colors = [color_pairs[config]['bar'] for config in plot_df.columns]
     plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.85, color=bar_colors,
@@ -260,7 +276,11 @@ def _subplot_legend(ax, include_ideal=False):
         )
 
 
-def architecture_comparison_combined_plot(df, show=True, filename='architecture_comparison_combined.png'):
+def architecture_comparison_combined_plot(
+    df,
+    show=True,
+    filename='architecture_comparison_combined.png',
+):
     """Plot FPU utilization above IPC for the architecture comparison."""
     schnizo_mask = df['hw'].eq(SCHNIZO_HW)
     schnova_fw8_mask = df['hw'].eq('GP-PW8') & df['mode'].eq('superscalar')
@@ -274,12 +294,18 @@ def architecture_comparison_combined_plot(df, show=True, filename='architecture_
             return 'Schnizo Superscalar'
         return 'Schnova Superscalar'
 
+    # Convert raw hardware identifiers into stable labels used by the plots.
     plot_data['config'] = plot_data.apply(identify_config, axis=1)
-    ordered_cols = ['Schnova Scalar', 'Schnova Superscalar', 'Schnizo Superscalar']
+    ordered_cols = [
+        'Schnova Scalar',
+        'Schnova Superscalar',
+        'Schnizo Superscalar',
+    ]
     fpu_df = _largest_size_pivot(plot_data, 'fpu_util')
     ipc_df = _largest_size_pivot(plot_data, 'ipc')
     fpu_df = fpu_df[[c for c in ordered_cols if c in fpu_df.columns]]
     ipc_df = ipc_df[[c for c in ordered_cols if c in ipc_df.columns]]
+    # Keep both panels aligned to applications available for both metrics.
     common_apps = ipc_df.index.intersection(fpu_df.index, sort=False)
     ipc_df = ipc_df.reindex(common_apps)
     fpu_df = fpu_df.reindex(common_apps)
@@ -293,14 +319,37 @@ def architecture_comparison_combined_plot(df, show=True, filename='architecture_
     }
 
     ideal_models = {
-        'Schnizo Superscalar': {'cfg': model.SCHNOVA_XL, 'pipe_width': None, 'ipc_type': 'superscalar',
-                         'line_color': color_pairs['Schnizo Superscalar']['line'], 'ideal_label': 'Ideal IPC Schnizo'},
-        'Schnova Superscalar': {'cfg': model.SCHNOVA_XL, 'pipe_width': 8, 'ipc_type': 'superscalar',
-                                'line_color': color_pairs['Schnova Superscalar']['line'], 'ideal_label': 'Ideal IPC Schnova'},
+        'Schnizo Superscalar': {
+            'cfg': model.SCHNOVA_XL,
+            'pipe_width': None,
+            'ipc_type': 'superscalar',
+            'line_color': color_pairs['Schnizo Superscalar']['line'],
+            'ideal_label': 'Ideal IPC Schnizo',
+        },
+        'Schnova Superscalar': {
+            'cfg': model.SCHNOVA_XL,
+            'pipe_width': 8,
+            'ipc_type': 'superscalar',
+            'line_color': color_pairs['Schnova Superscalar']['line'],
+            'ideal_label': 'Ideal IPC Schnova',
+        },
     }
-    fig, (ax_fpu, ax_ipc) = plt.subplots(2, 1, figsize=(14, 10), sharex=True, gridspec_kw={'hspace': 0.08})
+    fig, (ax_fpu, ax_ipc) = plt.subplots(
+        2,
+        1,
+        figsize=(14, 10),
+        sharex=True,
+        gridspec_kw={'hspace': 0.08},
+    )
     _plot_metric_bars(ax_fpu, fpu_df, color_pairs, 'fpu_util', show_xlabels=False)
-    _plot_metric_bars(ax_ipc, ipc_df, color_pairs, 'ipc', ideal_models=ideal_models, show_xlabels=True)
+    _plot_metric_bars(
+        ax_ipc,
+        ipc_df,
+        color_pairs,
+        'ipc',
+        ideal_models=ideal_models,
+        show_xlabels=True,
+    )
     _subplot_legend(ax_fpu, include_ideal=False)
     _subplot_legend(ax_ipc, include_ideal=True)
     fig.tight_layout()
@@ -314,10 +363,22 @@ def architecture_comparison_combined_plot(df, show=True, filename='architecture_
     return {'fpu_util': fpu_df, 'ipc': ipc_df}
 
 
-def fetch_width_comparison_combined_plot(df, show=True, filename='fetch_width_comparison_combined.png'):
+def fetch_width_comparison_combined_plot(
+    df,
+    show=True,
+    filename='fetch_width_comparison_combined.png',
+):
     """Plot FPU utilization above IPC for the fetch-width comparison."""
-    plot_data = df[df['hw'].isin(SCHNOVA_PIPELINE_CONFIGS) & df['mode'].eq('superscalar')].copy()
-    plot_data['config'] = plot_data['hw'].map({hw: p['label'] for hw, p in SCHNOVA_PIPELINE_CONFIGS.items()})
+    plot_data = df[
+        df['hw'].isin(SCHNOVA_PIPELINE_CONFIGS)
+        & df['mode'].eq('superscalar')
+    ].copy()
+    plot_data['config'] = plot_data['hw'].map(
+        {
+            hw: properties['label']
+            for hw, properties in SCHNOVA_PIPELINE_CONFIGS.items()
+        }
+    )
     ordered_cols = ['Schnova FW1', 'Schnova FW2', 'Schnova FW4', 'Schnova FW8']
     fpu_df = _largest_size_pivot(plot_data, 'fpu_util')
     ipc_df = _largest_size_pivot(plot_data, 'ipc')
@@ -333,15 +394,37 @@ def fetch_width_comparison_combined_plot(df, show=True, filename='fetch_width_co
         'Schnova FW8': {'bar': '#dadaeb', 'line': '#54278f'},
     }
     ideal_models = {
-        p['label']: {'cfg': p['cfg'], 'pipe_width': p['pipe_width'],
-                     'ipc_type': 'superscalar' if p['pipe_width'] in {4, 8} else 'scalar',
-                     'line_color': color_pairs[p['label']]['line'],
-                     'ideal_label': f"Ideal IPC {p['label'].split()[-1]}"}
-        for p in SCHNOVA_PIPELINE_CONFIGS.values()
+        properties['label']: {
+            'cfg': properties['cfg'],
+            'pipe_width': properties['pipe_width'],
+            'ipc_type': (
+                'superscalar'
+                if properties['pipe_width'] in {4, 8}
+                else 'scalar'
+            ),
+            'line_color': color_pairs[properties['label']]['line'],
+            'ideal_label': (
+                f"Ideal IPC {properties['label'].split()[-1]}"
+            ),
+        }
+        for properties in SCHNOVA_PIPELINE_CONFIGS.values()
     }
-    fig, (ax_fpu, ax_ipc) = plt.subplots(2, 1, figsize=(14, 10), sharex=True, gridspec_kw={'hspace': 0.08})
+    fig, (ax_fpu, ax_ipc) = plt.subplots(
+        2,
+        1,
+        figsize=(14, 10),
+        sharex=True,
+        gridspec_kw={'hspace': 0.08},
+    )
     _plot_metric_bars(ax_fpu, fpu_df, color_pairs, 'fpu_util', show_xlabels=False)
-    _plot_metric_bars(ax_ipc, ipc_df, color_pairs, 'ipc', ideal_models=ideal_models, show_xlabels=True)
+    _plot_metric_bars(
+        ax_ipc,
+        ipc_df,
+        color_pairs,
+        'ipc',
+        ideal_models=ideal_models,
+        show_xlabels=True,
+    )
     _subplot_legend(ax_fpu, include_ideal=False)
     _subplot_legend(ax_ipc, include_ideal=True)
     fig.tight_layout()
@@ -382,6 +465,7 @@ def architecture_comparison_plot(
             return 'Schnizo Superscalar'
         return 'Schnova Superscalar'
 
+    # Convert raw hardware identifiers into stable labels used by the plots.
     plot_data['config'] = plot_data.apply(identify_config, axis=1)
     plot_df = _largest_size_pivot(plot_data, metric)
 
@@ -564,6 +648,7 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
         filename=f'architecture_comparison_{metric}.png',
     )
 
+
 def print_all_geomeans(df, metric='fpu_util'):
     """
     Dynamically groups by ALL hardware configurations and modes present in the
@@ -612,7 +697,8 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         - "rob_entries" -> number of ROB entries
 
     Expected config format:
-        sv_width_nofAlusxnofAluSlots_nofLsusxnofLsuSlots_nofFpusxnofFpuSlots_NofPhysRegs_NofRobEntries
+        sv_width_nofAlusxnofAluSlots_nofLsusxnofLsuSlots_
+        nofFpusxnofFpuSlots_NofPhysRegs_NofRobEntries
 
     Example:
         sv_3_3x4_3x4_1x4_128_64
@@ -629,7 +715,11 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
         - for vary_by='slots', slot counts are not identical
         """
 
-        pattern = r"^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)_(\d+)$"  # noqa: E501
+        pattern = (
+            r'^sv_(\d+)_(\d+)x(\d+)_(\d+)x(\d+)_'
+            r'(\d+)x(\d+)_(\d+)_(\d+)_(\d+)_'
+            r'(\d+)_(\d+)_(\d+)$'
+        )
         match = re.match(pattern, hw_name)
 
         if not match:
@@ -715,6 +805,7 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
     idx_max_size = plot_df.groupby(["app", "hw"])["size"].idxmax()
     plot_df = plot_df.loc[idx_max_size].copy()
 
+    # Aggregate each sweep point across applications using a geometric mean.
     geomean_data = {}
 
     for value in sorted(plot_df[vary_by].unique()):
@@ -772,7 +863,13 @@ def geomean_plot(df, width=3, vary_by="slots", metric="ipc", show=True):
     return geomean_data
 
 
-def print_geomean_ipc(cfg_name, cfg_data, use_unrolling=False, app_filter=None, width=None):
+def print_geomean_ipc(
+    cfg_name,
+    cfg_data,
+    use_unrolling=False,
+    app_filter=None,
+    width=None,
+):
     """
     Calculates and prints the geomean of IPC for a given config,
     followed by the individual Ideal IPC for each app.
@@ -835,22 +932,28 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
 
     # Find the row with the largest problem size for each base app group
     idx_max_size = plot_df.groupby(['base_app', 'config'])['size'].idxmax()
-    plot_df = plot_df.loc[idx_max_size].pivot(index='base_app', columns='config', values=metric)
+    plot_df = plot_df.loc[idx_max_size].pivot(
+        index='base_app',
+        columns='config',
+        values=metric,
+    )
 
     # Order the columns so 'Normal' always plots before 'Balanced'
     ordered_cols = ['Normal', 'Balanced']
     plot_df = plot_df[[c for c in ordered_cols if c in plot_df.columns]]
 
-    # Initialize the plot layout (reduced bar width to 0.6 since we only have 2 bars per app)
+    # Use narrower bars because each application has only two variants.
     fig, ax = plt.subplots(figsize=(14, 7))
     plot_df.plot(kind='bar', ax=ax, zorder=3, width=0.6)
 
     # --- Optional: Ideal IPC Lines ---
     # Since you now have a single cfg, if you still want to overlay ideal IPC metrics,
-    # you can uncomment this block and replace 'your_cfg_name' with your actual hardware config.
+    # Replace the model configuration here if another baseline is needed.
     if metric == 'ipc':
         labeled = False
-        theoretical_data = model.theoretical_metrics(cfg=model.SCHNOVA_XL)['ipc']['superscalar']
+        theoretical_data = model.theoretical_metrics(
+            cfg=model.SCHNOVA_XL
+        )['ipc']['superscalar']
 
         for i, col_name in enumerate(plot_df.columns):
             container = ax.containers[i]
@@ -870,7 +973,10 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
     ax.set_xlabel('')
 
     # Clean up and rotate the base app labels for the x-axis
-    clean_labels = [app.replace('xoshiro128p', 'xoshiro') for app in plot_df.index]
+    clean_labels = [
+        app.replace('xoshiro128p', 'xoshiro')
+        for app in plot_df.index
+    ]
     ax.set_xticklabels(clean_labels, rotation=15, ha='right')
 
     ax.legend(title="Software Version", loc='upper left', bbox_to_anchor=(1, 1))
@@ -897,38 +1003,67 @@ def balanced_comparison_plot(df, metric='fpu_util', show=True):
 
 
 def plot1(show=True, dir=None):
-    """Backward-compatible architecture comparison entry point."""
+    """Combined architecture FPU-utilization and IPC comparison."""
     df = experiments.results(dir=dir)
-    return architecture_comparison_combined_plot(df, show=show, filename='architecture_comparison_combined.png')
+    return architecture_comparison_combined_plot(
+        df,
+        show=show,
+        filename='architecture_comparison_combined.png',
+    )
 
 
 def plot2(show=True, dir=None):
-    """Combined architecture FPU-utilization and IPC comparison."""
-    df = experiments.results(dir=dir)
-    return architecture_comparison_combined_plot(df, show=show, filename='architecture_comparison_combined.png')
-
-
-def plot7(show=True, dir=None):
     """Combined fetch-width FPU-utilization and IPC comparison."""
     df = experiments.results(dir=dir)
-    return fetch_width_comparison_combined_plot(df, show=show, filename='fetch_width_comparison_combined.png')
+    return fetch_width_comparison_combined_plot(
+        df,
+        show=show,
+        filename='fetch_width_comparison_combined.png',
+    )
 
 
-def plot8(show=True, dir=None):
-    """Backward-compatible fetch-width comparison entry point."""
-    df = experiments.results(dir=dir)
-    return fetch_width_comparison_combined_plot(df, show=show, filename='fetch_width_comparison_combined.png')
-
-
-def plot3(show=True, dir=None, width=1, vary_by='slots', use_rob=False, use_bal=False, spec=False, metric='ipc'):
+def plot3(
+    show=True,
+    dir=None,
+    width=1,
+    vary_by='slots',
+    use_rob=False,
+    use_bal=False,
+    spec=False,
+    metric='ipc',
+):
     if width == 1:
-        df = pw1_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, spec=spec, dir=dir)
+        df = pw1_experiments.results(
+            vary_by=vary_by,
+            use_rob=use_rob,
+            use_bal=use_bal,
+            spec=spec,
+            dir=dir,
+        )
     elif width == 2:
-        df = pw2_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, spec=spec, dir=dir)
+        df = pw2_experiments.results(
+            vary_by=vary_by,
+            use_rob=use_rob,
+            use_bal=use_bal,
+            spec=spec,
+            dir=dir,
+        )
     elif width == 4:
-        df = pw4_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, spec=spec, dir=dir)
+        df = pw4_experiments.results(
+            vary_by=vary_by,
+            use_rob=use_rob,
+            use_bal=use_bal,
+            spec=spec,
+            dir=dir,
+        )
     if width == 8:
-        df = pw8_experiments.results(vary_by=vary_by, use_rob=use_rob, use_bal=use_bal, spec=spec, dir=dir)
+        df = pw8_experiments.results(
+            vary_by=vary_by,
+            use_rob=use_rob,
+            use_bal=use_bal,
+            spec=spec,
+            dir=dir,
+        )
     return geomean_plot(df, width, vary_by, metric, show)
 
 
@@ -954,9 +1089,9 @@ def plot6(dir=None):
 
 
 def main():
-    """Load results from CSV and generate plots"""
+    """Parse command-line options and generate the requested plots."""
 
-    plots = [plot1, plot2, plot3, plot4, plot5, plot6, plot7, plot8]
+    plots = [plot1, plot2, plot3, plot4, plot5, plot6]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments
@@ -979,9 +1114,12 @@ def main():
     parser.add_argument(
         "--use_rob",
         action="store_true",  # Sets to True if present, False if absent
-        help="Use a ROB instead of reference counting for the register size experiments."
+        help=(
+            "Use a ROB instead of reference counting for register-size "
+            "experiments."
+        ),
     )
-    
+
     parser.add_argument(
         "--use_bal",
         action="store_true",  # Sets to True if present, False if absent
@@ -991,7 +1129,7 @@ def main():
     parser.add_argument(
         "--spec",
         action="store_true",  # Sets to True if present, False if absent
-        help="Wether the specialized configuration should be evaluated."
+        help="Whether the specialized configuration should be evaluated."
     )
 
     parser.add_argument(

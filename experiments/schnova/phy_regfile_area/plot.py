@@ -43,7 +43,6 @@ def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     valid = np.isfinite(x_values) & np.isfinite(y_values)
     x_fit = x_values[valid]
     y_fit = y_values[valid]
-    pos_fit = plot_positions[valid]
 
     if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
         print(f"{label}: insufficient data for a linear fit")

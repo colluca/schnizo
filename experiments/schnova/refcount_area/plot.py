@@ -43,7 +43,6 @@ def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     valid = np.isfinite(x_values) & np.isfinite(y_values)
     x_fit = x_values[valid]
     y_fit = y_values[valid]
-    pos_fit = plot_positions[valid]
 
     if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
         print(f"{label}: insufficient data for a linear fit")
@@ -87,17 +86,17 @@ def plot_pipeline_width(
 ):
     # Filter: Scale PipeWidth while keeping everything else at baseline
     subset = df[
-          (df["NofPhysGpr"] == baseline_num_regs)
-        & (df["NofPhysFpr"] == baseline_num_regs)
-        & (df["NofAlus"] == 1)
-        & (df["NofLsus"] == 1)
-        & (df["NofFpus"] == 1)
-        & (df["AluNofRss"] == 1)
-        & (df["LsuNofRss"] == 1)
-        & (df["FpuNofRss"] == 1)   
-        & (df["NofAluBufEntries"] == 1)   
-        & (df["NofLsuBufEntries"] == 1) 
-        & (df["NofFpuBufEntries"] == 1) 
+                (df["NofPhysGpr"] == baseline_num_regs)
+                & (df["NofPhysFpr"] == baseline_num_regs)
+                & (df["NofAlus"] == 1)
+                & (df["NofLsus"] == 1)
+                & (df["NofFpus"] == 1)
+                & (df["AluNofRss"] == 1)
+                & (df["LsuNofRss"] == 1)
+                & (df["FpuNofRss"] == 1)
+                & (df["NofAluBufEntries"] == 1)
+                & (df["NofLsuBufEntries"] == 1)
+                & (df["NofFpuBufEntries"] == 1)
     ]
 
     pipe_widths = sorted(subset["PipeWidth"].unique())
@@ -108,15 +107,9 @@ def plot_pipeline_width(
     prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     color_gpr = prop_cycle[0]
-    color_fpr = prop_cycle[1]
 
     # Isolate data frames mapped exactly onto the axis positions
-    data = (
-        subset
-        .drop_duplicates(subset=["PipeWidth"])
-        .set_index("PipeWidth")
-        .reindex(pipe_widths)
-    )
+    data = (subset.drop_duplicates(subset=["PipeWidth"]).set_index("PipeWidth").reindex(pipe_widths))  # noqa: E501
 
     comb = data["CombArea"].fillna(0).values
     seq = data["SeqArea"].fillna(0).values
@@ -168,19 +161,19 @@ def plot_num_registers(
 ):
     # Filter: Scale NumRegs while keeping everything else at baseline
     subset = df[
-          (df["PipeWidth"] == 1)
-        & (df["NofAlus"] == 1)
-        & (df["NofLsus"] == 1)
-        & (df["NofFpus"] == 1)
-        & (df["AluNofRss"] == 1)
-        & (df["LsuNofRss"] == 1)
-        & (df["FpuNofRss"] == 1)   
-        & (df["NofAluBufEntries"] == 1)   
-        & (df["NofLsuBufEntries"] == 1) 
-        & (df["NofFpuBufEntries"] == 1) 
+                (df["PipeWidth"] == 1)
+                & (df["NofAlus"] == 1)
+                & (df["NofLsus"] == 1)
+                & (df["NofFpus"] == 1)
+                & (df["AluNofRss"] == 1)
+                & (df["LsuNofRss"] == 1)
+                & (df["FpuNofRss"] == 1)
+                & (df["NofAluBufEntries"] == 1)
+                & (df["NofLsuBufEntries"] == 1)
+                & (df["NofFpuBufEntries"] == 1)
     ]
 
-    num_regs_axis = [32, 48, 64, 80 ]
+    num_regs_axis = [32, 48, 64, 80]
     x = np.arange(len(num_regs_axis))
     bar_width = 0.35
 
@@ -188,7 +181,6 @@ def plot_num_registers(
     prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
     color_gpr = prop_cycle[0]
-    color_fpr = prop_cycle[1]
 
     # Isolate data frames mapped exactly onto the axis positions
     gpr_data = (
@@ -208,7 +200,7 @@ def plot_num_registers(
         bar_width,
         color=color_gpr,
         zorder=3,
-        label= "Combinational",
+        label="Combinational",
     )
     ax.bar(
         x,
@@ -225,7 +217,7 @@ def plot_num_registers(
         num_regs_axis,
         gpr_comb + gpr_seq,
         x,
-        "NofPhysrEG total area vs number of registers",
+        "NofPhysGpr total area vs number of registers",
     )
 
     ax.set_ylabel("Area [kGE]")
@@ -252,15 +244,15 @@ def plot_functional_units(
 ):
     # Filter data for specific regfile type and structural baselines
     subset = df[
-          (df["NofPhysGpr"] == baseline_num_regs)
-        & (df["NofPhysFpr"] == baseline_num_regs)
-        & (df["PipeWidth"] == 1)
-        & (df["AluNofRss"] == 1)
-        & (df["LsuNofRss"] == 1)
-        & (df["FpuNofRss"] == 1)   
-        & (df["NofAluBufEntries"] == 1)   
-        & (df["NofLsuBufEntries"] == 1) 
-        & (df["NofFpuBufEntries"] == 1) 
+                (df["NofPhysGpr"] == baseline_num_regs)
+                & (df["NofPhysFpr"] == baseline_num_regs)
+                & (df["PipeWidth"] == 1)
+                & (df["AluNofRss"] == 1)
+                & (df["LsuNofRss"] == 1)
+                & (df["FpuNofRss"] == 1)
+                & (df["NofAluBufEntries"] == 1)
+                & (df["NofLsuBufEntries"] == 1)
+                & (df["NofFpuBufEntries"] == 1)
     ]
 
     # Grab the unique port scaling counts (1, 2, 3, 4)
@@ -415,6 +407,7 @@ def plot_functional_units(
     plt.savefig(save_path)
     plt.close()
 
+
 # -----------------------------------------------------------------------------
 # Plot 3: Varying Functional Units (Separated Plots, 3 Bars per Point)
 # -----------------------------------------------------------------------------
@@ -427,15 +420,15 @@ def plot_rss(
 ):
     # Filter data for specific regfile type and structural baselines
     subset = df[
-          (df["NofPhysGpr"] == baseline_num_regs)
-        & (df["NofPhysFpr"] == baseline_num_regs)
-        & (df["PipeWidth"] == 1)
-        & (df["NofAlus"] == 1)
-        & (df["NofLsus"] == 1)
-        & (df["NofFpus"] == 1)
-        & (df["NofAluBufEntries"] == 1)   
-        & (df["NofLsuBufEntries"] == 1) 
-        & (df["NofFpuBufEntries"] == 1) 
+                (df["NofPhysGpr"] == baseline_num_regs)
+                & (df["NofPhysFpr"] == baseline_num_regs)
+                & (df["PipeWidth"] == 1)
+                & (df["NofAlus"] == 1)
+                & (df["NofLsus"] == 1)
+                & (df["NofFpus"] == 1)
+                & (df["NofAluBufEntries"] == 1)
+                & (df["NofLsuBufEntries"] == 1)
+                & (df["NofFpuBufEntries"] == 1)
     ]
 
     rss_counts = sorted(
@@ -588,7 +581,6 @@ def plot_rss(
     fig.tight_layout()
     plt.savefig(save_path)
     plt.close()
-
 
 
 def linear_regression(dir=None):

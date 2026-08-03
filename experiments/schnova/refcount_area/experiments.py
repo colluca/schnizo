@@ -111,7 +111,7 @@ def gen_experiments(designs=None):
                                     'NofFpuBufEntries': 1,
                                 }
                             })
-    
+
     for num_fus in num_fus_axis:
         experiments.append({
                                 'design': 'schnova_refcount_synth',
@@ -233,7 +233,7 @@ def gen_experiments(designs=None):
                                     'NofLsuBufEntries': 1,
                                     'NofFpuBufEntries': 1,
                                 }
-                            })        
+                            })
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]
     return experiments

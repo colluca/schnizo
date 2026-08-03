@@ -12,6 +12,7 @@ DNN_SIMPLE_APPS = ['relu', 'gelu', 'silu', 'layernorm', 'rms_norm', 'batchnorm',
 DNN_ELTWISE_OPS = ['ELTWISE_ADD', 'ELTWISE_MUL', 'ELTWISE_NEG', 'ELTWISE_DIV']
 DNN_APPS = DNN_SIMPLE_APPS + ['eltwise']
 
+
 class ExperimentManager(eu.ExperimentManager):
 
     def derive_axes(self, experiment):
@@ -51,14 +52,13 @@ class ExperimentManager(eu.ExperimentManager):
         if experiment['app'] == 'eltwise' and not experiment['hw'].endswith('fp'):
             cdefines['SPLIT_ELTWISE_FNS'] = 1
         if experiment['app'] == 'softmax':
-            if experiment['hw'].endswith('fp'): 
+            if experiment['hw'].endswith('fp'):
                 cdefines['SOFTMAX_FUNC_PTR'] = 'softmax_fp32'
             else:
                 cdefines['SOFTMAX_FUNC_PTR'] = 'softmax_fp32_schnova'
-        if (experiment['hw'].endswith('PW1') or
-            experiment['hw'].endswith('PW2')):
+        if (experiment['hw'].endswith('PW1') or experiment['hw'].endswith('PW2')):
             cdefines['UNROLL'] = 1
-        if (experiment['bal'] == True):
+        if (experiment['bal'] is True):
             cdefines['BALANCE_INSTRUCTION_MIX'] = 1
         return cdefines
 
@@ -80,11 +80,6 @@ def gen_experiments():
         'GP-PW4',
         'GP-PW8',
     ]
-
-    modes = [
-            'scalar',
-             'superscalar',
-             ]
     sizes = [4096]
     app_filter = None
     core = None
@@ -106,7 +101,7 @@ def gen_experiments():
                     'hw': cfg,
                     'mode': mode,
                     'core': core,
-                    'bal' : bal,
+                    'bal': bal,
                     'data_cfg': {
                         'n': size,
                         'funcptr': 'dot_schnova' if has_zol else 'dot_baseline',
@@ -120,7 +115,7 @@ def gen_experiments():
                     'hw': cfg,
                     'mode': mode,
                     'core': core,
-                    'bal' : bal,
+                    'bal': bal,
                     'data_cfg': {
                         'n': size,
                         'funcptr': 'axpy_schnova' if has_zol else 'axpy_fma',
@@ -136,7 +131,7 @@ def gen_experiments():
                     'hw': cfg,
                     'mode': mode,
                     'core': core,
-                    'bal' : bal,
+                    'bal': bal,
                     'data_cfg': {
                         'len': size,
                         'batch_size': size,
@@ -151,7 +146,7 @@ def gen_experiments():
                     'hw': cfg,
                     'mode': mode,
                     'core': core,
-                    'bal' : bal,
+                    'bal': bal,
                     'data_cfg': {
                         'len': size,
                         'batch_size': size,
@@ -171,16 +166,16 @@ def gen_experiments():
                         'mc_prng': mc_prng,
                         'mode': mode,
                         'core': core,
-                        'bal' : bal,
+                        'bal': bal,
                         'data_cfg': {
                             'n': size,
-                            'func_ptr': 'calculate_psum_schnova' if has_zol else 'calculate_psum_baseline'
+                            'func_ptr': 'calculate_psum_schnova' if has_zol else 'calculate_psum_baseline'  # noqa: E501
                         },
                         'cmd': [str(MK_DIR / 'sw/kernels/misc/montecarlo/pi_estimation/scripts/verify.py'),  # noqa: E501
                                 sim_bin, "${elf}"],
                         'roi': Path("roi/pi_estimation.json.tpl")
                     })
-            verify = MK_DIR / f"sw/kernels/dnn/relu/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/relu/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'relu',
@@ -195,7 +190,7 @@ def gen_experiments():
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-            verify = MK_DIR / f"sw/kernels/dnn/gelu/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/gelu/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'gelu',
@@ -205,12 +200,12 @@ def gen_experiments():
                     'bal': bal,
                     'data_cfg': {
                         'size': size,
-                        'funcptr': 'gelu_fp32_sigmoid_schnova' if has_zol else 'gelu_fp32_sigmoid_naive'
+                        'funcptr': 'gelu_fp32_sigmoid_schnova' if has_zol else 'gelu_fp32_sigmoid_naive'  # noqa: E501
                         },
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-            verify = MK_DIR / f"sw/kernels/dnn/silu/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/silu/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'silu',
@@ -225,7 +220,7 @@ def gen_experiments():
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-            verify = MK_DIR / f"sw/kernels/dnn/layernorm/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/layernorm/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'layernorm',
@@ -235,12 +230,12 @@ def gen_experiments():
                     'bal': bal,
                     'data_cfg': {
                         'size': size,
-                        'funcptr': 'layernorm_fp32_schnova' if has_zol else 'layernorm_fp32_baseline'
+                        'funcptr': 'layernorm_fp32_schnova' if has_zol else 'layernorm_fp32_baseline'  # noqa: E501
                         },
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-            verify = MK_DIR / f"sw/kernels/dnn/rms_norm/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/rms_norm/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'rms_norm',
@@ -255,7 +250,7 @@ def gen_experiments():
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-            verify = MK_DIR / f"sw/kernels/dnn/batchnorm/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/batchnorm/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'batchnorm',
@@ -265,12 +260,12 @@ def gen_experiments():
                     'bal': bal,
                     'data_cfg': {
                         'size': size,
-                        'funcptr': 'batchnorm_fp32_schnova' if has_zol else 'batchnorm_fp32_baseline'
+                        'funcptr': 'batchnorm_fp32_schnova' if has_zol else 'batchnorm_fp32_baseline'  # noqa: E501
                         },
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-            verify = MK_DIR / f"sw/kernels/dnn/softmax/scripts/verify.py"
+            verify = MK_DIR / "sw/kernels/dnn/softmax/scripts/verify.py"
             cmd = [str(verify), sim_bin, "${elf}"] if verify.exists() else [sim_bin, "${elf}"]
             experiments.append({
                     'app': 'softmax',
@@ -285,7 +280,6 @@ def gen_experiments():
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
             })
-                  
             for op in DNN_ELTWISE_OPS:
                 verify = MK_DIR / "sw/kernels/dnn/eltwise/scripts/verify.py"
                 experiments.append({
@@ -294,7 +288,7 @@ def gen_experiments():
                     'hw': cfg,
                     'mode': mode,
                     'core': core,
-                    'bal' : bal,
+                    'bal': bal,
                     'data_cfg': {'size': size, 'op': op},
                     'cmd': [str(verify), sim_bin, "${elf}"],
                     'roi': Path("roi/dnn.json.tpl"),
@@ -309,13 +303,12 @@ def gen_experiments():
     return experiments
 
 
-def results(dir=None):
+def results(dir=None, power=False):
     df = ExperimentManager(gen_experiments(), dir=dir, parse_args=False).get_results()
     roi = SimRegion('hart_0', 'compute')
-    #df['total_power'] = df.apply(lambda row: row['power_results'].total_power, axis=1)
-    #df['clock_power'] = df.apply(lambda row: row['power_results'].clock_power, axis=1)
-    #print(df['total_power'])
-    #print(df['clock_power'])
+    if power:
+        df['total_power'] = df.apply(lambda row: row['power_results'].total_power, axis=1)
+        df['clock_power'] = df.apply(lambda row: row['power_results'].clock_power, axis=1)
     df['ipc'] = df.apply(lambda row: row['results'].get_metric(roi, 'ipc'), axis=1)
     df['fpu_util'] = df.apply(lambda row: row['results'].get_metric(roi, 'fpu_util'), axis=1)
     return df

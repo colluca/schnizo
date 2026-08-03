@@ -54,6 +54,7 @@ def lighten(color, factor=0.5):
     rgba = to_rgba(color)
     return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
 
+
 def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     """Fit y = A*x + B, plot the fit, and print A, B, and R^2."""
     x_values = np.asarray(x_values, dtype=float)
@@ -63,7 +64,7 @@ def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     valid = np.isfinite(x_values) & np.isfinite(y_values)
     x_fit = x_values[valid]
     y_fit = y_values[valid]
-    pos_fit = plot_positions[valid]
+    plot_positions[valid]
 
     if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
         print(f"{label}: insufficient data for a linear fit")
@@ -241,12 +242,10 @@ def plot_rss(df, save_path="fus_rss.png"):
             f"Total area vs {t}",
         )
 
-
         legend_handles.extend([
             Patch(facecolor=color, label=f"{t} (comb)"),
             Patch(facecolor=seq_color, label=f"{t} (seq)")
         ])
-        
 
     ax.set_ylabel("Area [kGE]")
     ax.set_xlabel("Number of Reservation Station Entries")
@@ -308,21 +307,16 @@ def plot1():
 
 def plot2():
     df = results()
-    plot_pipeline_width(df)
-
-
-def plot3():
-    df = results()
     plot_functional_units(df)
 
 
-def plot4():
+def plot3():
     df = results()
     plot_rss(df)
 
 
 def main():
-    plots = [plot1, plot2, plot3, plot4]
+    plots = [plot1, plot2, plot3]
     plot_dict = {f.__name__: f for f in plots}
 
     # Parse command line arguments

@@ -54,6 +54,7 @@ def lighten(color, factor=0.5):
     rgba = to_rgba(color)
     return tuple(c + (1 - c) * factor for c in rgba[:3]) + (rgba[3],)
 
+
 def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     """Fit y = A*x + B, plot the fit, and print A, B, and R^2."""
     x_values = np.asarray(x_values, dtype=float)
@@ -63,7 +64,6 @@ def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     valid = np.isfinite(x_values) & np.isfinite(y_values)
     x_fit = x_values[valid]
     y_fit = y_values[valid]
-    pos_fit = plot_positions[valid]
 
     if x_fit.size < 2 or np.allclose(x_fit, x_fit[0]):
         print(f"{label}: insufficient data for a linear fit")
@@ -76,6 +76,7 @@ def add_linear_fit(ax, x_values, y_values, plot_positions, label):
     r2 = 1.0 - ss_res / ss_tot if not np.isclose(ss_tot, 0.0) else 1.0
 
     print(f"{label}: A = {A:.4f}, B = {B:.4f}, R^2 = {r2:.6f}")
+
 
 # ---------------------------------------------------
 # Plot 1: Varying Pipeline Width
@@ -284,12 +285,10 @@ def plot_buffer_slots(df, save_path="disp_buffer_scalability.png"):
             f"Total area vs {t}",
         )
 
-
         legend_handles.extend([
             Patch(facecolor=color, label=f"{t} (comb)"),
             Patch(facecolor=seq_color, label=f"{t} (seq)")
         ])
-        
 
     ax.set_ylabel("Area [kGE]")
     ax.set_xlabel("Number of Buffer Entries")
