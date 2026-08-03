@@ -120,7 +120,7 @@ static inline void axpy_baseline(uint32_t n, double a, double *x, double *y,
         "add     %[z_base], %[z_base], %[stride_4x] \n"
         : [ x_base ] "+r"(x_base), [ y_base ] "+r"(y_base),
           [ z_base ] "+r"(z_base)
-        : [ a ] "f"(a), [loop_count] "r"(loop_count),
+        : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
           [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
           [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
         : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
@@ -208,10 +208,10 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
                  "fsd     fs2, %[stride_2x](%[z_addr])       \n"
                  "fsd     fs3, %[stride_3x](%[z_addr])       \n"
                  "add     %[z_addr], %[z_addr], %[stride_4x] \n"
-                 : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr), 
+                 : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr),
                    [ z_addr ] "+r"(z_addr)
-                 : [ a ] "f"(a), [ loop_count ] "r"(loop_count), 
-                   [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride), 
+                 : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
+                   [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
                    [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
                  : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
                    "fs2", "fs3", "memory");

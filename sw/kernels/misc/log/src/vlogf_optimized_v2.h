@@ -229,7 +229,8 @@ static inline void vlogf_optimized_v2(float *a, double *b) {
                     "mv       x0, t6                     \n" // FPU fence (part 2)
                     "csrci    copift, 0x1                \n" // Disable COPIFT queues
                     // clang-format on
-                    : [ input ] "+r"(comp_a_ptr), [ n_iter ] "+r"(n_inner_iter_m2)
+                    :
+                    [ input ] "+r"(comp_a_ptr), [ n_iter ] "+r"(n_inner_iter_m2)
                     : [ n_frep ] "r"(n_frep_m1), [ Ln2 ] "f"(Ln2),
                       [ OFF ] "r"(OFF), [ T ] "r"(T), [ A0 ] "f"(A[0]),
                       [ A1 ] "f"(A[1]), [ A2 ] "f"(A[2]), [ A3 ] "f"(A[3])

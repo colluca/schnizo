@@ -147,7 +147,7 @@ static inline void layernorm_fp16_opt(__fp16 *input, __fp16 *output,
                     "vfcpkb.h.s %[mean_reg], %[mean_reduce0], %[mean_reduce0] "
                     "\n"
                     : [ mean_reg ] "+f"(mean_reg.f64),
-                      [ var_reg0 ] "+f"(var_reg[0].f64),
+                    [ var_reg0 ] "+f"(var_reg[0].f64),
                       [ var_reg1 ] "+f"(var_reg[1].f64),
                       [ var_reg2 ] "+f"(var_reg[2].f64),
                       [ var_reg3 ] "+f"(var_reg[3].f64),

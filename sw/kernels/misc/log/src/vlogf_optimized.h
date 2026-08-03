@@ -181,14 +181,14 @@ static inline void vlogf_optimized(float *a, double *b) {
                                  : [ a ] "r"(int_a_ptr + i), [ OFF ] "r"(OFF),
                                    [ T ] "r"(T), [ z ] "r"(int_z_ptr + i),
                                    [ k ] "r"(int_k_ptr + i),
-#if IMPL == IMPL_ISSR  
+#if IMPL == IMPL_ISSR
                                    [ idx ] "r"(int_idx_ptr + 2 * i)
 #else
                                    [ invc ] "r"(int_invc_ptr + i),
                                    [ logc ] "r"(int_logc_ptr + i)
 #endif
-                                 : "a0", "a1", "a2", "a3", "a4", "a5", "a6", 
-                                   "a7", "t0", "t1", "t2", "t3", "t4", "t5", 
+                                 : "a0", "a1", "a2", "a3", "a4", "a5", "a6",
+                                   "a7", "t0", "t1", "t2", "t3", "t4", "t5",
                                    "t6", "s0", "memory");
                 }
 
