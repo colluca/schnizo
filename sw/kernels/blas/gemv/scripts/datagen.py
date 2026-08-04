@@ -52,7 +52,7 @@ class GemvDataGen(du.DataGen):
         header += [du.format_array_declaration('extern double', a_uid, a.shape)]
         header += [du.format_array_declaration('extern double', x_uid, x.shape)]
         header += [du.format_array_declaration('double', y_uid, y.shape)]
-        header += [du.format_struct_definition('gemv_args_t', 'args', cfg)]
+        header += [du.format_struct_definition('extern const gemv_args_t', 'args', cfg)]
         header += [du.format_array_definition('double', a_uid, a,
                                               section=kwargs['section'])]
         header += [du.format_array_definition('double', x_uid, x,

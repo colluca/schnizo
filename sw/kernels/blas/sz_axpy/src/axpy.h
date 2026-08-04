@@ -294,7 +294,7 @@ static inline void axpy_job(axpy_args_t *args) {
 
     // Copy job arguments to TCDM
     if (snrt_is_dm_core()) {
-        snrt_dma_start_1d(local_args, args, sizeof(axpy_args_t));
+        snrt_dma_start_1d(local_args, (axpy_args_t *)args, sizeof(axpy_args_t));
         snrt_dma_wait_all();
     }
     snrt_cluster_hw_barrier();

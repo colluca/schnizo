@@ -187,18 +187,20 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
         break;
         case ELTWISE_DIV: {
             int n_frep_div = size - 1;
-            asm volatile(FREP
-                         " %[n], 7, 0, 0               \n"
-                         "flw    fa0,  0(%[a])               \n"
-                         "flw    fa1,  0(%[b])               \n"
-                         "fdiv.s fa0, fa0, fa1               \n"
-                         "fsw    fa0,  0(%[out])             \n"
-                         "addi   %[a],   %[a],    4          \n"
-                         "addi   %[b],   %[b],    4          \n"
-                         "addi   %[out], %[out],  4          \n"
-                         : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
-                         : [ n ] "r"(n_frep_div)
-                         : "fa0", "fa1", "memory");
+            asm volatile(
+                // clang-format off
+                FREP  " %[n], 7, 0, 0               \n"
+                "flw    fa0,  0(%[a])               \n"
+                "flw    fa1,  0(%[b])               \n"
+                "fdiv.s fa0, fa0, fa1               \n"
+                "fsw    fa0,  0(%[out])             \n"
+                "addi   %[a],   %[a],    4          \n"
+                "addi   %[b],   %[b],    4          \n"
+                "addi   %[out], %[out],  4          \n"
+                // clang-format on
+                : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                : [ n ] "r"(n_frep_div)
+                : "fa0", "fa1", "memory");
             break;
         }
         case ELTWISE_NEG:

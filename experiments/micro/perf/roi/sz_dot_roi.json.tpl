@@ -3,10 +3,8 @@
 ## SPDX-License-Identifier: Apache-2.0
 
 [
-    // Compute cores
-    % for j in range(8):
     {
-        "thread": "${f'hart_{j}'}",
+        "thread": "hart_0",
         // specify which perf.json region we are interested in.
         // There is a preheating run
         "roi": [
@@ -18,6 +16,5 @@
             {"idx": 5, "label": "reduction"},
             {"idx": 6, "label": "end"},
         ]
-    },
-    % endfor
+    }
 ]

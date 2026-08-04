@@ -72,7 +72,7 @@
                 icache: {
                     size: 16, // total instruction cache size in kByte
                     ways: 2, // number of ways
-                    cacheline: 512, // word size in bits
+                    cacheline: 512 // word size in bits
                 },
                 cores: [
                     { $ref: "#/compute_core_template" },
@@ -98,6 +98,7 @@
     compute_core_template: {
         isa: "rv32imafd",
         xfrep: true, // enables the superscalar feature
+        Xdiv_sqrt: true,
         xdma: false,
         xf16: false,
         xf16alt: false,
@@ -108,21 +109,22 @@
         num_int_outstanding_loads: 4,
         num_int_outstanding_mem: 4,
         // Superscalar configuration
-        num_alus: 2,
+        num_alus: 3,
         num_alu_slots: 32,
-        num_lsus: 1,
-        num_lsu_slots: 32,
-        num_fpus: 2,
-        num_fpu_slots: 32,
         num_alu_constants: 16,
+        num_lsus: 3,
+        num_lsu_slots: 32,
         num_lsu_constants: 64,
-        num_fpu_constants: 16,
-        num_alu_rsp_ports: 2,
-        num_lsu_rsp_ports: 2,
-        num_fpu_rsp_ports: 2,
+        num_fpus: 1,
+        num_fpu_slots: 64,
+        num_fpu_constants: 32,
+        num_alu_rsp_ports: 32,
+        num_lsu_rsp_ports: 32,
+        num_fpu_rsp_ports: 64,
     },
     dma_core_template: {
         isa: "rv32imafd",
+        Xdiv_sqrt: true,
         xdma: true,
         xssr: false,
         xfrep: false,

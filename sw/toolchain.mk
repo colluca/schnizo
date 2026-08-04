@@ -24,9 +24,11 @@ SN_RISCV_CFLAGS := -mcpu=$(SN_MCPU)
 SN_RISCV_CFLAGS += -menable-experimental-extensions
 SN_RISCV_CFLAGS += -mabi=ilp32d
 SN_RISCV_CFLAGS += -mcmodel=medany
+ifneq ($(SN_HW_FDIV),1)
 SN_RISCV_CFLAGS += -mno-fdiv
-SN_RISCV_CFLAGS += -fno-builtin-printf
 SN_RISCV_CFLAGS += -fno-builtin-sqrtf
+endif
+SN_RISCV_CFLAGS += -fno-builtin-printf
 SN_RISCV_CFLAGS += -fno-common
 SN_RISCV_CFLAGS += -fopenmp
 SN_RISCV_CFLAGS += -ftls-model=local-exec

@@ -315,45 +315,49 @@ static inline void layernorm_fp32_schnizo(void *ifmap_, void *ofmap_,
             // Pass 1: sum for mean (4 accumulators)
             float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
             float *xp = x;
-            asm volatile(FREP
-                         " %[n], 9, 0, 0               \n"
-                         "flw    fa0,  0(%[xp])               \n"
-                         "flw    fa1,  4(%[xp])               \n"
-                         "flw    fa2,  8(%[xp])               \n"
-                         "flw    fa3, 12(%[xp])               \n"
-                         "fadd.s %[s0], %[s0], fa0            \n"
-                         "fadd.s %[s1], %[s1], fa1            \n"
-                         "fadd.s %[s2], %[s2], fa2            \n"
-                         "fadd.s %[s3], %[s3], fa3            \n"
-                         "addi   %[xp], %[xp], 16            \n"
-                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
-                           [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
-                         : [ n ] "r"(n_frep)
-                         : "fa0", "fa1", "fa2", "fa3");
+            asm volatile(
+                // clang-format off
+                FREP  " %[n], 9, 0, 0               \n"
+                "flw    fa0,  0(%[xp])               \n"
+                "flw    fa1,  4(%[xp])               \n"
+                "flw    fa2,  8(%[xp])               \n"
+                "flw    fa3, 12(%[xp])               \n"
+                "fadd.s %[s0], %[s0], fa0            \n"
+                "fadd.s %[s1], %[s1], fa1            \n"
+                "fadd.s %[s2], %[s2], fa2            \n"
+                "fadd.s %[s3], %[s3], fa3            \n"
+                "addi   %[xp], %[xp], 16            \n"
+                // clang-format on
+                : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
+                  [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
+                : [ n ] "r"(n_frep)
+                : "fa0", "fa1", "fa2", "fa3");
             float mean = (s0 + s1 + s2 + s3) / (float)embeddings;
 
             // Pass 2: sum of squared deviations (4 accumulators, uses fmadd)
             float v0 = 0.0f, v1 = 0.0f, v2 = 0.0f, v3 = 0.0f;
             xp = x;
-            asm volatile(FREP
-                         " %[n], 13, 0, 0               \n"
-                         "flw    fa0,  0(%[xp])               \n"
-                         "flw    fa1,  4(%[xp])               \n"
-                         "flw    fa2,  8(%[xp])               \n"
-                         "flw    fa3, 12(%[xp])               \n"
-                         "fsub.s fa0, fa0, %[mean]            \n"
-                         "fsub.s fa1, fa1, %[mean]            \n"
-                         "fsub.s fa2, fa2, %[mean]            \n"
-                         "fsub.s fa3, fa3, %[mean]            \n"
-                         "fmadd.s %[v0], fa0, fa0, %[v0]      \n"
-                         "fmadd.s %[v1], fa1, fa1, %[v1]      \n"
-                         "fmadd.s %[v2], fa2, fa2, %[v2]      \n"
-                         "fmadd.s %[v3], fa3, fa3, %[v3]      \n"
-                         "addi   %[xp], %[xp], 16            \n"
-                         : [ v0 ] "+f"(v0), [ v1 ] "+f"(v1), [ v2 ] "+f"(v2),
-                           [ v3 ] "+f"(v3), [ xp ] "+r"(xp)
-                         : [ n ] "r"(n_frep), [ mean ] "f"(mean)
-                         : "fa0", "fa1", "fa2", "fa3");
+            asm volatile(
+                // clang-format off
+                FREP  " %[n], 13, 0, 0               \n"
+                "flw    fa0,  0(%[xp])               \n"
+                "flw    fa1,  4(%[xp])               \n"
+                "flw    fa2,  8(%[xp])               \n"
+                "flw    fa3, 12(%[xp])               \n"
+                "fsub.s fa0, fa0, %[mean]            \n"
+                "fsub.s fa1, fa1, %[mean]            \n"
+                "fsub.s fa2, fa2, %[mean]            \n"
+                "fsub.s fa3, fa3, %[mean]            \n"
+                "fmadd.s %[v0], fa0, fa0, %[v0]      \n"
+                "fmadd.s %[v1], fa1, fa1, %[v1]      \n"
+                "fmadd.s %[v2], fa2, fa2, %[v2]      \n"
+                "fmadd.s %[v3], fa3, fa3, %[v3]      \n"
+                "addi   %[xp], %[xp], 16            \n"
+                // clang-format on
+                : [ v0 ] "+f"(v0), [ v1 ] "+f"(v1), [ v2 ] "+f"(v2),
+                  [ v3 ] "+f"(v3), [ xp ] "+r"(xp)
+                : [ n ] "r"(n_frep), [ mean ] "f"(mean)
+                : "fa0", "fa1", "fa2", "fa3");
             float inv_std =
                 1.0f / sqrtf((v0 + v1 + v2 + v3) / (float)embeddings + eps);
 

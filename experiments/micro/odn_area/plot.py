@@ -53,7 +53,7 @@ def plot_req_xbar_slots(dir=None, show=False, hide_x_axis=False):
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of RSEs per RS')
+        ax.set_xlabel('Number of RS entries per RS')
         ax.set_xticklabels([int(v) for v in pivot.index // num_rs])
     ax.grid(True, axis='y')
     fig.tight_layout()
@@ -73,14 +73,14 @@ def plot_req_xbar(dir=None, show=False, hide_x_axis=False):
     pivot.columns = [f'{int(p)} port{"" if int(p) == 1 else "s"}' for p in pivot.columns]
 
     fig, ax = plt.subplots()
-    pivot.plot(kind='bar', ax=ax, zorder=3)
+    pivot.plot(kind='bar', ax=ax, zorder=3, width=0.8)
     ax.set_ylabel('Area [kGE]')
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
         ax.set_xlabel('Number of RSs')
         ax.set_xticklabels([int(v) for v in pivot.index], rotation=0)
-    ax.legend(ncol=3)
+    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
     ax.grid(True, axis='y')
     fig.tight_layout()
 
@@ -98,11 +98,11 @@ def plot_rsp_xbar(dir=None, show=False):
     pivot.columns = [f'{int(p)} port{"" if int(p) == 1 else "s"}' for p in pivot.columns]
 
     fig, ax = plt.subplots()
-    pivot.plot(kind='bar', ax=ax, zorder=3)
+    pivot.plot(kind='bar', ax=ax, zorder=3, width=0.8)
     ax.set_xlabel('Number of RSs')
     ax.set_ylabel('Area [kGE]')
     ax.set_xticklabels([int(v) for v in pivot.index], rotation=0)
-    ax.legend(ncol=3)
+    ax.legend(ncol=3, fontsize=5, handlelength=1.0, handletextpad=0.4, columnspacing=0.8)
     ax.grid(True, axis='y')
     fig.tight_layout()
 
