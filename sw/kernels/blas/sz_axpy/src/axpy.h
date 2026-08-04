@@ -404,4 +404,3 @@ static inline void axpy_job(const axpy_args_t *args) {
     }
     snrt_mcycle();
 }
-
