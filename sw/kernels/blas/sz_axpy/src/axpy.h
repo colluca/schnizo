@@ -277,7 +277,7 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
     snrt_mcycle();
 }
 
-static inline void axpy_job(axpy_args_t *args) {
+static inline void axpy_job(const axpy_args_t *args) {
     snrt_mcycle();
     uint32_t frac, offset, size;
     uint64_t local_x0_addr, local_y0_addr, local_z0_addr, local_x1_addr,
@@ -404,3 +404,4 @@ static inline void axpy_job(axpy_args_t *args) {
     }
     snrt_mcycle();
 }
+
