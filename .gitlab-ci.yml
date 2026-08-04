@@ -31,6 +31,16 @@ default:
 
 docs:
   script:
+    - echo "CI_PROJECT_DIR=$CI_PROJECT_DIR"
+    - pwd
+    - find .venv -maxdepth 3 -ls || true
+    - ls -la .venv/bin || true
+    - readlink .venv/bin/python || true
+    - readlink -f .venv/bin/python || true
+    - head -n 1 .venv/bin/peakrdl || true
+    - head -n 1 .venv/bin/list-dependent-make-targets || true
+    - uv python find || true
+    - uv pip list || true
     - make docs
 
 #####################
