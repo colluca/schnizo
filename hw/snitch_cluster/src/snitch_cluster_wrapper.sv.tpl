@@ -14,6 +14,13 @@ ${c[prop]}${', ' if not loop.last else ''}\
   % endfor
 </%def>\
 
+<%def name="core_cfg_int(prop)">\
+  % for c in cfg['cluster']['cores']:
+${int(c[prop])}${', ' if not loop.last else ''}\
+  % endfor
+</%def>\
+
+
 <%def name="core_cfg_flat(prop)">\
 ${cfg['cluster']['nr_cores']}'b\
   % for c in cfg['cluster']['cores'][::-1]:
@@ -78,6 +85,9 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAlus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alus')}};
   localparam int unsigned NumLsus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsus')}};
   localparam int unsigned NumFpus [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpus')}};
+  localparam int unsigned NumAluBufEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_buf_slots')}};
+  localparam int unsigned NumLsuBufEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_buf_slots')}};
+  localparam int unsigned NumFpuBufEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_buf_slots')}};
   localparam int unsigned NumAluRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_slots')}};
   localparam int unsigned NumLsuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_slots')}};
   localparam int unsigned NumFpuRss [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_slots')}};
@@ -87,6 +97,9 @@ module ${cfg['cluster']['name']}_wrapper (
   localparam int unsigned NumAluRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_alu_rsp_ports')}};
   localparam int unsigned NumLsuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_lsu_rsp_ports')}};
   localparam int unsigned NumFpuRspPorts [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_fpu_rsp_ports')}};
+  localparam int unsigned NofPhysGpr    [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_phy_gpr')}};
+  localparam int unsigned NofPhysFpr    [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_phy_fpr')}};
+  localparam int unsigned NumRobEntries [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_rob_entries')}};
   localparam int unsigned NumIntOutstandingLoads [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_loads')}};
   localparam int unsigned NumIntOutstandingMem [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_int_outstanding_mem')}};
   localparam int unsigned NumSequencerInstr [${cfg['cluster']['nr_cores']}] = '{${core_cfg('num_sequencer_instructions')}};
@@ -136,6 +149,8 @@ module ${cfg['cluster']['name']}_wrapper (
     .ICacheLineWidth (${cfg['cluster']['name']}_pkg::ICacheLineWidth),
     .ICacheLineCount (${cfg['cluster']['name']}_pkg::ICacheLineCount),
     .ICacheWays (${cfg['cluster']['name']}_pkg::ICacheWays),
+    .ICacheFetchDataWidth (${cfg['cluster']['name']}_pkg::ICacheFetchDataWidth),
+    .ICacheL0LineCount(${cfg['cluster']['name']}_pkg::ICacheL0LineCount),  
     .ICacheL1TagScm (${cfg['cluster']['name']}_pkg::ICacheL1TagScm),
     .ICacheL1DataScm (${cfg['cluster']['name']}_pkg::ICacheL1DataScm),
     .VMSupport (${int(cfg['cluster']['vm_support'])}),
@@ -155,6 +170,10 @@ module ${cfg['cluster']['name']}_wrapper (
     .XFDOTP (${core_cfg_flat('xfdotp')}),
     .Xdma (${core_cfg_flat('xdma')}),
     .Xfrep (${core_cfg_flat('xfrep')}),
+    .XFREPI (${core_cfg_flat('xfrepi')}),
+    .XFREPO (${core_cfg_flat('xfrepi')}),
+    .UseFreeList (${core_cfg_flat('use_freelist')}),
+    .UseSchnovaCore (${int(cfg['cluster']['use_schnova_core'])}),
     .Xcopift (${core_cfg_flat('xcopift')}),
     .Xpulppostmod (${core_cfg_flat('xpulppostmod')}),
     .Xpulpabs (${core_cfg_flat('xpulpabs')}),
@@ -172,6 +191,9 @@ module ${cfg['cluster']['name']}_wrapper (
     .NumAlus (NumAlus),
     .NumLsus (NumLsus),
     .NumFpus (NumFpus),
+    .NumAluBufEntries(NumAluBufEntries),
+    .NumLsuBufEntries(NumLsuBufEntries),
+    .NumFpuBufEntries(NumFpuBufEntries),
     .NumAluRss (NumAluRss),
     .NumLsuRss (NumLsuRss),
     .NumFpuRss (NumFpuRss),
@@ -181,6 +203,9 @@ module ${cfg['cluster']['name']}_wrapper (
     .NumAluRspPorts (NumAluRspPorts),
     .NumLsuRspPorts (NumLsuRspPorts),
     .NumFpuRspPorts (NumFpuRspPorts),
+    .NumRobEntries (NumRobEntries),
+    .NofPhysGpr(NofPhysGpr),
+    .NofPhysFpr(NofPhysFpr),
     .NumIntOutstandingLoads (NumIntOutstandingLoads),
     .NumIntOutstandingMem (NumIntOutstandingMem),
     .NumSequencerInstr (NumSequencerInstr),

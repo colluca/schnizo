@@ -16,11 +16,19 @@ module snitch_hive import snitch_icache_pkg::*; #(
   parameter int unsigned ICacheLineCount    = 128,
   /// Number of icache ways.
   parameter int unsigned ICacheWays         = 4,
+  /// Number of bits that get fetched per fetch request
+  parameter int unsigned ICacheFetchDataWidth = 32,
+  /// Number of lines for the L0 Instruction cache
+  parameter int unsigned ICacheL0LineCount  = 8,
   parameter bit          ICacheL1TagScm     = 1'b0,
   parameter bit          ICacheL1DataScm    = 1'b0,
   parameter bit          IsoCrossing        = 1,
   /// Address width of the buses
   parameter int unsigned AddrWidth          = 0,
+  /// If the cluster uses the schnova core
+  parameter bit          UseSchnovaCore     = 1'b1,
+  /// Physical register address width of schnova
+  parameter int unsigned AccIdWidth   = 6,
   /// Data width of the Narrow bus.
   parameter int unsigned NarrowDataWidth    = 0,
   parameter int unsigned WideDataWidth      = 0,
@@ -60,20 +68,20 @@ module snitch_hive import snitch_icache_pkg::*; #(
   output icache_l0_events_t [CoreCount-1:0] icache_events_o
 );
   // Extend the ID to route back results to the appropriate core.
-  localparam int unsigned IdWidth = 5;
+  // In case of schnizo the register address width is 5
+  // for schnova this can be configurable
+  localparam int unsigned IdWidth = UseSchnovaCore ? AccIdWidth  : 5;
   localparam int unsigned LogCoreCount = cf_math_pkg::idx_width(CoreCount);
   localparam int unsigned ExtendedIdWidth = IdWidth + LogCoreCount;
 
   addr_t [CoreCount-1:0] inst_addr;
   logic [CoreCount-1:0] inst_cacheable;
-  logic [CoreCount-1:0][31:0] inst_data;
+  logic [CoreCount-1:0][ICacheFetchDataWidth-1:0] inst_data;
   logic [CoreCount-1:0] inst_valid;
   logic [CoreCount-1:0] inst_ready;
   logic [CoreCount-1:0] inst_error;
   logic [CoreCount-1:0] flush_valid;
   logic [CoreCount-1:0] flush_ready;
-
-
 
   for (genvar i = 0; i < CoreCount; i++) begin : gen_unpack_icache
     assign inst_addr[i] = hive_req_i[i].inst_addr;
@@ -87,20 +95,20 @@ module snitch_hive import snitch_icache_pkg::*; #(
   end
 
   snitch_icache #(
-    .NR_FETCH_PORTS     ( CoreCount        ),
-    .L0_LINE_COUNT      ( 8                ),
-    .LINE_WIDTH         ( ICacheLineWidth  ),
-    .LINE_COUNT         ( ICacheLineCount  ),
-    .WAY_COUNT          ( ICacheWays       ),
-    .FETCH_AW           ( AddrWidth        ),
-    .FETCH_DW           ( 32               ),
-    .FILL_AW            ( AddrWidth        ),
-    .FILL_DW            ( WideDataWidth    ),
-    .SERIAL_LOOKUP      ( 0                ),
-    .L1_TAG_SCM         ( ICacheL1TagScm   ),
-    .L1_DATA_SCM        ( ICacheL1DataScm  ),
-    .NUM_AXI_OUTSTANDING( 2                ),
-    .EARLY_LATCH        ( 0                ),
+    .NR_FETCH_PORTS     ( CoreCount            ),
+    .L0_LINE_COUNT      ( ICacheL0LineCount    ),
+    .LINE_WIDTH         ( ICacheLineWidth      ),
+    .LINE_COUNT         ( ICacheLineCount      ),
+    .WAY_COUNT          ( ICacheWays           ),
+    .FETCH_AW           ( AddrWidth            ),
+    .FETCH_DW           ( ICacheFetchDataWidth ),
+    .FILL_AW            ( AddrWidth            ),
+    .FILL_DW            ( WideDataWidth        ),
+    .SERIAL_LOOKUP      ( 0                    ),
+    .L1_TAG_SCM         ( ICacheL1TagScm       ),
+    .L1_DATA_SCM        ( ICacheL1DataScm      ),
+    .NUM_AXI_OUTSTANDING( 2                    ),
+    .EARLY_LATCH        ( 0                    ),
     .L0_EARLY_TAG_WIDTH ( snitch_pkg::PageShift - $clog2(ICacheLineWidth/8) ),
     .ISO_CROSSING       ( IsoCrossing     ),
     .sram_cfg_tag_t     ( sram_cfg_t ),

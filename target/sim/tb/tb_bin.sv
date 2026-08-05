@@ -23,7 +23,7 @@ module tb_bin;
     // Wait a couple hundred cycles for the binary to complete,
     // as a few instructions usually follow the exit routine,
     // and we need the core traces to be complete.
-    #(200*ClkPeriod);
+    #(800*ClkPeriod);
     // Return the exit code
     exit_code >>= 1;
     if (exit_code > 0) begin

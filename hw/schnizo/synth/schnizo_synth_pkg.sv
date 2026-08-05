@@ -24,7 +24,7 @@ package schnizo_synth_pkg;
 
   typedef struct packed {
     snitch_pkg::acc_addr_e addr;
-    logic [4:0]            id;
+    logic [5:0]            id;
     logic [31:0]           data_op;
     data_t                 data_arga;
     data_t                 data_argb;
@@ -32,7 +32,7 @@ package schnizo_synth_pkg;
   } acc_req_t;
 
     typedef struct packed {
-    logic [4:0] id;
+    logic [5:0] id;
     logic       error;
     data_t      data;
   } acc_resp_t;

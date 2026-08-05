@@ -65,8 +65,8 @@ class SoftmaxDataGen(du.DataGen):
         header += [du.format_array_definition(ctype, ifmap_uid,
                    ifmap_flat, alignment=BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
-        result_def = du.format_array_definition(
-            ctype, 'golden', ofmap_flat, alignment=BURST_ALIGNMENT)
+        result_def = du.format_array_definition(ctype, 'golden',
+                                                ofmap_flat, alignment=BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

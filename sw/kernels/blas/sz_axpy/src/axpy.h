@@ -5,6 +5,14 @@
 #include "args.h"
 #include "snrt.h"
 
+#ifndef FREP
+#ifdef FORCE_HW_LOOP
+#define FREP "frep.i"
+#else
+#define FREP "frep.o"
+#endif
+#endif
+
 #define BANK_ALIGNMENT 8
 #define TCDM_ALIGNMENT (32 * BANK_ALIGNMENT)
 #define ALIGN_UP(addr, size) (((addr) + (size)-1) & ~((size)-1))
@@ -28,12 +36,15 @@ static inline void axpy_fma(uint32_t n, double a, double *x, double *y,
     int frac = n / snrt_cluster_compute_core_num();
     int offset = core_idx;
 
+    snrt_mcycle();
+
     for (int i = offset; i < n; i += snrt_cluster_compute_core_num()) {
         asm volatile("fmadd.d %[z], %[a], %[x], %[y] \n"
                      : [ z ] "=f"(z[i])
                      : [ a ] "f"(a), [ x ] "f"(x[i]), [ y ] "f"(y[i]));
     }
     snrt_fpu_fence();
+    snrt_mcycle();
 }
 
 static inline void axpy_opt(uint32_t n, double a, double *x, double *y,
@@ -145,6 +156,124 @@ static inline void axpy_schnizo(uint32_t n, double a, double *x, double *y,
         : [ n_frep ] "r"(frac - 1), [ a ] "f"(a),
           [ inc ] "r"(sizeof(double) * num_cores)
         : "t0", "ft0", "ft1", "memory");
+    snrt_mcycle();
+}
+
+static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
+                                double *z) {
+    int core_idx = snrt_cluster_core_idx();
+    int num_cores = snrt_cluster_compute_core_num();
+    int frac = n / num_cores;
+    int offset = core_idx;
+
+    double *x_addr = &x[offset];
+    double *y_addr = &y[offset];
+    double *z_addr = &z[offset];
+    // LSU0 and LSU1, are dedicated for loads
+    uint32_t load_mask = (1 << 0) | (1 << 1);
+    // LSU2 is dedicated for stores
+    uint32_t store_mask = (1 << 2);
+    if (szrt_nof_lsus() >= 3) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+
+#ifdef UNROLL
+    uint32_t stride = num_cores * sizeof(double);
+    uint32_t stride_4x = 4 * stride;
+    uint32_t loop_count = (frac / 4) - 1;
+    snrt_mcycle();
+    // For schnova, we add nops to align to an address that is a multiple of 64 byte (8 instructions)
+    // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
+    // in a single cycle for maximum performance
+    asm volatile(FREP
+                 " %[loop_count], 19, 0, 0              \n"
+                 "fld     ft0, 0(%[x_addr])                  \n"
+                 "fld     ft1, 0(%[y_addr])                  \n"
+                 "fld     ft2, %[stride](%[x_addr])          \n"
+                 "fld     ft3, %[stride](%[y_addr])          \n"
+                 "fld     ft4, %[stride_2x](%[x_addr])       \n"
+                 "fld     ft5, %[stride_2x](%[y_addr])       \n"
+                 "fld     ft6, %[stride_3x](%[x_addr])       \n"
+                 "fld     ft7, %[stride_3x](%[y_addr])       \n"
+                 "add     %[x_addr], %[x_addr], %[stride_4x] \n"
+                 "add     %[y_addr], %[y_addr], %[stride_4x] \n"
+                 "fmadd.d fs0, %[a], ft0, ft1                \n"
+                 "fmadd.d fs1, %[a], ft2, ft3                \n"
+                 "fmadd.d fs2, %[a], ft4, ft5                \n"
+                 "fmadd.d fs3, %[a], ft6, ft7                \n"
+                 "fsd     fs0, 0(%[z_addr])                  \n"
+                 "fsd     fs1, %[stride](%[z_addr])          \n"
+                 "fsd     fs2, %[stride_2x](%[z_addr])       \n"
+                 "fsd     fs3, %[stride_3x](%[z_addr])       \n"
+                 "add     %[z_addr], %[z_addr], %[stride_4x] \n"
+                 : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr),
+                   [ z_addr ] "+r"(z_addr)
+                 : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
+                   [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
+                   [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
+                 : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7",
+                   "fs0", "fs1", "fs2", "fs3", "memory");
+#elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
+    uint32_t stride = num_cores * sizeof(double);
+    uint32_t stride_4x = 4 * stride;
+    uint32_t loop_count = (frac / 4) - 1;
+    snrt_mcycle();
+    // The instruction mix only has to be balanced for the unrolled verison of the kernel.
+    // for the not-unrolled version, the instruction mix already is balanced
+    asm volatile(
+        "frep.o %[loop_count], 19, 0, 0             \n"
+        "fld     ft0, 0(%[x_addr])                  \n"
+        "fld     ft1, 0(%[y_addr])                  \n"
+        "fmadd.d fs0, %[a], ft0, ft1                \n"
+        "fsd     fs0, 0(%[z_addr])                  \n"
+        "fld     ft2, %[stride](%[x_addr])          \n"
+        "fld     ft3, %[stride](%[y_addr])          \n"
+        "fmadd.d fs1, %[a], ft2, ft3                \n"
+        "fsd     fs1, %[stride](%[z_addr])          \n"
+        "fld     ft4, %[stride_2x](%[x_addr])       \n"
+        "fld     ft5, %[stride_2x](%[y_addr])       \n"
+        "fmadd.d fs2, %[a], ft4, ft5                \n"
+        "fsd     fs2, %[stride_2x](%[z_addr])       \n"
+        "fld     ft6, %[stride_3x](%[x_addr])       \n"
+        "fld     ft7, %[stride_3x](%[y_addr])       \n"
+        "fmadd.d fs3, %[a], ft6, ft7                \n"
+        "fsd     fs3, %[stride_3x](%[z_addr])       \n"
+        "add     %[x_addr], %[x_addr], %[stride_4x] \n"
+        "add     %[y_addr], %[y_addr], %[stride_4x] \n"
+        "add     %[z_addr], %[z_addr], %[stride_4x] \n"
+        : [ x_addr ] "+r"(x_addr), [ y_addr ] "+r"(y_addr),
+          [ z_addr ] "+r"(z_addr)
+        : [ a ] "f"(a), [ loop_count ] "r"(loop_count),
+          [ stride_4x ] "r"(stride_4x), [ stride ] "i"(stride),
+          [ stride_2x ] "i"(2 * stride), [ stride_3x ] "i"(3 * stride)
+        : "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1",
+          "fs2", "fs3", "memory");
+#else
+    snrt_mcycle();
+    // For schnova, we add nops to align to an address that is a multiple of 64 byte (8 instructions)
+    // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
+    // in a single cycle for maximum performance
+    asm volatile(
+        "nop                          \n"
+        "nop                          \n"
+        "nop                          \n"
+        "nop                          \n"
+        "nop                          \n"
+        "frep.o  %[n_frep], 7, 0, 0   \n"
+        "fld     ft0, 0(%[xa])        \n"
+        "fld     ft1, 0(%[ya])        \n"
+        "add     %[xa], %[xa], %[inc] \n"  // move adds before fmadd to hide it beneath the fld
+        "add     %[ya], %[ya], %[inc] \n"  // latency. This reduces the LCP overhead.
+        "fmadd.d ft0, %[a], ft0, ft1  \n"
+        "fsd     ft0, 0(%[za])        \n"
+        "add     %[za], %[za], %[inc] \n"
+        : [ xa ] "+r"(x_addr), [ ya ] "+r"(y_addr), [ za ] "+r"(z_addr)
+        : [ n_frep ] "r"(frac - 1), [ a ] "f"(a),
+          [ inc ] "r"(sizeof(double) * num_cores)
+        : "t0", "ft0", "ft1", "memory");
+#endif
     snrt_mcycle();
 }
 

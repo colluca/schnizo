@@ -1,0 +1,347 @@
+// Copyright 2025 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
+`include "common_cells/registers.svh"
+`include "common_cells/assertions.svh"
+
+// The Reservation station which handles the instruction issuing of a functional unit during
+// superscalar loop execution.
+//
+// Abbreviations:
+// FU:  Functional Unit. This is for example an ALU, FPU or LSU.
+// RS:  Reservation Station. Holds multiple RSS for a single FU and controls the execution.
+// RSS: Reservation Station Slot. A slot can hold one instruction with all the required
+//      information for the superscalar execution.
+// RF:  Register File
+// Implements instruction specific reservation station slots.
+module schnova_res_stat import schnova_pkg::*; #(
+  parameter bit          UseFreeList = 1'b1,
+  parameter int unsigned NofRss         = 4,
+  parameter int unsigned NofOperands    = 2,
+  parameter rs_type_e    RsType         = ALU_RS,
+  // The bits to address all registers
+  parameter int unsigned RegAddrWidth   = 5,
+  parameter int unsigned MaxIterationsW = 5,
+  parameter int unsigned XLEN           = 32,
+  parameter int unsigned FLEN           = 64,
+  parameter type         disp_req_t     = logic,
+  parameter type         disp_rsp_t     = logic,
+  parameter type         issue_req_t    = logic,
+  parameter type         instr_tag_t   = logic,
+  parameter type         producer_id_t  = logic,
+  parameter type         slot_id_t      = logic,
+  parameter type         phy_id_t       = logic,
+  parameter type         operand_req_t  = logic,
+  parameter type         operand_t      = logic,
+  parameter type         refcnt_req_t   = logic,
+  // We need two constants for ALU reservation stations and one for all other
+  localparam integer unsigned NofConsts = (RsType == ALU_RS) ? 2 : 1,
+  localparam integer unsigned CNSTLEN = ((RsType == ALU_RS) || (RsType == LSU_RS)) ? XLEN : FLEN
+) (
+  input  logic                           clk_i,
+  input  logic                           rst_i,
+  // The producer id of the RS and thus the first RSS. Must be static.
+  input  producer_id_t                   producer_id_i,
+  // If restart is asserted, we initialize the RS. This will clean all RSS and reset the loop
+  // handling logic. THERE MAY NOT BE ANY instruction in flight!
+  input  logic                           restart_i,
+  input  logic                           en_superscalar_i,
+  // Whether the RS if full or empty
+  output logic                           rs_empty_o,
+  output logic                           rs_full_o,
+  // The dispatched instruction - from Dispatcher
+  input  disp_req_t                      disp_req_i,
+  input  logic                           disp_req_valid_i,
+  output logic                           disp_req_ready_o,
+  output disp_rsp_t                      disp_rsp_o,
+  // The issued instruction - to FU
+  output issue_req_t                     issue_req_o,
+  output logic                           issue_req_valid_o,
+  input  logic                           issue_req_ready_i,
+  output logic                           instr_exec_commit_o,
+  // Operand request interface - outgoing - request a result as operand
+  output operand_req_t [NofOperands-1:0] op_reqs_o,
+  // Operand response interface - incoming - returning result as operand
+  input  operand_t [NofOperands-1:0]     op_rsps_i,
+  input  logic     [NofOperands-1:0]     op_rsps_valid_i,
+  // Refcounte issue request intefrace
+  output logic                           issue_clr_req_valid_o,
+  output refcnt_req_t                    issue_clr_req_o
+);
+
+  /////////////////////////////////////
+  // Parameters and type definitions //
+  /////////////////////////////////////
+
+  // The RSS pointer / index vector width
+  localparam integer unsigned NofRssWidth    = cf_math_pkg::idx_width(NofRss);
+  // We need to count from 0 to NofRss for the control logic -> +1 bit
+  localparam integer unsigned NofRssWidthExt = cf_math_pkg::idx_width(NofRss+1);
+
+  typedef logic [NofRssWidth-1:0] rss_idx_t;
+  typedef logic [NofRssWidthExt-1:0] rss_cnt_t;
+  typedef logic [CNSTLEN-1:0] const_t;
+
+  typedef struct packed {
+    // The physical register from where this operand will be fetched
+    phy_id_t phy_reg_src;
+    // If the physical register is a floating point register
+    logic    is_fp;
+    // If this is set, the current operand has a valid value
+    // otherwise the operand has to be fetched/requested from the
+    // physical register file.
+    logic    is_valid;
+  } rss_operand_t;
+
+  typedef struct packed {
+    const_t   value;
+    logic     is_valid;
+  } rss_const_t;
+
+  // Issue-side state — updated by the dispatch pipeline only.
+  typedef struct packed {
+    // Whether the RSS contains an active instruction.
+    logic                           is_occupied;
+    // The instruction itself. Partially decoded. Depends on FU type.
+    alu_op_e                        alu_op;
+    // To which physical register this instruction writes to
+    instr_tag_t                     tag;
+    // The immediate of this instruction
+    rss_const_t   [NofConsts-1:0]   constants;
+    // Data of the operands from this slot
+    rss_operand_t [NofOperands-1:0] operands;
+  } rs_alu_slot_issue_t;
+
+  // Issue-side state — updated by the dispatch pipeline only.
+  typedef struct packed {
+    // Whether the RSS contains an active instruction.
+    logic                           is_occupied;
+    // The instruction itself. Partially decoded. Depends on FU type.
+    lsu_op_e                        lsu_op;
+    lsu_size_e                      lsu_size;
+    // To which physical register this instruction writes to
+    instr_tag_t                     tag;
+    // The immediate of this instruction
+    rss_const_t   [NofConsts-1:0]   constants;
+    // Data of the operands from this slot
+    rss_operand_t [NofOperands-1:0] operands;
+  } rs_lsu_slot_issue_t;
+
+  // Issue-side state — updated by the dispatch pipeline only.
+  typedef struct packed {
+    // Whether the RSS contains an active instruction.
+    logic                           is_occupied;
+    // The instruction itself. Partially decoded. Depends on FU type.
+    fpu_op_e                        fpu_op;
+    fpnew_pkg::fp_format_e          fpu_fmt_src;
+    fpnew_pkg::fp_format_e          fpu_fmt_dst;
+    fpnew_pkg::roundmode_e          fpu_rnd_mode;
+    // To which physical register this instruction writes to
+    instr_tag_t                     tag;
+    // The immediate of this instruction
+    rss_const_t   [NofConsts-1:0]   constants;
+    // Data of the operands from this slot
+    rss_operand_t [NofOperands-1:0] operands;
+  } rs_fpu_slot_issue_t;
+
+
+  //-----------------------
+  // RS allocation counter
+  //-----------------------
+
+  // Generates the instruction dispatch, issue, retire & writeback control signals and handles
+  // the LEP iterations.
+  logic dispatch_hs;
+  logic issue_hs;
+  assign issue_hs = issue_req_valid_o && issue_req_ready_i;
+
+  // An instruction retires as soon as the result is handshaked, i.e.:
+  // assign retiring = result_valid_i && result_ready_o;
+  // However, a store has no result. Thus we generate this signal inside the RSS as the RSS knows
+  // if the instruction is a store or any other instruction.
+  logic retiring;
+
+  // Number of allocated RSS
+  rss_idx_t dispatch_idx, issue_idx;
+  rss_cnt_t num_allocated_rss_d, num_allocated_rss_q;
+  `FFAR(num_allocated_rss_q, num_allocated_rss_d, '0, clk_i, rst_i);
+
+  always_comb begin : num_aloc_rss_handler
+    num_allocated_rss_d = num_allocated_rss_q;
+    if(dispatch_hs && !retiring) begin
+      // If we are dispatching but not retiering in this cycle, we have one more
+      // instruction allocated in the RSS
+      num_allocated_rss_d = num_allocated_rss_q + 1'b1;
+    end else if (!dispatch_hs && retiring) begin
+      // If we are retireing but not dispatching, we have one less instruction
+      // allocated in the RSS
+      num_allocated_rss_d = num_allocated_rss_q - 1'b1;
+    end
+  end
+
+  assign rs_full_o = (num_allocated_rss_q == rss_cnt_t'(NofRss));
+  assign rs_empty_o = (num_allocated_rss_q == '0);
+
+  //----------------
+  // Slots datapath
+  //----------------
+  generate
+    if (RsType == ALU_RS) begin : gen_alu_rs
+      schnova_res_stat_slots #(
+        .UseFreeList(UseFreeList),
+        .NofRss          (NofRss),
+        .NofOperands     (NofOperands),
+        .NofConsts       (NofConsts),
+        .RegAddrWidth    (RegAddrWidth),
+        .RsType          (RsType),
+        .rs_slot_issue_t (rs_alu_slot_issue_t),
+        .rss_operand_t   (rss_operand_t),
+        .rss_const_t     (rss_const_t),
+        .disp_req_t      (disp_req_t),
+        .issue_req_t     (issue_req_t),
+        .producer_id_t   (producer_id_t),
+        .slot_id_t       (slot_id_t),
+        .operand_req_t   (operand_req_t),
+        .operand_t       (operand_t),
+        .refcnt_req_t    (refcnt_req_t)
+      ) i_slots (
+        .clk_i,
+        .rst_i,
+        .producer_id_i     (producer_id_i),
+        .restart_i         (restart_i),
+        .disp_idx_i        (dispatch_idx),
+        .issue_idx_i       (issue_idx),
+        .retiring_o        (retiring),
+        .disp_req_i        (disp_req_i),
+        .disp_req_valid_i  (disp_req_valid_i),
+        .disp_req_ready_o  (disp_req_ready_o),
+        .disp_hs_o         (dispatch_hs),
+        .disp_rsp_o        (disp_rsp_o),
+        .rs_full_i         (rs_full_o),
+        .issue_req_o,
+        .issue_req_valid_o,
+        .issue_req_ready_i,
+        .instr_exec_commit_o,
+        .op_reqs_o,
+        .op_rsps_i,
+        .op_rsps_valid_i,
+        .issue_clr_req_valid_o,
+        .issue_clr_req_o
+      );
+    end else if (RsType == LSU_RS) begin : gen_lsu_rs
+      schnova_res_stat_slots #(
+        .UseFreeList(UseFreeList),
+        .NofRss          (NofRss),
+        .NofOperands     (NofOperands),
+        .NofConsts       (NofConsts),
+        .RegAddrWidth    (RegAddrWidth),
+        .RsType          (RsType),
+        .rs_slot_issue_t (rs_lsu_slot_issue_t),
+        .rss_operand_t   (rss_operand_t),
+        .rss_const_t     (rss_const_t),
+        .disp_req_t      (disp_req_t),
+        .issue_req_t     (issue_req_t),
+        .producer_id_t   (producer_id_t),
+        .slot_id_t       (slot_id_t),
+        .operand_req_t   (operand_req_t),
+        .operand_t       (operand_t),
+        .refcnt_req_t    (refcnt_req_t)
+      ) i_slots (
+        .clk_i,
+        .rst_i,
+        .producer_id_i     (producer_id_i),
+        .restart_i         (restart_i),
+        .disp_idx_i        (dispatch_idx),
+        .issue_idx_i       (issue_idx),
+        .retiring_o        (retiring),
+        .disp_req_i        (disp_req_i),
+        .disp_req_valid_i  (disp_req_valid_i),
+        .disp_req_ready_o  (disp_req_ready_o),
+        .disp_hs_o         (dispatch_hs),
+        .disp_rsp_o        (disp_rsp_o),
+        .rs_full_i         (rs_full_o),
+        .issue_req_o,
+        .issue_req_valid_o,
+        .issue_req_ready_i,
+        .instr_exec_commit_o,
+        .op_reqs_o,
+        .op_rsps_i,
+        .op_rsps_valid_i,
+        .issue_clr_req_valid_o,
+        .issue_clr_req_o
+      );
+    end else if (RsType == FPU_RS) begin : gen_fpu_rs
+      schnova_res_stat_slots #(
+        .UseFreeList(UseFreeList),
+        .NofRss          (NofRss),
+        .NofOperands     (NofOperands),
+        .NofConsts       (NofConsts),
+        .RegAddrWidth    (RegAddrWidth),
+        .RsType          (RsType),
+        .rs_slot_issue_t (rs_fpu_slot_issue_t),
+        .rss_operand_t   (rss_operand_t),
+        .rss_const_t     (rss_const_t),
+        .disp_req_t      (disp_req_t),
+        .issue_req_t     (issue_req_t),
+        .producer_id_t   (producer_id_t),
+        .slot_id_t       (slot_id_t),
+        .operand_req_t   (operand_req_t),
+        .operand_t       (operand_t),
+        .refcnt_req_t    (refcnt_req_t)
+      ) i_slots (
+        .clk_i,
+        .rst_i,
+        .producer_id_i     (producer_id_i),
+        .restart_i         (restart_i),
+        .disp_idx_i        (dispatch_idx),
+        .issue_idx_i       (issue_idx),
+        .retiring_o        (retiring),
+        .disp_req_i        (disp_req_i),
+        .disp_req_valid_i  (disp_req_valid_i),
+        .disp_req_ready_o  (disp_req_ready_o),
+        .disp_hs_o         (dispatch_hs),
+        .disp_rsp_o        (disp_rsp_o),
+        .rs_full_i         (rs_full_o),
+        .issue_req_o,
+        .issue_req_valid_o,
+        .issue_req_ready_i,
+        .instr_exec_commit_o,
+        .op_reqs_o,
+        .op_rsps_i,
+        .op_rsps_valid_i,
+        .issue_clr_req_valid_o,
+        .issue_clr_req_o
+      );
+    end
+  endgenerate
+
+  trip_counter #(
+    .WIDTH(NofRssWidth)
+  ) i_dispatch_counter (
+    .clk_i,
+    .rst_ni(!rst_i),
+    .clear_i(restart_i),
+    .en_i(dispatch_hs),
+    .delta_i(rss_idx_t'(1)),
+    .bound_i (rss_idx_t'(NofRss - 1)),
+    .q_o(dispatch_idx),
+    .last_o  (),
+    .trip_o  ()
+  );
+
+  trip_counter #(
+    .WIDTH(NofRssWidth)
+  ) i_issue_counter (
+    .clk_i,
+    .rst_ni(!rst_i),
+    .clear_i(restart_i),
+    .en_i(issue_hs),
+    .delta_i(rss_idx_t'(1)),
+    .bound_i (rss_idx_t'(NofRss - 1)),
+    .q_o(issue_idx),
+    .last_o  (),
+    .trip_o  ()
+  );
+
+endmodule

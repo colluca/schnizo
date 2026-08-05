@@ -42,9 +42,9 @@ class BatchnormVerifier(Verifier):
     def get_expected_results(self):
         ctype = ctype_from_precision_t(self.prec)
         n_pixels = self.IH * self.IW
-        ifmap = torch.tensor(self.get_input_from_symbol('ifmap', ctype).reshape(self.CI, n_pixels))
+        ifmap = torch.tensor(self.get_input_from_symbol('ifmap',  ctype).reshape(self.CI, n_pixels))
         gamma = torch.tensor(self.get_input_from_symbol('gamma_', ctype))
-        beta = torch.tensor(self.get_input_from_symbol('beta', ctype))
+        beta = torch.tensor(self.get_input_from_symbol('beta',   ctype))
         return BatchnormDataGen().golden_model(ifmap, gamma, beta).flatten()
 
     def check_results(self, *args):

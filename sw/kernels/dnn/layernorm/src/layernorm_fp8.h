@@ -4,7 +4,7 @@
 //
 // Author: Viviane Potocnik <vivianep@iis.ee.ethz.ch>
 
-#define UNROLL 4
+#define UNROLL_FACTOR 4
 
 static inline void layernorm_fp8_opt(char *input, char *output,
                                      uint32_t batch_size, uint32_t seq_len,
@@ -22,27 +22,29 @@ static inline void layernorm_fp8_opt(char *input, char *output,
         float mean_tot = 0.0;  // max value of the current core
         float var_tot = 0.0;   // sum of the exp values of the current core
         v8s mean_reg;
-        v4s mean_v4[UNROLL];
-        v2s mean_v2[UNROLL];
-        float mean_reduce[UNROLL];
+        v4s mean_v4[UNROLL_FACTOR];
+        v2s mean_v2[UNROLL_FACTOR];
+        float mean_reduce[UNROLL_FACTOR];
 
-        v8s var_v8[UNROLL];
-        v8s pow_v8[UNROLL];
-        v2s var_v2[UNROLL];
-        float var_reduce[UNROLL];
+        v8s var_v8[UNROLL_FACTOR];
+        v8s pow_v8[UNROLL_FACTOR];
+        v2s var_v2[UNROLL_FACTOR];
+        float var_reduce[UNROLL_FACTOR];
 
         const int num_elems_per_vector = sizeof(double) / sizeof(char);
 
         const uint32_t ssr0_b[4] = {
-            UNROLL, embeddings / (UNROLL * num_elems_per_vector), 2,
-            tile_seq_len};
+            UNROLL_FACTOR, embeddings / (UNROLL_FACTOR * num_elems_per_vector),
+            2, tile_seq_len};
 
-        const uint32_t ssr0_i[4] = {sizeof(double), UNROLL * sizeof(double), 0,
+        const uint32_t ssr0_i[4] = {sizeof(double),
+                                    UNROLL_FACTOR * sizeof(double), 0,
                                     stride * sizeof(char)};
 
         const uint32_t ssr1_b[2] = {
-            UNROLL, embeddings / (UNROLL * num_elems_per_vector)};
-        const uint32_t ssr1_i[2] = {sizeof(double), UNROLL * sizeof(double)};
+            UNROLL_FACTOR, embeddings / (UNROLL_FACTOR * num_elems_per_vector)};
+        const uint32_t ssr1_i[2] = {sizeof(double),
+                                    UNROLL_FACTOR * sizeof(double)};
 
         snrt_ssr_loop_4d(SNRT_SSR_DM0, ssr0_b[0], ssr0_b[1], ssr0_b[2],
                          ssr0_b[3], ssr0_i[0], ssr0_i[1], ssr0_i[2], ssr0_i[3]);
@@ -52,7 +54,8 @@ static inline void layernorm_fp8_opt(char *input, char *output,
                          ssr1_i[1]);
 
         // kernel progresses eight values in each iteration
-        const uint32_t n_frep = embeddings / (UNROLL * num_elems_per_vector);
+        const uint32_t n_frep =
+            embeddings / (UNROLL_FACTOR * num_elems_per_vector);
 
         for (int32_t b = 0; b < batch_size; b++) {
             snrt_ssr_read(SNRT_SSR_DM0, SNRT_SSR_4D,

@@ -14,6 +14,10 @@
 #endif
 #endif
 
+#ifndef SPLIT_ELTWISE_FNS
+#define SPLIT_ELTWISE_FNS 0
+#endif
+
 typedef enum {
     ELTWISE_ADD = 0,
     ELTWISE_MUL = 1,
@@ -242,6 +246,307 @@ static inline void eltwise_fp32_schnizo(float *a, float *b, float *out,
     }
 }
 
+// Load-use-store kernel: frep.i → 4x unroll (hides load latency under ZOL),
+// frep.o → scalar (unrolling hurts superscalar performance).
+// Binary 4x: 8 flw + 4 FP + 4 fsw + 3 addi = 19 insns, n_frep = size/4 - 1.
+// Binary scalar: flw + flw + FP + fsw + 3 addi = 7 insns, n_frep = size - 1.
+// NEG 4x (unary): 4 flw + 4 fneg + 4 fsw + 2 addi = 14 insns, n_frep = size/4 - 1.
+// NEG scalar: flw + fneg + fsw + 2 addi = 5 insns, n_frep = size - 1.
+// DIV: scalar only (iterative divider stalls; no benefit in unrolling).
+static inline void eltwise_add_fp32_schnova(float *a, float *b, float *out,
+                                            uint32_t size) {
+    // LSU0 and LSU1, are dedicated for loads
+    uint32_t load_mask = (1 << 0) | (1 << 1);
+    // LSU2 is dedicated for stores
+    uint32_t store_mask = (1 << 2);
+    if (szrt_nof_lsus() >= 3) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+#ifdef UNROLL
+    int n_frep = size / 4 - 1;
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fadd.s fa0, fa0, fa4               \n"
+                 "fadd.s fa1, fa1, fa5               \n"
+                 "fadd.s fa2, fa2, fa6               \n"
+                 "fadd.s fa3, fa3, fa7               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
+#elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
+    int n_frep = size / 4 - 1;
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "fadd.s fa0, fa0, fa4               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "fadd.s fa1, fa1, fa5               \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "fadd.s fa2, fa2, fa6               \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fadd.s fa3, fa3, fa7               \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
+#else
+    int n_frep = size - 1;
+    // Add nops for schnova to align the fetch block address
+    asm volatile(
+        "nop                                \n"
+        "nop                                \n"
+        "frep.o %[n], 7, 0, 0               \n"
+        "flw    fa0,  0(%[a])               \n"
+        "flw    fa1,  0(%[b])               \n"
+        "fadd.s fa0, fa0, fa1               \n"
+        "fsw    fa0,  0(%[out])             \n"
+        "addi   %[a],   %[a],    4          \n"
+        "addi   %[b],   %[b],    4          \n"
+        "addi   %[out], %[out],  4          \n"
+        : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
+        : "fa0", "fa1", "memory");
+#endif
+}
+
+static inline void eltwise_mul_fp32_schnova(float *a, float *b, float *out,
+                                            uint32_t size) {
+    // LSU0 and LSU1, are dedicated for loads
+    uint32_t load_mask = (1 << 0) | (1 << 1);
+    // LSU2 is dedicated for stores
+    uint32_t store_mask = (1 << 2);
+    if (szrt_nof_lsus() >= 3) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+#ifdef UNROLL
+    int n_frep = size / 4 - 1;
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fmul.s fa0, fa0, fa4               \n"
+                 "fmul.s fa1, fa1, fa5               \n"
+                 "fmul.s fa2, fa2, fa6               \n"
+                 "fmul.s fa3, fa3, fa7               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
+#elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
+    int n_frep = size / 4 - 1;
+    asm volatile(FREP
+                 " %[n], 19, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa4,  0(%[b])               \n"
+                 "fmul.s fa0, fa0, fa4               \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa5,  4(%[b])               \n"
+                 "fmul.s fa1, fa1, fa5               \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa6,  8(%[b])               \n"
+                 "fmul.s fa2, fa2, fa6               \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "flw    fa7, 12(%[b])               \n"
+                 "fmul.s fa3, fa3, fa7               \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[b],   %[b],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7",
+                   "memory");
+#else
+    int n_frep = size - 1;
+    asm volatile(
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "frep.o %[n], 7, 0, 0               \n"
+        "flw    fa0,  0(%[a])               \n"
+        "flw    fa1,  0(%[b])               \n"
+        "fmul.s fa0, fa0, fa1               \n"
+        "fsw    fa0,  0(%[out])             \n"
+        "addi   %[a],   %[a],    4          \n"
+        "addi   %[b],   %[b],    4          \n"
+        "addi   %[out], %[out],  4          \n"
+        : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
+        : "fa0", "fa1", "memory");
+#endif
+}
+static inline void eltwise_div_fp32_schnova(float *a, float *b, float *out,
+                                            uint32_t size) {
+    if (szrt_nof_lsus() >= 3) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en((1 << 0) | (1 << 1));
+        szrt_set_frep_lsu_store_en((1 << 2));
+    } else if (szrt_nof_lsus() == 2) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en((1 << 0));
+        szrt_set_frep_lsu_store_en((1 << 1));
+    }
+    int n_frep_div = size - 1;
+    asm volatile(
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n" FREP
+        " %[n], 7, 0, 0               \n"
+        "flw    fa0,  0(%[a])               \n"
+        "flw    fa1,  0(%[b])               \n"
+        "fdiv.s fa0, fa0, fa1               \n"
+        "fsw    fa0,  0(%[out])             \n"
+        "addi   %[a],   %[a],    4          \n"
+        "addi   %[b],   %[b],    4          \n"
+        "addi   %[out], %[out],  4          \n"
+        : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep_div)
+        : "fa0", "fa1", "memory");
+}
+
+static inline void eltwise_neg_fp32_schnova(float *a, float *b, float *out,
+                                            uint32_t size) {
+#ifdef UNROLL
+    // LSU0 is dedicated for loads
+    uint32_t load_mask = (1 << 0);
+    // LSU1 is dedicated for stores
+    uint32_t store_mask = (1 << 1);
+    if (szrt_nof_lsus() == 2) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+    int n_frep = size / 4 - 1;
+    asm volatile(FREP
+                 " %[n], 14, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "fneg.s fa0, fa0                    \n"
+                 "fneg.s fa1, fa1                    \n"
+                 "fneg.s fa2, fa2                    \n"
+                 "fneg.s fa3, fa3                    \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [ a ] "+r"(a), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "memory");
+#elif defined(BALANCE_INSTRUCTION_MIX) && defined(UNROLL)
+    // LSU0 is dedicated for loads
+    uint32_t load_mask = (1 << 0);
+    // LSU1 is dedicated for stores
+    uint32_t store_mask = (1 << 1);
+    if (szrt_nof_lsus() == 2) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+    int n_frep = size / 4 - 1;
+    asm volatile(FREP
+                 " %[n], 14, 0, 0              \n"
+                 "flw    fa0,  0(%[a])               \n"
+                 "fneg.s fa0, fa0                    \n"
+                 "fsw    fa0,  0(%[out])             \n"
+                 "flw    fa1,  4(%[a])               \n"
+                 "fneg.s fa1, fa1                    \n"
+                 "fsw    fa1,  4(%[out])             \n"
+                 "flw    fa2,  8(%[a])               \n"
+                 "fneg.s fa2, fa2                    \n"
+                 "fsw    fa2,  8(%[out])             \n"
+                 "flw    fa3, 12(%[a])               \n"
+                 "fneg.s fa3, fa3                    \n"
+                 "fsw    fa3, 12(%[out])             \n"
+                 "addi   %[a],   %[a],   16         \n"
+                 "addi   %[out], %[out], 16         \n"
+                 : [ a ] "+r"(a), [ out ] "+r"(out)
+                 : [ n ] "r"(n_frep)
+                 : "fa0", "fa1", "fa2", "fa3", "memory");
+#else
+    int n_frep = size - 1;
+    // LSU0 and LSU1, are dedicated for loads
+    uint32_t load_mask = (1 << 0) | (1 << 1);
+    // LSU2 is dedicated for stores
+    uint32_t store_mask = (1 << 2);
+    if (szrt_nof_lsus() >= 3) {
+        // Fix some LSUs to only accept load or store instructions
+        szrt_set_frep_lsu_load_en(load_mask);
+        szrt_set_frep_lsu_store_en(store_mask);
+    }
+    asm volatile(
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "nop                                \n"
+        "frep.o %[n], 5, 0, 0               \n"
+        "flw    fa0,  0(%[a])               \n"
+        "fneg.s fa0, fa0                    \n"
+        "fsw    fa0,  0(%[out])             \n"
+        "addi   %[a],   %[a],    4          \n"
+        "addi   %[out], %[out],  4          \n"
+        : [ a ] "+r"(a), [ out ] "+r"(out)
+        : [ n ] "r"(n_frep)
+        : "fa0", "memory");
+#endif
+}
+
 // Tiles the flat size axis across clusters.
 // Requires size % n_tiles == 0 and n_tiles % num_clusters == 0.
 static inline void eltwise_layer(eltwise_layer_t l) {
@@ -279,9 +584,38 @@ static inline void eltwise_layer(eltwise_layer_t l) {
             uint32_t core_idx = snrt_cluster_core_idx();
             uint32_t per_core = tile_size / num_cores;
             snrt_mcycle();
+#if SPLIT_ELTWISE_FNS == 1
+            switch (l.op) {
+                case ELTWISE_ADD: {
+                    eltwise_add_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
+                case ELTWISE_MUL: {
+                    eltwise_mul_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
+                case ELTWISE_DIV: {
+                    eltwise_div_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
+                case ELTWISE_NEG: {
+                    eltwise_neg_fp32_schnova(
+                        (float *)local_a + core_idx * per_core,
+                        (float *)local_b + core_idx * per_core,
+                        (float *)local_out + core_idx * per_core, per_core);
+                }; break;
+            }
+#else
             l.funcptr((float *)local_a + core_idx * per_core,
                       (float *)local_b + core_idx * per_core,
                       (float *)local_out + core_idx * per_core, per_core, l.op);
+#endif
             snrt_mcycle();
         }
 

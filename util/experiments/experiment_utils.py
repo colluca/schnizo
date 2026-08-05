@@ -15,6 +15,7 @@ import mako
 import pandas as pd
 from pathlib import Path
 from snitch.util.experiments.SimResults import SimResults
+from snitch.util.experiments.SimResults import SimRegion
 from snitch.util.experiments import run, build, common
 from snitch.util.sim import sim_utils
 import sys
@@ -35,7 +36,7 @@ except ImportError as e:
 
 
 ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
-           'elab', 'synth', 'none']
+           'elab', 'synth', 'pln', 'pl-hw', 'vcd', 'none']
 
 
 class ExperimentManager:
@@ -121,7 +122,11 @@ class ExperimentManager:
         experiment['name'] = self.derive_name(experiment)
         experiment['run_dir'] = self.derive_dir(self.run_dir, experiment)
         experiment['power_dir'] = self.derive_dir(self.power_dir, experiment)
-        experiment['synth_dir'] = self.derive_dir(self.synth_dir, experiment)
+        experiment["synth_dir"] = (
+            self.synth_dir / experiment["hw"]
+            if "hw" in experiment
+            else self.derive_dir(self.synth_dir, experiment)
+        )
         if 'app' in experiment:
             experiment['elf'] = self.derive_elf(experiment)
 
@@ -204,6 +209,7 @@ class ExperimentManager:
 
         # Run experiments
         if 'run' in self.actions or 'all' in self.actions:
+
             simulations = sim_utils.get_simulations(
                 experiments,
                 run.SIMULATORS[self.args.simulator],
@@ -224,10 +230,17 @@ class ExperimentManager:
                     'SIM_DIR': experiment['run_dir'],
                     'DEBUG': 'ON'
                 }
+                sv_vars = {
+                    'SIM_DIR': experiment['run_dir'],
+                    'DEBUG': 'ON',
+                    'CORE': 'schnova'
+                }
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
-                common.make('traces', vars, flags=flags)
-
+                if experiment.get('core') == 'schnova':
+                    common.make('traces', sv_vars, flags=flags)
+                else:
+                    common.make('traces', vars, flags=flags)
         # Annotate traces
         if 'annotate' in self.actions or 'all' in self.actions:
             for experiment in experiments:
@@ -242,9 +255,14 @@ class ExperimentManager:
                     colored(experiment['run_dir'], 'cyan', attrs=['bold'])
                 )
                 vars = {'SIM_DIR': experiment['run_dir']}
+                sv_vars = {'SIM_DIR': experiment['run_dir'],
+                           'CORE': 'schnova'}
                 if self.args.n_procs:
                     flags = ['-j', self.args.n_procs]
-                process = common.make('perf', vars, flags=flags, sync=False)
+                if experiment.get('core') == 'schnova':
+                    process = common.make('perf', sv_vars, flags=flags, sync=False)
+                else:
+                    process = common.make('perf', vars, flags=flags, sync=False)
                 processes.append(process)
 
             common.wait_processes(processes)
@@ -288,7 +306,15 @@ class ExperimentManager:
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
-                        process = common.make('roi', vars, dry_run=dry_run, sync=sync)
+                        sv_vars = {
+                            'SIM_DIR': experiment['run_dir'],
+                            'ROI_SPEC': rendered_spec,
+                            'CORE': 'schnova'
+                        }
+                        if experiment.get('core') == 'schnova':
+                            process = common.make('roi', sv_vars, dry_run=dry_run, sync=sync)
+                        else:
+                            process = common.make('roi', vars, dry_run=dry_run, sync=sync)
                         processes.append(process)
 
                     if 'visual-trace' in self.actions:
@@ -298,6 +324,127 @@ class ExperimentManager:
                                                  hw_cfg=hw_cfg)
             common.wait_processes(processes)
 
+        # Run synthesis
+        if any(x in ['elab', 'synth', 'pln', 'all'] for x in self.actions):
+            if 'synth' in self.actions:
+                action = 'synth'
+            elif 'pln' in self.actions:
+                action = 'pln'
+            else:
+                action = 'elab'
+            processes = []
+
+            if action == 'pln':
+                # We run a synthesis flow for the whole snitch cluster
+                # Hence to save time we should only do that for unique hardware
+                # configurations, not for every experiment
+                unique_hw_experiments = {e['hw']: e for e in experiments}.values()
+                for experiment in unique_hw_experiments:
+                    def func():
+                        vars = {
+                            'DESIGN': 'snitch_cluster_wrapper',
+                            'RUNDIR': self.synth_dir / experiment['hw'],
+                            'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
+                        }
+                        return common.make('post-layout-netlist', vars=vars, sync=sync)
+                    if action in self.callbacks:
+                        func = self.callbacks[action]
+                    process = func()
+                    processes.append(process)
+            else:
+                for experiment in experiments:
+                    def func(design=None, hdl_params={}):
+                        hdl_params_str = ":".join(
+                            f"{key}={val}"
+                            for key, val in hdl_params.items()
+                        )
+                        vars = {
+                            'DESIGN': design,
+                            'HDL_PARAMS': hdl_params_str,
+                            'RUNDIR': experiment['synth_dir'],
+                        }
+                        return common.make(action, vars=vars, sync=sync)
+                    if action in self.callbacks:
+                        func = self.callbacks[action]
+                    process = func(experiment['design'], experiment.get('hdl_params', {}))
+                    processes.append(process)
+            common.wait_processes(processes)
+
+        if 'pl-hw' in self.actions or 'all' in self.actions:
+            # First we have to clear the old hardware / simulation binary if there is any
+            unique_hw_experiments = {e['hw']: e for e in experiments}.values()
+            for experiment in unique_hw_experiments:
+                bin = self.derive_hw_bin(experiment)
+                print(colored('Clean up old hardware', 'black', attrs=['bold']),
+                      colored(bin, 'cyan', attrs=['bold']))
+
+                vars = {
+                    'SN_BIN_DIR': bin.parent,
+                    'SN_WORK_DIR': self.dir / 'hw' / experiment['hw'] / 'work',
+                    'SN_VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
+                    'TECH': 'gf12',
+                    'DEBUG': 'ON',
+                    'VCD_DUMP': 1
+                }
+                common.make('clean-vsim', vars, dry_run=dry_run)
+
+                print(colored('Build post layout hardwarare', 'black', attrs=['bold']),
+                      colored(bin, 'cyan', attrs=['bold']))
+
+                # Here we first have to make a symbolic link for the generated netlist to the folder
+                # the bender.yml expects it to be in.
+
+                # First we need to find the root directory (where the Bender.yml is located)
+                def find_repo_root(start: Path) -> Path:
+                    cur = start.resolve()
+                    while cur != cur.parent:
+                        if (cur / "Bender.yml").exists():
+                            return cur
+                        cur = cur.parent
+                    raise RuntimeError("Could not find repository root")
+
+                SN_ROOT = find_repo_root(Path(__file__).parent)
+
+                # Then the path where the bender.yml expects the postlayout to be in
+                dst = SN_ROOT / 'nonfree/gf12/fusion/runs/0/out/15/snitch_cluster_wrapper.v'
+
+                # Where it actually is after a post-layout synthesis run using the experiment utils
+                src = self.synth_dir / experiment['hw'] / 'out/15/snitch_cluster_wrapper.v'
+
+                # Create the destination directory if it does not exist
+                dst.parent.mkdir(parents=True, exist_ok=True)
+
+                # Remove existing file/symlink
+                if dst.exists() or dst.is_symlink():
+                    dst.unlink()
+
+                # Create a symbolic link
+                dst.symlink_to(src)
+                print(f"Created symbolic link: {dst} -> {src}")
+
+                # Now we can build the simulation model
+                common.make(bin, vars, dry_run=dry_run)
+
+        if 'vcd' in self.actions or 'all' in self.actions:
+            # We have to extend the experiments with the vcd information
+            experiments = self.extract_vcd_simregion(experiments)
+            # We also have to tell the simulation that it should expect 1 and not 0
+            # as the return code, since the simulation will be terminating early if VCD end is set.
+            for experiment in experiments:
+                if experiment['vcd_end'] != -1:
+                    experiment['retcode'] = 1
+
+            simulations = sim_utils.get_simulations(
+                experiments,
+                run.SIMULATORS[self.args.simulator],
+                self.run_dir
+            )
+            for i, experiment in enumerate(experiments):
+                simulations[i].env = self.derive_env(experiment)
+            failed_sims = run.run_simulations(simulations, self.args)
+            if failed_sims > 0:
+                sys.exit(failed_sims)
+
         # Generate joint performance dump
         if 'power' in self.actions or 'all' in self.actions:
             def run_power(experiment):
@@ -305,9 +452,11 @@ class ExperimentManager:
                     colored('Estimate power', 'black', attrs=['bold']),
                     colored(experiment['power_dir'], 'cyan', attrs=['bold'])
                 )
+
                 vars = {
                     'SIM_DIR': experiment['run_dir'],
-                    'POWER_REPDIR': experiment['power_dir']
+                    'POWER_REPDIR': experiment['power_dir'],
+                    'NETLIST': self.synth_dir / experiment['hw'] / 'out/15/snitch_cluster_wrapper.v'
                 }
                 return common.make('power', vars, dry_run=dry_run)
 
@@ -328,27 +477,27 @@ class ExperimentManager:
                             colored(' finished.', 'green', attrs=['bold'])
                         )
 
-        # Run synthesis
-        if any(x in ['elab', 'synth', 'all'] for x in self.actions):
-            if 'synth' in self.actions:
-                action = 'synth'
-            else:
-                action = 'elab'
-            processes = []
-            for experiment in experiments:
-                def func(design=None, hdl_params={}):
-                    hdl_params_str = ':'.join([f'{key}={val}' for key, val in hdl_params.items()])
-                    vars = {
-                        'DESIGN': design,
-                        'HDL_PARAMS': hdl_params_str,
-                        'RUNDIR': experiment['synth_dir'],
-                    }
-                    return common.make(action, vars=vars, sync=sync)
-                if action in self.callbacks:
-                    func = self.callbacks[action]
-                process = func(experiment['design'], experiment.get('hdl_params', {}))
-                processes.append(process)
-            common.wait_processes(processes)
+    def extract_vcd_simregion(self, experiments):
+
+        df = self.get_results()
+
+        # If there are no performance results available, we immediately return
+        if not self.perf_results_available:
+            raise ValueError('Cannot export VCD intervals without performance results.')
+
+        vcd_interval = df.apply(
+            lambda row: row['results'].get_interval(
+                SimRegion('hart_0', 'compute')
+            ),
+            axis=1
+        )
+
+        for i, experiment in enumerate(experiments):
+            vcd_start, vcd_end = vcd_interval.iloc[i]
+            experiment['vcd_start'] = vcd_start
+            experiment['vcd_end'] = vcd_end
+
+        return experiments
 
     def export_experiments(self, path='experiments.yaml'):
         # Save power experiments to a YAML file
@@ -358,6 +507,7 @@ class ExperimentManager:
     def export_power_experiments(self, start_region, end_region=None, path='power.yaml'):
         # Extract VCD intervals
         df = self.get_results()
+        print("I am here")
         if self.perf_results_available:
             vcd_interval = df.apply(
                 lambda row: row['results'].get_interval(start_region, end_region),
@@ -389,12 +539,13 @@ class ExperimentManager:
 
         # Expand the 'axes' column into separate columns
         axes = df['axes'].apply(pd.Series)
-
         # Create SimResults objects from 'run_dir' column
         if self.run_dir.exists():
             results = df['run_dir'].apply(lambda run_dir: SimResults(run_dir, source=source))
             results.rename('results', inplace=True)
             self.perf_results_available = True
+        else:
+            print()
 
         # Create PowerResults objects
         if 'PowerResults' in globals():
@@ -407,10 +558,12 @@ class ExperimentManager:
 
         # Create SynthResults objects
         if 'SynthResults' in globals():
-            if self.synth_dir.exists():
+            try:
                 synth_results = df['synth_dir'].apply(lambda synth_dir: SynthResults(synth_dir))
                 synth_results.rename('synth_results', inplace=True)
                 self.synth_results_available = True
+            except FileNotFoundError:
+                pass
 
         # Combine experiment axes and results into a new DataFrame
         columns = [axes]

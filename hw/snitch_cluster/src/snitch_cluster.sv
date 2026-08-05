@@ -72,6 +72,8 @@ module snitch_cluster
   parameter int unsigned DMANumChannels     = 1,
   /// Number of exposed TCDM wide ports
   parameter int unsigned NumExpWideTcdmPorts = 1,
+  /// Whether the schnova or schnizo core is used in the cluster
+  parameter bit          UseSchnovaCore      = 0,
   /// Width of a single icache line.
   parameter int unsigned ICacheLineWidth [NrHives] = '{default: 0},
   /// Number of icache lines per set.
@@ -81,6 +83,10 @@ module snitch_cluster
   /// Use SCM for icache tag and data arrays.
   parameter bit          ICacheL1TagScm [NrHives]  = '{default: 1'b0},
   parameter bit          ICacheL1DataScm [NrHives] = '{default: 1'b0},
+  /// Number of bits that get fetched per fetch request
+  parameter int unsigned ICacheFetchDataWidth      = 0,
+  /// Number of lines for the L0 Instruction cache
+  parameter int unsigned ICacheL0LineCount = 0,
   /// Enable virtual memory support.
   parameter bit          VMSupport          = 1,
   /// Enable wide collective operations.
@@ -112,6 +118,10 @@ module snitch_cluster
   parameter bit [NrCores-1:0] Xdma          = '0,
   /// Per-core enabling of the custom `Xfrep` ISA extensions.
   parameter bit [NrCores-1:0] Xfrep         = '0,
+  /// Per-core enabling of the custom `Xfrepi` ISA extensions.
+  parameter bit [NrCores-1:0] XFREPI        = '0,
+  /// Per-core enabling of the custom `Xfrepo` ISA extensions.
+  parameter bit [NrCores-1:0] XFREPO        = '0,
   /// Per-core enabling of the custom `Xcopift` ISA extensions.
   parameter bit [NrCores-1:0] Xcopift       = '0,
   /// Per-core enabling of the custom 'Xpulppostmod' ISA extensions.
@@ -149,6 +159,12 @@ module snitch_cluster
   parameter int unsigned NumLsus [NrCores] = '{default: 1},
   /// Per-core number of FPUs
   parameter int unsigned NumFpus [NrCores] = '{default: 0},
+  /// Per-core number of ALU dispatch buffer entries
+  parameter int unsigned NumAluBufEntries [NrCores] = '{default: 0},
+  /// Per-core number of LSU dispatch buffer entries
+  parameter int unsigned NumLsuBufEntries [NrCores] = '{default: 0},
+  /// Per-core number of FPU dispatch buffer entries
+  parameter int unsigned NumFpuBufEntries [NrCores] = '{default: 0},
   /// Per-core number of Slots per ALU
   parameter int unsigned NumAluRss [NrCores] = '{default: 0},
   /// Per-core number of Slots per LSU
@@ -164,6 +180,14 @@ module snitch_cluster
   parameter int unsigned NumAluRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
+  /// If a freelist based physical register reclamation strategy is used
+  /// or a refernce counting based strategy.
+  parameter bit [NrCores-1:0] UseFreeList = '0,
+  /// Number of physical general purpose registers
+  parameter int unsigned NofPhysGpr [NrCores] = '{default:0},
+  /// Number of physical floating point registers
+  parameter int unsigned NofPhysFpr [NrCores] = '{default:0},
+  parameter int unsigned NumRobEntries [NrCores] = '{default:0},
   /// Per-core integer outstanding loads
   parameter int unsigned NumIntOutstandingLoads [NrCores] = '{default: 0},
   /// Per-core integer outstanding memory operations (load and stores)
@@ -386,6 +410,20 @@ module snitch_cluster
     return n;
   endfunction
 
+  function automatic int get_max_phys_regs(int unsigned reg_counts [NrCores]);
+    int unsigned max_regs = 0;
+    for (int unsigned i = 0; i < NrCores; i++) begin
+      if (reg_counts[i] > max_regs) begin
+        max_regs = reg_counts[i];
+      end
+    end
+    return max_regs;
+  endfunction
+
+  localparam int unsigned MaxNofPhysGpr = get_max_phys_regs(NofPhysGpr);
+  localparam int unsigned MaxNofPhysFpr = get_max_phys_regs(NofPhysFpr);
+  localparam int unsigned AccIdWidth = $clog2((MaxNofPhysFpr > MaxNofPhysGpr) ? MaxNofPhysFpr : MaxNofPhysGpr);
+
   localparam int unsigned NrTCDMPortsCores = get_tcdm_port_offs(NrCores);
   localparam int unsigned NumTCDMIn = NrTCDMPortsCores + 1;
   localparam logic [PhysicalAddrWidth-1:0] TCDMMask = ~(TCDMSizeNapotRounded - 1);
@@ -574,9 +612,11 @@ module snitch_cluster
     addr_t end_addr;
   } xbar_rule_t;
 
+  localparam integer unsigned IdWidth = UseSchnovaCore ? AccIdWidth : 5;
+
   typedef struct packed {
     acc_addr_e   addr;
-    logic [4:0]  id;
+    logic [IdWidth-1:0]  id;
     logic [31:0] data_op;
     data_t       data_arga;
     data_t       data_argb;
@@ -584,7 +624,7 @@ module snitch_cluster
   } acc_req_t;
 
     typedef struct packed {
-    logic [4:0] id;
+    logic [IdWidth-1:0] id;
     logic       error;
     data_t      data;
   } acc_resp_t;
@@ -610,7 +650,7 @@ module snitch_cluster
   typedef struct packed {
     // Slow domain.
     logic          flush_i_ready;
-    logic [31:0]   inst_data;
+    logic [ICacheFetchDataWidth-1:0]   inst_data;
     logic          inst_ready;
     logic          inst_error;
     // Fast domain.
@@ -1133,134 +1173,268 @@ module snitch_cluster
     parameter logic [31:0] BootAddrInternal = (AliasRegionEnable & IntBootromEnable) ?
                                                 BootRomAliasStart : BootAddr;
 
-    schnizo_cc #(
-      .AddrWidth (PhysicalAddrWidth),
-      .DataWidth (NarrowDataWidth),
-      .DMADataWidth (WideDataWidth),
-      .DMAIdWidth (WideIdWidthIn),
-      .DMAUserWidth (WideUserWidth),
-      .SnitchPMACfg (SnitchPMACfg),
-      .DMANumAxInFlight (DMANumAxInFlight),
-      .DMAReqFifoDepth (DMAReqFifoDepth),
-      .DMANumChannels (DMANumChannels),
-      .dreq_t (reqrsp_req_t),
-      .drsp_t (reqrsp_rsp_t),
-      .tcdm_req_t (tcdm_req_t),
-      .tcdm_rsp_t (tcdm_rsp_t),
-      .tcdm_user_t (tcdm_user_t),
-      .axi_ar_chan_t (axi_mst_dma_ar_chan_t),
-      .axi_aw_chan_t (axi_mst_dma_aw_chan_t),
-      .axi_req_t (axi_mst_dma_req_t),
-      .axi_rsp_t (axi_mst_dma_resp_t),
-      .hive_req_t (hive_req_t),
-      .hive_rsp_t (hive_rsp_t),
-      .acc_req_t (acc_req_t),
-      .acc_resp_t (acc_resp_t),
-      .dma_events_t (dma_events_t),
-      // TODO(colluca): add XIF to Schnizo
-      // .EnableXif (EnableXif),
-      // .XifIdWidth (XifIdWidth),
-      // .x_issue_req_t (x_issue_req_t),
-      // .x_issue_resp_t (x_issue_resp_t),
-      // .x_register_t (x_register_t),
-      // .x_commit_t (x_commit_t),
-      // .x_result_t (x_result_t),
-      .BootAddr (BootAddrInternal),
-      .RVF (RVF[i]),
-      .RVD (RVD[i]),
-      .XF16 (XF16[i]),
-      .XF16ALT (XF16ALT[i]),
-      .XF8 (XF8[i]),
-      .XF8ALT (XF8ALT[i]),
-      .XFVEC (XFVEC[i]),
-      .XFDOTP (XFDOTP[i]),
-      .Xdma (Xdma[i]),
-      .IsoCrossing (IsoCrossing),
-      .Xfrep (Xfrep[i]),
-      .NumAlus(NumAlus[i]),
-      .NumLsus(NumLsus[i]),
-      .NumFpus(NumFpus[i]),
-      .NumAluRss(NumAluRss[i]),
-      .NumLsuRss(NumLsuRss[i]),
-      .NumFpuRss(NumFpuRss[i]),
-      .NumAluConstants(NumAluConstants[i]),
-      .NumLsuConstants(NumLsuConstants[i]),
-      .NumFpuConstants(NumFpuConstants[i]),
-      .NumAluRspPorts(NumAluRspPorts[i]),
-      .NumLsuRspPorts(NumLsuRspPorts[i]),
-      .NumFpuRspPorts(NumFpuRspPorts[i]),
-      // TODO(colluca): add Xpulpv2 to Schnizo
-      // .Xpulppostmod (Xpulppostmod[i]),
-      // .Xpulpabs (Xpulpabs[i]),
-      // .Xpulpbitop (Xpulpbitop[i]),
-      // .Xpulpbr (Xpulpbr[i]),
-      // .Xpulpclip (Xpulpclip[i]),
-      // .Xpulpmacsi (Xpulpmacsi[i]),
-      // .Xpulpminmax (Xpulpminmax[i]),
-      // .Xpulpslet (Xpulpslet[i]),
-      // .Xpulpvect (Xpulpvect[i]),
-      // .Xpulpvectshufflepack (Xpulpvectshufflepack[i]),
-      // .PrivateIpu (PrivateIpu[i]),
-      .NumIntOutstandingLoads (NumIntOutstandingLoads[i]),
-      .NumIntOutstandingMem (NumIntOutstandingMem[i]),
-      .FPUImplementation (FPUImplementation[i]),
-      .RegisterOffloadReq (RegisterOffloadReq),
-      .RegisterOffloadRsp (RegisterOffloadRsp),
-      .RegisterCoreReq (RegisterCoreReq),
-      .RegisterCoreRsp (RegisterCoreRsp),
-      .RegisterFPUIn (RegisterFPUIn),
-      .RegisterFPUOut (RegisterFPUOut),
-      // TODO(colluca): add DCA to Schnizo
-      // .RegisterDcaReq (RegisterDcaReq),
-      // .RegisterDcaRsp (RegisterDcaRsp),
-      .TCDMAddrWidth (TCDMAddrWidth),
-      .CaqDepth (CaqDepth),
-      .CaqTagWidth (CaqTagWidth),
-      .DebugSupport (DebugSupport),
-      .TCDMAliasEnable (AliasRegionEnable),
-      .TCDMAliasStart (TCDMAliasStart)
-      // TODO(colluca): add collectives and DCA to Schnizo
-      // .CollectiveWidth (CollectiveWidth),
-      // .EnableDca (EnableDca)  
-    ) i_snitch_cc (
-      .clk_i,
-      .clk_d2_i (clk_d2),
-      .rst_ni,
-      .rst_int_ss_ni (1'b1),
-      .rst_fp_ss_ni (1'b1),
-      .hart_id_i (hart_base_id_i + i),
-      .hive_req_o (hive_req[i]),
-      .hive_rsp_i (hive_rsp[i]),
-      .irq_i (irq),
-      .data_req_o (core_req[i]),
-      .data_rsp_i (core_rsp[i]),
-      .tcdm_req_o (tcdm_req_wo_user),
-      .tcdm_rsp_i (tcdm_rsp[TcdmPortsOffs+:TcdmPorts]),
-      // TODO(colluca): see comments above
-      // .x_issue_req_o (x_issue_req_o[i]),
-      // .x_issue_resp_i (x_issue_resp_i[i]),
-      // .x_issue_valid_o (x_issue_valid_o[i]),
-      // .x_issue_ready_i (x_issue_ready_i[i]),
-      // .x_register_o (x_register_o[i] ),
-      // .x_register_valid_o (x_register_valid_o[i]),
-      // .x_register_ready_i (x_register_ready_i[i]),
-      // .x_commit_o (x_commit_o[i]),
-      // .x_commit_valid_o (x_commit_valid_o[i]),
-      // .x_result_i (x_result_i[i]),
-      // .x_result_valid_i (x_result_valid_i[i]),
-      // .x_result_ready_o (x_result_ready_o[i]),
-      .axi_dma_req_o (axi_dma_req),
-      .axi_dma_res_i (axi_dma_res),
-      .axi_dma_busy_o (),
-      .axi_dma_events_o (dma_core_events),
-      .core_events_o (core_events[i]),
-      .tcdm_addr_base_i (tcdm_start_address),
-      .barrier_o (barrier_in[i]),
-      .barrier_i (barrier_out)
-      // TODO(colluca): see comments above
-      // .dca_req_i (dca_lane_req[i]),
-      // .dca_rsp_o (dca_lane_rsp[i])  
-    );
+    if (UseSchnovaCore) begin: gen_schnova_cc
+      schnova_cc #(
+        .AddrWidth (PhysicalAddrWidth),
+        .DataWidth (NarrowDataWidth),
+        .DMADataWidth (WideDataWidth),
+        .DMAIdWidth (WideIdWidthIn),
+        .DMAUserWidth (WideUserWidth),
+        .SnitchPMACfg (SnitchPMACfg),
+        .DMANumAxInFlight (DMANumAxInFlight),
+        .DMAReqFifoDepth (DMAReqFifoDepth),
+        .DMANumChannels (DMANumChannels),
+        .dreq_t (reqrsp_req_t),
+        .drsp_t (reqrsp_rsp_t),
+        .tcdm_req_t (tcdm_req_t),
+        .tcdm_rsp_t (tcdm_rsp_t),
+        .tcdm_user_t (tcdm_user_t),
+        .axi_ar_chan_t (axi_mst_dma_ar_chan_t),
+        .axi_aw_chan_t (axi_mst_dma_aw_chan_t),
+        .axi_req_t (axi_mst_dma_req_t),
+        .axi_rsp_t (axi_mst_dma_resp_t),
+        .hive_req_t (hive_req_t),
+        .hive_rsp_t (hive_rsp_t),
+        .acc_req_t (acc_req_t),
+        .acc_resp_t (acc_resp_t),
+        .dma_events_t (dma_events_t),
+        // TODO(colluca): add XIF to Schnizo
+        // .EnableXif (EnableXif),
+        // .XifIdWidth (XifIdWidth),
+        // .x_issue_req_t (x_issue_req_t),
+        // .x_issue_resp_t (x_issue_resp_t),
+        // .x_register_t (x_register_t),
+        // .x_commit_t (x_commit_t),
+        // .x_result_t (x_result_t),
+        .BootAddr (BootAddrInternal),
+        .RVF (RVF[i]),
+        .RVD (RVD[i]),
+        .XF16 (XF16[i]),
+        .XF16ALT (XF16ALT[i]),
+        .XF8 (XF8[i]),
+        .XF8ALT (XF8ALT[i]),
+        .XFVEC (XFVEC[i]),
+        .XFDOTP (XFDOTP[i]),
+        .XFREPI (XFREPI[i]),
+        .XFREPO (XFREPO[i]),
+        .Xdma (Xdma[i]),
+        .IsoCrossing (IsoCrossing),
+        .NumAlus(NumAlus[i]),
+        .NumLsus(NumLsus[i]),
+        .NumFpus(NumFpus[i]),
+        .NumAluBufEntries(NumAluBufEntries[i]),
+        .NumLsuBufEntries(NumLsuBufEntries[i]),
+        .NumFpuBufEntries(NumFpuBufEntries[i]),
+        .NumAluRss(NumAluRss[i]),
+        .NumLsuRss(NumLsuRss[i]),
+        .NumFpuRss(NumFpuRss[i]),
+        .NumRobEntries(NumRobEntries[i]),
+        .NofPhysGpr(NofPhysGpr[i]),
+        .NofPhysFpr(NofPhysFpr[i]),
+        .ICacheFetchDataWidth  (ICacheFetchDataWidth),
+        .UseFreeList (UseFreeList[i]),
+        // TODO(colluca): add Xpulpv2 to Schnizo
+        // .Xpulppostmod (Xpulppostmod[i]),
+        // .Xpulpabs (Xpulpabs[i]),
+        // .Xpulpbitop (Xpulpbitop[i]),
+        // .Xpulpbr (Xpulpbr[i]),
+        // .Xpulpclip (Xpulpclip[i]),
+        // .Xpulpmacsi (Xpulpmacsi[i]),
+        // .Xpulpminmax (Xpulpminmax[i]),
+        // .Xpulpslet (Xpulpslet[i]),
+        // .Xpulpvect (Xpulpvect[i]),
+        // .Xpulpvectshufflepack (Xpulpvectshufflepack[i]),
+        // .PrivateIpu (PrivateIpu[i]),
+        .NumIntOutstandingLoads (NumIntOutstandingLoads[i]),
+        .NumIntOutstandingMem (NumIntOutstandingMem[i]),
+        .FPUImplementation (FPUImplementation[i]),
+        .RegisterOffloadReq (RegisterOffloadReq),
+        .RegisterOffloadRsp (RegisterOffloadRsp),
+        .RegisterCoreReq (RegisterCoreReq),
+        .RegisterCoreRsp (RegisterCoreRsp),
+        .RegisterFPUIn (RegisterFPUIn),
+        .RegisterFPUOut (RegisterFPUOut),
+        // TODO(colluca): add DCA to Schnizo
+        // .RegisterDcaReq (RegisterDcaReq),
+        // .RegisterDcaRsp (RegisterDcaRsp),
+        .TCDMAddrWidth (TCDMAddrWidth),
+        .CaqDepth (CaqDepth),
+        .CaqTagWidth (CaqTagWidth),
+        .DebugSupport (DebugSupport),
+        .TCDMAliasEnable (AliasRegionEnable),
+        .TCDMAliasStart (TCDMAliasStart)
+        // TODO(colluca): add collectives and DCA to Schnizo
+        // .CollectiveWidth (CollectiveWidth),
+        // .EnableDca (EnableDca)  
+      ) i_schnova_cc (
+        .clk_i,
+        .clk_d2_i (clk_d2),
+        .rst_ni,
+        .rst_int_ss_ni (1'b1),
+        .rst_fp_ss_ni (1'b1),
+        .hart_id_i (hart_base_id_i + i),
+        .hive_req_o (hive_req[i]),
+        .hive_rsp_i (hive_rsp[i]),
+        .irq_i (irq),
+        .data_req_o (core_req[i]),
+        .data_rsp_i (core_rsp[i]),
+        .tcdm_req_o (tcdm_req_wo_user),
+        .tcdm_rsp_i (tcdm_rsp[TcdmPortsOffs+:TcdmPorts]),
+        // TODO(colluca): see comments above
+        // .x_issue_req_o (x_issue_req_o[i]),
+        // .x_issue_resp_i (x_issue_resp_i[i]),
+        // .x_issue_valid_o (x_issue_valid_o[i]),
+        // .x_issue_ready_i (x_issue_ready_i[i]),
+        // .x_register_o (x_register_o[i] ),
+        // .x_register_valid_o (x_register_valid_o[i]),
+        // .x_register_ready_i (x_register_ready_i[i]),
+        // .x_commit_o (x_commit_o[i]),
+        // .x_commit_valid_o (x_commit_valid_o[i]),
+        // .x_result_i (x_result_i[i]),
+        // .x_result_valid_i (x_result_valid_i[i]),
+        // .x_result_ready_o (x_result_ready_o[i]),
+        .axi_dma_req_o (axi_dma_req),
+        .axi_dma_res_i (axi_dma_res),
+        .axi_dma_busy_o (),
+        .axi_dma_events_o (dma_core_events),
+        .core_events_o (core_events[i]),
+        .tcdm_addr_base_i (tcdm_start_address),
+        .barrier_o (barrier_in[i]),
+        .barrier_i (barrier_out)
+        // TODO(colluca): see comments above
+        // .dca_req_i (dca_lane_req[i]),
+        // .dca_rsp_o (dca_lane_rsp[i])
+      );
+    end else begin : gen_schnizo_cc
+      schnizo_cc #(
+        .AddrWidth (PhysicalAddrWidth),
+        .DataWidth (NarrowDataWidth),
+        .DMADataWidth (WideDataWidth),
+        .DMAIdWidth (WideIdWidthIn),
+        .DMAUserWidth (WideUserWidth),
+        .SnitchPMACfg (SnitchPMACfg),
+        .DMANumAxInFlight (DMANumAxInFlight),
+        .DMAReqFifoDepth (DMAReqFifoDepth),
+        .DMANumChannels (DMANumChannels),
+        .dreq_t (reqrsp_req_t),
+        .drsp_t (reqrsp_rsp_t),
+        .tcdm_req_t (tcdm_req_t),
+        .tcdm_rsp_t (tcdm_rsp_t),
+        .tcdm_user_t (tcdm_user_t),
+        .axi_ar_chan_t (axi_mst_dma_ar_chan_t),
+        .axi_aw_chan_t (axi_mst_dma_aw_chan_t),
+        .axi_req_t (axi_mst_dma_req_t),
+        .axi_rsp_t (axi_mst_dma_resp_t),
+        .hive_req_t (hive_req_t),
+        .hive_rsp_t (hive_rsp_t),
+        .acc_req_t (acc_req_t),
+        .acc_resp_t (acc_resp_t),
+        .dma_events_t (dma_events_t),
+        // TODO(colluca): add XIF to Schnizo
+        // .EnableXif (EnableXif),
+        // .XifIdWidth (XifIdWidth),
+        // .x_issue_req_t (x_issue_req_t),
+        // .x_issue_resp_t (x_issue_resp_t),
+        // .x_register_t (x_register_t),
+        // .x_commit_t (x_commit_t),
+        // .x_result_t (x_result_t),
+        .BootAddr (BootAddrInternal),
+        .RVF (RVF[i]),
+        .RVD (RVD[i]),
+        .XF16 (XF16[i]),
+        .XF16ALT (XF16ALT[i]),
+        .XF8 (XF8[i]),
+        .XF8ALT (XF8ALT[i]),
+        .XFVEC (XFVEC[i]),
+        .XFDOTP (XFDOTP[i]),
+        .Xdma (Xdma[i]),
+        .IsoCrossing (IsoCrossing),
+        .Xfrep (Xfrep[i]),
+        .NumAlus(NumAlus[i]),
+        .NumLsus(NumLsus[i]),
+        .NumFpus(NumFpus[i]),
+        .NumAluRss(NumAluRss[i]),
+        .NumLsuRss(NumLsuRss[i]),
+        .NumFpuRss(NumFpuRss[i]),
+        .NumAluConstants(NumAluConstants[i]),
+        .NumLsuConstants(NumLsuConstants[i]),
+        .NumFpuConstants(NumFpuConstants[i]),
+        .NumAluRspPorts(NumAluRspPorts[i]),
+        .NumLsuRspPorts(NumLsuRspPorts[i]),
+        .NumFpuRspPorts(NumFpuRspPorts[i]),
+        // TODO(colluca): add Xpulpv2 to Schnizo
+        // .Xpulppostmod (Xpulppostmod[i]),
+        // .Xpulpabs (Xpulpabs[i]),
+        // .Xpulpbitop (Xpulpbitop[i]),
+        // .Xpulpbr (Xpulpbr[i]),
+        // .Xpulpclip (Xpulpclip[i]),
+        // .Xpulpmacsi (Xpulpmacsi[i]),
+        // .Xpulpminmax (Xpulpminmax[i]),
+        // .Xpulpslet (Xpulpslet[i]),
+        // .Xpulpvect (Xpulpvect[i]),
+        // .Xpulpvectshufflepack (Xpulpvectshufflepack[i]),
+        // .PrivateIpu (PrivateIpu[i]),
+        .NumIntOutstandingLoads (NumIntOutstandingLoads[i]),
+        .NumIntOutstandingMem (NumIntOutstandingMem[i]),
+        .FPUImplementation (FPUImplementation[i]),
+        .RegisterOffloadReq (RegisterOffloadReq),
+        .RegisterOffloadRsp (RegisterOffloadRsp),
+        .RegisterCoreReq (RegisterCoreReq),
+        .RegisterCoreRsp (RegisterCoreRsp),
+        .RegisterFPUIn (RegisterFPUIn),
+        .RegisterFPUOut (RegisterFPUOut),
+        // TODO(colluca): add DCA to Schnizo
+        // .RegisterDcaReq (RegisterDcaReq),
+        // .RegisterDcaRsp (RegisterDcaRsp),
+        .TCDMAddrWidth (TCDMAddrWidth),
+        .CaqDepth (CaqDepth),
+        .CaqTagWidth (CaqTagWidth),
+        .DebugSupport (DebugSupport),
+        .TCDMAliasEnable (AliasRegionEnable),
+        .TCDMAliasStart (TCDMAliasStart)
+        // TODO(colluca): add collectives and DCA to Schnizo
+        // .CollectiveWidth (CollectiveWidth),
+        // .EnableDca (EnableDca)  
+      ) i_schnizo_cc (
+        .clk_i,
+        .clk_d2_i (clk_d2),
+        .rst_ni,
+        .rst_int_ss_ni (1'b1),
+        .rst_fp_ss_ni (1'b1),
+        .hart_id_i (hart_base_id_i + i),
+        .hive_req_o (hive_req[i]),
+        .hive_rsp_i (hive_rsp[i]),
+        .irq_i (irq),
+        .data_req_o (core_req[i]),
+        .data_rsp_i (core_rsp[i]),
+        .tcdm_req_o (tcdm_req_wo_user),
+        .tcdm_rsp_i (tcdm_rsp[TcdmPortsOffs+:TcdmPorts]),
+        // TODO(colluca): see comments above
+        // .x_issue_req_o (x_issue_req_o[i]),
+        // .x_issue_resp_i (x_issue_resp_i[i]),
+        // .x_issue_valid_o (x_issue_valid_o[i]),
+        // .x_issue_ready_i (x_issue_ready_i[i]),
+        // .x_register_o (x_register_o[i] ),
+        // .x_register_valid_o (x_register_valid_o[i]),
+        // .x_register_ready_i (x_register_ready_i[i]),
+        // .x_commit_o (x_commit_o[i]),
+        // .x_commit_valid_o (x_commit_valid_o[i]),
+        // .x_result_i (x_result_i[i]),
+        // .x_result_valid_i (x_result_valid_i[i]),
+        // .x_result_ready_o (x_result_ready_o[i]),
+        .axi_dma_req_o (axi_dma_req),
+        .axi_dma_res_i (axi_dma_res),
+        .axi_dma_busy_o (),
+        .axi_dma_events_o (dma_core_events),
+        .core_events_o (core_events[i]),
+        .tcdm_addr_base_i (tcdm_start_address),
+        .barrier_o (barrier_in[i]),
+        .barrier_i (barrier_out)
+        // TODO(colluca): see comments above
+        // .dca_req_i (dca_lane_req[i]),
+        // .dca_rsp_o (dca_lane_rsp[i])  
+      );
+    end 
     for (genvar j = 0; j < TcdmPorts; j++) begin : gen_tcdm_user
       always_comb begin
         tcdm_req[TcdmPortsOffs+j] = tcdm_req_wo_user[j];
@@ -1312,9 +1486,13 @@ module snitch_cluster
       .ICacheLineWidth (ICacheLineWidth[i]),
       .ICacheLineCount (ICacheLineCount[i]),
       .ICacheWays (ICacheWays[i]),
+      .ICacheFetchDataWidth (ICacheFetchDataWidth),
+      .ICacheL0LineCount(ICacheL0LineCount),
       .ICacheL1TagScm (ICacheL1TagScm[i]),
       .ICacheL1DataScm (ICacheL1DataScm[i]),
       .IsoCrossing (IsoCrossing),
+      .UseSchnovaCore(UseSchnovaCore),
+      .AccIdWidth(AccIdWidth),
       .sram_cfg_t  (sram_cfg_t),
       .sram_cfgs_t (sram_cfgs_t),
       .axi_req_t (axi_mst_dma_req_t),
@@ -1813,5 +1991,14 @@ module snitch_cluster
   `ASSERT_INIT(DcaSystemNarrowDataWidth, (!EnableDca) || (NarrowDataWidth == 64))
   // DcaDataWidth could potentially be < WideDataWidth, but for now we don't allow this
   `ASSERT_INIT(CheckDcaDataWidth, DcaDataWidth == WideDataWidth)
+
+  // Check the sanity of the superscalar parameters 
+  `ASSERT_INIT(CheckFetchWidth, ICacheFetchDataWidth % 32 == 0
+  , "Fetch data width is not a multiple of 32");
+  for (genvar core_idx = 0; core_idx < NrCores; core_idx++) begin
+    // If the core is a schnizo core, the fetch data width has to be 32 bit (1 instruction)
+    `ASSERT_INIT(CheckSchnizoFetchWidth, (ICacheFetchDataWidth == 32) || (UseSchnovaCore == 1'b1),
+    "Fetch data width for schnizo has to be 32 bit");
+  end
 
 endmodule
