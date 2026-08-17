@@ -79,7 +79,7 @@ def plot(dir=None, show=False, hide_x_axis=False):
     if hide_x_axis:
         ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
     else:
-        ax.set_xlabel('Number of RSEs')
+        ax.set_xlabel('Number of RS entries per RS')
         ax.set_xticklabels(comb_df.index)
     handles, labels = ax.get_legend_handles_labels()
     order = [2 * (i % n_bars) + (i // n_bars) for i in range(2 * n_bars)]
