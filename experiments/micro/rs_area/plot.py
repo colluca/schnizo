@@ -77,7 +77,7 @@ def plot(dir=None, show=False, hide_x_axis=False):
     ax.set_ylabel('Area [kGE]')
     ax.set_xticks(x)
     if hide_x_axis:
-        ax.tick_params(axis='x', which='both', bottom=False, labelbottom=False)
+        ax.tick_params(axis='x', which='both', bottom=True, labelbottom=False)
     else:
         ax.set_xlabel('Number of RSEs')
         ax.set_xticklabels(comb_df.index)
