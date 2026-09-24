@@ -20,7 +20,8 @@ class GeluDataGen(du.DataGen):
 
     def golden_model(self, ifmap, approximate='sigmoid'):
         if approximate == 'sigmoid':
-            # Hendrycks & Gimpel (2016), "Gaussian Error Linear Units (GELUs)", arXiv:1606.08415, eq. 4
+            # Hendrycks & Gimpel (2016), "Gaussian Error Linear Units (GELUs)",
+            # arXiv:1606.08415, eq. 4
             return ifmap * torch.sigmoid(1.702 * ifmap)
         elif approximate == 'tanh':
             return torch.nn.functional.gelu(ifmap, approximate='tanh')
@@ -65,8 +66,8 @@ class GeluDataGen(du.DataGen):
         header += [du.format_array_definition(ctype, ifmap_uid,
                    du.flatten(ifmap), alignment=BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
-        result_def = du.format_array_definition(ctype, 'golden',
-                     du.flatten(ofmap), alignment=BURST_ALIGNMENT)
+        result_def = du.format_array_definition(
+            ctype, 'golden', du.flatten(ofmap), alignment=BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq --arg p 'source ./iis-setup.sh && ' '{hookSpecificOutput:{hookEventName:\"PreToolUse\",updatedInput:{command:($p + .tool_input.command)}}}'",
+            "statusMessage": "Setting up environment..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; [[ \"$f\" == *.py ]] || exit 0; flake8 \"$f\"; } 2>/dev/null || true",
+            "statusMessage": "Running flake8..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; [[ \"$f\" =~ \\.(c|cpp|h|hpp)$ ]] || exit 0; clang-format-10.0.1 -i \"$f\"; } 2>/dev/null || true",
+            "statusMessage": "Running clang-format..."
+          }
+        ]
+      }
+    ]
+  }
+}

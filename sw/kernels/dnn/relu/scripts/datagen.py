@@ -68,8 +68,8 @@ class ReluDataGen(du.DataGen):
         header += [du.format_array_definition(ctype, ifmap_uid,
                    du.flatten(ifmap), alignment=self.BURST_ALIGNMENT,
                    section=kwargs.get('section'))]
-        result_def = du.format_array_definition(ctype, 'golden',
-                     du.flatten(ofmap), alignment=self.BURST_ALIGNMENT)
+        result_def = du.format_array_definition(
+            ctype, 'golden', du.flatten(ofmap), alignment=self.BURST_ALIGNMENT)
         header += [du.format_ifdef_wrapper('BIST', result_def)]
 
         return '\n\n'.join(header)

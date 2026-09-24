@@ -16,6 +16,7 @@ METRIC_LABELS = {
     'ipc': 'IPC',
 }
 
+
 def app_label(app):
     return app.removeprefix('sz_').replace('xoshiro128p', 'xoshiro')
 
@@ -49,7 +50,8 @@ def fit_inverse_function(n_vals, y_vals, x_lim):
 def kernel_scaling_plot(df, app, show=True):
     """Plot IPC and FPU utilization vs problem size with fitted curves"""
     # Extract relevant data
-    df = df[(df['hw'] == '3x32_3x32_1x64') & (df['app'] == app) & (df['mode'] == 'superscalar')].copy()
+    df = df[(df['hw'] == '3x32_3x32_1x64') & (df['app'] == app) &
+            (df['mode'] == 'superscalar')].copy()
     df = df.sort_values('size')
     n_vals = df['size'].to_numpy(dtype=float)
     ipc_vals = df['ipc'].to_numpy(dtype=float)
@@ -115,10 +117,10 @@ def superscalar_comparison_plot(df, metric='fpu_util', show=True):
 
     # Get the bar containers for each mode
     bar_containers = ax.containers
-    scalar_bars = bar_containers[list(plot_df.columns).index('Scalar')]
     superscalar_bars = bar_containers[list(plot_df.columns).index('Superscalar')]
 
     # # Add theoretical markers on top of scalar bars
+    # scalar_bars = bar_containers[list(plot_df.columns).index('Scalar')]
     # labeled = False
     # for bar, app in zip(scalar_bars, plot_df.index):
     #     if metric == 'fpu_util':

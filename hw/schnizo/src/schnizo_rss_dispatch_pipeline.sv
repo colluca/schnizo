@@ -87,7 +87,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
     logic     requested;
   } operand_slot_t;
 
-  typedef operand_slot_t [NofOperands-1:0] operand_slots_t; 
+  typedef operand_slot_t [NofOperands-1:0] operand_slots_t;
 
   //////////////////////////
   // Forward declarations //
@@ -421,7 +421,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
   always_comb begin : operand_response_handling
     response_op_slots = request_op_slots;
 
-    for (int op = 0; op < NofOperands; op++) begin      
+    for (int op = 0; op < NofOperands; op++) begin
       if (alloc_const_op_slot.operands[op].is_produced) begin
         if (odn_op_rsps_hs[op]) begin
           response_op_slots[op].value     = odn_op_rsps_i[op];
@@ -516,7 +516,7 @@ module schnizo_rss_dispatch_pipeline import schnizo_pkg::*; #(
       // We have to reset the `is_valid` flag when the operand is consumed (upon issue),
       // since a new value will have to be captured in the next iteration.
       // Similarly, we have to clear the `requested` flag, since the operand will
-      // have to be requested again. 
+      // have to be requested again.
       for (int i = 0; i < NofOperands; i++) begin
         op_slots_d[i].is_valid = 1'b0;
         op_slots_d[i].requested = 1'b0;

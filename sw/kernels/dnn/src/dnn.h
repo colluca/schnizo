@@ -203,7 +203,6 @@ typedef struct network_single_cluster_t_ {
 #include "../layernorm/src/layernorm.h"
 #include "../maxpool/src/maxpool.h"
 #include "../mha/src/mha.h"
-#include "../nms/src/nms.h"
 #include "../relu/src/relu.h"
 #include "../rms_norm/src/rms_norm.h"
 #include "../silu/src/silu.h"

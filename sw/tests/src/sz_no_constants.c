@@ -15,7 +15,7 @@ int main() {
         "add    %[init], %[init], %[init] \n"
         : [ init ] "+r"(init)
         : [ n_frep ] "r"(n_reps - 1)
-        : );
+        :);
 
     return init - exp;
 }

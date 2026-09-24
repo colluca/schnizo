@@ -61,15 +61,15 @@ BENCHMARK_INSNS = {
 BENCHMARK_INSNS['scalar'] = BENCHMARK_INSNS['superscalar'].copy()
 BENCHMARK_INSNS['scalar']['sz_axpy'] = {'alu':  3, 'fpu':  4, 'lsu':  12}
 # Simple DNN kernels: frep.i uses 4x-unrolled bodies.
-BENCHMARK_INSNS['scalar']['relu']      = {'alu':  2, 'fpu':  4, 'lsu':  8}
-BENCHMARK_INSNS['scalar']['batchnorm'] = {'alu':  2, 'fpu':  4, 'lsu':  8}
-BENCHMARK_INSNS['scalar']['add']       = {'alu':  3, 'fpu':  4, 'lsu': 12}
-BENCHMARK_INSNS['scalar']['mul']       = {'alu':  3, 'fpu':  4, 'lsu': 12}
-BENCHMARK_INSNS['scalar']['neg']       = {'alu':  2, 'fpu':  4, 'lsu':  8}
+BENCHMARK_INSNS['scalar']['relu'] = {'alu': 2, 'fpu': 4, 'lsu': 8}
+BENCHMARK_INSNS['scalar']['batchnorm'] = {'alu': 2, 'fpu': 4, 'lsu': 8}
+BENCHMARK_INSNS['scalar']['add'] = {'alu': 3, 'fpu': 4, 'lsu': 12}
+BENCHMARK_INSNS['scalar']['mul'] = {'alu': 3, 'fpu': 4, 'lsu': 12}
+BENCHMARK_INSNS['scalar']['neg'] = {'alu': 2, 'fpu': 4, 'lsu': 8}
 # Composite DNN kernels: eltwise sub-steps switch to frep.i (4x); exp unchanged.
-BENCHMARK_INSNS['scalar']['gelu']     = {'alu': 38, 'fpu': 60, 'lsu': 56}
-BENCHMARK_INSNS['scalar']['silu']     = {'alu': 38, 'fpu': 60, 'lsu': 56}
-BENCHMARK_INSNS['scalar']['softmax']  = {'alu': 34, 'fpu': 64, 'lsu': 52}
+BENCHMARK_INSNS['scalar']['gelu'] = {'alu': 38, 'fpu': 60, 'lsu': 56}
+BENCHMARK_INSNS['scalar']['silu'] = {'alu': 38, 'fpu': 60, 'lsu': 56}
+BENCHMARK_INSNS['scalar']['softmax'] = {'alu': 34, 'fpu': 64, 'lsu': 52}
 
 
 def insns_per_fu(insns, cfg, fu):

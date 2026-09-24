@@ -4,7 +4,8 @@
 //
 // Luca Colagrande <colluca@iis.ee.ethz.ch>
 
-static inline void vexpf_naive(double *a, double *b, uint32_t len, uint32_t batch_size) {
+static inline void vexpf_naive(double *a, double *b, uint32_t len,
+                               uint32_t batch_size) {
     (void)batch_size;
     uint64_t ki, t;
 

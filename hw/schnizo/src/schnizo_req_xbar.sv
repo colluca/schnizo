@@ -121,7 +121,7 @@ module schnizo_req_xbar #(
         end
       end
     end
-  
+
     // Selection
     dest_mask_t     [LocalNofPorts-1:0] selected_reqs;
     logic           [LocalNofPorts-1:0] selected_reqs_valid, selected_reqs_ready;

@@ -12,4 +12,4 @@
 	url = git@github.com:IHP-GmbH/IHP-Open-PDK.git
 [submodule "experiments/micro/nongemm_bench/NonGEMM-Bench-ISPASS25"]
 	path = experiments/micro/nongemm_bench/NonGEMM-Bench-ISPASS25
-	url = git@github.com:UCI-ISA-Lab/NonGEMM-Bench-ISPASS25.git
+	url = git@github.com:colluca/NonGEMM-Bench-ISPASS25.git
