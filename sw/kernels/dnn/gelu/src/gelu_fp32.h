@@ -4,11 +4,12 @@
 
 #pragma once
 
-#include "../../eltwise/src/eltwise.h"
-#include "../../misc/exp/src/vexpf_fp32_schnizo.h"
-#include "../../misc/exp/src/vexpf_fp32_schnova.h"
 #include "math.h"
 #include "snrt.h"
+
+#include "../../eltwise/src/eltwise.h"
+#include "../../misc/exp/src/vexpf_schnizo_fp32.h"
+#include "../../misc/exp/src/vexpf_schnova_fp32.h"
 
 // GeLU sigmoid approximation (Hendrycks & Gimpel, arXiv:1606.08415, eq. 4):
 // y = x * sigmoid(1.702 * x) = x / (1 + exp(-1.702 * x))
@@ -268,5 +269,5 @@ static inline void gelu_fp32_sigmoid_schnova(float *in, float *out,
     }
 
     // Step 4: out[i] = in[i] / out[i] = x / (1 + exp(-1.702*x)) = x * sigmoid(1.702*x)
-    eltwise_div_fp32_schnova(in, out, out, size);
+    eltwise_fp32_schnova(in, out, out, size, ELTWISE_DIV);
 }

@@ -48,10 +48,6 @@ class ExperimentManager(eu.ExperimentManager):
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         if experiment['app'] == 'exp' or experiment['app'] == 'log':
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
-        if experiment['app'] == 'eltwise':
-            cdefines['SPLIT_ELTWISE_FNS'] = 1
-        if experiment['app'] == 'softmax':
-            cdefines['SOFTMAX_FUNC_PTR'] = 'softmax_fp32_schnova'
         if (experiment['hw'].startswith('sv_1') or experiment['hw'].startswith('sv_2')):
             cdefines['UNROLL'] = 1
         if (experiment['bal'] is True):

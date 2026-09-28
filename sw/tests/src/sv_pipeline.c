@@ -6,7 +6,7 @@
 
 #include "snrt.h"
 
-// Program to test if the core efficienctly pipelines
+// Program to test if the core efficiently pipelines
 // when there is only one ALU
 
 int main() {

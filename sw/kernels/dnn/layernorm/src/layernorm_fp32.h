@@ -4,7 +4,9 @@
 //
 // Author: Viviane Potocnik <vivianep@iis.ee.ethz.ch>
 
-#define UNROLL_FACTOR 4
+#ifndef UNROLL
+#define UNROLL 4
+#endif
 
 /**
  * Single-cluster implementation of a layernorm tile (data assumed in TCDM)
@@ -84,18 +86,15 @@ static inline void layernorm_fp32_opt(float *input, float *output,
         const int num_elems_per_vector = sizeof(double) / sizeof(float);
         for (int32_t b = 0; b < batch_size; b++) {
             const uint32_t ssr0_b[4] = {
-                UNROLL_FACTOR,
-                embeddings / (UNROLL_FACTOR * num_elems_per_vector), 2,
+                UNROLL, embeddings / (UNROLL * num_elems_per_vector), 2,
                 tile_seq_len};
-            const uint32_t ssr0_i[4] = {sizeof(double),
-                                        UNROLL_FACTOR * sizeof(double), 0,
-                                        stride * sizeof(float)};
+            const uint32_t ssr0_i[4] = {sizeof(double), UNROLL * sizeof(double),
+                                        0, stride * sizeof(float)};
 
             const uint32_t ssr1_b[2] = {
-                UNROLL_FACTOR,
-                embeddings / (UNROLL_FACTOR * num_elems_per_vector)};
+                UNROLL, embeddings / (UNROLL * num_elems_per_vector)};
             const uint32_t ssr1_i[2] = {sizeof(double),
-                                        UNROLL_FACTOR * sizeof(double)};
+                                        UNROLL * sizeof(double)};
 
             snrt_ssr_loop_4d(SNRT_SSR_DM0, ssr0_b[0], ssr0_b[1], ssr0_b[2],
                              ssr0_b[3], ssr0_i[0], ssr0_i[1], ssr0_i[2],
@@ -115,15 +114,15 @@ static inline void layernorm_fp32_opt(float *input, float *output,
 
             // kernel progresses two values in each iteration
             const uint32_t n_frep =
-                embeddings / (UNROLL_FACTOR * num_elems_per_vector);
+                embeddings / (UNROLL * num_elems_per_vector);
 
             for (int32_t s = 0; s < tile_seq_len; s++) {
-                float mean[UNROLL_FACTOR] = {0.0, 0.0};
-                float var[UNROLL_FACTOR] = {0.0, 0.0};
+                float mean[UNROLL] = {0.0, 0.0};
+                float var[UNROLL] = {0.0, 0.0};
                 mean_tot = 0.0;
                 var_tot = 0.0;
-                v2f32 var_reg[UNROLL_FACTOR];
-                v2f32 pow[UNROLL_FACTOR];
+                v2f32 var_reg[UNROLL];
+                v2f32 pow[UNROLL];
                 v2f32 one_reg = {1.0f, 1.0f};
 
                 var_tot = 0.0;

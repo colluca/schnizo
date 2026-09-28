@@ -4,14 +4,16 @@
 
 #pragma once
 
-#include "../../misc/exp/src/vexpf.h"
-#include "blas.h"
 #include "math.h"
 #include "snrt.h"
 
-#ifndef SOFTMAX_FUNC_PTR
-#define SOFTMAX_FUNC_PTR softmax_fp32_schnizo
-#endif
+#include "blas.h"
+
+#include "../../misc/exp/src/vexpf.h"
+
+typedef void (*softmax_fp_t)(float *input, float *output, int32_t batch_size,
+                             int32_t seq_len, int32_t input_samples,
+                             uint32_t core_id, uint32_t core_num);
 
 /**
  * @struct softmax_layer_struct
@@ -38,14 +40,13 @@ typedef struct softmax_layer_struct {
     float *ifmap;
     float *ofmap;
     precision_t dtype;
+    softmax_fp_t funcptr;
 } softmax_layer_t;
 
-/**
- * Implementation of the SoftMax layer.
- */
-static inline void softmax_fp32(float *input, float *output, int32_t batch_size,
-                                int32_t seq_len, int32_t input_samples,
-                                uint32_t core_id, uint32_t core_num) {
+static inline void softmax_fp32_naive(float *input, float *output,
+                                      int32_t batch_size, int32_t seq_len,
+                                      int32_t input_samples, uint32_t core_id,
+                                      uint32_t core_num) {
     const int32_t batch_offset = seq_len * input_samples;
 
     for (int32_t b = 0; b < batch_size; b++) {
@@ -413,12 +414,11 @@ static inline void softmax_layer(softmax_layer_t const l) {
 
     snrt_cluster_hw_barrier();
 
-    // Parallel Compute Loop execution
     if (snrt_is_compute_core()) {
         snrt_mcycle();
         // Pass base pointers and let the inner grid-stride loop balance the work
-        SOFTMAX_FUNC_PTR(ifmap, ofmap, l.batch_size, l.seq_len, l.input_samples,
-                         compute_id, compute_num);
+        l.funcptr(ifmap, ofmap, l.batch_size, l.seq_len, l.input_samples,
+                  compute_id, compute_num);
         snrt_mcycle();
     } else {
         snrt_cluster_hw_barrier();

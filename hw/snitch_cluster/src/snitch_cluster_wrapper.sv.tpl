@@ -14,13 +14,6 @@ ${c[prop]}${', ' if not loop.last else ''}\
   % endfor
 </%def>\
 
-<%def name="core_cfg_int(prop)">\
-  % for c in cfg['cluster']['cores']:
-${int(c[prop])}${', ' if not loop.last else ''}\
-  % endfor
-</%def>\
-
-
 <%def name="core_cfg_flat(prop)">\
 ${cfg['cluster']['nr_cores']}'b\
   % for c in cfg['cluster']['cores'][::-1]:

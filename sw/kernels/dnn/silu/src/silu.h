@@ -4,11 +4,12 @@
 
 #pragma once
 
-#include "../../eltwise/src/eltwise.h"
-#include "../../misc/exp/src/vexpf_fp32_schnizo.h"
-#include "../../misc/exp/src/vexpf_fp32_schnova.h"
 #include "math.h"
 #include "snrt.h"
+
+#include "../../eltwise/src/eltwise.h"
+#include "../../misc/exp/src/vexpf_schnizo_fp32.h"
+#include "../../misc/exp/src/vexpf_schnova_fp32.h"
 
 typedef void (*silu_fp_t)(float *in, float *out, uint32_t size);
 
@@ -80,6 +81,7 @@ static inline void silu_fp32_schnizo(float *in, float *out, uint32_t size) {
             : "fa0", "memory");
 #endif
     }
+
     // Step 4: out[i] = in[i] / out[i] = x / (1 + exp(-x))
     eltwise_fp32_schnizo(in, out, out, size, ELTWISE_DIV);
 }
@@ -108,7 +110,7 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
         // clang-format on
         ::
             :);
-    eltwise_neg_fp32_schnova(in, in, out, size);
+    eltwise_fp32_schnova(in, in, out, size, ELTWISE_NEG);
 
     // Step 2: out[i] = exp(-in[i])
     vexpf_fp32_schnova(out, out, size);
@@ -196,7 +198,7 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
         ::
             :);
     // Step 4: out[i] = in[i] / out[i] = x / (1 + exp(-x))
-    eltwise_div_fp32_schnova(in, out, out, size);
+    eltwise_fp32_schnova(in, out, out, size, ELTWISE_DIV);
 }
 
 // Tiles the flat size axis across clusters.

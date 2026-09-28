@@ -94,25 +94,28 @@ static inline void rms_norm_fp32_schnizo(float *ifmap, float *weight,
             float *y = ofmap + (b * seq_len + s) * hidden_dim;
             float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f, s3 = 0.0f;
             float *xp = x;
-            asm volatile(FREP
-                         " %[n], 9, 0, 0              \n"
-                         "flw        fa0,  0(%[xp])              \n"
-                         "flw        fa1,  4(%[xp])              \n"
-                         "flw        fa2,  8(%[xp])              \n"
-                         "flw        fa3, 12(%[xp])              \n"
-                         "fmadd.s    %[s0], fa0, fa0, %[s0]      \n"
-                         "fmadd.s    %[s1], fa1, fa1, %[s1]      \n"
-                         "fmadd.s    %[s2], fa2, fa2, %[s2]      \n"
-                         "fmadd.s    %[s3], fa3, fa3, %[s3]      \n"
-                         "addi       %[xp], %[xp], 16           \n"
-                         : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
-                           [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
-                         : [ n ] "r"(n_frep)
-                         : "fa0", "fa1", "fa2", "fa3");
+            asm volatile(
+                // clang-format off
+                FREP       " %[n], 9, 0, 0              \n"
+                "flw        fa0,  0(%[xp])              \n"
+                "flw        fa1,  4(%[xp])              \n"
+                "flw        fa2,  8(%[xp])              \n"
+                "flw        fa3, 12(%[xp])              \n"
+                "fmadd.s    %[s0], fa0, fa0, %[s0]      \n"
+                "fmadd.s    %[s1], fa1, fa1, %[s1]      \n"
+                "fmadd.s    %[s2], fa2, fa2, %[s2]      \n"
+                "fmadd.s    %[s3], fa3, fa3, %[s3]      \n"
+                "addi       %[xp], %[xp], 16           \n"
+                // clang-format on
+                : [ s0 ] "+f"(s0), [ s1 ] "+f"(s1), [ s2 ] "+f"(s2),
+                  [ s3 ] "+f"(s3), [ xp ] "+r"(xp)
+                : [ n ] "r"(n_frep)
+                : "fa0", "fa1", "fa2", "fa3");
             float inv_rms =
                 1.0f / sqrtf((s0 + s1 + s2 + s3) / hidden_dim + eps);
             float *x2 = x, *wp = weight, *yp = y;
             asm volatile(
+                // clang-format off
                 // Peel iteration i=0
                 "flw        fa0,  0(%[x2])               \n"
                 "flw        ft0,  0(%[wp])               \n"
@@ -145,8 +148,8 @@ static inline void rms_norm_fp32_schnizo(float *ifmap, float *weight,
                 "fmul.s     fa4, fa4, ft4                \n"
                 "fmul.s     fa5, fa5, ft5                \n"
                 "fmul.s     fa6, fa6, ft6                \n"
-                "fmul.s     fa7, fa7, ft7                \n" FREP
-                " %[n], 43, 0, 0              \n"
+                "fmul.s     fa7, fa7, ft7                \n"
+                FREP       " %[n], 43, 0, 0              \n"
                 // Finish iteration i
                 "addi       %[x2], %[x2], 32             \n"
                 "addi       %[wp], %[wp], 32             \n"
@@ -203,6 +206,7 @@ static inline void rms_norm_fp32_schnizo(float *ifmap, float *weight,
                 "fsw        fa5, 20(%[yp])               \n"
                 "fsw        fa6, 24(%[yp])               \n"
                 "fsw        fa7, 28(%[yp])               \n"
+                // clang-format on
                 : [ x2 ] "+r"(x2), [ wp ] "+r"(wp), [ yp ] "+r"(yp)
                 : [ n ] "r"(n_frep2 - 1), [ irms ] "f"(inv_rms)
                 : "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "ft0",

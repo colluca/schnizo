@@ -181,7 +181,7 @@ module snitch_cluster
   parameter int unsigned NumLsuRspPorts [NrCores] = '{default: 0},
   parameter int unsigned NumFpuRspPorts [NrCores] = '{default: 0},
   /// If a freelist based physical register reclamation strategy is used
-  /// or a refernce counting based strategy.
+  /// or a reference counting based strategy.
   parameter bit [NrCores-1:0] UseFreeList = '0,
   /// Number of physical general purpose registers
   parameter int unsigned NofPhysGpr [NrCores] = '{default:0},
@@ -1491,8 +1491,7 @@ module snitch_cluster
       .ICacheL1TagScm (ICacheL1TagScm[i]),
       .ICacheL1DataScm (ICacheL1DataScm[i]),
       .IsoCrossing (IsoCrossing),
-      .UseSchnovaCore(UseSchnovaCore),
-      .AccIdWidth(AccIdWidth),
+      .IdWidth (IdWidth),
       .sram_cfg_t  (sram_cfg_t),
       .sram_cfgs_t (sram_cfgs_t),
       .axi_req_t (axi_mst_dma_req_t),
@@ -1993,12 +1992,10 @@ module snitch_cluster
   `ASSERT_INIT(CheckDcaDataWidth, DcaDataWidth == WideDataWidth)
 
   // Check the sanity of the superscalar parameters 
-  `ASSERT_INIT(CheckFetchWidth, ICacheFetchDataWidth % 32 == 0
-  , "Fetch data width is not a multiple of 32");
-  for (genvar core_idx = 0; core_idx < NrCores; core_idx++) begin
-    // If the core is a schnizo core, the fetch data width has to be 32 bit (1 instruction)
-    `ASSERT_INIT(CheckSchnizoFetchWidth, (ICacheFetchDataWidth == 32) || (UseSchnovaCore == 1'b1),
+  `ASSERT_INIT(CheckFetchWidth, ICacheFetchDataWidth % 32 == 0,
+    $sformatf("Fetch data width %d is not a multiple of 32", ICacheFetchDataWidth));
+  // If the core is a schnizo core, the fetch data width has to be 32 bit (1 instruction)
+  `ASSERT_INIT(CheckSchnizoFetchWidth, (ICacheFetchDataWidth == 32) || (UseSchnovaCore == 1'b1),
     "Fetch data width for schnizo has to be 32 bit");
-  end
 
 endmodule

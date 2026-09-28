@@ -6,5 +6,5 @@
     "size": ${experiment['data_cfg']['size']},
     "n_tiles": 1,
     "op": "${experiment['data_cfg']['op']}",
-    "funcptr": "eltwise_fp32_baseline"
+    "funcptr": "${'eltwise_fp32_baseline' if experiment['hw'].endswith('fp') else 'eltwise_fp32_schnova'}"
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 ETH Zurich and University of Bologna.
+// Copyright 2025 ETH Zurich and University of Bologna.
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -12,7 +12,7 @@
         atomic_id_width: 5,
         tcdm: {
             size: 128,
-            banks: 128,
+            banks: 32,
         },
         cluster_periph_size: 60, // kB
         zero_mem_size: 64, // kB
@@ -131,9 +131,7 @@
         num_fpu_slots: 4,
         num_fpu_buf_slots: 32,
         use_freelist: false,
-        // Number of physical general purpose registers
         num_phy_gpr: 64,
-        // Number of physical floating point registers
         num_phy_fpr: 64,
         num_rob_entries: 1,
     },
@@ -160,9 +158,7 @@
         num_fp_outstanding_loads: 4,
         num_fp_outstanding_mem: 4,
         use_freelist: false,
-        // Number of physical general purpose registers
         num_phy_gpr: 32,
-        // Number of physical floating point registers
         num_phy_fpr: 32,
         num_rob_entries: 1,
     }

@@ -49,13 +49,6 @@ class ExperimentManager(eu.ExperimentManager):
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
         if experiment['app'] == 'exp' or experiment['app'] == 'log':
             cdefines['FUNC_PTR'] = experiment['data_cfg']['func_ptr']
-        if experiment['app'] == 'eltwise' and not experiment['hw'].endswith('fp'):
-            cdefines['SPLIT_ELTWISE_FNS'] = 1
-        if experiment['app'] == 'softmax':
-            if experiment['hw'].endswith('fp'):
-                cdefines['SOFTMAX_FUNC_PTR'] = 'softmax_fp32'
-            else:
-                cdefines['SOFTMAX_FUNC_PTR'] = 'softmax_fp32_schnova'
         if (experiment['hw'].endswith('PW1') or experiment['hw'].endswith('PW2')):
             cdefines['UNROLL'] = 1
         if (experiment['bal'] is True):
@@ -275,7 +268,7 @@ def gen_experiments():
                     'bal': bal,
                     'data_cfg': {
                         'size': size,
-                        'funcptr': 'softmax_fp32_schnova' if has_zol else 'softmax_fp32'
+                        'funcptr': 'softmax_fp32_schnova' if has_zol else 'softmax_fp32_naive'
                         },
                     'cmd': cmd,
                     'roi': Path("roi/dnn.json.tpl"),
