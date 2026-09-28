@@ -65,9 +65,9 @@ class ExperimentManager(eu.ExperimentManager):
 def gen_experiments():
     # Define experiment axes
     cfgs = [
-        '3x32_3x32_1x64',
-        'schnova_fp',
-        'schnova_zol',
+        # '3x32_3x32_1x64',
+        # 'schnova_fp',
+        # 'schnova_zol',
         'GP-PW1',
         'GP-PW2',
         'GP-PW4',
