@@ -318,10 +318,10 @@ static inline void eltwise_fp32_schnova(float *a, float *b, float *out,
                            "fa7", "memory");
 #else
             int n_frep = size - 1;
-            // Add nops for schnova to align the fetch block address
+            // Align the frep loop to a 64-byte fetch block boundary for
+            // single-cycle dispatch of its body on schnova.
             asm volatile(
-                "nop                                \n"
-                "nop                                \n"
+                ".balign 64                         \n"
                 "frep.o %[n], 7, 0, 0               \n"
                 "flw    fa0,  0(%[a])               \n"
                 "flw    fa1,  0(%[b])               \n"
@@ -402,11 +402,7 @@ static inline void eltwise_fp32_schnova(float *a, float *b, float *out,
 #else
             int n_frep = size - 1;
             asm volatile(
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
+                ".balign 64                         \n"
                 "frep.o %[n], 7, 0, 0               \n"
                 "flw    fa0,  0(%[a])               \n"
                 "flw    fa1,  0(%[b])               \n"
@@ -431,23 +427,18 @@ static inline void eltwise_fp32_schnova(float *a, float *b, float *out,
                 szrt_set_frep_lsu_store_en((1 << 1));
             }
             int n_frep_div = size - 1;
-            asm volatile(
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n" FREP
-                " %[n], 7, 0, 0               \n"
-                "flw    fa0,  0(%[a])               \n"
-                "flw    fa1,  0(%[b])               \n"
-                "fdiv.s fa0, fa0, fa1               \n"
-                "fsw    fa0,  0(%[out])             \n"
-                "addi   %[a],   %[a],    4          \n"
-                "addi   %[b],   %[b],    4          \n"
-                "addi   %[out], %[out],  4          \n"
-                : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
-                : [ n ] "r"(n_frep_div)
-                : "fa0", "fa1", "memory");
+            asm volatile(".balign 64                         \n" FREP
+                         " %[n], 7, 0, 0               \n"
+                         "flw    fa0,  0(%[a])               \n"
+                         "flw    fa1,  0(%[b])               \n"
+                         "fdiv.s fa0, fa0, fa1               \n"
+                         "fsw    fa0,  0(%[out])             \n"
+                         "addi   %[a],   %[a],    4          \n"
+                         "addi   %[b],   %[b],    4          \n"
+                         "addi   %[out], %[out],  4          \n"
+                         : [ a ] "+r"(a), [ b ] "+r"(b), [ out ] "+r"(out)
+                         : [ n ] "r"(n_frep_div)
+                         : "fa0", "fa1", "memory");
         }; break;
         case ELTWISE_NEG: {
 #ifdef UNROLL
@@ -522,12 +513,7 @@ static inline void eltwise_fp32_schnova(float *a, float *b, float *out,
                 szrt_set_frep_lsu_store_en(store_mask);
             }
             asm volatile(
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
-                "nop                                \n"
+                ".balign 64                         \n"
                 "frep.o %[n], 5, 0, 0               \n"
                 "flw    fa0,  0(%[a])               \n"
                 "fneg.s fa0, fa0                    \n"

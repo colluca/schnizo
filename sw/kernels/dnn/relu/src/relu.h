@@ -154,12 +154,8 @@ static inline void relu_fp32_schnova(float *in, float *out, uint32_t size) {
     }
     int n_frep = size - 1;
     asm volatile(
-        "nop                             \n"
-        "nop                             \n"
-        "nop                             \n"
-        "nop                             \n"
-        "nop                             \n"
         "fmv.w.x  ft3, zero              \n"
+        ".balign 64                      \n"
         "frep.o   %[n], 5, 0, 0          \n"
         "flw      fa0,  0(%[in])         \n"
         "fmax.s   fa0, fa0, ft3          \n"

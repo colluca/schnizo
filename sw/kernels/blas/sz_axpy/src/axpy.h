@@ -184,9 +184,6 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
     uint32_t stride_4x = 4 * stride;
     uint32_t loop_count = (frac / 4) - 1;
     snrt_mcycle();
-    // For schnova, we add nops to align to an address that is a multiple of 64 byte (8 instructions)
-    // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
-    // in a single cycle for maximum performance
     asm volatile(FREP
                  " %[loop_count], 19, 0, 0              \n"
                  "fld     ft0, 0(%[x_addr])                  \n"
@@ -252,15 +249,11 @@ static inline void axpy_schnova(uint32_t n, double a, double *x, double *y,
           "fs2", "fs3", "memory");
 #else
     snrt_mcycle();
-    // For schnova, we add nops to align to an address that is a multiple of 64 byte (8 instructions)
-    // That way the fetch block after frep will contain all 7 instructions and they can be dispatched
-    // in a single cycle for maximum performance
+    // Align the frep loop to a 64-byte fetch block boundary: on schnova, that
+    // way the fetch block after frep will contain all 7 instructions and they
+    // can be dispatched in a single cycle for maximum performance.
     asm volatile(
-        "nop                          \n"
-        "nop                          \n"
-        "nop                          \n"
-        "nop                          \n"
-        "nop                          \n"
+        ".balign 64                   \n"
         "frep.o  %[n_frep], 7, 0, 0   \n"
         "fld     ft0, 0(%[xa])        \n"
         "fld     ft1, 0(%[ya])        \n"

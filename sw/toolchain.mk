@@ -24,6 +24,12 @@ SN_RISCV_CFLAGS := -mcpu=$(SN_MCPU)
 SN_RISCV_CFLAGS += -menable-experimental-extensions
 SN_RISCV_CFLAGS += -mabi=ilp32d
 SN_RISCV_CFLAGS += -mcmodel=medany
+# Disable RISC-V linker relaxation: required for .balign/.p2align (R_RISCV_ALIGN)
+# to link, since this toolchain's ld.lld does not implement relaxation of that
+# relocation. Schnova kernels rely on precise, deterministic instruction
+# alignment (see sw/kernels/*/src/*.h), which relaxation could also silently
+# invalidate even where alignment directives aren't used.
+SN_RISCV_CFLAGS += -mno-relax
 ifneq ($(SN_HW_FDIV),1)
 SN_RISCV_CFLAGS += -mno-fdiv
 SN_RISCV_CFLAGS += -fno-builtin-sqrtf

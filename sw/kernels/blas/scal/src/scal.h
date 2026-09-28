@@ -21,6 +21,7 @@ static inline void scal_fp32_schnizo(float alpha, float *x, uint32_t n) {
     float *x2 = x;
     asm volatile(
         // clang-format off
+        ".balign 64                         \n"
         FREP  " %[n], 5, 0, 0               \n"
         "flw    fa0,  0(%[x1])              \n"
         "fmul.s fa0, fa0, %[alpha]          \n"

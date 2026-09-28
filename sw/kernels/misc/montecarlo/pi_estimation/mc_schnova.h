@@ -93,8 +93,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
 // in compairson to the amount of floating point operations
 
 #if (APPLICATION == APPLICATION_PI) && (PRNG == PRNG_LCG)
-            "nop \n"
-            "nop \n"
+            ".balign 64 \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
 #ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d  ft0, ft0, %[div]          \n" 
@@ -178,8 +177,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             // the prefetcher will then lead to a trashing of the cache such 
             // that even after the first loop iterations there are the same amount of
             // misses as in the first iteration.
-            "nop                               \n"
-            "nop                               \n"
+            ".balign 64                        \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
 #ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d ft0, ft0, %[div]           \n"
@@ -321,8 +319,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             "add %[temp3], %[temp3], a7 \n"
 #endif
 #elif (APPLICATION == APPLICATION_POLY) && (PRNG == PRNG_LCG)
-            "nop                               \n"
-            "nop                               \n"
+            ".balign 64                        \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
 #ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d  ft0, ft0, %[div]          \n" 
@@ -419,13 +416,7 @@ static inline uint32_t calculate_psum_schnova(PRNG_T *prngs,
             // leading to misses even for iterations other than the first
             // To avoid this, for maximum performance the amount of cachelines
             // in the L0 cache should be increased to 16 (default is 8)
-            "nop                               \n"
-            "nop                               \n"
-            "nop                               \n"
-            "nop                               \n"
-            "nop                               \n"
-            "nop                               \n"
-            "nop                               \n"
+            ".balign 64                        \n"
             FREP " %[n_frep], %[n_insns], 0, 0 \n"
 #ifdef BALANCE_INSTRUCTION_MIX
             "fmul.d ft0, ft0, %[div]           \n"

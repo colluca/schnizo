@@ -99,17 +99,6 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
         szrt_set_frep_lsu_store_en((1 << 1));
     }
     // Step 1: out[i] = -in[i]
-    // Add some nops to align fetch block for schnova
-    asm volatile(
-        // clang-format off
-        "nop       \n"
-        "nop       \n"
-        "nop       \n"
-        "nop       \n"
-        "nop       \n"
-        // clang-format on
-        ::
-            :);
     eltwise_fp32_schnova(in, in, out, size, ELTWISE_NEG);
 
     // Step 2: out[i] = exp(-in[i])
@@ -171,10 +160,7 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
         int n_frep = size - 1;
         asm volatile(
             // clang-format off
-            "nop       \n"
-            "nop       \n"
-            "nop       \n"
-            "nop       \n"
+            ".balign 64 \n"
             "frep.o %[n], 5, 0, 0              \n"
             "flw    fa0,  0(%[src])            \n"
             "fadd.s fa0, fa0, %[one]           \n"
@@ -187,16 +173,6 @@ static inline void silu_fp32_schnova(float *in, float *out, uint32_t size) {
             : "fa0", "memory");
 #endif
     }
-    // Add some nops to align fetch block for schnova
-    asm volatile(
-        // clang-format off
-        "nop       \n"
-        "nop       \n"
-        "nop       \n"
-        "nop       \n"
-        // clang-format on
-        ::
-            :);
     // Step 4: out[i] = in[i] / out[i] = x / (1 + exp(-x))
     eltwise_fp32_schnova(in, out, out, size, ELTWISE_DIV);
 }

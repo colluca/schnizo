@@ -373,11 +373,6 @@ static inline void softmax_fp32_schnova(float *input, float *output,
                 sum3 += sum4;
                 sum = sum1 + sum3;
             }
-            asm volatile(
-                "nop            \n"
-                "nop            \n"
-                "nop            \n" ::
-                    :);
             // in-place normalization
             scal_fp32_schnizo(1.0f / sum, row_out, input_samples);
         }

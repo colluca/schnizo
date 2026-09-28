@@ -171,9 +171,7 @@ static inline void batchnorm_fp32_schnova(void *ifmap, void *gamma, void *beta,
 #else
         int n_frep = n_pixels - 1;
         asm volatile(
-            "nop                             \n"
-            "nop                             \n"
-            "nop                             \n"
+            ".balign 64                      \n"
             "frep.o  %[n], 5, 0, 0           \n"
             "flw     fa0,  0(%[in])           \n"
             "fmadd.s fa0, fa0, %[g], %[b]    \n"
