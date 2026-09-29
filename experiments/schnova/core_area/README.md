@@ -1,6 +1,9 @@
 # Schnizo area exploration for MICRO paper
 
 ```bash
+make nonfree
+make cockpit
+cd experiments/schnova/core_area
 ./experiments.py --actions synth -j
 ```
 
