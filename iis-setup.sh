@@ -34,4 +34,6 @@ export UV_LINK_MODE=copy
 (cd "$SN_ROOT" && uv sync --all-extras --locked)
 source "$SN_ROOT/.venv/bin/activate"
 
+bender checkout
+
 unset SN_ROOT
