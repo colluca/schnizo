@@ -306,6 +306,9 @@ class ExperimentManager:
                         }
                         if experiment.get('core') == 'schnova':
                             vars['CORE'] = 'schnova'
+                        hw_cfg = self.derive_hw_cfg(experiment)
+                        if hw_cfg is not None:
+                            vars['SN_CFG'] = hw_cfg
                         roi_launchers.append(partial(
                             launch_roi, vars, log_file, f'{experiment["name"]} ROI dump'))
 
