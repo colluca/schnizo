@@ -175,8 +175,9 @@ class ExperimentManager:
                 # The '-j' flag is for make-internal parallelism, independent of the number of
                 # experiments running in parallel
                 flags = ['-j']
-                return common.make(bin, vars, flags=flags, dry_run=dry_run, sync=False,
-                                   log_file=log_file)
+                p = common.make(bin, vars, flags=flags, dry_run=dry_run, sync=False,
+                                log_file=log_file)
+                return common.labelled(p, f'{experiment["hw"]} hardware build')
 
             common.run_bounded(
                 [partial(build_hw, e) for e in unique_hw_experiments], n_procs, dry_run)
@@ -200,11 +201,12 @@ class ExperimentManager:
                       colored(target, 'cyan', attrs=['bold']),
                       colored('in', 'black', attrs=['bold']),
                       colored(build_dir, 'cyan', attrs=['bold']))
-                return func(
+                p = func(
                     target=target, build_dir=build_dir, defines=defines,
                     data_cfg=data_cfg, hw_cfg=hw_cfg, gen_dir=gen_dir, env=env,
                     dry_run=dry_run, sync=False, log_file=log_file
                 )
+                return common.labelled(p, f'{experiment["name"]} build')
 
             common.run_bounded([partial(build_sw, e) for e in experiments], n_procs, dry_run)
 
@@ -233,7 +235,8 @@ class ExperimentManager:
                 if experiment.get('core') == 'schnova':
                     vars['CORE'] = 'schnova'
                 log_file = experiment['run_dir'] / 'traces.log'
-                return common.make('traces', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                p = common.make('traces', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, f'{experiment["name"]} traces')
 
             common.run_bounded([partial(generate_traces, e) for e in experiments], n_procs, dry_run)
         # Annotate traces
@@ -252,13 +255,18 @@ class ExperimentManager:
                 vars = {'SIM_DIR': experiment['run_dir']}
                 if experiment.get('core') == 'schnova':
                     vars['CORE'] = 'schnova'
-                return common.make('perf', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                p = common.make('perf', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, f'{experiment["name"]} performance dump')
 
             common.run_bounded([partial(generate_perf, e) for e in experiments], n_procs, dry_run)
 
         # Build visual traces
         # TODO(colluca): write in more compact way
         if 'visual-trace' in self.actions or 'roi' in self.actions or 'all' in self.actions:
+
+            def launch_roi(vars, log_file, label):
+                p = common.make('roi', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, label)
 
             roi_launchers = []
             for experiment in experiments:
@@ -299,8 +307,7 @@ class ExperimentManager:
                         if experiment.get('core') == 'schnova':
                             vars['CORE'] = 'schnova'
                         roi_launchers.append(partial(
-                            common.make, 'roi', vars, dry_run=dry_run, sync=False,
-                            log_file=log_file))
+                            launch_roi, vars, log_file, f'{experiment["name"]} ROI dump'))
 
                     if 'visual-trace' in self.actions:
                         # Build visual trace
@@ -346,7 +353,8 @@ class ExperimentManager:
                 func = self.callbacks.get(action, default_func)
                 print(colored(f'Run {action}', 'black', attrs=['bold']),
                       colored(experiment['synth_dir'], 'cyan', attrs=['bold']))
-                return func(experiment['design'], experiment.get('hdl_params', {}))
+                p = func(experiment['design'], experiment.get('hdl_params', {}))
+                return common.labelled(p, f'{experiment["name"]} {action}')
 
             unique_experiments = {uniqueness_key(e): e for e in experiments}.values()
             common.run_bounded(
@@ -364,7 +372,8 @@ class ExperimentManager:
                     'SIM_DIR': experiment['run_dir'],
                     'POWER_REPDIR': experiment['power_dir'],
                 }
-                return common.make('power', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                p = common.make('power', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, f'{experiment["name"]} power estimation')
 
             common.run_bounded([partial(run_power, e) for e in experiments], n_procs, dry_run)
 

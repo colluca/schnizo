@@ -82,6 +82,13 @@ def _check_returncode(p, retcode):
         sys.exit(1)
 
 
+def labelled(p, label):
+    """Attach a label to a process, to be reported when it completes. Passes `None` through."""
+    if p is not None:
+        p.label = label
+    return p
+
+
 def wait_processes(processes, dry_run=False):
     if not dry_run:
         for i, p in enumerate(processes):
@@ -123,4 +130,6 @@ def run_bounded(launchers, n_procs=1, dry_run=False, poll_interval=0.5):
                 still_running.append(p)
             else:
                 _check_returncode(p, retcode)
+                label = getattr(p, 'label', None) or ' '.join(str(a) for a in p.args)
+                print(colored(f'{label} completed', 'green', attrs=['bold']))
         running = still_running
