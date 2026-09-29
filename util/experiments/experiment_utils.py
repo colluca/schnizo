@@ -144,6 +144,9 @@ class ExperimentManager:
     def derive_vsim_builddir(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'work-vsim'
 
+    def derive_gen_dir(self, experiment):
+        return self.dir / 'hw' / experiment['hw'] / 'generated'
+
     def run(self):
 
         dry_run = self.args.dry_run
@@ -153,29 +156,28 @@ class ExperimentManager:
 
         # Build hardware
         if 'hw' in self.actions or 'all' in self.actions:
-            # TODO(colluca): because of CFG_OVERRIDE, the hardware is rebuilt every time.
-            # To save time, we run it only once for every unique hw configuration.
             unique_hw_experiments = {e['hw']: e for e in experiments}.values()
+            processes = []
             for experiment in unique_hw_experiments:
                 bin = self.derive_hw_bin(experiment)
+                log_file = bin.parent / 'build.log'
                 print(colored('Generate hardware', 'black', attrs=['bold']),
-                      colored(bin, 'cyan', attrs=['bold']))
+                      colored(bin, 'cyan', attrs=['bold']),
+                      colored('in', 'black', attrs=['bold']),
+                      colored(bin.parent, 'cyan', attrs=['bold']))
                 vars = {
                     'SN_BIN_DIR': bin.parent,
                     'SN_VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
                     'SN_WORK_DIR': self.dir / 'hw' / experiment['hw'] / 'work',
-                    # TODO(colluca): this is not supported since the path to `hw/generated` is
-                    # hardcoded in Bender.yml
-                    # 'SN_GEN_DIR': self.dir / 'hw' / experiment['hw'] / 'generated',
-                    'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
+                    'SN_GEN_DIR': self.derive_gen_dir(experiment),
+                    'SN_CFG': self.derive_hw_cfg(experiment),
                     # 'DEBUG': 'ON'
                 }
-                # TODO(colluca): can't build hardware in parallel since we would have a race
-                # condition on cfg/lru.json. This would be fixed by using SN_CFG instead of
-                # CFG_OVERRIDE, but this doesn't work atm (see above).
-                # flags = ['-j']
-                # common.make(bin, vars, flags=flags, dry_run=dry_run)
-                common.make(bin, vars, dry_run=dry_run)
+                flags = ['-j']
+                process = common.make(bin, vars, flags=flags, dry_run=dry_run, sync=False,
+                                      log_file=log_file)
+                processes.append(process)
+            common.wait_processes(processes, dry_run=dry_run)
 
         # Build software
         if 'sw' in self.actions or 'all' in self.actions:
@@ -186,22 +188,22 @@ class ExperimentManager:
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
                 hw_cfg = self.derive_hw_cfg(experiment)
+                gen_dir = self.derive_gen_dir(experiment) if 'hw' in experiment else None
                 env = self.derive_env(experiment)
                 if 'sw' in self.callbacks:
                     func = self.callbacks['sw']
                 else:
                     func = build.build
+                log_file = build_dir / 'build.log'
                 print(colored('Build app', 'black', attrs=['bold']),
                       colored(target, 'cyan', attrs=['bold']),
                       colored('in', 'black', attrs=['bold']),
                       colored(build_dir, 'cyan', attrs=['bold']))
                 process = func(
                     target=target, build_dir=build_dir, defines=defines,
-                    data_cfg=data_cfg, hw_cfg=hw_cfg, env=env, dry_run=dry_run,
-                    # TODO(colluca): can't run in parallel if we're overriding the data_cfg since
-                    # we would have a race condition on cfg/lru.json. This would be fixed by using
-                    # SN_CFG instead of CFG_OVERRIDE, but this doesn't work atm (see above).
-                    sync=True if self.args.n_procs == 1 or 'hw' in experiment else False
+                    data_cfg=data_cfg, hw_cfg=hw_cfg, gen_dir=gen_dir, env=env,
+                    dry_run=dry_run, sync=True if self.args.n_procs == 1 else False,
+                    log_file=log_file
                 )
                 processes.append(process)
             common.wait_processes(processes, dry_run=dry_run)
@@ -242,6 +244,7 @@ class ExperimentManager:
         if 'perf' in self.actions or 'all' in self.actions:
             processes = []
             for experiment in experiments:
+                log_file = experiment['run_dir'] / 'perf.log'
                 print(
                     colored('Generate performance dump', 'black', attrs=['bold']),
                     colored(experiment['run_dir'], 'cyan', attrs=['bold'])
@@ -251,7 +254,7 @@ class ExperimentManager:
                     flags = ['-j', self.args.n_procs]
                 if experiment.get('core') == 'schnova':
                     vars['CORE'] = 'schnova'
-                process = common.make('perf', vars, flags=flags, sync=False)
+                process = common.make('perf', vars, flags=flags, sync=False, log_file=log_file)
                 processes.append(process)
 
             common.wait_processes(processes)
@@ -291,13 +294,15 @@ class ExperimentManager:
 
                     if 'roi' in self.actions:
                         # Build ROI dump
+                        log_file = experiment['run_dir'] / 'roi.log'
                         vars = {
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
                         if experiment.get('core') == 'schnova':
                             vars['CORE'] = 'schnova'
-                        process = common.make('roi', vars, dry_run=dry_run, sync=sync)
+                        process = common.make('roi', vars, dry_run=dry_run, sync=sync,
+                                              log_file=log_file)
                         processes.append(process)
 
                     if 'visual-trace' in self.actions:
@@ -326,6 +331,8 @@ class ExperimentManager:
 
             unique_experiments = {uniqueness_key(e): e for e in experiments}.values()
             for experiment in unique_experiments:
+                log_file = experiment['synth_dir'] / f'{action}.log'
+
                 def func(design=None, hdl_params={}):
                     hdl_params_str = ":".join(
                         f"{key}={val}"
@@ -335,11 +342,15 @@ class ExperimentManager:
                         'DESIGN': design,
                         'HDL_PARAMS': hdl_params_str,
                         'RUNDIR': experiment['synth_dir'],
-                        'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
                     }
-                    return common.make(action, vars=vars, sync=sync)
+                    hw_cfg = self.derive_hw_cfg(experiment)
+                    if hw_cfg is not None:
+                        vars['SN_CFG'] = hw_cfg
+                    return common.make(action, vars=vars, sync=sync, log_file=log_file)
                 if action in self.callbacks:
                     func = self.callbacks[action]
+                print(colored(f'Run {action}', 'black', attrs=['bold']),
+                      colored(experiment['synth_dir'], 'cyan', attrs=['bold']))
                 process = func(experiment['design'], experiment.get('hdl_params', {}))
                 processes.append(process)
             common.wait_processes(processes)
@@ -347,6 +358,7 @@ class ExperimentManager:
         # Generate joint performance dump
         if 'power' in self.actions or 'all' in self.actions:
             def run_power(experiment):
+                log_file = experiment['power_dir'] / 'power.log'
                 print(
                     colored('Estimate power', 'black', attrs=['bold']),
                     colored(experiment['power_dir'], 'cyan', attrs=['bold'])
@@ -355,7 +367,7 @@ class ExperimentManager:
                     'SIM_DIR': experiment['run_dir'],
                     'POWER_REPDIR': experiment['power_dir'],
                 }
-                return common.make('power', vars, dry_run=dry_run)
+                return common.make('power', vars, dry_run=dry_run, log_file=log_file)
 
             with ThreadPoolExecutor(max_workers=n_procs) as executor:
                 futures = [executor.submit(run_power, exp) for exp in experiments]
