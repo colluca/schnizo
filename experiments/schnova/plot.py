@@ -150,8 +150,12 @@ def _synth_area_clk(synth_df, name):
     return qor['StdCellArea'] / GE / 1000, 1 - qor['WNS']
 
 
-def plot1(show=True, dir=None):
-    """Plot FPU utilization and IPC for various fetch widths."""
+def plot1(show=True, dir=None, save=True, figsize=(14, 10), ideal_linewidth=2.2):
+    """Plot FPU utilization and IPC for various fetch widths.
+
+    Returns the figure and a dictionary with the plotted data. The figure is saved to
+    ``plots/plot1.pdf`` only if ``save`` is set.
+    """
     # Filter the data
     df = experiments.results(dir=dir)
     plot_data = df[
@@ -185,7 +189,7 @@ def plot1(show=True, dir=None):
     fig, (ax_fpu, ax_ipc) = plt.subplots(
         2,
         1,
-        figsize=(14, 10),
+        figsize=figsize,
         sharex=True,
         gridspec_kw={'hspace': 0.08},
     )
@@ -213,20 +217,20 @@ def plot1(show=True, dir=None):
                 [bar.get_x(), bar.get_x() + bar.get_width()],
                 [ideal, ideal],
                 color='black',
-                linewidth=2.2,
+                linewidth=ideal_linewidth,
                 zorder=5,
             )
-    ax_ipc.plot([], [], color='black', linewidth=2.2, label='Ideal IPC')
 
     # Streamline app labels
     clean_labels = [APP_LABELS.get(app, app) for app in ipc_df.index]
 
     # Configure plot style
     for ax in fig.axes:
-        ax.axhline(y=1, color='black', linewidth=0.8, zorder=1.75)
         ax.set_xlabel('')
         ax.minorticks_off()
         ax.grid(True, axis='y', color='gainsboro', linewidth=0.5)
+    ax_fpu.axhline(y=1, color='black', linewidth=0.8, zorder=1.75)
+    ax_ipc.set_yticks([1, 2, 4, 8])
     ax_fpu.tick_params(axis='x', which='both', labelbottom=False)
     ax_ipc.set_xticklabels(clean_labels, rotation=15, ha='right')
     ax_fpu.set_ylabel('FPU Util.')
@@ -236,16 +240,22 @@ def plot1(show=True, dir=None):
     ax_fpu.legend(loc='upper right', ncol=4, columnspacing=1.0, handletextpad=0.5)
     ax_ipc.legend(loc='upper right', ncol=5, columnspacing=1.0, handletextpad=0.5)
     fig.tight_layout()
-    fig.savefig('plots/plot1.pdf', dpi=300, bbox_inches='tight')
+    if save:
+        fig.savefig('plots/plot1.pdf', dpi=300, bbox_inches='tight')
     if show:
         plt.show()
     else:
         plt.close(fig)
-    return {'fpu_util': fpu_df, 'ipc': ipc_df}
+    return fig, {'fpu_util': fpu_df, 'ipc': ipc_df}
 
 
-def plot2(show=True, dir=None):
-    """Plot 1/area vs. performance for the core-level design points."""
+def plot2(show=True, dir=None, save=True, figsize=(10, 4.2), label_fontsize=12,
+          marker_size=130):
+    """Plot 1/area vs. performance for the core-level design points.
+
+    Returns the figure and a dictionary with the plotted design points. The figure is
+    saved to ``plots/plot2.pdf`` only if ``save`` is set.
+    """
     df = experiments.results(dir=dir)
     synth_df = core_area_experiments.results(dir=dir)
     designs = {name: dict(d) for name, d in AREA_EFFICIENCY_DESIGNS.items()}
@@ -279,19 +289,24 @@ def plot2(show=True, dir=None):
     print(f'Baseline: {AREA_EFFICIENCY_BASELINE}')
 
     # Scatter plot of performance vs. inverse area
-    fig, ax = plt.subplots(figsize=(10, 4.2))
+    fig, ax = plt.subplots(figsize=figsize)
     for name, d in designs.items():
         color, marker = AREA_EFFICIENCY_MARKERS[name]
         in_family = any(name in configs for configs, _ in AREA_EFFICIENCY_FAMILIES.values())
-        ax.scatter(d['performance_gips'], d['inv_area'], s=130, color=color,
+        ax.scatter(d['performance_gips'], d['inv_area'], s=marker_size, color=color,
                    marker=marker, label=None if in_family else name,
                    zorder=3 if name == 'Spatz-LA' else 1)
+        if in_family:
+            issue_width = name.rsplit('PW', 1)[1]
+            ax.annotate(issue_width, (d['performance_gips'], d['inv_area']),
+                        xytext=(2, 2), textcoords='offset points',
+                        fontsize=label_fontsize, color=color)
     # Connect the points of each family; the line is a single legend entry per family
     for label, (configs, _) in AREA_EFFICIENCY_FAMILIES.items():
         color, marker = AREA_EFFICIENCY_MARKERS[configs[0]]
         ax.plot([designs[n]['performance_gips'] for n in configs],
                 [designs[n]['inv_area'] for n in configs],
-                color=color, marker=marker, markersize=130 ** 0.5, linewidth=1.2,
+                color=color, marker=marker, markersize=marker_size ** 0.5, linewidth=1.2,
                 zorder=0.5, label=label)
     # Iso-(performance/area) contours: performance * area^-1 = const is a hyperbola
     ax.set_xlim(left=0.5)
@@ -306,17 +321,18 @@ def plot2(show=True, dir=None):
                 linewidth=1.0, zorder=0.5)
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
-    ax.set_xlabel('Performance [GIPS]', fontsize=12)
-    ax.set_ylabel(r'$\text{Area}^{-1}\,\left[\text{GE}^{-1}\right]$', fontsize=12)
+    ax.set_xlabel('Performance [GIPS]', fontsize=label_fontsize)
+    ax.set_ylabel(r'$\text{Area}^{-1}\,\left[\text{GE}^{-1}\right]$', fontsize=label_fontsize)
     ax.grid(True, alpha=0.35)
     ax.legend(loc='upper right', ncol=2, frameon=True)
     fig.tight_layout()
-    fig.savefig('plots/plot2.pdf', dpi=300, bbox_inches='tight', pad_inches=0.1)
+    if save:
+        fig.savefig('plots/plot2.pdf', dpi=300, bbox_inches='tight', pad_inches=0.1)
     if show:
         plt.show()
     else:
         plt.close(fig)
-    return designs
+    return fig, designs
 
 
 def main():
