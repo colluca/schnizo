@@ -1,0 +1,543 @@
+// Copyright 2025 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
+`include "common_cells/registers.svh"
+
+// The Schnova controller.
+//
+// The controller handles exceptions, stalls and also houses the zero over head loop
+// logic in the form of a loop controller. It also controls the execution modes of the core
+// and calculates how many valid instructions are currently being processed.
+module schnova_controller import schnova_pkg::*; #(
+  parameter int unsigned PipeWidth          = 1,
+  parameter bit          XFREPI             = 1,
+  parameter bit          XFREPO             = 1,
+  parameter int unsigned XLEN               = 32,
+  parameter int unsigned NrIntWritePorts    = 1,
+  parameter int unsigned NrFpWritePorts     = 1,
+  parameter int unsigned RegAddrSize        = 5,
+  parameter int unsigned MaxIterationsWidth = 6,
+  parameter type         instr_dec_t        = logic,
+  parameter type         block_ctrl_info_t  = logic,
+  parameter type         priv_lvl_t         = logic
+) (
+  input  logic                          clk_i,
+  input  logic                          rst_i,
+  // Frontend interface
+  input  logic                          flush_i_ready_i,
+  output logic                          flush_i_valid_o,
+  input  logic [31:0]                   pc_i,
+  input  logic [XLEN-1:0]               next_pc_i,
+  output logic                          loop_jump_o,
+  output logic [31:0]                   loop_jump_addr_o,
+  // Decoder interface
+  input  instr_dec_t [PipeWidth-1:0]    instr_decoded_i,
+  input  logic       [PipeWidth-1:0]    instr_valid_i,
+  output logic       [PipeWidth-1:0]    instr_valid_o,
+  input  logic       [PipeWidth-1:0]    instr_decoded_illegal_i,
+  input  block_ctrl_info_t              blk_ctrl_info_i,
+  output block_ctrl_info_t              blk_ctrl_info_masked_o,
+  // How many instructions are valid from the fetch block
+  // after the decoder
+  output logic [$clog2(PipeWidth):0]    instr_valid_count_o,
+  // Per instruction signal, whether this instruction has to be renamed
+  output logic [PipeWidth-1:0]          instr_rename_gpr_valid_o,
+  output logic [$clog2(PipeWidth):0]    instr_rename_gpr_count_o,
+  output logic [PipeWidth-1:0]          instr_rename_fpr_valid_o,
+  output logic [$clog2(PipeWidth):0]    instr_rename_fpr_count_o,
+  // Special FREP data
+  input  logic [MaxIterationsWidth-1:0] frep_iterations_i,
+  // To backend
+  output logic                          dispatched_o,
+  // Writeback interface
+  input logic                           ctrl_instr_retired_i,
+  // Interface to dispatcher & RS
+  output logic                          dispatch_instr_valid_o,
+  input  logic                          dispatch_instr_ready_i,
+  output logic                          instr_exec_commit_o,
+  // Commit signal for FPU in regular mode: same as instr_exec_commit but exclued
+  // instr_addr_misaligned_o, which is always 0 for FP instructions (they are never branches).
+  // This breaks the false timing path: ALU adder -> branch compare -> consecutive_pc ->
+  // instr_addr_misaligned_o -> exception_o -> instr_exec_commit -> fpu_exec_commit.
+  output logic                          fpu_instr_exec_commit_o,
+  output logic                          stall_o,
+  // From rename
+  input logic                           phy_reg_alloc_ready_i,
+  // From ROB
+  input logic                           rob_ready_i,
+  // Asserted if there are no instructions targeting reservation stations inflight
+  input  logic                          rs_idle_i,
+  // Assert when an exception occurs
+  output logic                          rs_restart_o,
+  // Exception source interface
+  input  logic                          interrupt_i,
+  input  logic                          csr_exception_raw_i,
+  input  logic                          lsu_empty_i,
+  input  logic                          lsu_addr_misaligned_i,
+  input  priv_lvl_t                     priv_lvl_i,
+  // Interface to CSR & write back for handling an exception
+  output logic                          exception_o,
+  output logic                          instr_illegal_o,
+  output logic                          instr_addr_misaligned_o,
+  output logic                          load_addr_misaligned_o,
+  output logic                          store_addr_misaligned_o,
+  output logic                          enter_wfi_o,
+  output logic                          ecall_o,
+  output logic                          ebreak_o,
+  output logic                          mret_o,
+  output logic                          sret_o,
+  // State of the core
+  output logic                          en_superscalar_o,
+  output loop_state_e                   loop_state_o,
+
+  // From scoreboard
+  input logic                           registers_ready_i,
+  input logic                           sb_busy_i
+);
+
+  logic                 instr_dispatched;
+  logic                 csr_exception;
+  logic [PipeWidth-1:0] instr_valid;
+  logic                 frep_exception;
+  logic                 frep_exec_commit;
+  block_ctrl_info_t     blk_ctrl_info_masked;
+
+  //---------------------
+  // Loop control logic 
+  //---------------------
+
+  logic        frep_sw_error;
+  logic        loop_stall;
+
+
+  if (XFREPI || XFREPO) begin : gen_loop_ctrl
+    // Valid bit mask of from the loop controller
+    logic [PipeWidth-1:0] valid_mask;
+    // Convert the decoded loop iterations to the actual number of iterations.
+    // In Snitch we specify one less in the encoding.
+    logic [MaxIterationsWidth-1:0] loop_iterations;
+    assign loop_iterations = frep_iterations_i + 1;
+
+    // Convert the loop body size to the actual number of iterations.
+    // In Snitch we specify one less in the encoding.
+    logic [FrepBodySizeWidth-1:0] loop_bodysize;
+    assign loop_bodysize = instr_decoded_i[0].frep_bodysize + 1;
+
+    schnova_loop_controller #(
+      .PipeWidth         (PipeWidth),
+      .AddrWidth         (32),
+      .MaxBodysizeWidth  (FrepBodySizeWidth),
+      .MaxIterationsWidth(MaxIterationsWidth),
+      .block_ctrl_info_t (block_ctrl_info_t),
+      .instr_dec_t       (instr_dec_t)
+    ) i_loop_ctrl (
+      .clk_i,
+      .rst_i,
+      .instr_valid_i      (instr_valid_i),
+      .instr_decoded_i    (instr_decoded_i),
+      .valid_mask_o       (valid_mask),
+      .instr_addr_i       (pc_i),
+      .blk_ctrl_info_i    (blk_ctrl_info_masked),
+      .dispatched_i       (dispatched_o),
+      // The next instruction after an FREP can only be the immediately next instruction.
+      .next_instr_addr_i  (pc_i + 'd4),
+      .stall_i            (stall_o),
+      .exception_i        (exception_o),
+      // Only in scalar execution mode is it legal to observe an frep instruction
+      // hence we can take the first instruction
+      .loop_start_req_i   (instr_decoded_i[0].is_frep & instr_valid_i[0]),
+      .loop_start_commit_i(instr_decoded_i[0].is_frep & frep_exec_commit),
+      .loop_bodysize_i    (loop_bodysize),
+      .loop_iterations_i  (loop_iterations),
+      .frep_mode_i        (instr_decoded_i[0].frep_mode),
+      .loop_jump_o        (loop_jump_o),
+      .loop_jump_addr_o   (loop_jump_addr_o),
+      .sw_err_o           (frep_sw_error),
+      .loop_state_o       (loop_state_o),
+      .en_superscalar_o   (en_superscalar_o),
+      .rs_idle_i          (rs_idle_i),
+      .loop_stall_o       (loop_stall)
+    );
+
+    // After the loop controller we maks the valid bits
+    // It could be that some instruction have to be invalidated since they are out of the loop body
+    assign instr_valid = instr_valid_i & valid_mask;
+    assign instr_valid_o = instr_valid;
+
+    popcount #(
+      .INPUT_WIDTH(PipeWidth)
+    ) i_valid_count (
+      .data_i(instr_valid_o),
+      .popcount_o(instr_valid_count_o)
+    );
+
+    // Decide whether a register has to be renamed
+    always_comb begin
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
+        // We have to rename the instruction if it is valid
+        // and the destination register is not the integer register x0
+        instr_rename_gpr_valid_o[i] = instr_valid_o[i]          &
+                                      (instr_decoded_i[i].rd != '0) &
+                                      ~instr_decoded_i[i].rd_is_fp;
+        instr_rename_fpr_valid_o[i] = instr_valid_o[i] &
+                                      instr_decoded_i[i].rd_is_fp;
+      end
+    end
+
+    // Counting the number of instructions that have to be renamed
+    popcount #(
+      .INPUT_WIDTH(PipeWidth)
+    ) i_gpr_rename_count (
+      .data_i(instr_rename_gpr_valid_o),
+      .popcount_o(instr_rename_gpr_count_o)
+    );
+
+    popcount #(
+      .INPUT_WIDTH(PipeWidth)
+    ) i_fpr_rename_count (
+      .data_i(instr_rename_fpr_valid_o),
+      .popcount_o(instr_rename_fpr_count_o)
+    );
+
+    // We have to mask the blk control info if the loop controller invalidated it
+    assign blk_ctrl_info_masked = instr_valid[blk_ctrl_info_i.instr_idx] ? blk_ctrl_info_i
+                                                                  : '0;
+
+    assign blk_ctrl_info_masked_o = blk_ctrl_info_masked;
+  end else begin: gen_no_loop_ctrl
+    assign loop_jump_o              = 1'b0;
+    assign loop_jump_addr_o         = '0;
+    assign frep_sw_error            = '0;
+    assign loop_state_o             = LoopRegular;
+    assign en_superscalar_o         = 1'b0;
+    assign loop_stall               = 1'b0;
+    assign instr_valid              = instr_valid_i;
+    assign instr_valid_o            = instr_valid;
+    assign instr_valid_count_o      = '0; // Not needed in a scalar core
+    assign instr_rename_gpr_valid_o = '0; // Not needed in a scalar core
+    assign instr_rename_fpr_valid_o = '0; // Not needed in a scalar core
+    assign instr_rename_gpr_count_o = '0; // Not needed in a scalar core
+    assign instr_rename_fpr_count_o = '0; // Not needed in a scalar core
+    assign blk_ctrl_info_masked     = blk_ctrl_info_i;
+    assign blk_ctrl_info_masked_o   = blk_ctrl_info_masked;
+  end
+
+  //--------------
+  // Exceptions 
+  //--------------
+
+  // CSR instructions can only be processed in scalar mode, hence the core only has to check the first
+  // instruction for the following exceptions
+  assign ecall_o  = instr_decoded_i[0].is_ecall  && instr_valid[0];
+  assign ebreak_o = instr_decoded_i[0].is_ebreak && instr_valid[0];
+  // Signal to CSR when entering WFI state.
+  assign enter_wfi_o = instr_decoded_i[0].is_wfi && instr_valid[0];
+  assign csr_exception = (instr_decoded_i[0].fu == CSR) &&
+                          csr_exception_raw_i           &&
+                          instr_valid[0];
+
+  logic privileges_violated_raw;
+  logic privileges_violated;
+  // Check privileges for certain instructions
+  always_comb begin : check_privileges
+    privileges_violated_raw = 1'b0;
+    if (instr_decoded_i[0].is_wfi) begin
+      // WFI is not allowed in U-mode
+      if ((priv_lvl_i == PrivLvlU)) begin
+        privileges_violated_raw = 1'b1;
+      end
+    end
+    if (instr_decoded_i[0].is_mret) begin
+      if (priv_lvl_i != PrivLvlM) begin
+        privileges_violated_raw = 1'b1;
+      end
+    end
+    if (instr_decoded_i[0].is_sret) begin
+      if (!(priv_lvl_i inside {PrivLvlM, PrivLvlS})) begin
+        privileges_violated_raw = 1'b1;
+      end
+    end
+  end
+
+  assign privileges_violated = privileges_violated_raw & instr_valid[0];
+
+  // Only update the privilege stack if there is a valid xRET instruction.
+  assign mret_o =  instr_decoded_i[0].is_mret && instr_valid[0] && !privileges_violated;
+  assign sret_o =  instr_decoded_i[0].is_sret && instr_valid[0] && !privileges_violated;
+
+  // The core does not support speculation, thus only one instruction can be a control instruction
+  assign instr_addr_misaligned_o =  (blk_ctrl_info_masked.is_ctrl) &&
+                                    (next_pc_i[1:0] != 2'b0);
+
+
+  // Load and store address are missaligned if LSU assert address misaligned
+  // and a load/store operation is currently being processed.
+  // In super scalar mode we ignore the LSU misaligned signal (as is done in schnizo) but here we don't check the lsu_addr_misaligned_i signal
+  // when it is ignored anyway.
+  assign load_addr_misaligned_o  = en_superscalar_o ? 1'b0 :
+                                   lsu_addr_misaligned_i           &&
+                                   (instr_decoded_i[0].fu == LOAD) &&
+                                   instr_valid[0]                  &&
+                                   registers_ready_i;
+  assign store_addr_misaligned_o = en_superscalar_o ? 1'b0 :
+                                   lsu_addr_misaligned_i            &&
+                                   (instr_decoded_i[0].fu == STORE) &&
+                                   instr_valid[0]                   &&
+                                   registers_ready_i;
+
+  // A privilege violation is handled as illegal instruction
+  // This is done at a instruction block granularity, we throw an exception
+  // if one of the instructions of the block was illegal
+  assign instr_illegal_o = (|instr_decoded_illegal_i) | privileges_violated;
+
+  assign exception_o = instr_illegal_o
+                   | ecall_o
+                   | ebreak_o
+                   | csr_exception
+                   | instr_addr_misaligned_o
+                   | load_addr_misaligned_o
+                   | store_addr_misaligned_o
+                   | interrupt_i
+                   | frep_sw_error;
+
+  // For FREP, only interrupts and FREP-specific software errors can block commit. All other
+  // exceptions in exception_o are structurally impossible when the current instruction is FREP
+  // (wrong opcode, wrong FU, no branch/jump). In particular, instr_addr_misaligned_o sits in the
+  // timing cone of exception_o via alu_compare_res_i -> consecutive_pc, creating a false timing
+  // path to loop_start_commit_i. Using a separate frep_exception breaks that path.
+  assign frep_exception = interrupt_i | frep_sw_error;
+
+  logic wait_backend_q, wait_backend_d;
+  if (XFREPO) begin : gen_superscalar_restart
+    `FFAR(wait_backend_q, wait_backend_d, 1'b0, clk_i, rst_i);
+
+    always_comb begin 
+      wait_backend_d = wait_backend_q;
+      if (exception_o && !rs_idle_i && en_superscalar_o) begin
+        // We have to wait until the backend is idle
+        // that is we still execute all the instructions that are currently stored at
+        // the reservation station and dispatch buffer.
+        // Main reason: We have to somehow free the physical registers that were allocated
+        wait_backend_d = 1'b1;
+      end
+      if (rs_idle_i) begin
+        wait_backend_d = 1'b0;
+      end
+    end
+
+    // In case of an exception we flush the entire backend
+    assign rs_restart_o = (exception_o || !en_superscalar_o) && !wait_backend_q;
+  end else begin : gen_no_superscalar_restart
+    assign rs_restart_o = (exception_o || !en_superscalar_o);
+  end
+
+  //---------
+  // Stalls 
+  //---------
+
+  // Check if we are waiting on a FENCE. We can continue if all LSUs are empty.
+  // FENCE is only allowed in scalar mode, we can thus only consider the first
+  // decoded instruction.
+  logic all_lsus_empty;
+  logic fence_stall;
+  // The lsu_empty_i signal already declares whether all LSUs are empty
+  assign all_lsus_empty = lsu_empty_i;
+  assign fence_stall = (instr_decoded_i[0].is_fence & ~all_lsus_empty) & instr_valid[0];
+
+  // Check if we are waiting on an instruction cache flush (via FENCE_I instruction).
+  // We can continue as soon as the cache responds
+  // FENCE_I is only allowed in scalar mode, we can thus only consider the first
+  // decoded instruction.
+  logic fence_i_stall;
+  assign flush_i_valid_o = instr_decoded_i[0].is_fence_i & instr_valid[0];
+  assign fence_i_stall = flush_i_valid_o & ~flush_i_ready_i;
+
+  // Check if the current instruction wants to read or write the FCSR. If so, stall until no FPU
+  // instructions are ongoing. This ensures that any FCSR access is ordered.
+  // CSR is only allowed in scalar mode, we can thus only consider the first
+  // decoded instruction.
+  logic [11:0] csr_addr;
+  logic        is_fcsr_instr;
+  logic        fcsr_stall;
+
+  assign csr_addr = instr_decoded_i[0].imm[11:0];
+  assign is_fcsr_instr = (csr_addr inside {riscv_instr::CSR_FFLAGS, riscv_instr::CSR_FRM,
+                                           riscv_instr::CSR_FMODE,  riscv_instr::CSR_FCSR})
+                         && (instr_decoded_i[0].fu == CSR);
+  // We must stall on both register file scoreboards as certain FPU instructions (FEQ etc.) do also
+  // write back into the integer register file.
+  assign fcsr_stall = sb_busy_i & is_fcsr_instr & instr_valid[0];
+
+  // Before toggling between scalar and superscalar mode all writebacks must be completed.
+  // There are two situations when we toggle
+  // 1) When we observe an frep instruction as the first valid instruction
+  // 2) When we are forced to leave the superscalar mode due to an unsupported instruction
+  // Reason is that during superscalar execution the
+  // FU writeback is always taken from the RSS and thus any in flight instruction gets stuck.
+  // Note the decoder and frontend guarantes, that frep is always the first valid instruction.
+  logic frep_start_stall;
+  assign frep_start_stall = (instr_decoded_i[0].is_frep & instr_valid[0]) ? sb_busy_i :
+                                                                            1'b0;
+
+  // Check if we are waiting on a control instruction (branch/jal/mret/sret/jalr)
+  logic ctrl_stall;
+  typedef enum logic {
+    IDLE,
+    WAIT_CTRL
+  } ctrl_state_t;
+
+  ctrl_state_t ctrl_state_q, ctrl_state_d;
+
+  if (XFREPO) begin : gen_ctrl_stall
+    `FFAR(ctrl_state_q, ctrl_state_d, IDLE, clk_i, rst_i);
+    always_comb begin : ctrl_next_state_logic
+      ctrl_state_d = ctrl_state_q;
+      unique case (ctrl_state_q)
+        IDLE: begin
+          // If we have a ctrl instruction which is not retired this same cycle
+          // we have to wait for it to retire and stall the pipeline.
+          if (blk_ctrl_info_masked.is_ctrl && dispatched_o && !ctrl_instr_retired_i) begin
+            ctrl_state_d = WAIT_CTRL;
+          end
+        end
+        WAIT_CTRL: begin
+          // As soon as we retire the control instruction we go back to idle
+          if(ctrl_instr_retired_i) begin
+            ctrl_state_d = IDLE;
+          end
+        end
+      endcase
+    end
+
+    // We have to stall the dispatch, if we are in the WAIT_CTRL state
+    // and no ctrl instruction is retired in this cycle.
+    assign ctrl_stall = (ctrl_state_q == WAIT_CTRL);
+
+  end else begin: gen_no_ctrl_stall
+    // In a scalar core, the branch instructions have 1 cycle latency
+    // we don't have to stall to know where to jump to
+    assign ctrl_stall = 1'b0;
+    assign ctrl_state_d = IDLE;
+    assign ctrl_state_q = IDLE;
+  end
+
+  // We have to stall in superscalar mode if the freelist does not have enough
+  // physical registers to rename all instructions
+  logic freelist_stall;
+  assign freelist_stall = en_superscalar_o ? ~phy_reg_alloc_ready_i : 1'b0;
+
+  // We have to stall in superscalar mode if the rob does not have enough
+  // entries for all the instructions we want to dispatch in this
+  // fetch block
+  logic rob_stall;
+  assign rob_stall = en_superscalar_o ? ~rob_ready_i : 1'b0;
+
+  // We have to stall when we were in superscalar mode and an exception occured
+  // then we have to wait until the reservations station and dispatch buffers are empty
+  // before we can safely continue with the trap handler
+  logic backend_stall;
+  if (XFREPO) begin : gen_backend_stall
+    assign backend_stall = wait_backend_q;
+  end else begin : gen_no_backend_stall
+    assign backend_stall = 1'b0;
+  end
+
+  ////////////////////
+  // Dispatch logic //
+  ////////////////////
+
+  // We can dispatch the current instruction if:
+  // - it is valid
+  // - all registers are ready
+  // - enough physical registers are available for renaming
+  // - no stall due to a FENCE or FCSR
+  // - no stall due to unsuported instructions
+  // - no exception occured
+  //
+  // TODO(colluca): is this the case also in Snitch?
+  // Note: the cluster HW barrier only disables fetching new instructions.
+  //
+  // Request the dispatch of the instruction. This ignores any exceptions. The instruction
+  // dispatches if the commit signal is asserted. This commit signal includes the info about
+  // any exception. So the dispatch_instr_valid_o signal requests the execution of the instruction
+  // from the desired FU. The FU then can raise an exception and the commit signal will prevent
+  // any stateful update / blocks the execution.
+
+  logic stall_raw;
+
+  assign stall_raw = fence_stall      |
+                    fence_i_stall     |
+                    fcsr_stall        |
+                    frep_start_stall  |
+                    loop_stall        |
+                    freelist_stall    |
+                    rob_stall         |
+                    backend_stall     |
+                    ctrl_stall;
+
+
+  
+  logic dispatch_instr_valid;
+  assign dispatch_instr_valid = (|instr_valid) & registers_ready_i & ~stall_raw;
+
+
+  if (XFREPO) begin : gen_multicycle_valid
+   logic multi_cycle_dispatch_q, multi_cycle_dispatch_d;
+    `FFAR(multi_cycle_dispatch_q, multi_cycle_dispatch_d, 1'b0, clk_i, rst_i);
+  always_comb begin
+    multi_cycle_dispatch_d = multi_cycle_dispatch_q;
+
+    if (dispatch_instr_valid) begin
+      multi_cycle_dispatch_d = 1'b1;
+    end
+    if (instr_dispatched) begin
+      multi_cycle_dispatch_d = 1'b0;
+    end
+  end 
+    // In schnova we always dispatch in a block, and all instructions in that block that are valid get dispatched
+    // in one go. Hence we only need a valid signal per block not for all instructions separately.
+    assign dispatch_instr_valid_o = dispatch_instr_valid || multi_cycle_dispatch_q;
+  end else begin
+    assign dispatch_instr_valid_o = dispatch_instr_valid;
+  end
+
+
+
+  // The instruction may only execute if there are no errors/exceptions.
+  // This signal controls all stateful updates like RF writes or multi-cycle issues.
+  logic instr_exec_commit;
+  assign instr_exec_commit = dispatch_instr_valid_o & !exception_o;
+  assign instr_exec_commit_o = instr_exec_commit;
+  assign fpu_instr_exec_commit_o = dispatch_instr_valid_o &&
+                                  !(instr_illegal_o |
+                                    ecall_o         |
+                                    ebreak_o        |
+                                    csr_exception   |
+                                    interrupt_i     |
+                                    frep_sw_error);
+
+  assign frep_exec_commit = dispatch_instr_valid_o && !frep_exception;
+
+  // The instruction is dispatched when the Dispatcher signals that the handshake to the FU is
+  // performed successfully. The signal instr_dispatched signals that the current instruction has
+  // been dispatched successfully and the scoreboard can update its state.
+  assign instr_dispatched = instr_exec_commit_o & dispatch_instr_ready_i;
+
+  // We have to tell the renaming stage when all instructions are successfully dispatched
+  // that way it can restart the renaming process
+  assign dispatched_o = instr_dispatched;
+
+  //-------------------
+  // Fetch stall logic
+  //-------------------
+
+  // We have to stall fetching due to the following reasons
+  // 1) We were not yet able to dispatch the instruction
+  // 2) We have to wait for a control instruction to be resolved
+  // since we don't do any speculation.
+  assign stall_o =  ((ctrl_state_q == IDLE) && !instr_dispatched) ||
+                    ((ctrl_state_q == IDLE) && blk_ctrl_info_masked.is_ctrl && en_superscalar_o) ||
+                    (ctrl_stall && !ctrl_instr_retired_i);
+
+endmodule

@@ -27,7 +27,8 @@ class SoftmaxVerifier(Verifier):
             'reduce_dim': 'i',
             'ifmap_ptr': 'I',
             'ofmap_ptr': 'I',
-            'dtype': 'I'
+            'dtype': 'I',
+            'funcptr': 'I'
         }
         self.layer = self.get_input_from_symbol('layer', self.layer_struct)
         self.batch_size = self.layer['batch_size']

@@ -53,7 +53,8 @@ class SoftmaxDataGen(du.DataGen):
             'reduce_dim': reduce_dim,
             'ifmap': ifmap_uid,
             'ofmap': ofmap_uid,
-            'dtype': prec
+            'dtype': prec,
+            'funcptr': kwargs['funcptr']
         }
 
         header += [du.format_array_declaration(f'extern {ctype}', ifmap_uid,

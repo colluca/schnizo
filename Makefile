@@ -58,7 +58,10 @@ SN_DEFAULT_CFG = $(SN_CFG_DIR)/default.json
 # (LRU) config, all targets depending on the configuration file have
 # to be rebuilt. This file is used to express this condition as a
 # prerequisite for other rules.
-SN_CFG = $(SN_CFG_DIR)/lru.json
+# Alternatively, SN_CFG can be set directly on the command-line to point straight at
+# a config file, bypassing the LRU machinery entirely, as useful e.g. for parallel
+# builds that would otherwise race on the single LRU path.
+SN_CFG ?= $(SN_CFG_DIR)/lru.json
 
 # This target is always evaluated and creates a symlink to the least
 # recently used config file. Because it is a symlink, targets to which it is a
@@ -67,6 +70,7 @@ SN_CFG = $(SN_CFG_DIR)/lru.json
 # timestamp can be taken into account by using the `make -L` flag on the
 # command-line, however for simplicity we touch the symlink targets so it can
 # be used without.
+ifeq ($(SN_CFG),$(SN_CFG_DIR)/lru.json)
 $(SN_CFG): FORCE
 	@# If the LRU config file doesn't exist, we use the default config.
 	@if [ ! -e "$@" ] ; then \
@@ -88,6 +92,7 @@ $(SN_CFG): FORCE
 		fi \
 	fi
 FORCE:
+endif
 
 ########
 # Docs #
@@ -141,7 +146,7 @@ clean-rtl: sn-clean-rtl
 ############
 
 NONFREE_REMOTE ?= git@iis-git.ee.ethz.ch:pulp-restricted/snitch-cluster-nonfree.git
-NONFREE_COMMIT ?= daf6a6332947fc21ac91b365973864a0baab94c2
+NONFREE_COMMIT ?= 5ab8dc777a634dfcc2bf956aff43de4f0ef6b098
 NONFREE_DIR = $(SN_ROOT)/nonfree
 
 .PHONY: nonfree clean-nonfree

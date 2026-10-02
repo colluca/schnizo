@@ -7,8 +7,12 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gmean
-from . import experiments
-from . import model
+try:
+    from . import experiments
+    from . import model
+except ImportError:
+    import experiments
+    import model
 
 
 METRIC_LABELS = {

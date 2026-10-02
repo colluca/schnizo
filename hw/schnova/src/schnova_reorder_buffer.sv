@@ -1,0 +1,292 @@
+// Copyright 2026 ETH Zurich and University of Bologna.
+// Solderpad Hardware License, Version 0.51, see LICENSE for details.
+// SPDX-License-Identifier: SHL-0.51
+
+// Note: The physical register size has to be a power of two, for the math to work
+
+// Author: Stefan Odermatt <soderma@ethz.ch>
+// Reorder buffer, used to track the physical registers that should be released
+module schnova_reorder_buffer import schnova_pkg::*; #(
+  parameter int unsigned PipeWidth   = 1,
+  parameter int unsigned NofEntries  = 64,
+  parameter int unsigned NofAlus     = 1,
+  parameter int unsigned NofLsus     = 1,
+  parameter int unsigned NofFpus     = 1,
+  parameter int unsigned NrRobWritePorts  = 2,
+  parameter type         phy_id_t = logic,
+  localparam int unsigned TagWidth = $clog2(NofEntries)
+) (
+  input  logic                                     clk_i,
+  input  logic                                     rst_i,
+  // Allocation Interface (Rename Stage)
+  // Which instruction of the block to push into the ROB
+  input logic                                      rob_push_i,
+  input logic [$clog2(PipeWidth):0]                rob_push_count_i,
+  input phy_id_t [PipeWidth-1:0]                   rob_phy_reg_rd_old_i,
+  input logic [PipeWidth-1:0]                      rob_phy_reg_rd_old_is_fp_i,
+  output logic [PipeWidth-1:0][TagWidth-1:0]       rob_idx_o,
+  output logic                                     rob_ready_o,
+  // Writeback Interface
+  input logic [NrRobWritePorts-1:0]                wb_valid_i,
+  input logic [NrRobWritePorts-1:0][TagWidth-1:0]  wb_rob_idx_i,
+  // Freelist interface
+  output logic                                     freelist_push_o,
+  output [$clog2(PipeWidth):0]                     gpr_push_count_o,
+  output phy_id_t [PipeWidth-1:0]                  gpr_retired_regs_o,
+  output [$clog2(PipeWidth):0]                     fpr_push_count_o,
+  output phy_id_t [PipeWidth-1:0]                  fpr_retired_regs_o,
+  // Store writeback snooping for reorder buffer
+  input logic [NofAlus-1:0]                        alu_rob_z_wb_valid_i,
+  input logic [NofAlus-1:0][TagWidth-1:0]          alu_rob_z_tag_i,
+  input logic [NofLsus-1:0]                        lsu_rob_z_wb_valid_i,
+  input logic [NofLsus-1:0][TagWidth-1:0]          lsu_rob_z_tag_i,
+  input logic [NofFpus-1:0]                        fpu_rob_z_wb_valid_i,
+  input logic [NofFpus-1:0][TagWidth-1:0]          fpu_rob_z_tag_i
+);
+
+  typedef struct packed {
+      logic valid;
+      logic done;
+      phy_id_t phy_reg_rd_old; // The physcial register rd was renamed to previously
+      logic    rd_is_fp;
+  } rob_entry_t;
+
+  rob_entry_t [NofEntries-1:0] rob;
+  logic [NrRobWritePorts-1:0][NofEntries-1:0] wb_dec;
+
+  logic [NofAlus-1:0][NofEntries-1:0] alu_z_wb_dec;
+  logic [NofLsus-1:0][NofEntries-1:0] lsu_z_wb_dec;
+  logic [NofFpus-1:0][NofEntries-1:0] fpu_z_wb_dec;
+
+  logic [TagWidth:0] head_ptr_raw, tail_ptr_raw; // Extra bit for wrap-around/full detection
+  logic [TagWidth-1:0] head_ptr, tail_ptr; // Extra bit for wrap-around/full detection
+
+  logic [PipeWidth-1:0][TagWidth-1:0] read_idx;
+  logic [PipeWidth-1:0][TagWidth-1:0] write_idx;
+
+  logic [TagWidth:0] free_count;
+  logic [TagWidth:0] allocated_entries;
+
+  logic [PipeWidth-1:0] pop_valid;
+  logic [$clog2(PipeWidth):0] pop_count;
+
+
+  //----------------------
+  // Rob address decoders
+  //----------------------
+  always_comb begin : wb_decoder
+    for (int unsigned j = 0; j < NrRobWritePorts; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (wb_rob_idx_i[j] == i) wb_dec[j][i] = wb_valid_i[j];
+        else wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
+  always_comb begin : alu_z_wb_decoder
+    for (int unsigned j = 0; j < NofAlus; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (alu_rob_z_tag_i[j] == i) alu_z_wb_dec[j][i] = alu_rob_z_wb_valid_i[j];
+        else alu_z_wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
+  always_comb begin : lsu_z_wb_decoder
+    for (int unsigned j = 0; j < NofLsus; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (lsu_rob_z_tag_i[j] == i) lsu_z_wb_dec[j][i] = lsu_rob_z_wb_valid_i[j];
+        else lsu_z_wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
+  always_comb begin : fpu_z_wb_decoder
+    for (int unsigned j = 0; j < NofFpus; j++) begin
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        if (fpu_rob_z_tag_i[j] == i) fpu_z_wb_dec[j][i] = fpu_rob_z_wb_valid_i[j];
+        else fpu_z_wb_dec[j][i] = 1'b0;
+      end
+    end
+  end
+
+
+  always_comb begin : idx_calculation
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      read_idx[i] = head_ptr + TagWidth'(i);
+      write_idx[i] = tail_ptr + TagWidth'(i);
+    end
+  end
+
+  //------------------
+  // Rob status logic
+  //------------------
+  // Calculate the current number of free rob entries
+  assign allocated_entries = tail_ptr_raw - head_ptr_raw;
+  assign free_count = NofEntries - allocated_entries;
+
+  // Assign the head pointer and tail pointer
+  assign head_ptr = head_ptr_raw[TagWidth-1:0];
+  assign tail_ptr = tail_ptr_raw[TagWidth-1:0];
+
+  // The rob is ready to allocate the requested amount of entries
+  // if the number of free entries is larger or equal than the number off
+  // requested entries
+  assign rob_ready_o = (free_count >= rob_push_count_i);
+
+  //------------------------
+  // ROB commit (pop logic)
+  //------------------------
+  always_comb begin
+    pop_valid = 1'b0;
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      // Commit has to happen in order, so we have to have a sequence of done
+      // ROB entries to commit them all simultaneously
+      // Note commit in schnova does just entail freeing the ROB entry and physical register
+      if (i == 0) begin
+        pop_valid[i] = rob[read_idx[i]].done && rob[read_idx[i]].valid;
+      end else begin
+        pop_valid[i] = pop_valid[i-1] && rob[read_idx[i]].done && rob[read_idx[i]].valid;
+      end
+    end
+  end
+
+  logic [PipeWidth-1:0] gpr_commit_valid;
+  logic [PipeWidth-1:0] fpr_commit_valid;
+  logic [$clog2(PipeWidth):0] commit_gpr_idx;
+  logic [$clog2(PipeWidth):0] commit_fpr_idx;
+
+  always_comb begin
+    gpr_commit_valid = '0;
+    fpr_commit_valid = '0;
+
+    commit_gpr_idx = '0;
+    commit_fpr_idx = '0;
+
+    gpr_retired_regs_o = '0;
+    fpr_retired_regs_o = '0;
+
+    for (int unsigned i = 0; i < PipeWidth; i++) begin
+      if (pop_valid[i] && rob[read_idx[i]].rd_is_fp) begin
+        fpr_retired_regs_o[commit_fpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
+        fpr_commit_valid[i] = 1'b1;
+        commit_fpr_idx = commit_fpr_idx + 1;
+      end else if (pop_valid[i] && !rob[read_idx[i]].rd_is_fp) begin
+        if (rob[read_idx[i]].phy_reg_rd_old != '0) begin
+          gpr_retired_regs_o[commit_gpr_idx] = rob[read_idx[i]].phy_reg_rd_old;
+          gpr_commit_valid[i] = 1'b1;
+          commit_gpr_idx = commit_gpr_idx + 1;
+        end
+      end
+    end
+  end
+
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_gpr_pop_count (
+    .data_i(gpr_commit_valid),
+    .popcount_o(gpr_push_count_o)
+  );
+
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_fpr_pop_count (
+    .data_i(fpr_commit_valid),
+    .popcount_o(fpr_push_count_o)
+  );
+
+  popcount #(
+    .INPUT_WIDTH(PipeWidth)
+  ) i_rob_pop_count (
+    .data_i(pop_valid),
+    .popcount_o(pop_count)
+  );
+
+  // We push registers to the freelist once we can remove at least one entry from the
+  // rob
+  assign freelist_push_o = |pop_valid;
+
+  // When ever we allocate a rob index, it has to be forwarded
+  assign rob_idx_o = write_idx;
+
+  // Sequential updates, that includes pointer calculations and retirements
+  always_ff @(posedge clk_i or posedge rst_i) begin
+    if (rst_i) begin
+      head_ptr_raw <= '0;
+      tail_ptr_raw <= '0;
+      for (int unsigned i = 0; i < NofEntries; i++) begin
+        rob[i] <= rob_entry_t'{
+          valid: 1'b0,
+          done: 1'b0,
+          phy_reg_rd_old: '0,
+          rd_is_fp: 1'b0
+        };
+      end
+    end else begin
+
+      // Update the ROB when a writeback happens
+      for (int unsigned j = 0; j < NrRobWritePorts; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+
+      // Update the ROB when a zero register issue happens
+      for (int unsigned j = 0; j < NofAlus; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (alu_z_wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+      for (int unsigned j = 0; j < NofLsus; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (lsu_z_wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+      for (int unsigned j = 0; j < NofFpus; j++) begin
+        for (int unsigned i = 0; i < NofEntries; i++) begin
+          // If the wb decoder hits, we set the done bit
+          if (fpu_z_wb_dec[j][i]) begin
+            rob[i].done <= 1'b1;
+          end
+        end
+      end
+
+
+      // Update the ROB upon push
+      if(rob_push_i && rob_ready_o) begin
+        for (int i = 0; i < PipeWidth; i++) begin
+          if (i < rob_push_count_i) begin
+            rob[write_idx[i]].valid <= 1'b1;
+            rob[write_idx[i]].done  <= 1'b0;
+            rob[write_idx[i]].phy_reg_rd_old  <= rob_phy_reg_rd_old_i[i];
+            rob[write_idx[i]].rd_is_fp        <= rob_phy_reg_rd_old_is_fp_i[i];
+          end
+        end
+
+        // Advance the pointers
+        tail_ptr_raw <= (tail_ptr_raw + rob_push_count_i);
+      end
+
+      // Clear the ROB entries on commit
+      for (int unsigned i = 0; i < PipeWidth; i++) begin
+        if (pop_valid[i]) begin
+          rob[read_idx[i]].valid <= 1'b0;
+          rob[read_idx[i]].done  <= 1'b0;
+        end
+      end
+
+      // Advance the head pointer
+      head_ptr_raw <= (head_ptr_raw + pop_count);
+    end
+  end
+
+endmodule

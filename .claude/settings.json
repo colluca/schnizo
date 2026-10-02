@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq --arg p 'source ./iis-setup.sh && ' '{hookSpecificOutput:{hookEventName:\"PreToolUse\",updatedInput:{command:($p + .tool_input.command)}}}'",
+            "command": "jq '((\"source \\\"$(git rev-parse --show-toplevel)/iis-setup.sh\\\" && \") + .tool_input.command) as $inner | {hookSpecificOutput:{hookEventName:\"PreToolUse\",updatedInput:{command:(\"bash -c \" + ($inner|@sh))}}}'",
             "statusMessage": "Setting up environment..."
           }
         ]

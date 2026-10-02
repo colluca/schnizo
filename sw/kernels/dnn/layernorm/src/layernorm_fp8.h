@@ -4,7 +4,9 @@
 //
 // Author: Viviane Potocnik <vivianep@iis.ee.ethz.ch>
 
+#ifndef UNROLL
 #define UNROLL 4
+#endif
 
 static inline void layernorm_fp8_opt(char *input, char *output,
                                      uint32_t batch_size, uint32_t seq_len,
