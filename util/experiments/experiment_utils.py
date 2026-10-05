@@ -333,7 +333,8 @@ class ExperimentManager:
             # To save time we should only run synthesis once for every unique
             # hardware/HDL parameter configuration, not for every experiment
             def uniqueness_key(e):
-                return (e.get('hw'), tuple(sorted(e.get('hdl_params', {}).items())))
+                return (e.get('hw'), tuple(sorted(e.get('hdl_params', {}).items())),
+                        tuple(e.get('keep_hier', [])))
 
             def run_synth(experiment):
                 log_file = experiment['synth_dir'] / f'{action}.log'
@@ -347,6 +348,7 @@ class ExperimentManager:
                         'DESIGN': design,
                         'HDL_PARAMS': hdl_params_str,
                         'RUNDIR': experiment['synth_dir'],
+                        'KEEP_HIER': ":".join(experiment.get('keep_hier', [])),
                     }
                     hw_cfg = self.derive_hw_cfg(experiment)
                     if hw_cfg is not None:

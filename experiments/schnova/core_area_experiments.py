@@ -8,11 +8,31 @@ from snitch.util.experiments import experiment_utils as eu
 EARLY_SYNTH_STAGE = '7'
 FINAL_SYNTH_STAGE = '9'
 
+# Modules which are not ungrouped by the synthesis flow in "grouped" experiments,
+# so that their area is reported separately in the hierarchy breakdown.
+GROUPED_KEEP_HIER = [
+    'schnova_frontend',
+    'schnova_decoder',
+    'schnova_dispatcher',
+    'schnova_disp_buffer',
+    'schnova_res_stat',
+    'schnova_rename',
+    'schnova_refcount',
+    'schnova_phys_regfile',
+    'schnova_read_operands',
+    'schnova_fu_stage',
+    'schnova_alu',
+    'schnova_lsu',
+    'schnova_fpu',
+]
+
 
 class ExperimentManager(eu.ExperimentManager):
 
     def derive_axes(self, experiment):
-        return eu.derive_axes_from_keys(experiment, keys=['name'])
+        axes = eu.derive_axes_from_keys(experiment, keys=['name'])
+        axes['grouping'] = 'grouped' if experiment['grouped'] else 'ungrouped'
+        return axes
 
 
 def gen_experiments(designs=None):
@@ -112,6 +132,30 @@ def gen_experiments(designs=None):
         # },
         {
             'design':   'schnova_synth',
+            'name':     'Schnova-ZOL',
+            'grouped':   True,
+            'keep_hier': GROUPED_KEEP_HIER,
+            'hdl_params': {
+                'XFREPI': 1,
+                'XFREPO': 0,
+                'NofAlus': 1,
+                'NofLsus': 1,
+                'NofFpus': 1,
+                'NofAluBufEntries': 1,
+                'NofLsuBufEntries': 1,
+                'NofFpuBufEntries': 1,
+                'AluNofRss': 1,
+                'LsuNofRss': 1,
+                'FpuNofRss': 1,
+                'ICacheFetchDataWidth': 32,
+                'NofPhysGpr': 32,
+                'NofPhysFpr': 32,
+                'NofRobEntries': 1,
+                'UseFreeList': 0,
+            }
+        },
+        {
+            'design':   'schnova_synth',
             'name':     'GP-PW1',
             'hdl_params': {
                 'XFREPI': 1,
@@ -135,6 +179,30 @@ def gen_experiments(designs=None):
         {
             'design':   'schnova_synth',
             'name':     'GP-PW2',
+            'hdl_params': {
+                'XFREPI': 1,
+                'XFREPO': 1,
+                'NofAlus': 2,
+                'NofLsus': 2,
+                'NofFpus': 1,
+                'NofAluBufEntries': 18,
+                'NofLsuBufEntries': 14,
+                'NofFpuBufEntries': 24,
+                'AluNofRss': 1,
+                'LsuNofRss': 4,
+                'FpuNofRss': 1,
+                'ICacheFetchDataWidth': 64,
+                'NofPhysGpr': 52,
+                'NofPhysFpr': 54,
+                'NofRobEntries': 1,
+                'UseFreeList': 0,
+            }
+        },
+        {
+            'design':   'schnova_synth',
+            'name':     'GP-PW2',
+            'grouped':  True,
+            'keep_hier': GROUPED_KEEP_HIER,
             'hdl_params': {
                 'XFREPI': 1,
                 'XFREPO': 1,
@@ -320,16 +388,21 @@ def gen_experiments(designs=None):
         # },
     ]
 
+    # Experiments are ungrouped unless specified otherwise
+    for experiment in experiments:
+        experiment.setdefault('grouped', False)
+
     if designs is not None:
         experiments = [experiment for experiment in experiments if experiment['name'] in designs]
     return experiments
 
 
-def results(dir=None):
+def results(dir=None, grouped=False, stage=FINAL_SYNTH_STAGE):
     manager = ExperimentManager(gen_experiments(), dir=dir, parse_args=False)
     df = manager.get_results()
+    df = df[df['grouping'] == ('grouped' if grouped else 'ungrouped')].drop(columns='grouping')
     df = df.set_index('name')
-    df['synth_results'] = df['synth_results'].str[FINAL_SYNTH_STAGE]
+    df['synth_results'] = df['synth_results'].str[stage]
     return df
 
 
