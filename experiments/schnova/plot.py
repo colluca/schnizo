@@ -89,6 +89,8 @@ AREA_EFFICIENCY_BASELINE = 'Snitch'
 # Issue widths annotated next to the external superscalar design points
 AREA_EFFICIENCY_ISSUE_WIDTHS = {'CVA6S+': 2, 'C910': 3}
 
+# Citation numbers (as numbered in the paper's bibliography) shown in the legend
+AREA_EFFICIENCY_CITATIONS = {'Snitch': 7, 'CVA6S+': 8, 'C910': 8, 'Spatz-LA': 9}
 
 AREA_EFFICIENCY_MARKERS = {
     'Snitch': ('tab:blue', 'o'),
@@ -297,8 +299,11 @@ def plot2(show=True, dir=None, save=True, figsize=(10, 4.2), label_fontsize=12,
     for name, d in designs.items():
         color, marker = AREA_EFFICIENCY_MARKERS[name]
         in_family = any(name in configs for configs, _ in AREA_EFFICIENCY_FAMILIES.values())
+        legend_label = name
+        if name in AREA_EFFICIENCY_CITATIONS:
+            legend_label = f'{name} [{AREA_EFFICIENCY_CITATIONS[name]}]'
         ax.scatter(d['performance_gips'], d['inv_area'], s=marker_size, color=color,
-                   marker=marker, label=None if in_family else name,
+                   marker=marker, label=None if in_family else legend_label,
                    zorder=3 if name == 'Spatz-LA' else 1)
         if in_family or name in AREA_EFFICIENCY_ISSUE_WIDTHS:
             issue_width = (name.rsplit('PW', 1)[1] if in_family
