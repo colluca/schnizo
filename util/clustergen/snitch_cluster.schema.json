@@ -33,6 +33,11 @@
                     "description": "Address offset between successive clusters.",
                     "default": 0
                 },
+                "use_schnova_core": {
+                    "type": "boolean",
+                    "description": "Whether the schnova or schnizo core is used in the cluster.",
+                    "default": false
+                },
                 "tcdm": {
                     "type": "object",
                     "description": "Configuration of the Tightly Coupled Data Memory of this cluster.",
@@ -467,6 +472,8 @@
                                     "size": 8,
                                     "ways": 2,
                                     "cacheline": 128,
+                                    "l0_cacheline_count": 8,
+                                    "fetch_data_width": 32,
                                     "tag_scm": false,
                                     "data_scm": false
                                 },
@@ -482,6 +489,16 @@
                                     "cacheline": {
                                         "type": "number",
                                         "description": "Cacheline/Word size in bits."
+                                    },
+                                    "l0_cacheline_count": {
+                                        "type": "number",
+                                        "description": "Number of cachelines in the L0 instruction cache.",
+                                        "default": 8
+                                    },
+                                    "fetch_data_width": {
+                                        "type": "number",
+                                        "description": "Bit width of the instruction cache fetch port.",
+                                        "default": 32
                                     },
                                     "tag_scm": {
                                         "type": "boolean",
@@ -531,10 +548,28 @@
                                             "description": "Enables the superscalar loop execution feature for Schnizo.",
                                             "default": false
                                         },
+                                        "xfrepi": {
+                                            "type": "boolean",
+                                            "title": "Enable Xfrepi extension",
+                                            "description": "Enables the hardware loop feature for Schnova.",
+                                            "default": false
+                                        },
+                                        "xfrepo": {
+                                            "type": "boolean",
+                                            "title": "Enable Xfrepo Extension",
+                                            "description": "Enables superscalar out of order execution in Schnova.",
+                                            "default": false
+                                        },
                                         "num_alus": {
                                             "type": "number",
                                             "title": "Number of ALUs",
                                             "description": "Number of ALUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
+                                            "default": 1
+                                        },
+                                        "num_alu_buf_slots": {
+                                            "type": "number",
+                                            "title": "Number of ALU dispatch buffer Slots",
+                                            "description": "The number of slots the shared dispatch buffer has for the ALU in schnova",
                                             "default": 1
                                         },
                                         "num_alu_slots": {
@@ -555,6 +590,12 @@
                                             "description": "Number of LSUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
                                             "default": 1
                                         },
+                                        "num_lsu_buf_slots": {
+                                            "type": "number",
+                                            "title": "Number of LSU dispatch buffer Slots",
+                                            "description": "The number of slots the shared dispatch buffer has for the LSU in schnova",
+                                            "default": 1
+                                        },
                                         "num_lsu_slots": {
                                             "type": "number",
                                             "title": "Number of Slots per LSU",
@@ -571,6 +612,12 @@
                                             "type": "number",
                                             "title": "Number of FPUs",
                                             "description": "Number of FPUs per Schnizo core. If Xfrep is disabled all configured FUs are still instantiated but only one is used.",
+                                            "default": 1
+                                        },
+                                        "num_fpu_buf_slots": {
+                                            "type": "number",
+                                            "title": "Number of FPU dispatch buffer Slots",
+                                            "description": "The number of slots the shared dispatch buffer has for the FPU in schnova",
                                             "default": 1
                                         },
                                         "num_fpu_slots": {
@@ -601,6 +648,27 @@
                                             "type": "number",
                                             "title": "Number of Response Ports per FPU",
                                             "description": "Number of ports to read results from each FPU. Only relevant if Xfrep is enabled.",
+                                            "default": 1
+                                        },
+                                        "use_freelist": {
+                                            "type": "boolean",
+                                            "description": "Whether free list based register reclamation is used in the schnova core. If false, a reference counter based implementation is used",
+                                            "default": false
+                                        },
+                                        "num_phy_gpr": {
+                                            "type": "number",
+                                            "description": "The number of general purpose physical registers of schnova.",
+                                            "default": 32
+                                        },
+                                        "num_phy_fpr": {
+                                            "type": "number",
+                                            "description": "The number of floating point physical registers of schnova.",
+                                            "default": 32
+                                        },
+                                        "num_rob_entries": {
+                                            "type": "number",
+                                            "title": "Number of Reorder Buffer entries",
+                                            "description": "The number of entries the reorder buffer contains. Only relevant when Schnova Core is used",
                                             "default": 1
                                         },
                                         "xdma": {

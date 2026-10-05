@@ -60,8 +60,8 @@ def parser():
 
 
 # Build software target with a specific data configuration
-def build(target=None, build_dir=None, data_cfg=None, defines=None, hw_cfg=None, env=None,
-          sync=True, dry_run=False):
+def build(target=None, build_dir=None, data_cfg=None, defines=None, hw_cfg=None, gen_dir=None,
+          env=None, sync=True, dry_run=False, log_file=None):
     # Define variables for build system
     vars = {
         'DEBUG': 'ON',
@@ -73,10 +73,12 @@ def build(target=None, build_dir=None, data_cfg=None, defines=None, hw_cfg=None,
         cflags = common.join_cdefines(defines)
         vars[f'{target}_RISCV_CFLAGS'] = cflags
     if hw_cfg is not None:
-        vars['CFG_OVERRIDE'] = hw_cfg
+        vars['SN_CFG'] = hw_cfg
+    if gen_dir is not None:
+        vars['SN_GEN_DIR'] = gen_dir
 
     env = common.extend_environment(vars, env=env)
-    return common.make(target, env=env, sync=sync, dry_run=dry_run)
+    return common.make(target, env=env, sync=sync, dry_run=dry_run, log_file=log_file)
 
 
 # Create test specification for a specific configuration

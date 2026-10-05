@@ -23,8 +23,6 @@ typedef struct {
 
 /**
  * @brief FP64 batchnorm: y = gamma * x + beta, using SSR for streaming.
-
-
  * @param ifmap pointer to input feature map
  * @param gamma pointer to gamma
  * @param beta pointer to beta

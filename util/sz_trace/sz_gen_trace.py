@@ -34,13 +34,13 @@ import json
 from itertools import tee, islice, chain
 from collections import deque, defaultdict
 
-from perfetto_trace import PerfettoInstructionTrace
+from sz_perfetto_trace import PerfettoInstructionTrace
 import formatter
 from formatter import int_lit, flt_lit, flt_fmt
 from architecture import REG_ABI_NAMES_I, REG_ABI_NAMES_F, get_fu_type, CSR_NAMES
 from architecture import LSU_SIZE_TO_FLOAT
 from architecture import FU_LSU, FU_FPU, FU_CSR, FU_ACC, FU_MULDIV, FU_DMA, FU_NONE
-from processor import ProcessorState
+from sz_processor import ProcessorState
 
 
 # -------------------- Tracer configuration  --------------------

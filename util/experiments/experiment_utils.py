@@ -7,8 +7,8 @@
 """Convenience functions to run software experiments in RTL simulation.
 """
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
+from functools import partial
 import json
 import json5
 import mako
@@ -35,7 +35,7 @@ except ImportError as e:
 
 
 ACTIONS = ['sw', 'hw', 'run', 'traces', 'annotate', 'perf', 'roi', 'visual-trace', 'power', 'all',
-           'elab', 'synth', 'none']
+           'elab', 'synth', 'post-layout-netlist', 'none']
 
 
 class ExperimentManager:
@@ -121,7 +121,11 @@ class ExperimentManager:
         experiment['name'] = self.derive_name(experiment)
         experiment['run_dir'] = self.derive_dir(self.run_dir, experiment)
         experiment['power_dir'] = self.derive_dir(self.power_dir, experiment)
-        experiment['synth_dir'] = self.derive_dir(self.synth_dir, experiment)
+        experiment["synth_dir"] = (
+            self.synth_dir / experiment["hw"]
+            if "hw" in experiment
+            else self.derive_dir(self.synth_dir, experiment)
+        )
         if 'app' in experiment:
             experiment['elf'] = self.derive_elf(experiment)
 
@@ -140,67 +144,71 @@ class ExperimentManager:
     def derive_vsim_builddir(self, experiment):
         return self.dir / 'hw' / experiment['hw'] / 'work-vsim'
 
+    def derive_gen_dir(self, experiment):
+        return self.dir / 'hw' / experiment['hw'] / 'generated'
+
     def run(self):
 
         dry_run = self.args.dry_run
         n_procs = self.args.n_procs
         experiments = self.experiments
-        sync = True if self.args.n_procs == 1 else False
 
         # Build hardware
         if 'hw' in self.actions or 'all' in self.actions:
-            # TODO(colluca): because of CFG_OVERRIDE, the hardware is rebuilt every time.
-            # To save time, we run it only once for every unique hw configuration.
             unique_hw_experiments = {e['hw']: e for e in experiments}.values()
-            for experiment in unique_hw_experiments:
+
+            def build_hw(experiment):
                 bin = self.derive_hw_bin(experiment)
+                log_file = bin.parent / 'build.log'
                 print(colored('Generate hardware', 'black', attrs=['bold']),
-                      colored(bin, 'cyan', attrs=['bold']))
+                      colored(bin, 'cyan', attrs=['bold']),
+                      colored('in', 'black', attrs=['bold']),
+                      colored(bin.parent, 'cyan', attrs=['bold']))
                 vars = {
                     'SN_BIN_DIR': bin.parent,
                     'SN_VSIM_BUILDDIR': self.derive_vsim_builddir(experiment),
                     'SN_WORK_DIR': self.dir / 'hw' / experiment['hw'] / 'work',
-                    # TODO(colluca): this is not supported since the path to `hw/generated` is
-                    # hardcoded in Bender.yml
-                    # 'SN_GEN_DIR': self.dir / 'hw' / experiment['hw'] / 'generated',
-                    'CFG_OVERRIDE': self.derive_hw_cfg(experiment),
+                    'SN_GEN_DIR': self.derive_gen_dir(experiment),
+                    'SN_CFG': self.derive_hw_cfg(experiment),
                     # 'DEBUG': 'ON'
                 }
-                # TODO(colluca): can't build hardware in parallel since we would have a race
-                # condition on cfg/lru.json. This would be fixed by using SN_CFG instead of
-                # CFG_OVERRIDE, but this doesn't work atm (see above).
-                # flags = ['-j']
-                # common.make(bin, vars, flags=flags, dry_run=dry_run)
-                common.make(bin, vars, dry_run=dry_run)
+                # The '-j' flag is for make-internal parallelism, independent of the number of
+                # experiments running in parallel
+                flags = ['-j']
+                p = common.make(bin, vars, flags=flags, dry_run=dry_run, sync=False,
+                                log_file=log_file)
+                return common.labelled(p, f'{experiment["hw"]} hardware build')
+
+            common.run_bounded(
+                [partial(build_hw, e) for e in unique_hw_experiments], n_procs, dry_run)
 
         # Build software
         if 'sw' in self.actions or 'all' in self.actions:
-            processes = []
-            for experiment in experiments:
+            def build_sw(experiment):
                 target = experiment['app']
                 build_dir = experiment['elf'].parent
                 defines = self.derive_cdefines(experiment)
                 data_cfg = self.derive_data_cfg(experiment)
                 hw_cfg = self.derive_hw_cfg(experiment)
+                gen_dir = self.derive_gen_dir(experiment) if 'hw' in experiment else None
                 env = self.derive_env(experiment)
                 if 'sw' in self.callbacks:
                     func = self.callbacks['sw']
                 else:
                     func = build.build
+                log_file = build_dir / 'build.log'
                 print(colored('Build app', 'black', attrs=['bold']),
                       colored(target, 'cyan', attrs=['bold']),
                       colored('in', 'black', attrs=['bold']),
                       colored(build_dir, 'cyan', attrs=['bold']))
-                process = func(
+                p = func(
                     target=target, build_dir=build_dir, defines=defines,
-                    data_cfg=data_cfg, hw_cfg=hw_cfg, env=env, dry_run=dry_run,
-                    # TODO(colluca): can't run in parallel if we're overriding the data_cfg since
-                    # we would have a race condition on cfg/lru.json. This would be fixed by using
-                    # SN_CFG instead of CFG_OVERRIDE, but this doesn't work atm (see above).
-                    sync=True if self.args.n_procs == 1 or 'hw' in experiment else False
+                    data_cfg=data_cfg, hw_cfg=hw_cfg, gen_dir=gen_dir, env=env,
+                    dry_run=dry_run, sync=False, log_file=log_file
                 )
-                processes.append(process)
-            common.wait_processes(processes, dry_run=dry_run)
+                return common.labelled(p, f'{experiment["name"]} build')
+
+            common.run_bounded([partial(build_sw, e) for e in experiments], n_procs, dry_run)
 
         # Run experiments
         if 'run' in self.actions or 'all' in self.actions:
@@ -217,17 +225,20 @@ class ExperimentManager:
 
         # Generate traces
         if 'traces' in self.actions or 'all' in self.actions:
-            for experiment in experiments:
+            def generate_traces(experiment):
                 print(colored('Generate traces', 'black', attrs=['bold']),
                       colored(experiment['run_dir'], 'cyan', attrs=['bold']))
                 vars = {
                     'SIM_DIR': experiment['run_dir'],
                     'DEBUG': 'ON'
                 }
-                if self.args.n_procs:
-                    flags = ['-j', self.args.n_procs]
-                common.make('traces', vars, flags=flags)
+                if experiment.get('core') == 'schnova':
+                    vars['CORE'] = 'schnova'
+                log_file = experiment['run_dir'] / 'traces.log'
+                p = common.make('traces', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, f'{experiment["name"]} traces')
 
+            common.run_bounded([partial(generate_traces, e) for e in experiments], n_procs, dry_run)
         # Annotate traces
         if 'annotate' in self.actions or 'all' in self.actions:
             for experiment in experiments:
@@ -235,25 +246,29 @@ class ExperimentManager:
 
         # Generate joint performance dump
         if 'perf' in self.actions or 'all' in self.actions:
-            processes = []
-            for experiment in experiments:
+            def generate_perf(experiment):
+                log_file = experiment['run_dir'] / 'perf.log'
                 print(
                     colored('Generate performance dump', 'black', attrs=['bold']),
                     colored(experiment['run_dir'], 'cyan', attrs=['bold'])
                 )
                 vars = {'SIM_DIR': experiment['run_dir']}
-                if self.args.n_procs:
-                    flags = ['-j', self.args.n_procs]
-                process = common.make('perf', vars, flags=flags, sync=False)
-                processes.append(process)
+                if experiment.get('core') == 'schnova':
+                    vars['CORE'] = 'schnova'
+                p = common.make('perf', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, f'{experiment["name"]} performance dump')
 
-            common.wait_processes(processes)
+            common.run_bounded([partial(generate_perf, e) for e in experiments], n_procs, dry_run)
 
         # Build visual traces
         # TODO(colluca): write in more compact way
         if 'visual-trace' in self.actions or 'roi' in self.actions or 'all' in self.actions:
 
-            processes = []
+            def launch_roi(vars, log_file, label):
+                p = common.make('roi', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, label)
+
+            roi_launchers = []
             for experiment in experiments:
 
                 # Take ROI spec from experiment or default location
@@ -284,71 +299,88 @@ class ExperimentManager:
 
                     if 'roi' in self.actions:
                         # Build ROI dump
+                        log_file = experiment['run_dir'] / 'roi.log'
                         vars = {
                             'SIM_DIR': experiment['run_dir'],
                             'ROI_SPEC': rendered_spec
                         }
-                        process = common.make('roi', vars, dry_run=dry_run, sync=sync)
-                        processes.append(process)
+                        if experiment.get('core') == 'schnova':
+                            vars['CORE'] = 'schnova'
+                        hw_cfg = self.derive_hw_cfg(experiment)
+                        if hw_cfg is not None:
+                            vars['SN_CFG'] = hw_cfg
+                        roi_launchers.append(partial(
+                            launch_roi, vars, log_file, f'{experiment["name"]} ROI dump'))
 
                     if 'visual-trace' in self.actions:
                         # Build visual trace
                         hw_cfg = self.derive_hw_cfg(experiment)
                         build.build_visual_trace(experiment['run_dir'], rendered_spec,
                                                  hw_cfg=hw_cfg)
-            common.wait_processes(processes)
+            common.run_bounded(roi_launchers, n_procs, dry_run)
+
+        # Run synthesis
+        if any(x in ['elab', 'synth', 'post-layout-netlist', 'all'] for x in self.actions):
+            # post-layout-netlist implicitly runs synth, which implicitly runs elab so if
+            # multiple actions are specified, we run only the most general step
+            if any(x in ['post-layout-netlist', 'all'] for x in self.actions):
+                action = 'post-layout-netlist'
+            elif 'synth' in self.actions:
+                action = 'synth'
+            else:
+                action = 'elab'
+
+            # To save time we should only run synthesis once for every unique
+            # hardware/HDL parameter configuration, not for every experiment
+            def uniqueness_key(e):
+                return (e.get('hw'), tuple(sorted(e.get('hdl_params', {}).items())),
+                        tuple(e.get('keep_hier', [])))
+
+            def run_synth(experiment):
+                log_file = experiment['synth_dir'] / f'{action}.log'
+
+                def default_func(design=None, hdl_params={}):
+                    hdl_params_str = ":".join(
+                        f"{key}={val}"
+                        for key, val in hdl_params.items()
+                    )
+                    vars = {
+                        'DESIGN': design,
+                        'HDL_PARAMS': hdl_params_str,
+                        'RUNDIR': experiment['synth_dir'],
+                        'KEEP_HIER': ":".join(experiment.get('keep_hier', [])),
+                    }
+                    hw_cfg = self.derive_hw_cfg(experiment)
+                    if hw_cfg is not None:
+                        vars['SN_CFG'] = hw_cfg
+                    return common.make(action, vars=vars, dry_run=dry_run, sync=False,
+                                       log_file=log_file)
+                func = self.callbacks.get(action, default_func)
+                print(colored(f'Run {action}', 'black', attrs=['bold']),
+                      colored(experiment['synth_dir'], 'cyan', attrs=['bold']))
+                p = func(experiment['design'], experiment.get('hdl_params', {}))
+                return common.labelled(p, f'{experiment["name"]} {action}')
+
+            unique_experiments = {uniqueness_key(e): e for e in experiments}.values()
+            common.run_bounded(
+                [partial(run_synth, e) for e in unique_experiments], n_procs, dry_run)
 
         # Generate joint performance dump
         if 'power' in self.actions or 'all' in self.actions:
             def run_power(experiment):
+                log_file = experiment['power_dir'] / 'power.log'
                 print(
                     colored('Estimate power', 'black', attrs=['bold']),
                     colored(experiment['power_dir'], 'cyan', attrs=['bold'])
                 )
                 vars = {
                     'SIM_DIR': experiment['run_dir'],
-                    'POWER_REPDIR': experiment['power_dir']
+                    'POWER_REPDIR': experiment['power_dir'],
                 }
-                return common.make('power', vars, dry_run=dry_run)
+                p = common.make('power', vars, dry_run=dry_run, sync=False, log_file=log_file)
+                return common.labelled(p, f'{experiment["name"]} power estimation')
 
-            with ThreadPoolExecutor(max_workers=n_procs) as executor:
-                futures = [executor.submit(run_power, exp) for exp in experiments]
-                for i, future in enumerate(as_completed(futures)):
-                    return_code = future.result().returncode
-                    if return_code != 0:
-                        raise Exception(
-                            colored('Power estimation of ', 'red', attrs=['bold']),
-                            colored(f'{experiments[i]["name"]}', 'black', attrs=['bold']),
-                            colored(' failed.', 'red', attrs=['bold'])
-                        )
-                    else:
-                        print(
-                            colored('Power estimation of ', 'green', attrs=['bold']),
-                            colored(f'{experiments[i]["name"]}', 'black', attrs=['bold']),
-                            colored(' finished.', 'green', attrs=['bold'])
-                        )
-
-        # Run synthesis
-        if any(x in ['elab', 'synth', 'all'] for x in self.actions):
-            if 'synth' in self.actions:
-                action = 'synth'
-            else:
-                action = 'elab'
-            processes = []
-            for experiment in experiments:
-                def func(design=None, hdl_params={}):
-                    hdl_params_str = ':'.join([f'{key}={val}' for key, val in hdl_params.items()])
-                    vars = {
-                        'DESIGN': design,
-                        'HDL_PARAMS': hdl_params_str,
-                        'RUNDIR': experiment['synth_dir'],
-                    }
-                    return common.make(action, vars=vars, sync=sync)
-                if action in self.callbacks:
-                    func = self.callbacks[action]
-                process = func(experiment['design'], experiment.get('hdl_params', {}))
-                processes.append(process)
-            common.wait_processes(processes)
+            common.run_bounded([partial(run_power, e) for e in experiments], n_procs, dry_run)
 
     def export_experiments(self, path='experiments.yaml'):
         # Save power experiments to a YAML file
@@ -407,10 +439,12 @@ class ExperimentManager:
 
         # Create SynthResults objects
         if 'SynthResults' in globals():
-            if self.synth_dir.exists():
+            try:
                 synth_results = df['synth_dir'].apply(lambda synth_dir: SynthResults(synth_dir))
                 synth_results.rename('synth_results', inplace=True)
                 self.synth_results_available = True
+            except FileNotFoundError:
+                pass
 
         # Combine experiment axes and results into a new DataFrame
         columns = [axes]
